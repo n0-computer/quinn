@@ -265,6 +265,12 @@ impl Future for ConnectionDriver {
 pub struct Connection(ConnectionRef);
 
 impl Connection {
+    /// reset-rtt
+    pub fn flub_reset_rtt(&self) {
+        let mut conn = self.0.state.lock("reset-rtt");
+        conn.inner.flub_reset_path();
+    }
+
     /// Initiate a new outgoing unidirectional stream.
     ///
     /// Streams are cheap and instantaneous to open unless blocked by flow control. As a
@@ -904,6 +910,9 @@ impl State {
                 }
                 Poll::Ready(Some(ConnectionEvent::Close { reason, error_code })) => {
                     self.close(error_code, reason, shared);
+                }
+                Poll::Ready(Some(ConnectionEvent::FlubResetRtt)) => {
+                    self.inner.flub_reset_path();
                 }
                 Poll::Ready(None) => {
                     return Err(ConnectionError::TransportError(proto::TransportError {

@@ -338,6 +338,24 @@ impl Connection {
         this
     }
 
+    /// yolo
+    pub fn flub_reset_path(&mut self) {
+        let now = Instant::now();
+        self.path = PathData::new(
+            self.path.remote,
+            self.config.initial_rtt,
+            self.config
+                .congestion_controller_factory
+                .build(now, self.config.get_initial_mtu()),
+            self.config.get_initial_mtu(),
+            self.config.min_mtu,
+            None,
+            self.config.mtu_discovery_config.clone(),
+            now,
+            false,
+        );
+    }
+
     /// Returns the next time at which `handle_timeout` should be called
     ///
     /// The value returned may change after:
