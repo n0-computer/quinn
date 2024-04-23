@@ -338,24 +338,6 @@ impl Connection {
         this
     }
 
-    /// yolo
-    pub fn flub_reset_path(&mut self) {
-        let now = Instant::now();
-        self.path = PathData::new(
-            self.path.remote,
-            self.config.initial_rtt,
-            self.config
-                .congestion_controller_factory
-                .build(now, self.config.get_initial_mtu()),
-            self.config.get_initial_mtu(),
-            self.config.min_mtu,
-            None,
-            self.config.mtu_discovery_config.clone(),
-            now,
-            false,
-        );
-    }
-
     /// Returns the next time at which `handle_timeout` should be called
     ///
     /// The value returned may change after:
@@ -1168,6 +1150,27 @@ impl Connection {
     /// Current state of this connection's congestion controller, for debugging purposes
     pub fn congestion_state(&self) -> &dyn Controller {
         self.path.congestion.as_ref()
+    }
+
+    /// Resets the congestion controller and round-trip estimator for current path.
+    ///
+    /// This force-resets the congestion controller and round-trip estimator for the current
+    /// path.
+    pub fn reset_congestion_state(&mut self) {
+        let now = Instant::now();
+        self.path = PathData::new(
+            self.path.remote,
+            self.config.initial_rtt,
+            self.config
+                .congestion_controller_factory
+                .build(now, self.config.get_initial_mtu()),
+            self.config.get_initial_mtu(),
+            self.config.min_mtu,
+            None,
+            self.config.mtu_discovery_config.clone(),
+            now,
+            false,
+        );
     }
 
     /// Modify the number of remotely initiated streams that may be concurrently open

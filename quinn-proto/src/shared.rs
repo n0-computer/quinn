@@ -20,7 +20,6 @@ pub(crate) enum ConnectionEventInner {
     },
     /// New connection identifiers have been issued for the Connection
     NewIdentifiers(Vec<IssuedCid>, Instant),
-    // FlubResetRtt,
 }
 
 /// Events sent from a Connection to an Endpoint

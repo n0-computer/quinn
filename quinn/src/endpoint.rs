@@ -41,15 +41,6 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    /// yolo
-    pub fn flub_reset_rtt(&self) {
-        if let Ok(state) = self.inner.state.lock() {
-            for sender in state.connections.senders.values() {
-                sender.send(ConnectionEvent::FlubResetRtt).ok();
-            }
-        }
-    }
-
     /// Helper to construct an endpoint for use with outgoing connections only
     ///
     /// Note that `addr` is the *local* address to bind to, which should usually be a wildcard

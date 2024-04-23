@@ -91,7 +91,6 @@ enum ConnectionEvent {
     },
     Proto(proto::ConnectionEvent),
     Ping,
-    FlubResetRtt,
 }
 
 #[derive(Debug)]

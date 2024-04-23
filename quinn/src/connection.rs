@@ -911,9 +911,6 @@ impl State {
                 Poll::Ready(Some(ConnectionEvent::Close { reason, error_code })) => {
                     self.close(error_code, reason, shared);
                 }
-                Poll::Ready(Some(ConnectionEvent::FlubResetRtt)) => {
-                    self.inner.flub_reset_path();
-                }
                 Poll::Ready(None) => {
                     return Err(ConnectionError::TransportError(proto::TransportError {
                         code: proto::TransportErrorCode::INTERNAL_ERROR,
