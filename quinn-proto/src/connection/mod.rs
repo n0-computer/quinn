@@ -1152,7 +1152,7 @@ impl Connection {
         self.path.congestion.as_ref()
     }
 
-    /// Resets the congestion controller and round-trip estimator for current path.
+    /// Resets the congestion controller and round-trip estimator for the current path.
     ///
     /// This force-resets the congestion controller and round-trip estimator for the current
     /// path.

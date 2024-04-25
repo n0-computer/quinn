@@ -4,7 +4,7 @@ use std::{
     future::Future,
     net::{IpAddr, SocketAddr},
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, Weak},
     task::{Context, Poll, Waker},
     time::{Duration, Instant},
 };
@@ -265,10 +265,9 @@ impl Future for ConnectionDriver {
 pub struct Connection(ConnectionRef);
 
 impl Connection {
-    /// reset-rtt
-    pub fn flub_reset_rtt(&self) {
-        let mut conn = self.0.state.lock("reset-rtt");
-        conn.inner.flub_reset_path();
+    /// Returns a weak reference to the inner connection struct.
+    pub fn weak_ref(&self) -> Weak<ConnectionInner> {
+        Arc::downgrade(&self.0 .0)
     }
 
     /// Initiate a new outgoing unidirectional stream.
@@ -816,10 +815,22 @@ impl std::ops::Deref for ConnectionRef {
     }
 }
 
+/// Inner connection, use with care.
 #[derive(Debug)]
-pub(crate) struct ConnectionInner {
+pub struct ConnectionInner {
     pub(crate) state: Mutex<State>,
     pub(crate) shared: Shared,
+}
+
+impl ConnectionInner {
+    /// Resets the congestion controller and round-trip estimator for the current path.
+    ///
+    /// This force-resets the congestion controller and round-trip estimator for the current
+    /// path.
+    pub fn reset_congestion_state(&self) {
+        let mut inner_state = self.state.lock("reset-congestion-state");
+        inner_state.inner.reset_congestion_state();
+    }
 }
 
 #[derive(Debug, Default)]
