@@ -1158,19 +1158,12 @@ impl Connection {
     /// path.
     pub fn reset_congestion_state(&mut self) {
         let now = Instant::now();
-        self.path = PathData::new(
-            self.path.remote,
-            self.config.initial_rtt,
-            self.config
-                .congestion_controller_factory
-                .build(now, self.config.get_initial_mtu()),
-            self.config.get_initial_mtu(),
-            self.config.min_mtu,
-            None,
-            self.config.mtu_discovery_config.clone(),
-            now,
-            false,
-        );
+        self.path.rtt = RttEstimator::new(self.config.initial_rtt);
+        self.path.congestion = self
+            .config
+            .congestion_controller_factory
+            .build(now, self.config.get_initial_mtu());
+        // TODO: probably needs MTU discovery reset as well.
     }
 
     /// Modify the number of remotely initiated streams that may be concurrently open
