@@ -129,7 +129,7 @@ async fn run(options: Opt) -> Result<()> {
         server_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
     }
 
-    let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
+    let mut server_config = iroh_quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
     transport_config.max_concurrent_uni_streams(0_u8.into());
     if options.stateless_retry {
@@ -141,7 +141,7 @@ async fn run(options: Opt) -> Result<()> {
         bail!("root path does not exist");
     }
 
-    let endpoint = quinn::Endpoint::server(server_config, options.listen)?;
+    let endpoint = iroh_quinn::Endpoint::server(server_config, options.listen)?;
     eprintln!("listening on {}", endpoint.local_addr()?);
 
     while let Some(conn) = endpoint.accept().await {
@@ -157,7 +157,7 @@ async fn run(options: Opt) -> Result<()> {
     Ok(())
 }
 
-async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<()> {
+async fn handle_connection(root: Arc<Path>, conn: iroh_quinn::Connecting) -> Result<()> {
     let connection = conn.await?;
     let span = info_span!(
         "connection",
@@ -165,7 +165,7 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<(
         protocol = %connection
             .handshake_data()
             .unwrap()
-            .downcast::<quinn::crypto::rustls::HandshakeData>().unwrap()
+            .downcast::<iroh_quinn::crypto::rustls::HandshakeData>().unwrap()
             .protocol
             .map_or_else(|| "<none>".into(), |x| String::from_utf8_lossy(&x).into_owned())
     );
@@ -176,7 +176,7 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<(
         loop {
             let stream = connection.accept_bi().await;
             let stream = match stream {
-                Err(quinn::ConnectionError::ApplicationClosed { .. }) => {
+                Err(iroh_quinn::ConnectionError::ApplicationClosed { .. }) => {
                     info!("connection closed");
                     return Ok(());
                 }
@@ -203,7 +203,7 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Connecting) -> Result<(
 
 async fn handle_request(
     root: Arc<Path>,
-    (mut send, mut recv): (quinn::SendStream, quinn::RecvStream),
+    (mut send, mut recv): (iroh_quinn::SendStream, iroh_quinn::RecvStream),
 ) -> Result<()> {
     let req = recv
         .read_to_end(64 * 1024)

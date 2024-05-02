@@ -1,6 +1,6 @@
 [workspace]
-members = ["quinn", "quinn-proto", "quinn-udp", "bench", "perf", "fuzz"]
-default-members = ["quinn", "quinn-proto", "quinn-udp", "bench", "perf"]
+members = ["iroh-quinn", "iroh-quinn-proto", "iroh-quinn-udp", "bench", "perf", "fuzz"]
+default-members = ["iroh-quinn", "iroh-quinn-proto", "iroh-quinn-udp", "bench", "perf"]
 resolver = "2"
 
 [profile.bench]

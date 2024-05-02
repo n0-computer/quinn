@@ -6,7 +6,7 @@ use std::{
 };
 
 use crc::Crc;
-use quinn::{ConnectionError, ReadError, TransportConfig, WriteError};
+use iroh_quinn::{ConnectionError, ReadError, TransportConfig, WriteError};
 use rand::{self, RngCore};
 use tokio::runtime::Builder;
 
@@ -29,7 +29,7 @@ fn connect_n_nodes_to_1_and_send_1mb_data() {
     let shared = Arc::new(Mutex::new(Shared { errors: vec![] }));
 
     let (cfg, listener_cert) = configure_listener();
-    let endpoint = quinn::Endpoint::server(cfg, "127.0.0.1:0".parse().unwrap()).unwrap();
+    let endpoint = iroh_quinn::Endpoint::server(cfg, "127.0.0.1:0".parse().unwrap()).unwrap();
     let listener_addr = endpoint.local_addr().unwrap();
 
     let expected_messages = 50;
@@ -73,7 +73,7 @@ fn connect_n_nodes_to_1_and_send_1mb_data() {
         };
         runtime.spawn(async move {
             if let Err(e) = task.await {
-                use quinn::ConnectionError::*;
+                use iroh_quinn::ConnectionError::*;
                 match e {
                     WriteError::ConnectionLost(ApplicationClosed { .. })
                     | WriteError::ConnectionLost(Reset) => {}
@@ -91,7 +91,9 @@ fn connect_n_nodes_to_1_and_send_1mb_data() {
     }
 }
 
-async fn read_from_peer(mut stream: quinn::RecvStream) -> Result<(), quinn::ConnectionError> {
+async fn read_from_peer(
+    mut stream: iroh_quinn::RecvStream,
+) -> Result<(), iroh_quinn::ConnectionError> {
     let crc = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
     match stream.read_to_end(1024 * 1024 * 5).await {
         Ok(data) => {
@@ -99,7 +101,7 @@ async fn read_from_peer(mut stream: quinn::RecvStream) -> Result<(), quinn::Conn
             Ok(())
         }
         Err(e) => {
-            use quinn::ReadToEndError::*;
+            use iroh_quinn::ReadToEndError::*;
             use ReadError::*;
             match e {
                 TooLong
@@ -113,7 +115,7 @@ async fn read_from_peer(mut stream: quinn::RecvStream) -> Result<(), quinn::Conn
     }
 }
 
-async fn write_to_peer(conn: quinn::Connection, data: Vec<u8>) -> Result<(), WriteError> {
+async fn write_to_peer(conn: iroh_quinn::Connection, data: Vec<u8>) -> Result<(), WriteError> {
     let mut s = conn.open_uni().await.map_err(WriteError::ConnectionLost)?;
     s.write_all(&data).await?;
     // Suppress finish errors, since the peer may close before ACKing
@@ -125,23 +127,23 @@ async fn write_to_peer(conn: quinn::Connection, data: Vec<u8>) -> Result<(), Wri
 }
 
 /// Builds client configuration. Trusts given node certificate.
-fn configure_connector(node_cert: &rustls::Certificate) -> quinn::ClientConfig {
+fn configure_connector(node_cert: &rustls::Certificate) -> iroh_quinn::ClientConfig {
     let mut roots = rustls::RootCertStore::empty();
     roots.add(node_cert).unwrap();
 
     let mut transport_config = TransportConfig::default();
     transport_config.max_idle_timeout(Some(Duration::from_secs(20).try_into().unwrap()));
 
-    let mut peer_cfg = quinn::ClientConfig::with_root_certificates(roots);
+    let mut peer_cfg = iroh_quinn::ClientConfig::with_root_certificates(roots);
     peer_cfg.transport_config(Arc::new(transport_config));
     peer_cfg
 }
 
 /// Builds listener configuration along with its certificate.
-fn configure_listener() -> (quinn::ServerConfig, rustls::Certificate) {
+fn configure_listener() -> (iroh_quinn::ServerConfig, rustls::Certificate) {
     let (our_cert, our_priv_key) = gen_cert();
     let mut our_cfg =
-        quinn::ServerConfig::with_single_cert(vec![our_cert.clone()], our_priv_key).unwrap();
+        iroh_quinn::ServerConfig::with_single_cert(vec![our_cert.clone()], our_priv_key).unwrap();
 
     let transport_config = Arc::get_mut(&mut our_cfg.transport).unwrap();
     transport_config.max_idle_timeout(Some(Duration::from_secs(20).try_into().unwrap()));

@@ -9,7 +9,7 @@ use tokio::runtime::{Builder, Runtime};
 use tracing::error_span;
 use tracing_futures::Instrument as _;
 
-use quinn::{Endpoint, TokioRuntime};
+use iroh_quinn::{Endpoint, TokioRuntime};
 
 benchmark_group!(
     benches,
@@ -69,8 +69,8 @@ fn send_data(bench: &mut Bencher, data: &'static [u8], concurrent_streams: usize
 }
 
 struct Context {
-    server_config: quinn::ServerConfig,
-    client_config: quinn::ClientConfig,
+    server_config: iroh_quinn::ServerConfig,
+    client_config: iroh_quinn::ClientConfig,
 }
 
 impl Context {
@@ -80,14 +80,14 @@ impl Context {
         let cert = rustls::Certificate(cert.serialize_der().unwrap());
 
         let mut server_config =
-            quinn::ServerConfig::with_single_cert(vec![cert.clone()], key).unwrap();
+            iroh_quinn::ServerConfig::with_single_cert(vec![cert.clone()], key).unwrap();
         let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
         transport_config.max_concurrent_uni_streams(1024_u16.into());
 
         let mut roots = rustls::RootCertStore::empty();
         roots.add(&cert).unwrap();
 
-        let client_config = quinn::ClientConfig::with_root_certificates(roots);
+        let client_config = iroh_quinn::ClientConfig::with_root_certificates(roots);
         Self {
             server_config,
             client_config,
@@ -140,7 +140,7 @@ impl Context {
     pub fn make_client(
         &self,
         server_addr: SocketAddr,
-    ) -> (quinn::Endpoint, quinn::Connection, Runtime) {
+    ) -> (iroh_quinn::Endpoint, iroh_quinn::Connection, Runtime) {
         let runtime = rt();
         let endpoint = {
             let _guard = runtime.enter();
