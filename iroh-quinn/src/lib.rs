@@ -68,7 +68,7 @@ pub use proto::{
 pub use udp;
 
 pub use crate::connection::{
-    AcceptBi, AcceptUni, Connecting, Connection, ConnectionInner, OpenBi, OpenUni, ReadDatagram,
+    AcceptBi, AcceptUni, Connecting, Connection, WeakConnectionHandle, OpenBi, OpenUni, ReadDatagram,
     SendDatagramError, UnknownStream, ZeroRttAccepted,
 };
 pub use crate::endpoint::{Accept, Endpoint};

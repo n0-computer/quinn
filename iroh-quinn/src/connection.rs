@@ -266,8 +266,8 @@ pub struct Connection(ConnectionRef);
 
 impl Connection {
     /// Returns a weak reference to the inner connection struct.
-    pub fn weak_ref(&self) -> Weak<ConnectionInner> {
-        Arc::downgrade(&self.0 .0)
+    pub fn weak_handle(&self) -> WeakConnectionHandle {
+        WeakConnectionHandle(Arc::downgrade(&self.0 .0))
     }
 
     /// Initiate a new outgoing unidirectional stream.
@@ -815,21 +815,36 @@ impl std::ops::Deref for ConnectionRef {
     }
 }
 
-/// Inner connection, use with care.
 #[derive(Debug)]
-pub struct ConnectionInner {
+pub(crate) struct ConnectionInner {
     pub(crate) state: Mutex<State>,
     pub(crate) shared: Shared,
 }
 
-impl ConnectionInner {
+/// A handle to some connection internals, use with care.
+///
+/// This contains a weak reference to the connection so will not itself keep the connection
+/// alive.
+pub struct WeakConnectionHandle(Weak<ConnectionInner>);
+
+impl WeakConnectionHandle {
     /// Resets the congestion controller and round-trip estimator for the current path.
     ///
     /// This force-resets the congestion controller and round-trip estimator for the current
     /// path.
-    pub fn reset_congestion_state(&self) {
-        let mut inner_state = self.state.lock("reset-congestion-state");
-        inner_state.inner.reset_congestion_state();
+    ///
+    /// # Returns
+    ///
+    /// `true` if the connection still existed and the congestion controller state was
+    /// reset.  `false` otherwise.
+    pub fn reset_congestion_state(&self) -> bool {
+        if let Some(inner) = self.0.upgrade() {
+            let mut inner_state = inner.state.lock("reset-congestion-state");
+            inner_state.inner.reset_congestion_state();
+            true
+        } else {
+            false
+        }
     }
 }
 
