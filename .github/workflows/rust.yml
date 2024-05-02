@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@1.63.0
       - uses: Swatinem/rust-cache@v1
-      - run: cargo check --lib --all-features -p quinn-udp -p quinn-proto -p quinn
+      - run: cargo check --lib --all-features -p iroh-quinn-udp -p iroh-quinn-proto -p iroh-quinn
 
   lint:
     runs-on: ubuntu-latest
