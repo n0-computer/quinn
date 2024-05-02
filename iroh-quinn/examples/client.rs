@@ -95,8 +95,8 @@ async fn run(options: Opt) -> Result<()> {
         client_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
     }
 
-    let client_config = quinn::ClientConfig::new(Arc::new(client_crypto));
-    let mut endpoint = quinn::Endpoint::client("[::]:0".parse().unwrap())?;
+    let client_config = iroh_quinn::ClientConfig::new(Arc::new(client_crypto));
+    let mut endpoint = iroh_quinn::Endpoint::client("[::]:0".parse().unwrap())?;
     endpoint.set_default_client_config(client_config);
 
     let request = format!("GET {}\r\n", url.path());

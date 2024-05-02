@@ -38,7 +38,7 @@ use crate::{
 /// end of the stream:
 ///
 /// ```no_run
-/// # use quinn::{SendStream, RecvStream};
+/// # use iroh_quinn::{SendStream, RecvStream};
 /// # async fn func(
 /// #     mut send_stream: SendStream,
 /// #     mut recv_stream: RecvStream,
