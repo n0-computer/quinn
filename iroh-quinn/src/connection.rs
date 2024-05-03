@@ -825,6 +825,7 @@ pub(crate) struct ConnectionInner {
 ///
 /// This contains a weak reference to the connection so will not itself keep the connection
 /// alive.
+#[derive(Debug)]
 pub struct WeakConnectionHandle(Weak<ConnectionInner>);
 
 impl WeakConnectionHandle {
