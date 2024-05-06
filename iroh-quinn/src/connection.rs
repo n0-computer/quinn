@@ -829,6 +829,11 @@ pub(crate) struct ConnectionInner {
 pub struct WeakConnectionHandle(Weak<ConnectionInner>);
 
 impl WeakConnectionHandle {
+    /// Returns `true` if the [`Connection`] associated with this handle is still alive.
+    pub fn is_alive(&self) -> bool {
+        self.0.upgrade().is_some()
+    }
+
     /// Resets the congestion controller and round-trip estimator for the current path.
     ///
     /// This force-resets the congestion controller and round-trip estimator for the current
