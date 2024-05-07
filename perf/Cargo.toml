@@ -14,8 +14,8 @@ json-output = ["serde", "serde_json"]
 [dependencies]
 anyhow = "1.0.22"
 hdrhistogram = { version = "7.2", default-features = false }
-quinn = { package = "iroh-quinn", path = "../iroh-quinn" }
-quinn-proto = { package = "iroh-quinn-proto", path = "../iroh-quinn-proto" }
+quinn = { package = "iroh-quinn", path = "../quinn" }
+quinn-proto = { package = "iroh-quinn-proto", path = "../quinn-proto" }
 rcgen = "0.10.0"
 rustls = { version = "0.21.0", default-features = false, features = ["dangerous_configuration"] }
 rustls-pemfile = "1.0.0"

@@ -14,7 +14,7 @@ libfuzzer-sys = "0.4.2"
 
 [dependencies.proto]
 features = ["arbitrary"]
-path = "../iroh-quinn-proto"
+path = "../quinn-proto"
 package = "iroh-quinn-proto"
 
 [[bin]]
