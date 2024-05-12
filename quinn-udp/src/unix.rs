@@ -1,4 +1,4 @@
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")))]
 use std::ptr;
 use std::{
     io,
@@ -135,7 +135,7 @@ fn init(io: SockRef<'_>) -> io::Result<()> {
             set_socket_option(&*io, libc::IPPROTO_IP, libc::IP_DONTFRAG, OPTION_ON)?;
         }
     }
-    #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+    #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "openbsd"))]
     // IP_RECVDSTADDR == IP_SENDSRCADDR on FreeBSD
     // macOS uses only IP_RECVDSTADDR, no IP_SENDSRCADDR on macOS
     // macOS also supports IP_PKTINFO
@@ -579,7 +579,7 @@ fn prepare_msg(
                     };
                     encoder.push(libc::IPPROTO_IP, libc::IP_PKTINFO, pktinfo);
                 }
-                #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+                #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "openbsd"))]
                 {
                     if encode_src_ip {
                         let addr = libc::in_addr {
@@ -660,7 +660,7 @@ fn decode_recv(
                     pktinfo.ipi_addr.s_addr.to_ne_bytes(),
                 )));
             }
-            #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+            #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "openbsd"))]
             (libc::IPPROTO_IP, libc::IP_RECVDSTADDR) => {
                 let in_addr = unsafe { cmsg::decode::<libc::in_addr>(cmsg) };
                 dst_ip = Some(IpAddr::V4(Ipv4Addr::from(in_addr.s_addr.to_ne_bytes())));
