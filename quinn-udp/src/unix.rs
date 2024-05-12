@@ -93,11 +93,15 @@ fn init(io: SockRef<'_>) -> io::Result<()> {
     let addr = io.local_addr()?;
     let is_ipv4 = addr.family() == libc::AF_INET as libc::sa_family_t;
 
-    // mac and ios do not support IP_RECVTOS on dual-stack sockets :(
-    // older macos versions also don't have the flag and will error out if we don't ignore it
-    if is_ipv4 || !io.only_v6()? {
-        if let Err(err) = set_socket_option(&*io, libc::IPPROTO_IP, libc::IP_RECVTOS, OPTION_ON) {
-            tracing::debug!("Ignoring error setting IP_RECVTOS on socket: {err:?}",);
+    #[cfg(not(target_os = "openbsd"))]
+    {
+        // mac and ios do not support IP_RECVTOS on dual-stack sockets :(
+        // older macos versions also don't have the flag and will error out if we don't ignore it
+        if is_ipv4 || !io.only_v6()? {
+            if let Err(err) = set_socket_option(&*io, libc::IPPROTO_IP, libc::IP_RECVTOS, OPTION_ON)
+            {
+                tracing::debug!("Ignoring error setting IP_RECVTOS on socket: {err:?}",);
+            }
         }
     }
 
@@ -145,16 +149,20 @@ fn init(io: SockRef<'_>) -> io::Result<()> {
     if !is_ipv4 {
         set_socket_option(&*io, libc::IPPROTO_IPV6, libc::IPV6_RECVPKTINFO, OPTION_ON)?;
         set_socket_option(&*io, libc::IPPROTO_IPV6, libc::IPV6_RECVTCLASS, OPTION_ON)?;
-        // Linux's IP_PMTUDISC_PROBE allows us to operate under interface MTU rather than the
-        // kernel's path MTU guess, but actually disabling fragmentation requires this too. See
-        // __ip6_append_data in ip6_output.c.
-        set_socket_option(&*io, libc::IPPROTO_IPV6, libc::IPV6_DONTFRAG, OPTION_ON)?;
+
+        #[cfg(not(target_os = "openbsd"))]
+        {
+            // Linux's IP_PMTUDISC_PROBE allows us to operate under interface MTU rather than the
+            // kernel's path MTU guess, but actually disabling fragmentation requires this too. See
+            // __ip6_append_data in ip6_output.c.
+            set_socket_option(&*io, libc::IPPROTO_IPV6, libc::IPV6_DONTFRAG, OPTION_ON)?;
+        }
     }
 
     Ok(())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")))]
 fn send(
     #[allow(unused_variables)] // only used on Linux
     state: &UdpState,
@@ -259,7 +267,7 @@ fn send(
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "openbsd"))]
 fn send(
     state: &UdpState,
     io: SockRef<'_>,
@@ -315,7 +323,7 @@ fn send(
 ///
 /// It uses [`libc::syscall`] instead of [`libc::sendmmsg`]
 /// to avoid linking error on systems where libc does not contain `sendmmsg`.
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")))]
 unsafe fn sendmmsg_with_fallback(
     sockfd: libc::c_int,
     msgvec: *mut libc::mmsghdr,
@@ -376,7 +384,7 @@ unsafe fn sendmmsg_fallback(
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")))]
 fn recv(io: SockRef<'_>, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> io::Result<usize> {
     let mut names = [MaybeUninit::<libc::sockaddr_storage>::uninit(); BATCH_SIZE];
     let mut ctrls = [cmsg::Aligned(MaybeUninit::<[u8; CMSG_LEN]>::uninit()); BATCH_SIZE];
@@ -413,7 +421,7 @@ fn recv(io: SockRef<'_>, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> 
     Ok(msg_count as usize)
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "openbsd"))]
 fn recv(io: SockRef<'_>, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> io::Result<usize> {
     let mut name = MaybeUninit::<libc::sockaddr_storage>::uninit();
     let mut ctrl = cmsg::Aligned(MaybeUninit::<[u8; CMSG_LEN]>::uninit());
@@ -483,7 +491,7 @@ unsafe fn recvmmsg_with_fallback(
 /// Fallback implementation of `recvmmsg` using `recvmsg`
 /// for systems which do not support `recvmmsg`
 /// such as Linux <2.6.33.
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")))]
 unsafe fn recvmmsg_fallback(
     sockfd: libc::c_int,
     msgvec: *mut libc::mmsghdr,
@@ -626,7 +634,11 @@ fn decode_recv(
     for cmsg in cmsg_iter {
         match (cmsg.cmsg_level, cmsg.cmsg_type) {
             // FreeBSD uses IP_RECVTOS here, and we can be liberal because cmsgs are opt-in.
-            (libc::IPPROTO_IP, libc::IP_TOS) | (libc::IPPROTO_IP, libc::IP_RECVTOS) => unsafe {
+            (libc::IPPROTO_IP, libc::IP_TOS) => unsafe {
+                ecn_bits = cmsg::decode::<u8>(cmsg);
+            },
+            #[cfg(not(target_os = "openbsd"))]
+            (libc::IPPROTO_IP, libc::IP_RECVTOS) => unsafe {
                 ecn_bits = cmsg::decode::<u8>(cmsg);
             },
             (libc::IPPROTO_IPV6, libc::IPV6_TCLASS) => unsafe {
