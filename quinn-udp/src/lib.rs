@@ -96,7 +96,10 @@ impl UdpState {
 
     /// Sets the flag indicating we got EINVAL error from `sendmsg` or `sendmmsg` syscall.
     #[inline]
-    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "openbsd"))))]
+    #[cfg(all(
+        unix,
+        not(any(target_os = "macos", target_os = "ios", target_os = "openbsd"))
+    ))]
     fn set_sendmsg_einval(&self) {
         self.sendmsg_einval.store(true, Ordering::Relaxed)
     }
