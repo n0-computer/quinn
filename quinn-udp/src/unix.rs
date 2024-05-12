@@ -362,7 +362,7 @@ unsafe fn sendmmsg_with_fallback(
 /// Fallback implementation of `sendmmsg` using `sendmsg`
 /// for systems which do not support `sendmmsg`
 /// such as Linux <3.0.
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")))]
 unsafe fn sendmmsg_fallback(
     sockfd: libc::c_int,
     msgvec: *mut libc::mmsghdr,
@@ -450,7 +450,7 @@ fn recv(io: SockRef<'_>, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> 
 ///
 /// It uses [`libc::syscall`] instead of [`libc::recvmmsg`]
 /// to avoid linking error on systems where libc does not contain `recvmmsg`.
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")))]
 unsafe fn recvmmsg_with_fallback(
     sockfd: libc::c_int,
     msgvec: *mut libc::mmsghdr,
