@@ -1,9 +1,7 @@
-use std::time::Duration;
-
 use rand::RngCore;
 
 use crate::shared::ConnectionId;
-use crate::MAX_CID_SIZE;
+use crate::{Duration, MAX_CID_SIZE};
 
 /// Generates connection IDs for incoming connections
 pub trait ConnectionIdGenerator: Send {

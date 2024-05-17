@@ -1,7 +1,6 @@
 use std::{
     fmt, io,
     net::{IpAddr, SocketAddr},
-    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use bytes::BufMut;
@@ -10,7 +9,7 @@ use crate::{
     coding::{BufExt, BufMutExt},
     crypto::{CryptoError, HandshakeTokenKey, HmacKey},
     shared::ConnectionId,
-    RESET_TOKEN_SIZE,
+    Duration, SystemTime, RESET_TOKEN_SIZE, UNIX_EPOCH,
 };
 
 pub(crate) struct RetryToken<'a> {

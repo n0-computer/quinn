@@ -41,8 +41,6 @@
 #![warn(unreachable_pub)]
 #![warn(clippy::use_self)]
 
-use std::time::Duration;
-
 macro_rules! ready {
     ($e:expr $(,)?) => {
         match $e {
@@ -62,7 +60,7 @@ mod work_limiter;
 
 pub use proto::{
     congestion, crypto, ApplicationClose, Chunk, ClientConfig, ConfigError, ConnectError,
-    ConnectionClose, ConnectionError, EndpointConfig, IdleTimeout, MtuDiscoveryConfig,
+    ConnectionClose, ConnectionError, Duration, EndpointConfig, IdleTimeout, MtuDiscoveryConfig,
     ServerConfig, StreamId, Transmit, TransportConfig, VarInt,
 };
 pub use udp;
@@ -77,6 +75,8 @@ pub use crate::recv_stream::{ReadError, ReadExactError, ReadToEndError, RecvStre
 pub use crate::runtime::AsyncStdRuntime;
 #[cfg(feature = "runtime-tokio")]
 pub use crate::runtime::TokioRuntime;
+#[cfg(feature = "runtime-wasm")]
+pub use crate::runtime::WasmRuntime;
 pub use crate::runtime::{default_runtime, AsyncTimer, AsyncUdpSocket, Runtime};
 pub use crate::send_stream::{SendStream, StoppedError, WriteError};
 

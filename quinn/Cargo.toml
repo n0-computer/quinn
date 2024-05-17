@@ -9,7 +9,7 @@ keywords = ["quic"]
 categories = [ "network-programming", "asynchronous" ]
 workspace = ".."
 edition = "2021"
-rust-version = "1.63"
+rust-version = "1.73"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -20,11 +20,14 @@ default = ["native-certs", "tls-rustls", "runtime-tokio", "log"]
 lock_tracking = []
 # Provides `ClientConfig::with_native_roots()` convenience method
 native-certs = ["proto/native-certs"]
-tls-rustls = ["rustls", "proto/tls-rustls", "ring"]
+tls-rustls = ["rustls", "proto/tls-rustls", "ring", "rustls-pki-types"]
 # Enables `Endpoint::client` and `Endpoint::server` conveniences
 ring = ["proto/ring"]
-runtime-tokio = ["tokio/time", "tokio/rt", "tokio/net"]
-runtime-async-std = ["async-io", "async-std"]
+runtime-tokio = ["tokio/time", "tokio/rt", "tokio/net", "udp/network"]
+runtime-async-std = ["async-io", "async-std", "udp/network"]
+runtime-wasm = ["dep:wasmtimer", "dep:wasm-bindgen-futures"]
+wasm = ["getrandom/js", "proto/wasm", "ring?/wasm32_unknown_unknown_js", "rustls-pki-types?/web"]
+
 # Write logs via the `log` crate when no `tracing` subscriber exists
 log = ["tracing/log", "proto/log", "udp/log"]
 
@@ -46,6 +49,11 @@ thiserror = "1.0.21"
 tracing = "0.1.10"
 tokio = { version = "1.28.1", features = ["sync"] }
 udp = { package = "iroh-quinn-udp", path = "../quinn-udp", version = "0.4", default-features = false }
+getrandom = { version = "0.2", default-features = false }
+ring = { version = "0.17", optional = true }
+rustls-pki-types = { version = "1.7", optional = true }
+wasmtimer = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0.22"

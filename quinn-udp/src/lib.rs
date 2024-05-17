@@ -2,18 +2,20 @@
 #![warn(unreachable_pub)]
 #![warn(clippy::use_self)]
 
+use std::{
+    net::{IpAddr, Ipv6Addr, SocketAddr},
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
 #[cfg(unix)]
 use std::os::unix::io::AsFd;
 #[cfg(windows)]
 use std::os::windows::io::AsSocket;
-#[cfg(not(windows))]
+#[cfg(all(not(windows), feature = "network"))]
 use std::sync::atomic::AtomicBool;
+#[cfg(feature = "network")]
 use std::{
-    net::{IpAddr, Ipv6Addr, SocketAddr},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Mutex,
-    },
+    sync::Mutex,
     time::{Duration, Instant},
 };
 
@@ -59,7 +61,7 @@ pub struct UdpState {
     /// If enabled, we assume that old kernel is used and switch to fallback mode.
     /// In particular, we do not use IP_TOS cmsg_type in this case,
     /// which is not supported on Linux <3.13 and results in not sending the UDP packet at all.
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), feature = "network"))]
     sendmsg_einval: AtomicBool,
 }
 
@@ -89,7 +91,7 @@ impl UdpState {
 
     /// Returns true if we previously got an EINVAL error from `sendmsg` or `sendmmsg` syscall.
     #[inline]
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), feature = "network"))]
     fn sendmsg_einval(&self) -> bool {
         self.sendmsg_einval.load(Ordering::Relaxed)
     }
@@ -98,7 +100,8 @@ impl UdpState {
     #[inline]
     #[cfg(all(
         unix,
-        not(any(target_os = "macos", target_os = "ios", target_os = "openbsd"))
+        not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")),
+        feature = "network"
     ))]
     fn set_sendmsg_einval(&self) {
         self.sendmsg_einval.store(true, Ordering::Relaxed)
@@ -151,12 +154,14 @@ pub struct Transmit {
 }
 
 /// Log at most 1 IO error per minute
+#[cfg(feature = "network")]
 const IO_ERROR_LOG_INTERVAL: Duration = std::time::Duration::from_secs(60);
 
 /// Logs a warning message when sendmsg fails
 ///
 /// Logging will only be performed if at least [`IO_ERROR_LOG_INTERVAL`]
 /// has elapsed since the last error was logged.
+#[cfg(feature = "network")]
 fn log_sendmsg_error(
     last_send_error: &Mutex<Instant>,
     err: impl core::fmt::Debug,
@@ -177,9 +182,10 @@ fn log_sendmsg_error(
 /// On Unix, constructible via `From<T: AsRawFd>`. On Windows, constructible via `From<T:
 /// AsRawSocket>`.
 // Wrapper around socket2 to avoid making it a public dependency and incurring stability risk
+#[cfg(feature = "network")]
 pub struct UdpSockRef<'a>(socket2::SockRef<'a>);
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "network"))]
 impl<'s, S> From<&'s S> for UdpSockRef<'s>
 where
     S: AsFd,
@@ -189,7 +195,7 @@ where
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "network"))]
 impl<'s, S> From<&'s S> for UdpSockRef<'s>
 where
     S: AsSocket,

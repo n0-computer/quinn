@@ -9,14 +9,16 @@ use std::{
     str,
     sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
-    time::Instant,
 };
 
-use crate::runtime::{default_runtime, AsyncUdpSocket, Runtime};
+#[cfg(not(feature = "wasm"))]
+use crate::runtime::default_runtime;
+use crate::runtime::{AsyncUdpSocket, Runtime};
 use bytes::{Bytes, BytesMut};
 use pin_project_lite::pin_project;
 use proto::{
-    self as proto, ClientConfig, ConnectError, ConnectionHandle, DatagramEvent, ServerConfig,
+    self as proto, ClientConfig, ConnectError, ConnectionHandle, DatagramEvent, Instant,
+    ServerConfig,
 };
 use rustc_hash::FxHashMap;
 use tokio::sync::{futures::Notified, mpsc, Notify};
@@ -51,7 +53,7 @@ impl Endpoint {
     /// IPv6 address on Windows will not by default be able to communicate with IPv4
     /// addresses. Portable applications should bind an address that matches the family they wish to
     /// communicate within.
-    #[cfg(feature = "ring")]
+    #[cfg(all(feature = "ring", not(feature = "wasm")))]
     pub fn client(addr: SocketAddr) -> io::Result<Self> {
         let socket = std::net::UdpSocket::bind(addr)?;
         let runtime = default_runtime()
@@ -70,7 +72,7 @@ impl Endpoint {
     /// IPv6 address on Windows will not by default be able to communicate with IPv4
     /// addresses. Portable applications should bind an address that matches the family they wish to
     /// communicate within.
-    #[cfg(feature = "ring")]
+    #[cfg(all(feature = "ring", not(feature = "wasm")))]
     pub fn server(config: ServerConfig, addr: SocketAddr) -> io::Result<Self> {
         let socket = std::net::UdpSocket::bind(addr)?;
         let runtime = default_runtime()
@@ -84,6 +86,7 @@ impl Endpoint {
     }
 
     /// Construct an endpoint with arbitrary configuration and socket
+    #[cfg(not(feature = "wasm"))]
     pub fn new(
         config: EndpointConfig,
         server_config: Option<ServerConfig>,
@@ -203,6 +206,7 @@ impl Endpoint {
     /// connections and connections to servers unreachable from the new address will be lost.
     ///
     /// On error, the old UDP socket is retained.
+    #[cfg(not(feature = "wasm"))]
     pub fn rebind(&self, socket: std::net::UdpSocket) -> io::Result<()> {
         let addr = socket.local_addr()?;
         let socket = self.runtime.wrap_udp_socket(socket)?;
