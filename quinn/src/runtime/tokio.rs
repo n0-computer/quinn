@@ -52,13 +52,13 @@ struct UdpSocket {
 }
 
 #[cfg(not(feature = "wasm"))]
-impl AsyncUdpSocket for UdpSocket {
+impl super::AsyncUdpSocket for UdpSocket {
     fn poll_send(
         &self,
         state: &udp::UdpState,
         cx: &mut Context,
         transmits: &[udp::Transmit],
-    ) -> Poll<io::Result<usize>> {
+    ) -> Poll<std::io::Result<usize>> {
         let inner = &self.inner;
         let io = &self.io;
         loop {
@@ -76,7 +76,7 @@ impl AsyncUdpSocket for UdpSocket {
         cx: &mut Context,
         bufs: &mut [std::io::IoSliceMut<'_>],
         meta: &mut [udp::RecvMeta],
-    ) -> Poll<io::Result<usize>> {
+    ) -> Poll<std::io::Result<usize>> {
         loop {
             ready!(self.io.poll_recv_ready(cx))?;
             if let Ok(res) = self.io.try_io(tokio::io::Interest::READABLE, || {
