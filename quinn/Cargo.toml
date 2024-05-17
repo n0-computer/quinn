@@ -20,12 +20,13 @@ default = ["log", "platform-verifier", "ring", "runtime-tokio", "rustls"]
 lock_tracking = []
 # Provides `ClientConfig::with_platform_verifier()` convenience method
 platform-verifier = ["proto/platform-verifier"]
-rustls = ["dep:rustls", "proto/rustls", "proto/ring"]
+rustls = ["dep:rustls", "proto/rustls", "proto/ring", "dep:rustls-pki-types"]
 # Enables `Endpoint::client` and `Endpoint::server` conveniences
 ring = ["proto/ring"]
 runtime-tokio = ["tokio/time", "tokio/rt", "tokio/net"]
 runtime-async-std = ["async-io", "async-std"]
 runtime-smol = ["async-io", "smol"]
+wasm = ["getrandom/js", "proto/wasm", "ring?/wasm32_unknown_unknown_js", "rustls-pki-types?/web"]
 
 # Write logs via the `log` crate when no `tracing` subscriber exists
 log = ["tracing/log", "proto/log", "udp/log"]
@@ -45,6 +46,9 @@ thiserror = "1.0.21"
 tracing = "0.1.10"
 tokio = { version = "1.28.1", features = ["sync"] }
 udp = { package = "quinn-udp", path = "../quinn-udp", version = "0.5", default-features = false }
+getrandom = { version = "0.2", default-features = false }
+ring = { version = "0.17", optional = true }
+rustls-pki-types = { version = "1.7", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0.22"

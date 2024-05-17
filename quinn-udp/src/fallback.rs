@@ -1,9 +1,11 @@
+#[cfg(feature = "network")]
 use std::{
     io::{self, IoSliceMut},
     sync::Mutex,
     time::Instant,
 };
 
+#[cfg(feature = "network")]
 use super::{log_sendmsg_error, RecvMeta, Transmit, UdpSockRef, IO_ERROR_LOG_INTERVAL};
 
 /// Fallback UDP socket interface that stubs out all special functionality
@@ -12,10 +14,12 @@ use super::{log_sendmsg_error, RecvMeta, Transmit, UdpSockRef, IO_ERROR_LOG_INTE
 /// reduced performance compared to that enabled by some target-specific interfaces.
 #[derive(Debug)]
 pub struct UdpSocketState {
+    #[cfg(feature = "network")]
     last_send_error: Mutex<Instant>,
 }
 
 impl UdpSocketState {
+    #[cfg(feature = "network")]
     pub fn new(socket: UdpSockRef<'_>) -> io::Result<Self> {
         socket.0.set_nonblocking(true)?;
         let now = Instant::now();
@@ -24,6 +28,7 @@ impl UdpSocketState {
         })
     }
 
+    #[cfg(feature = "network")]
     pub fn send(&self, socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
         let Err(e) = socket.0.send_to(
             transmit.contents,
@@ -45,6 +50,7 @@ impl UdpSocketState {
         Ok(())
     }
 
+    #[cfg(feature = "network")]
     pub fn recv(
         &self,
         socket: UdpSockRef<'_>,

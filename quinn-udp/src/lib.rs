@@ -27,12 +27,14 @@
 #![warn(unreachable_pub)]
 #![warn(clippy::use_self)]
 
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+
 #[cfg(unix)]
 use std::os::unix::io::AsFd;
 #[cfg(windows)]
 use std::os::windows::io::AsSocket;
+#[cfg(feature = "network")]
 use std::{
-    net::{IpAddr, Ipv6Addr, SocketAddr},
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -117,12 +119,14 @@ pub struct Transmit<'a> {
 }
 
 /// Log at most 1 IO error per minute
+#[cfg(feature = "network")]
 const IO_ERROR_LOG_INTERVAL: Duration = std::time::Duration::from_secs(60);
 
 /// Logs a warning message when sendmsg fails
 ///
 /// Logging will only be performed if at least [`IO_ERROR_LOG_INTERVAL`]
 /// has elapsed since the last error was logged.
+#[cfg(feature = "network")]
 fn log_sendmsg_error(
     last_send_error: &Mutex<Instant>,
     err: impl core::fmt::Debug,
@@ -143,9 +147,10 @@ fn log_sendmsg_error(
 /// On Unix, constructible via `From<T: AsRawFd>`. On Windows, constructible via `From<T:
 /// AsRawSocket>`.
 // Wrapper around socket2 to avoid making it a public dependency and incurring stability risk
+#[cfg(feature = "network")]
 pub struct UdpSockRef<'a>(socket2::SockRef<'a>);
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "network"))]
 impl<'s, S> From<&'s S> for UdpSockRef<'s>
 where
     S: AsFd,
@@ -155,7 +160,7 @@ where
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "network"))]
 impl<'s, S> From<&'s S> for UdpSockRef<'s>
 where
     S: AsSocket,

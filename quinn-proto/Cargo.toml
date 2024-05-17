@@ -15,13 +15,14 @@ all-features = true
 
 [features]
 default = ["rustls", "log"]
-rustls = ["dep:rustls", "ring"]
+rustls = ["dep:rustls", "ring", "dep:rustls-pki-types"]
 ring = ["dep:ring"]
 # Enable rustls ring provider and direct ring usage
 # Provides `ClientConfig::with_platform_verifier()` convenience method
 platform-verifier = ["dep:rustls-platform-verifier"]
 # Write logs via the `log` crate when no `tracing` subscriber exists
 log = ["tracing/log"]
+wasm = ["getrandom/js", "ring?/wasm32_unknown_unknown_js", "rustls-pki-types?/web"]
 
 [dependencies]
 arbitrary = { version = "1.0.1", features = ["derive"], optional = true }
@@ -35,6 +36,8 @@ slab = "0.4"
 thiserror = "1.0.21"
 tinyvec = { version = "1.1", features = ["alloc"] }
 tracing = "0.1.10"
+getrandom = { version = "0.2", default-features = false }
+rustls-pki-types = { version = "1.7", optional = true }
 
 [dev-dependencies]
 assert_matches = "1.1"
