@@ -66,6 +66,7 @@ pub trait AsyncUdpSocket: Send + Debug + 'static {
 /// If `runtime-tokio` is enabled and this function is called from within a Tokio runtime context,
 /// then `TokioRuntime` is returned. Otherwise, if `runtime-async-std` is enabled, `AsyncStdRuntime`
 /// is returned. Otherwise, `None` is returned.
+#[allow(unreachable_code)]
 pub fn default_runtime() -> Option<Arc<dyn Runtime>> {
     #[cfg(feature = "runtime-tokio")]
     {
@@ -78,12 +79,11 @@ pub fn default_runtime() -> Option<Arc<dyn Runtime>> {
     {
         return Some(Arc::new(AsyncStdRuntime));
     }
-    #[cfg(feature = "wasm")]
+    #[cfg(all(target_family = "wasm", feature = "wasm"))]
     {
         return Some(Arc::new(WasmRuntime));
     }
 
-    #[cfg(not(feature = "wasm"))]
     None
 }
 

@@ -1,17 +1,13 @@
 use std::{
     future::Future,
-    io,
     pin::Pin,
     task::{Context, Poll},
     time::Instant,
 };
 
-use tokio::{
-    io::Interest,
-    time::{sleep_until, Sleep},
-};
+use tokio::time::{sleep_until, Sleep};
 
-use super::{AsyncTimer, AsyncUdpSocket, Runtime};
+use super::{AsyncTimer, Runtime};
 
 /// A Quinn runtime for Tokio
 #[derive(Debug)]
@@ -27,7 +23,10 @@ impl Runtime for TokioRuntime {
     }
 
     #[cfg(not(feature = "wasm"))]
-    fn wrap_udp_socket(&self, sock: std::net::UdpSocket) -> io::Result<Box<dyn AsyncUdpSocket>> {
+    fn wrap_udp_socket(
+        &self,
+        sock: std::net::UdpSocket,
+    ) -> std::io::Result<Box<dyn super::AsyncUdpSocket>> {
         udp::UdpSocketState::configure((&sock).into())?;
         Ok(Box::new(UdpSocket {
             io: tokio::net::UdpSocket::from_std(sock)?,
@@ -64,7 +63,7 @@ impl AsyncUdpSocket for UdpSocket {
         let io = &self.io;
         loop {
             ready!(io.poll_send_ready(cx))?;
-            if let Ok(res) = io.try_io(Interest::WRITABLE, || {
+            if let Ok(res) = io.try_io(tokio::io::Interest::WRITABLE, || {
                 inner.send(io.into(), state, transmits)
             }) {
                 return Poll::Ready(Ok(res));
@@ -80,7 +79,7 @@ impl AsyncUdpSocket for UdpSocket {
     ) -> Poll<io::Result<usize>> {
         loop {
             ready!(self.io.poll_recv_ready(cx))?;
-            if let Ok(res) = self.io.try_io(Interest::READABLE, || {
+            if let Ok(res) = self.io.try_io(tokio::io::Interest::READABLE, || {
                 self.inner.recv((&self.io).into(), bufs, meta)
             }) {
                 return Poll::Ready(Ok(res));
@@ -88,7 +87,7 @@ impl AsyncUdpSocket for UdpSocket {
         }
     }
 
-    fn local_addr(&self) -> io::Result<std::net::SocketAddr> {
+    fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
         self.io.local_addr()
     }
 
