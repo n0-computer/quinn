@@ -6,10 +6,8 @@ use std::{
 #[cfg(feature = "lock_tracking")]
 mod tracking {
     use super::*;
-    use std::{
-        collections::VecDeque,
-        time::{Duration, Instant},
-    };
+    use proto::{Duration, Instant};
+    use std::collections::VecDeque;
     use tracing::warn;
 
     #[derive(Debug)]

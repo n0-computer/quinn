@@ -9,7 +9,6 @@ use std::{
     str,
     sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
-    time::Instant,
 };
 
 #[cfg(feature = "ring")]
@@ -22,7 +21,7 @@ use bytes::{Bytes, BytesMut};
 use pin_project_lite::pin_project;
 use proto::{
     self as proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent,
-    EndpointEvent, ServerConfig,
+    EndpointEvent, Instant, ServerConfig,
 };
 use rustc_hash::FxHashMap;
 use tokio::sync::{futures::Notified, mpsc, Notify};

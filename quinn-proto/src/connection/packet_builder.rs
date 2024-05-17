@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use bytes::Bytes;
 use rand::Rng;
 use tracing::{trace, trace_span};
@@ -8,7 +6,7 @@ use super::{spaces::SentPacket, Connection, SentFrames};
 use crate::{
     frame::{self, Close},
     packet::{Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId, FIXED_BIT},
-    ConnectionId, TransportError, TransportErrorCode,
+    ConnectionId, Instant, TransportError, TransportErrorCode,
 };
 
 pub(super) struct PacketBuilder {

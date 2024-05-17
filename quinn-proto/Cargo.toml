@@ -22,7 +22,7 @@ ring = ["dep:ring"]
 platform-verifier = ["dep:rustls-platform-verifier"]
 # Write logs via the `log` crate when no `tracing` subscriber exists
 log = ["tracing/log"]
-wasm = ["getrandom/js", "ring?/wasm32_unknown_unknown_js", "rustls-pki-types?/web"]
+wasm = ["getrandom/js", "ring?/wasm32_unknown_unknown_js", "rustls-pki-types?/web", "dep:web-time"]
 
 [dependencies]
 arbitrary = { version = "1.0.1", features = ["derive"], optional = true }
@@ -38,6 +38,7 @@ tinyvec = { version = "1.1", features = ["alloc"] }
 tracing = "0.1.10"
 getrandom = { version = "0.2", default-features = false }
 rustls-pki-types = { version = "1.7", optional = true }
+web-time = { version = "1", optional = true }
 
 [dev-dependencies]
 assert_matches = "1.1"

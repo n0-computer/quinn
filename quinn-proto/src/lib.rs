@@ -24,7 +24,6 @@ use std::{
     fmt,
     net::{IpAddr, SocketAddr},
     ops,
-    time::Duration,
 };
 
 mod cid_queue;
@@ -292,6 +291,12 @@ pub struct Transmit {
     /// Optional source IP address for the datagram
     pub src_ip: Option<IpAddr>,
 }
+
+// Deal with time
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "wasm"))]
+pub use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 //
 // Useful internal constants

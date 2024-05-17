@@ -1,5 +1,4 @@
-use crate::{packet::SpaceId, MtuDiscoveryConfig, MAX_UDP_PAYLOAD};
-use std::time::Instant;
+use crate::{packet::SpaceId, Instant, MtuDiscoveryConfig, MAX_UDP_PAYLOAD};
 use tracing::trace;
 
 /// Implements Datagram Packetization Layer Path Maximum Transmission Unit Discovery
@@ -483,9 +482,8 @@ const BLACK_HOLE_THRESHOLD: u8 = 3;
 mod tests {
     use super::*;
     use crate::packet::SpaceId;
-    use crate::MAX_UDP_PAYLOAD;
+    use crate::{Duration, MAX_UDP_PAYLOAD};
     use assert_matches::assert_matches;
-    use std::time::Duration;
 
     fn default_mtud() -> MtuDiscovery {
         let config = MtuDiscoveryConfig::default();

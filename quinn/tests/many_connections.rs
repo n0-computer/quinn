@@ -2,10 +2,10 @@
 use std::{
     convert::TryInto,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use crc::Crc;
+use proto::Duration;
 use quinn::{ConnectionError, ReadError, StoppedError, TransportConfig, WriteError};
 use rand::{self, RngCore};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};

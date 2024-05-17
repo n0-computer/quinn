@@ -4,10 +4,10 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::Instant,
 };
 
 use async_io::{Async, Timer};
+use proto::Instant;
 
 use super::{AsyncTimer, AsyncUdpSocket, Runtime, UdpPollHelper};
 

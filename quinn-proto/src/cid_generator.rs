@@ -1,9 +1,9 @@
-use std::{hash::Hasher, time::Duration};
+use std::hash::Hasher;
 
 use rand::{Rng, RngCore};
 
 use crate::shared::ConnectionId;
-use crate::MAX_CID_SIZE;
+use crate::{Duration, MAX_CID_SIZE};
 
 /// Generates connection IDs for incoming connections
 pub trait ConnectionIdGenerator: Send + Sync {

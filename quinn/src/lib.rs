@@ -41,7 +41,7 @@
 #![warn(unreachable_pub)]
 #![warn(clippy::use_self)]
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 macro_rules! ready {
     ($e:expr $(,)?) => {
@@ -63,7 +63,7 @@ mod work_limiter;
 
 pub use proto::{
     congestion, crypto, AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ConfigError,
-    ConnectError, ConnectionClose, ConnectionError, EndpointConfig, IdleTimeout,
+    ConnectError, ConnectionClose, ConnectionError, Duration, EndpointConfig, IdleTimeout,
     MtuDiscoveryConfig, ServerConfig, StreamId, Transmit, TransportConfig, VarInt,
 };
 #[cfg(feature = "rustls")]
