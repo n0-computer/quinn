@@ -18,6 +18,7 @@ pub trait Runtime: Send + Sync + Debug + 'static {
     /// Drive `future` to completion in the background
     fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>);
     /// Convert `t` into the socket type used by this runtime
+    #[cfg(not(feature = "wasm"))]
     fn wrap_udp_socket(&self, t: std::net::UdpSocket) -> io::Result<Arc<dyn AsyncUdpSocket>>;
     /// Look up the current time
     ///
@@ -116,7 +117,7 @@ impl<MakeFut, Fut> UdpPollHelper<MakeFut, Fut> {
     #[cfg(any(
         feature = "runtime-async-std",
         feature = "runtime-smol",
-        feature = "runtime-tokio"
+        feature = "runtime-tokio",
     ))]
     fn new(make_fut: MakeFut) -> Self {
         Self {
@@ -194,3 +195,8 @@ pub use self::tokio::TokioRuntime;
 mod async_io;
 #[cfg(feature = "async-io")]
 pub use self::async_io::*;
+
+#[cfg(all(target_family = "wasm", feature = "wasm"))]
+mod wasm;
+#[cfg(all(target_family = "wasm", feature = "wasm"))]
+pub use self::wasm::WasmRuntime;

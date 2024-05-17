@@ -11,7 +11,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-#[cfg(feature = "ring")]
+#[cfg(all(feature = "ring", not(feature = "wasm")))]
 use crate::runtime::default_runtime;
 use crate::{
     runtime::{AsyncUdpSocket, Runtime},
@@ -57,7 +57,7 @@ impl Endpoint {
     /// IPv6 address on Windows will not by default be able to communicate with IPv4
     /// addresses. Portable applications should bind an address that matches the family they wish to
     /// communicate within.
-    #[cfg(feature = "ring")]
+    #[cfg(all(feature = "ring", not(feature = "wasm")))]
     pub fn client(addr: SocketAddr) -> io::Result<Self> {
         let socket = std::net::UdpSocket::bind(addr)?;
         let runtime = default_runtime()
@@ -76,7 +76,7 @@ impl Endpoint {
     /// IPv6 address on Windows will not by default be able to communicate with IPv4
     /// addresses. Portable applications should bind an address that matches the family they wish to
     /// communicate within.
-    #[cfg(feature = "ring")]
+    #[cfg(all(feature = "ring", not(feature = "wasm")))]
     pub fn server(config: ServerConfig, addr: SocketAddr) -> io::Result<Self> {
         let socket = std::net::UdpSocket::bind(addr)?;
         let runtime = default_runtime()
@@ -90,6 +90,7 @@ impl Endpoint {
     }
 
     /// Construct an endpoint with arbitrary configuration and socket
+    #[cfg(not(feature = "wasm"))]
     pub fn new(
         config: EndpointConfig,
         server_config: Option<ServerConfig>,
@@ -212,6 +213,7 @@ impl Endpoint {
     /// Switch to a new UDP socket
     ///
     /// See [`Endpoint::rebind_abstract()`] for details.
+    #[cfg(not(feature = "wasm"))]
     pub fn rebind(&self, socket: std::net::UdpSocket) -> io::Result<()> {
         self.rebind_abstract(self.runtime.wrap_udp_socket(socket)?)
     }

@@ -27,6 +27,7 @@ runtime-tokio = ["tokio/time", "tokio/rt", "tokio/net"]
 runtime-async-std = ["async-io", "async-std"]
 runtime-smol = ["async-io", "smol"]
 wasm = ["getrandom/js", "proto/wasm", "ring?/wasm32_unknown_unknown_js", "rustls-pki-types?/web"]
+runtime-wasm = ["dep:wasmtimer", "dep:wasm-bindgen-futures"]
 
 # Write logs via the `log` crate when no `tracing` subscriber exists
 log = ["tracing/log", "proto/log", "udp/log"]
@@ -49,6 +50,8 @@ udp = { package = "quinn-udp", path = "../quinn-udp", version = "0.5", default-f
 getrandom = { version = "0.2", default-features = false }
 ring = { version = "0.17", optional = true }
 rustls-pki-types = { version = "1.7", optional = true }
+wasmtimer = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0.22"

@@ -27,6 +27,7 @@ impl Runtime for TokioRuntime {
         tokio::spawn(future);
     }
 
+    #[cfg(not(feature = "wasm"))]
     fn wrap_udp_socket(&self, sock: std::net::UdpSocket) -> io::Result<Arc<dyn AsyncUdpSocket>> {
         Ok(Arc::new(UdpSocket {
             inner: udp::UdpSocketState::new((&sock).into())?,
@@ -49,11 +50,13 @@ impl AsyncTimer for Sleep {
 }
 
 #[derive(Debug)]
+#[cfg(not(feature = "wasm"))]
 struct UdpSocket {
     io: tokio::net::UdpSocket,
     inner: udp::UdpSocketState,
 }
 
+#[cfg(not(feature = "wasm"))]
 impl AsyncUdpSocket for UdpSocket {
     fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn super::UdpPoller>> {
         Box::pin(UdpPollHelper::new(move || {
