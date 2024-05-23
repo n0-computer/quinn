@@ -25,6 +25,14 @@ use super::{
     IO_ERROR_LOG_INTERVAL,
 };
 
+// Defined in netinet6/in6.h on OpenBSD, this is not yet exported by the libc crate
+// directly.  See https://github.com/rust-lang/libc/issues/3704 for when we might be able to
+// rely on this from the libc crate.
+#[cfg(target_os = "openbsd")]
+const IPV6_DONTFRAG: libc::c_int = 62;
+#[cfg(not(target_os = "openbsd"))]
+const IPV6_DONTFRAG: libc::c_int = libc::IPV6_DONTFRAG;
+
 #[cfg(target_os = "freebsd")]
 type IpTosTy = libc::c_uchar;
 #[cfg(not(target_os = "freebsd"))]
@@ -78,7 +86,12 @@ impl Default for UdpSocketState {
 
 fn init(io: SockRef<'_>) -> io::Result<()> {
     let mut cmsg_platform_space = 0;
-    if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") || cfg!(target_os = "macos") {
+    if cfg!(target_os = "linux")
+        || cfg!(target_os = "freebsd")
+        || cfg!(target_os = "openbsd")
+        || cfg!(target_os = "netbsd")
+        || cfg!(target_os = "macos")
+    {
         cmsg_platform_space +=
             unsafe { libc::CMSG_SPACE(mem::size_of::<libc::in6_pktinfo>() as _) as usize };
     }
@@ -134,7 +147,13 @@ fn init(io: SockRef<'_>) -> io::Result<()> {
             )?;
         }
     }
-    #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "ios"))]
+    #[cfg(any(
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "macos",
+        target_os = "ios"
+    ))]
     {
         if is_ipv4 {
             set_socket_option(&*io, libc::IPPROTO_IP, libc::IP_DONTFRAG, OPTION_ON)?;
@@ -142,9 +161,9 @@ fn init(io: SockRef<'_>) -> io::Result<()> {
     }
     #[cfg(any(
         target_os = "freebsd",
-        target_os = "macos",
         target_os = "openbsd",
         target_os = "netbsd"
+        target_os = "macos",
     ))]
     // IP_RECVDSTADDR == IP_SENDSRCADDR on FreeBSD
     // macOS uses only IP_RECVDSTADDR, no IP_SENDSRCADDR on macOS
@@ -160,13 +179,10 @@ fn init(io: SockRef<'_>) -> io::Result<()> {
         set_socket_option(&*io, libc::IPPROTO_IPV6, libc::IPV6_RECVPKTINFO, OPTION_ON)?;
         set_socket_option(&*io, libc::IPPROTO_IPV6, libc::IPV6_RECVTCLASS, OPTION_ON)?;
 
-        #[cfg(not(any(target_os = "openbsd", target_os = "netbsd")))]
-        {
-            // Linux's IP_PMTUDISC_PROBE allows us to operate under interface MTU rather than the
-            // kernel's path MTU guess, but actually disabling fragmentation requires this too. See
-            // __ip6_append_data in ip6_output.c.
-            set_socket_option(&*io, libc::IPPROTO_IPV6, libc::IPV6_DONTFRAG, OPTION_ON)?;
-        }
+        // Linux's IP_PMTUDISC_PROBE allows us to operate under interface MTU rather than the
+        // kernel's path MTU guess, but actually disabling fragmentation requires this too. See
+        // __ip6_append_data in ip6_output.c.
+        set_socket_option(&*io, libc::IPPROTO_IPV6, IPV6_DONTFRAG, OPTION_ON)?;
     }
 
     Ok(())
