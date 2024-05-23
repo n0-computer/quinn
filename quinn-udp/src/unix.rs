@@ -149,7 +149,6 @@ fn init(io: SockRef<'_>) -> io::Result<()> {
     }
     #[cfg(any(
         target_os = "freebsd",
-        target_os = "openbsd",
         target_os = "netbsd",
         target_os = "macos",
         target_os = "ios"
@@ -162,7 +161,7 @@ fn init(io: SockRef<'_>) -> io::Result<()> {
     #[cfg(any(
         target_os = "freebsd",
         target_os = "openbsd",
-        target_os = "netbsd"
+        target_os = "netbsd",
         target_os = "macos",
     ))]
     // IP_RECVDSTADDR == IP_SENDSRCADDR on FreeBSD
