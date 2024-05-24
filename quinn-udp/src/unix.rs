@@ -28,14 +28,14 @@ use super::{
 // Defined in netinet6/in6.h on OpenBSD, this is not yet exported by the libc crate
 // directly.  See https://github.com/rust-lang/libc/issues/3704 for when we might be able to
 // rely on this from the libc crate.
-#[cfg(target_os = "openbsd")]
+#[cfg(any(target_os = "openbsd", target_os = "netbsd"))]
 const IPV6_DONTFRAG: libc::c_int = 62;
-#[cfg(not(target_os = "openbsd"))]
+#[cfg(not(any(target_os = "openbsd", target_os = "netbsd")))]
 const IPV6_DONTFRAG: libc::c_int = libc::IPV6_DONTFRAG;
 
 #[cfg(target_os = "freebsd")]
 type IpTosTy = libc::c_uchar;
-#[cfg(not(target_os = "freebsd"))]
+#[cfg(not(any(target_os = "freebsd", target_os = "netbsd")))]
 type IpTosTy = libc::c_int;
 
 /// Tokio-compatible UDP socket with some useful specializations.
@@ -147,12 +147,7 @@ fn init(io: SockRef<'_>) -> io::Result<()> {
             )?;
         }
     }
-    #[cfg(any(
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "macos",
-        target_os = "ios"
-    ))]
+    #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "ios"))]
     {
         if is_ipv4 {
             set_socket_option(&*io, libc::IPPROTO_IP, libc::IP_DONTFRAG, OPTION_ON)?;
@@ -183,7 +178,6 @@ fn init(io: SockRef<'_>) -> io::Result<()> {
         // __ip6_append_data in ip6_output.c.
         set_socket_option(&*io, libc::IPPROTO_IPV6, IPV6_DONTFRAG, OPTION_ON)?;
     }
-
     Ok(())
 }
 
@@ -620,7 +614,10 @@ fn prepare_msg(
     let ecn = transmit.ecn.map_or(0, |x| x as libc::c_int);
     if transmit.destination.is_ipv4() {
         if !sendmsg_einval {
-            encoder.push(libc::IPPROTO_IP, libc::IP_TOS, ecn as IpTosTy);
+            #[cfg(not(target_os = "netbsd"))]
+            {
+                encoder.push(libc::IPPROTO_IP, libc::IP_TOS, ecn as IpTosTy);
+            }
         }
     } else {
         encoder.push(libc::IPPROTO_IPV6, libc::IPV6_TCLASS, ecn);
@@ -646,9 +643,9 @@ fn prepare_msg(
                 }
                 #[cfg(any(
                     target_os = "freebsd",
-                    target_os = "macos",
                     target_os = "openbsd",
-                    target_os = "netbsd"
+                    target_os = "netbsd",
+                    target_os = "macos",
                 ))]
                 {
                     if encode_src_ip {
