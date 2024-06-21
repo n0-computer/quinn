@@ -10,7 +10,7 @@ use tokio::runtime::{Builder, Runtime};
 use tracing::error_span;
 use tracing_futures::Instrument as _;
 
-use quinn::{Endpoint, TokioRuntime};
+use quinn_iroh::{self as quinn, Endpoint, TokioRuntime};
 
 benchmark_group!(
     benches,
