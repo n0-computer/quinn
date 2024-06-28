@@ -100,7 +100,12 @@ impl UdpState {
     #[inline]
     #[cfg(all(
         unix,
-        not(any(target_os = "macos", target_os = "ios", target_os = "openbsd")),
+        not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "openbsd",
+            target_os = "netbsd"
+        )),
         feature = "network"
     ))]
     fn set_sendmsg_einval(&self) {

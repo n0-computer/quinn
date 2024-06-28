@@ -66,6 +66,11 @@ impl<'a> Encoder<'a> {
 impl<'a> Drop for Encoder<'a> {
     fn drop(&mut self) {
         self.hdr.msg_controllen = self.len as _;
+        if self.len == 0 {
+            // netbsd is particular about this being a NULL pointer if there are no control
+            // messages.
+            self.hdr.msg_control = std::ptr::null_mut();
+        }
     }
 }
 
