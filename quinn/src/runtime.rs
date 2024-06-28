@@ -6,9 +6,9 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::Instant,
 };
 
+use proto::Instant;
 use udp::{RecvMeta, Transmit, UdpState};
 
 /// Abstracts I/O and timer operations for runtime independence
@@ -18,6 +18,7 @@ pub trait Runtime: Send + Sync + Debug + 'static {
     /// Drive `future` to completion in the background
     fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>);
     /// Convert `t` into the socket type used by this runtime
+    #[cfg(not(feature = "wasm"))]
     fn wrap_udp_socket(&self, t: std::net::UdpSocket) -> io::Result<Box<dyn AsyncUdpSocket>>;
 }
 
@@ -65,6 +66,7 @@ pub trait AsyncUdpSocket: Send + Debug + 'static {
 /// If `runtime-tokio` is enabled and this function is called from within a Tokio runtime context,
 /// then `TokioRuntime` is returned. Otherwise, if `runtime-async-std` is enabled, `AsyncStdRuntime`
 /// is returned. Otherwise, `None` is returned.
+#[allow(unreachable_code)]
 pub fn default_runtime() -> Option<Arc<dyn Runtime>> {
     #[cfg(feature = "runtime-tokio")]
     {
@@ -77,8 +79,11 @@ pub fn default_runtime() -> Option<Arc<dyn Runtime>> {
     {
         return Some(Arc::new(AsyncStdRuntime));
     }
+    #[cfg(all(target_family = "wasm", feature = "wasm"))]
+    {
+        return Some(Arc::new(WasmRuntime));
+    }
 
-    #[cfg(not(feature = "runtime-async-std"))]
     None
 }
 
@@ -91,3 +96,7 @@ pub use self::tokio::TokioRuntime;
 mod async_std;
 #[cfg(feature = "runtime-async-std")]
 pub use self::async_std::AsyncStdRuntime;
+#[cfg(all(target_family = "wasm", feature = "wasm"))]
+mod wasm;
+#[cfg(all(target_family = "wasm", feature = "wasm"))]
+pub use self::wasm::WasmRuntime;

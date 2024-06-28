@@ -3,7 +3,6 @@ use std::{
     collections::{BTreeMap, VecDeque},
     mem,
     ops::{Index, IndexMut},
-    time::{Duration, Instant},
 };
 
 use rustc_hash::FxHashSet;
@@ -11,7 +10,7 @@ use rustc_hash::FxHashSet;
 use super::assembler::Assembler;
 use crate::{
     connection::StreamsState, crypto::Keys, frame, packet::SpaceId, range_set::ArrayRangeSet,
-    shared::IssuedCid, Dir, StreamId, VarInt,
+    shared::IssuedCid, Dir, Duration, Instant, StreamId, VarInt,
 };
 
 pub(super) struct PacketSpace {

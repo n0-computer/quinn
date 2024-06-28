@@ -34,6 +34,33 @@ jobs:
       - run: cargo test --manifest-path fuzz/Cargo.toml
         if: ${{ matrix.rust }} == "stable"
 
+  wasm_build:
+    name: Build wasm32
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: wasm32 build (quinn)
+        run: cargo build -p iroh-quinn --no-default-features --features log,ring,rustls,wasm,runtime-wasm --target wasm32-unknown-unknown
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: wasm32 build (quinn-proto)
+        run: cargo build -p iroh-quinn-proto --features wasm --target wasm32-unknown-unknown
+        env:
+          RUST_BACKTRACE: 1
+      - name: wasm32 build (quinn-udp)
+        run: cargo build -p iroh-quinn-udp --no-default-features --features log --target wasm32-unknown-unknown
+        env:
+          RUST_BACKTRACE: 1
+
   msrv:
     runs-on: ubuntu-latest
     env:
@@ -42,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: mozilla-actions/sccache-action@v0.0.4
-      - uses: dtolnay/rust-toolchain@1.63.0
+      - uses: dtolnay/rust-toolchain@1.73.0
       - run: cargo check --lib --all-features -p iroh-quinn-udp -p iroh-quinn-proto -p iroh-quinn
 
   lint:
