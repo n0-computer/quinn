@@ -99,6 +99,7 @@ macro_rules! make_struct {
             pub(crate) stateless_reset_token: Option<ResetToken>,
             /// The server's preferred address for communication after handshake completion
             pub(crate) preferred_address: Option<PreferredAddress>,
+            pub(crate) address_discovery_role: Option<crate::address_discovery::Role>
         }
 
         // We deliberately don't implement the `Default` trait, since that would be public, and
@@ -120,6 +121,8 @@ macro_rules! make_struct {
                     retry_src_cid: None,
                     stateless_reset_token: None,
                     preferred_address: None,
+
+                    address_discovery_role: None,
                 }
             }
         }
