@@ -15,7 +15,7 @@ pub(crate) enum Role {
     Observer,
     /// Is interested on reports about its own observed address, but will not report back to other
     /// peers.
-    Oservee,
+    Observee,
     /// Will both report and receive reports of observed addresses.
     Both,
 }
@@ -24,7 +24,7 @@ impl From<Role> for VarInt {
     fn from(role: Role) -> Self {
         match role {
             Role::Observer => VarInt(0),
-            Role::Oservee => VarInt(1),
+            Role::Observee => VarInt(1),
             Role::Both => VarInt(2),
         }
     }
@@ -36,9 +36,9 @@ impl TryFrom<VarInt> for Role {
     fn try_from(value: VarInt) -> Result<Self, Self::Error> {
         match value.0 {
             0 => Ok(Role::Observer),
-            1 => Ok(Role::Oservee),
+            1 => Ok(Role::Observee),
             2 => Ok(Role::Both),
-            _ => Err(crate::transport_parameters::Error::IllegalValue)
+            _ => Err(crate::transport_parameters::Error::IllegalValue),
         }
     }
 }
