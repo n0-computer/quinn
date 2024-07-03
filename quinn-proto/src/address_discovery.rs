@@ -1,6 +1,10 @@
 //! Address discovery types from
 //! <https://datatracker.ietf.org/doc/draft-seemann-quic-address-discovery/>
 
+use crate::VarInt;
+
+pub(crate) const TRANSPORT_PARAMETER_CODE: u64 = 0x9f81a174;
+
 /// The role of each participant.
 ///
 /// When enabled, this is reported as a transport parameter.
@@ -14,4 +18,27 @@ pub(crate) enum Role {
     Oservee,
     /// Will both report and receive reports of observed addresses.
     Both,
+}
+
+impl From<Role> for VarInt {
+    fn from(role: Role) -> Self {
+        match role {
+            Role::Observer => VarInt(0),
+            Role::Oservee => VarInt(1),
+            Role::Both => VarInt(2),
+        }
+    }
+}
+
+impl TryFrom<VarInt> for Role {
+    type Error = crate::transport_parameters::Error;
+
+    fn try_from(value: VarInt) -> Result<Self, Self::Error> {
+        match value.0 {
+            0 => Ok(Role::Observer),
+            1 => Ok(Role::Oservee),
+            2 => Ok(Role::Both),
+            _ => Err(crate::transport_parameters::Error::IllegalValue)
+        }
+    }
 }

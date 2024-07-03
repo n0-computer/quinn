@@ -15,6 +15,7 @@ use bytes::{Buf, BufMut};
 use thiserror::Error;
 
 use crate::{
+    address_discovery,
     cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
     coding::{BufExt, BufMutExt, UnexpectedEnd},
@@ -99,7 +100,8 @@ macro_rules! make_struct {
             pub(crate) stateless_reset_token: Option<ResetToken>,
             /// The server's preferred address for communication after handshake completion
             pub(crate) preferred_address: Option<PreferredAddress>,
-            pub(crate) address_discovery_role: Option<crate::address_discovery::Role>
+            /// The role of this peer in address discovery, if any.
+            pub(crate) address_discovery_role: Option<address_discovery::Role>
         }
 
         // We deliberately don't implement the `Default` trait, since that would be public, and
@@ -163,6 +165,7 @@ impl TransportParameters {
             min_ack_delay: Some(
                 VarInt::from_u64(u64::try_from(TIMER_GRANULARITY.as_micros()).unwrap()).unwrap(),
             ),
+            address_discovery_role: config.address_discovery_role,
             ..Self::default()
         }
     }
@@ -179,6 +182,7 @@ impl TransportParameters {
             || cached.initial_max_streams_uni > self.initial_max_streams_uni
             || cached.max_datagram_frame_size > self.max_datagram_frame_size
             || cached.grease_quic_bit && !self.grease_quic_bit
+            || cached.address_discovery_role != self.address_discovery_role
         {
             return Err(TransportError::PROTOCOL_VIOLATION(
                 "0-RTT accepted with incompatible transport parameters",
@@ -352,6 +356,13 @@ impl TransportParameters {
             w.write_var(x.size() as u64);
             w.write(x);
         }
+
+        if let Some(role) = self.address_discovery_role {
+            let varint_role: VarInt = role.into();
+            w.write_var(address_discovery::TRANSPORT_PARAMETER_CODE);
+            w.write_var(varint_role.size() as u64);
+            w.write(varint_role);
+        }
     }
 
     /// Decode `TransportParameters` from buffer
@@ -416,6 +427,20 @@ impl TransportParameters {
                     _ => return Err(Error::Malformed),
                 },
                 0xff04de1b => params.min_ack_delay = Some(r.get().unwrap()),
+                address_discovery::TRANSPORT_PARAMETER_CODE => {
+                    // TODO(@divma): based on the code of parse in the next match statement
+                    if params.address_discovery_role.is_some() {
+                        // duplicate parameter
+                        // NOTE: this depends on the default being None, which is reasonable. Is
+                        // this handled in a better way somewhere?
+                        return Err(Error::Malformed);
+                    }
+                    let value: VarInt = r.get()?;
+                    if len != value.size() {
+                        return Err(Error::Malformed);
+                    }
+                    params.address_discovery_role = Some(value.try_into()?);
+                }
                 _ => {
                     macro_rules! parse {
                         {$($(#[$doc:meta])* $name:ident ($code:expr) = $default:expr,)*} => {
@@ -482,6 +507,7 @@ fn decode_cid(len: usize, value: &mut Option<ConnectionId>, r: &mut impl Buf) ->
 
 #[cfg(test)]
 mod test {
+
     use super::*;
 
     #[test]
@@ -502,6 +528,7 @@ mod test {
             }),
             grease_quic_bit: true,
             min_ack_delay: Some(2_000u32.into()),
+            address_discovery_role: Some(address_discovery::Role::Observer),
             ..TransportParameters::default()
         };
         params.write(&mut buf);

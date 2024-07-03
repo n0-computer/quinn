@@ -141,6 +141,8 @@ frame_types! {
 const STREAM_TYS: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
 const DATAGRAM_TYS: RangeInclusive<u64> = RangeInclusive::new(0x30, 0x31);
 
+type ObservedAddr = ();
+
 #[derive(Debug)]
 pub(crate) enum Frame {
     Padding,
@@ -166,6 +168,7 @@ pub(crate) enum Frame {
     AckFrequency(AckFrequency),
     ImmediateAck,
     HandshakeDone,
+    ObservedAddr(ObservedAddr),
 }
 
 impl Frame {
@@ -207,6 +210,8 @@ impl Frame {
             AckFrequency(_) => Type::ACK_FREQUENCY,
             ImmediateAck => Type::IMMEDIATE_ACK,
             HandshakeDone => Type::HANDSHAKE_DONE,
+            ObservedAddr(()) => Type::OBSERVED_IPV4_ADDR, // TODO(@divma): modify when addding both
+                                                          // types
         }
     }
 

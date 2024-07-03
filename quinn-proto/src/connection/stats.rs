@@ -54,6 +54,8 @@ pub struct FrameStats {
     pub streams_blocked_uni: u64,
     pub stop_sending: u64,
     pub stream: u64,
+    // TODO(@divma): record type of addr?
+    pub observed_addr: u64,
 }
 
 impl FrameStats {
@@ -94,6 +96,7 @@ impl FrameStats {
             Frame::AckFrequency(_) => self.ack_frequency += 1,
             Frame::ImmediateAck => self.immediate_ack += 1,
             Frame::HandshakeDone => self.handshake_done = self.handshake_done.saturating_add(1),
+            Frame::ObservedAddr(()) => self.observed_addr += 1,
         }
     }
 }

@@ -2887,6 +2887,10 @@ impl Connection {
                         self.discard_space(now, SpaceId::Handshake);
                     }
                 }
+                Frame::ObservedAddr(()) => {
+                    trace!("got observed addr");
+                    // TODO(@divma): do things
+                }
             }
         }
 
