@@ -42,3 +42,20 @@ impl TryFrom<VarInt> for Role {
         }
     }
 }
+
+impl Role {
+    /// Whether this peer's role allows for address reporting to other peers.
+    fn is_reporter(&self) -> bool {
+        matches!(self, Role::Observer | Role::Both)
+    }
+
+    /// Whether this peer's role allows to receive observed address reports.
+    fn receives_reports(&self) -> bool {
+        matches!(self, Role::Observee | Role::Both)
+    }
+
+    /// Whether this peer should report observed addresses to other peer.
+    pub(crate) fn should_report(&self, other: &Role) -> bool {
+        self.is_reporter() && other.receives_reports()
+    }
+}
