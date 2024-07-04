@@ -1,6 +1,7 @@
 use std::{
     fmt::{self, Write},
     io, mem,
+    net::{Ipv4Addr, Ipv6Addr},
     ops::{Range, RangeInclusive},
 };
 
@@ -694,6 +695,8 @@ impl Iter {
                 reordering_threshold: self.bytes.get()?,
             }),
             Type::IMMEDIATE_ACK => Frame::ImmediateAck,
+            Type::OBSERVED_IPV4_ADDR => todo!(),
+            Type::OBSERVED_IPV6_ADDR => todo!(),
             _ => {
                 if let Some(s) = ty.stream() {
                     Frame::Stream(Stream {
@@ -934,6 +937,24 @@ impl AckFrequency {
         buf.write(self.request_max_ack_delay);
         buf.write(self.reordering_threshold);
     }
+}
+
+/// Frame for an observed ipv4 address.
+///
+/// This corresponds to [`Type::OBSERVED_IPV4_ADDR`].
+pub(crate) struct ObservedIpV4Addr {
+    request_id: u64, // TODO(@divma): this doesn't seem to be defined anywhere
+    ip: Ipv4Addr,
+    port: u16,
+}
+
+/// Frame for an observed ipv6 address.
+///
+/// This corresponds to [`Type::OBSERVED_IPV6_ADDR`].
+pub(crate) struct ObservedIpV6Addr {
+    request_id: u64, // TODO(@divma): this doesn't seem to be defined anywhere
+    ip: Ipv6Addr,
+    port: u16,
 }
 
 #[cfg(test)]
