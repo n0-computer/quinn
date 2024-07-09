@@ -1,7 +1,7 @@
 use std::{
     fmt::{self, Write},
     io, mem,
-    net::{Ipv4Addr, Ipv6Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     ops::{Range, RangeInclusive},
 };
 
@@ -142,8 +142,6 @@ frame_types! {
 const STREAM_TYS: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
 const DATAGRAM_TYS: RangeInclusive<u64> = RangeInclusive::new(0x30, 0x31);
 
-type ObservedAddr = ();
-
 #[derive(Debug)]
 pub(crate) enum Frame {
     Padding,
@@ -211,8 +209,13 @@ impl Frame {
             AckFrequency(_) => Type::ACK_FREQUENCY,
             ImmediateAck => Type::IMMEDIATE_ACK,
             HandshakeDone => Type::HANDSHAKE_DONE,
-            ObservedAddr(()) => Type::OBSERVED_IPV4_ADDR, // TODO(@divma): modify when addding both
-                                                          // types
+            ObservedAddr(ref observed) => {
+                if observed.ip.is_ipv4() {
+                    Type::OBSERVED_IPV4_ADDR
+                } else {
+                    Type::OBSERVED_IPV6_ADDR
+                }
+            }
         }
     }
 
@@ -695,8 +698,14 @@ impl Iter {
                 reordering_threshold: self.bytes.get()?,
             }),
             Type::IMMEDIATE_ACK => Frame::ImmediateAck,
-            Type::OBSERVED_IPV4_ADDR => todo!(),
-            Type::OBSERVED_IPV6_ADDR => todo!(),
+            Type::OBSERVED_IPV4_ADDR => {
+                let observed = ObservedIpV4Addr::read(&mut self.bytes)?;
+                Frame::ObservedAddr(observed.into())
+            }
+            Type::OBSERVED_IPV6_ADDR => {
+                let observed = ObservedIpV6Addr::read(&mut self.bytes)?;
+                Frame::ObservedAddr(observed.into())
+            }
             _ => {
                 if let Some(s) = ty.stream() {
                     Frame::Stream(Stream {
@@ -939,11 +948,26 @@ impl AckFrequency {
     }
 }
 
+/* Address Discovery https://datatracker.ietf.org/doc/draft-seemann-quic-address-discovery/ */
+
+/// Conjuction of the information contained in the address discovery frames ([`ObservedIpV4Addr`],
+/// [`ObservedIpV6Addr`]).
+#[derive(Debug)]
+pub(crate) struct ObservedAddr {
+    ip: IpAddr,
+    port: u16,
+    request_id: u64,
+}
+
 /// Frame for an observed ipv4 address.
 ///
 /// This corresponds to [`Type::OBSERVED_IPV4_ADDR`].
 pub(crate) struct ObservedIpV4Addr {
-    request_id: u64, // TODO(@divma): this doesn't seem to be defined anywhere
+    /// Random request id for debugging.
+    ///
+    /// NOTE(@divma): this is an assumption I make since this is not defined anywhere and STUN
+    /// indications use a random id as well.
+    request_id: u64,
     ip: Ipv4Addr,
     port: u16,
 }
@@ -951,10 +975,89 @@ pub(crate) struct ObservedIpV4Addr {
 /// Frame for an observed ipv6 address.
 ///
 /// This corresponds to [`Type::OBSERVED_IPV6_ADDR`].
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ObservedIpV6Addr {
-    request_id: u64, // TODO(@divma): this doesn't seem to be defined anywhere
+    /// Random request id for debugging.
+    ///
+    /// NOTE(@divma): this is an assumption I make since this is not defined anywhere and STUN
+    /// indications use a random id as well.
+    request_id: u64,
     ip: Ipv6Addr,
     port: u16,
+}
+
+impl ObservedIpV4Addr {
+    pub(crate) fn write<W: BufMut>(&self, buf: &mut W) {
+        buf.write(Type::OBSERVED_IPV4_ADDR);
+        buf.write(self.ip);
+        buf.write::<u16>(self.port);
+    }
+
+    /// Reads the frame contents from the buffer.
+    ///
+    /// Should only be called when the fram type has been identified as [`Type::OBSERVED_IPV4_ADDR`].
+    pub(crate) fn read<R: Buf>(bytes: &mut R) -> coding::Result<Self> {
+        let request_id = bytes.get()?;
+        let ip = bytes.get()?;
+        let port = bytes.get()?;
+        Ok(Self {
+            request_id,
+            ip,
+            port,
+        })
+    }
+}
+
+impl ObservedIpV6Addr {
+    pub(crate) fn write<W: BufMut>(&self, buf: &mut W) {
+        buf.write(Type::OBSERVED_IPV6_ADDR);
+        buf.write(self.ip);
+        buf.write::<u16>(self.port);
+    }
+
+    /// Reads the frame contents from the buffer.
+    ///
+    /// Should only be called when the fram type has been identified as [`Type::OBSERVED_IPV6_ADDR`].
+    pub(crate) fn read<R: Buf>(bytes: &mut R) -> coding::Result<Self> {
+        let request_id = bytes.get()?;
+        let ip = bytes.get()?;
+        let port = bytes.get()?;
+        Ok(Self {
+            request_id,
+            ip,
+            port,
+        })
+    }
+}
+
+impl From<ObservedIpV4Addr> for ObservedAddr {
+    fn from(observed: ObservedIpV4Addr) -> Self {
+        let ObservedIpV4Addr {
+            request_id,
+            ip,
+            port,
+        } = observed;
+        ObservedAddr {
+            ip: ip.into(),
+            port,
+            request_id,
+        }
+    }
+}
+
+impl From<ObservedIpV6Addr> for ObservedAddr {
+    fn from(observed: ObservedIpV6Addr) -> Self {
+        let ObservedIpV6Addr {
+            request_id,
+            ip,
+            port,
+        } = observed;
+        ObservedAddr {
+            ip: ip.into(),
+            port,
+            request_id,
+        }
+    }
 }
 
 #[cfg(test)]
