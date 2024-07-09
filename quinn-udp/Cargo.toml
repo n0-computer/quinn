@@ -20,9 +20,16 @@ log = ["tracing/log"]
 
 [dependencies]
 libc = "0.2.113"
-socket2 = "0.5"
+socket2 = { workspace = true }
 tracing = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52.0", features = ["Win32_Foundation", "Win32_System_IO", "Win32_Networking_WinSock"] }
 once_cell = "1.19.0"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.bench]
+name = "throughput"
+harness = false
