@@ -2887,9 +2887,10 @@ impl Connection {
                         self.discard_space(now, SpaceId::Handshake);
                     }
                 }
-                Frame::ObservedAddr(()) => {
-                    trace!("got observed addr");
+                Frame::ObservedAddr(observed) => {
+                    tracing::info!(?observed, "got observed addr");
                     // TODO(@divma): do things
+                    // TODO(@divma): this is ack eliciting
                 }
             }
         }
