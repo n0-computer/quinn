@@ -1,6 +1,6 @@
 [package]
 name = "iroh-quinn-proto"
-version = "0.10.7"
+version = "0.10.8"
 edition = "2021"
 rust-version = "1.73"
 license = "MIT OR Apache-2.0"
