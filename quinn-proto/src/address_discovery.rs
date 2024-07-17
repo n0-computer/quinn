@@ -44,6 +44,14 @@ impl TryFrom<VarInt> for Role {
 }
 
 impl Role {
+    pub(crate) fn new(is_observer: bool, is_observee: bool) -> Option<Self> {
+        match (is_observer, is_observee) {
+            (true, true) => Some(Role::Both),
+            (true, false) => Some(Role::Observer),
+            (false, true) => Some(Role::Observee),
+            (false, false) => None,
+        }
+    }
     /// Whether this peer's role allows for address reporting to other peers.
     fn is_reporter(&self) -> bool {
         matches!(self, Role::Observer | Role::Both)
