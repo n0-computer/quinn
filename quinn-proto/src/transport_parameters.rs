@@ -165,7 +165,10 @@ impl TransportParameters {
             min_ack_delay: Some(
                 VarInt::from_u64(u64::try_from(TIMER_GRANULARITY.as_micros()).unwrap()).unwrap(),
             ),
-            address_discovery_role: config.address_discovery_role,
+            address_discovery_role: address_discovery::Role::new(
+                config.report_observed_addresses,
+                config.accept_observed_address_reports,
+            ),
             ..Self::default()
         }
     }
@@ -440,6 +443,10 @@ impl TransportParameters {
                         return Err(Error::Malformed);
                     }
                     params.address_discovery_role = Some(value.try_into()?);
+                    tracing::info!(
+                        role = ?params.address_discovery_role,
+                        "address discovery enabled for peer"
+                    );
                 }
                 _ => {
                     macro_rules! parse {
