@@ -2,11 +2,11 @@
 use std::{
     convert::TryInto,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use crc::Crc;
 use iroh_quinn::{ConnectionError, ReadError, TransportConfig, WriteError};
+use proto::Duration;
 use rand::{self, RngCore};
 use tokio::runtime::Builder;
 

@@ -1,11 +1,14 @@
+#[cfg(feature = "network")]
 use std::{
     io::{self, IoSliceMut},
     sync::Mutex,
     time::Instant,
 };
 
+#[cfg(feature = "network")]
 use proto::Transmit;
 
+#[cfg(feature = "network")]
 use super::{log_sendmsg_error, RecvMeta, UdpSockRef, UdpState, IO_ERROR_LOG_INTERVAL};
 
 /// Fallback UDP socket interface that stubs out all special functionality
@@ -14,10 +17,12 @@ use super::{log_sendmsg_error, RecvMeta, UdpSockRef, UdpState, IO_ERROR_LOG_INTE
 /// reduced performance compared to that enabled by some target-specific interfaces.
 #[derive(Debug)]
 pub struct UdpSocketState {
+    #[cfg(feature = "network")]
     last_send_error: Mutex<Instant>,
 }
 
 impl UdpSocketState {
+    #[cfg(feature = "network")]
     pub fn new() -> Self {
         let now = Instant::now();
         Self {
@@ -25,10 +30,12 @@ impl UdpSocketState {
         }
     }
 
+    #[cfg(feature = "network")]
     pub fn configure(socket: UdpSockRef<'_>) -> io::Result<()> {
         socket.0.set_nonblocking(true)
     }
 
+    #[cfg(feature = "network")]
     pub fn send(
         &self,
         socket: UdpSockRef<'_>,
@@ -67,6 +74,7 @@ impl UdpSocketState {
         Ok(sent)
     }
 
+    #[cfg(feature = "network")]
     pub fn recv(
         &self,
         socket: UdpSockRef<'_>,
@@ -92,6 +100,7 @@ impl UdpSocketState {
     }
 }
 
+#[cfg(feature = "network")]
 impl Default for UdpSocketState {
     fn default() -> Self {
         Self::new()

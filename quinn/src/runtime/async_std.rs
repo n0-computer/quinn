@@ -23,6 +23,7 @@ impl Runtime for AsyncStdRuntime {
         async_std::task::spawn(future);
     }
 
+    #[cfg(not(feature = "wasm"))]
     fn wrap_udp_socket(&self, sock: std::net::UdpSocket) -> io::Result<Box<dyn AsyncUdpSocket>> {
         udp::UdpSocketState::configure((&sock).into())?;
         Ok(Box::new(UdpSocket {
