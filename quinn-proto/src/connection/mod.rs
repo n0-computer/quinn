@@ -3110,6 +3110,24 @@ impl Connection {
                 trace!("PATH_CHALLENGE {:08x}", token);
                 buf.write(frame::Type::PATH_CHALLENGE);
                 buf.write(token);
+
+                // if address discovery is enabled, send the observed address
+                // TODO(@divma): since this could be retransmitted we should prob store it
+                if self
+                    .config
+                    .address_discovery_role
+                    .should_report(&self.peer_params.address_discovery_role)
+                {
+                    let observed = frame::ObservedAddr {
+                        ip: self.path.remote.ip(),
+                        port: self.path.remote.port(),
+                        // TODO(@divma): gen rand request_id
+                        request_id: 1,
+                    };
+                    tracing::info!(?observed, "sending observed addr with path challenge");
+                    observed.write(buf);
+                    self.stats.frame_tx.observed_addr += 1;
+                }
                 self.stats.frame_tx.path_challenge += 1;
             }
         }

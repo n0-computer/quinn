@@ -101,7 +101,7 @@ macro_rules! make_struct {
             /// The server's preferred address for communication after handshake completion
             pub(crate) preferred_address: Option<PreferredAddress>,
             /// The role of this peer in address discovery, if any.
-            pub(crate) address_discovery_role: Option<address_discovery::Role>
+            pub(crate) address_discovery_role: address_discovery::Role,
         }
 
         // We deliberately don't implement the `Default` trait, since that would be public, and
@@ -124,7 +124,7 @@ macro_rules! make_struct {
                     stateless_reset_token: None,
                     preferred_address: None,
 
-                    address_discovery_role: None,
+                    address_discovery_role: address_discovery::Role::Disabled,
                 }
             }
         }
@@ -165,10 +165,7 @@ impl TransportParameters {
             min_ack_delay: Some(
                 VarInt::from_u64(u64::try_from(TIMER_GRANULARITY.as_micros()).unwrap()).unwrap(),
             ),
-            address_discovery_role: address_discovery::Role::new(
-                config.report_observed_addresses,
-                config.accept_observed_address_reports,
-            ),
+            address_discovery_role: config.address_discovery_role,
             ..Self::default()
         }
     }
@@ -360,8 +357,8 @@ impl TransportParameters {
             w.write(x);
         }
 
-        if let Some(role) = self.address_discovery_role {
-            let varint_role: VarInt = role.into();
+        let maybe_role: Option<VarInt> = self.address_discovery_role.into();
+        if let Some(varint_role) = maybe_role {
             w.write_var(address_discovery::TRANSPORT_PARAMETER_CODE);
             w.write_var(varint_role.size() as u64);
             w.write(varint_role);
@@ -431,10 +428,9 @@ impl TransportParameters {
                 },
                 0xff04de1b => params.min_ack_delay = Some(r.get().unwrap()),
                 address_discovery::TRANSPORT_PARAMETER_CODE => {
-                    // TODO(@divma): based on the code of parse in the next match statement
-                    if params.address_discovery_role.is_some() {
+                    if !params.address_discovery_role.is_disabled() {
                         // duplicate parameter
-                        // NOTE: this depends on the default being None, which is reasonable. Is
+                        // NOTE: this depends on the default being Disabled, which is reasonable. Is
                         // this handled in a better way somewhere?
                         return Err(Error::Malformed);
                     }
@@ -442,7 +438,7 @@ impl TransportParameters {
                     if len != value.size() {
                         return Err(Error::Malformed);
                     }
-                    params.address_discovery_role = Some(value.try_into()?);
+                    params.address_discovery_role = value.try_into()?;
                     tracing::info!(
                         role = ?params.address_discovery_role,
                         "address discovery enabled for peer"

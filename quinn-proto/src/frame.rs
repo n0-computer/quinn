@@ -1,7 +1,7 @@
 use std::{
     fmt::{self, Write},
     io, mem,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    net::IpAddr,
     ops::{Range, RangeInclusive},
 };
 
@@ -698,13 +698,10 @@ impl Iter {
                 reordering_threshold: self.bytes.get()?,
             }),
             Type::IMMEDIATE_ACK => Frame::ImmediateAck,
-            Type::OBSERVED_IPV4_ADDR => {
-                let observed = ObservedIpV4Addr::read(&mut self.bytes)?;
-                Frame::ObservedAddr(observed.into())
-            }
-            Type::OBSERVED_IPV6_ADDR => {
-                let observed = ObservedIpV6Addr::read(&mut self.bytes)?;
-                Frame::ObservedAddr(observed.into())
+            Type::OBSERVED_IPV4_ADDR | Type::OBSERVED_IPV6_ADDR => {
+                let is_ipv6 = ty == Type::OBSERVED_IPV6_ADDR;
+                let observed = ObservedAddr::read(&mut self.bytes, is_ipv6)?;
+                Frame::ObservedAddr(observed)
             }
             _ => {
                 if let Some(s) = ty.stream() {
@@ -954,109 +951,46 @@ impl AckFrequency {
 /// [`ObservedIpV6Addr`]).
 #[derive(Debug)]
 pub(crate) struct ObservedAddr {
-    ip: IpAddr,
-    port: u16,
-    request_id: u64,
-}
-
-/// Frame for an observed ipv4 address.
-///
-/// This corresponds to [`Type::OBSERVED_IPV4_ADDR`].
-pub(crate) struct ObservedIpV4Addr {
     /// Random request id for debugging.
     ///
     /// NOTE(@divma): this is an assumption I make since this is not defined anywhere and STUN
     /// indications use a random id as well.
-    request_id: u64,
-    ip: Ipv4Addr,
-    port: u16,
+    pub(crate) ip: IpAddr,
+    pub(crate) port: u16,
+    pub(crate) request_id: u64,
 }
 
-/// Frame for an observed ipv6 address.
-///
-/// This corresponds to [`Type::OBSERVED_IPV6_ADDR`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ObservedIpV6Addr {
-    /// Random request id for debugging.
-    ///
-    /// NOTE(@divma): this is an assumption I make since this is not defined anywhere and STUN
-    /// indications use a random id as well.
-    request_id: u64,
-    ip: Ipv6Addr,
-    port: u16,
-}
-
-impl ObservedIpV4Addr {
+impl ObservedAddr {
     pub(crate) fn write<W: BufMut>(&self, buf: &mut W) {
-        buf.write(Type::OBSERVED_IPV4_ADDR);
-        buf.write(self.ip);
+        match self.ip {
+            IpAddr::V4(ipv4_addr) => {
+                buf.write(Type::OBSERVED_IPV4_ADDR);
+                buf.write(ipv4_addr);
+            }
+            IpAddr::V6(ipv6_addr) => {
+                buf.write(Type::OBSERVED_IPV6_ADDR);
+                buf.write(ipv6_addr);
+            }
+        }
         buf.write::<u16>(self.port);
     }
 
     /// Reads the frame contents from the buffer.
     ///
     /// Should only be called when the fram type has been identified as [`Type::OBSERVED_IPV4_ADDR`].
-    pub(crate) fn read<R: Buf>(bytes: &mut R) -> coding::Result<Self> {
+    pub(crate) fn read<R: Buf>(bytes: &mut R, is_ipv6: bool) -> coding::Result<Self> {
         let request_id = bytes.get()?;
-        let ip = bytes.get()?;
+        let ip = if is_ipv6 {
+            IpAddr::V6(bytes.get()?)
+        } else {
+            IpAddr::V4(bytes.get()?)
+        };
         let port = bytes.get()?;
         Ok(Self {
             request_id,
             ip,
             port,
         })
-    }
-}
-
-impl ObservedIpV6Addr {
-    pub(crate) fn write<W: BufMut>(&self, buf: &mut W) {
-        buf.write(Type::OBSERVED_IPV6_ADDR);
-        buf.write(self.ip);
-        buf.write::<u16>(self.port);
-    }
-
-    /// Reads the frame contents from the buffer.
-    ///
-    /// Should only be called when the fram type has been identified as [`Type::OBSERVED_IPV6_ADDR`].
-    pub(crate) fn read<R: Buf>(bytes: &mut R) -> coding::Result<Self> {
-        let request_id = bytes.get()?;
-        let ip = bytes.get()?;
-        let port = bytes.get()?;
-        Ok(Self {
-            request_id,
-            ip,
-            port,
-        })
-    }
-}
-
-impl From<ObservedIpV4Addr> for ObservedAddr {
-    fn from(observed: ObservedIpV4Addr) -> Self {
-        let ObservedIpV4Addr {
-            request_id,
-            ip,
-            port,
-        } = observed;
-        ObservedAddr {
-            ip: ip.into(),
-            port,
-            request_id,
-        }
-    }
-}
-
-impl From<ObservedIpV6Addr> for ObservedAddr {
-    fn from(observed: ObservedIpV6Addr) -> Self {
-        let ObservedIpV6Addr {
-            request_id,
-            ip,
-            port,
-        } = observed;
-        ObservedAddr {
-            ip: ip.into(),
-            port,
-            request_id,
-        }
     }
 }
 

@@ -17,6 +17,7 @@ use thiserror::Error;
 #[cfg(feature = "rustls")]
 use crate::crypto::rustls::QuicServerConfig;
 use crate::{
+    address_discovery,
     cid_generator::{ConnectionIdGenerator, HashedConnectionIdGenerator},
     congestion,
     crypto::{self, HandshakeTokenKey, HmacKey},
@@ -66,8 +67,7 @@ pub struct TransportConfig {
 
     pub(crate) enable_segmentation_offload: bool,
 
-    pub(crate) report_observed_addresses: bool,
-    pub(crate) accept_observed_address_reports: bool,
+    pub(crate) address_discovery_role: crate::address_discovery::Role,
 }
 
 impl TransportConfig {
@@ -330,7 +330,8 @@ impl TransportConfig {
     /// This will aid peers in inferring their reachable address, which in most NATd networks
     /// will not be easily available to them.
     pub fn report_observed_addresses_to_peers(&mut self, enabled: bool) -> &mut Self {
-        self.report_observed_addresses = enabled;
+        self.address_discovery_role
+            .provide_reports_to_peers(enabled);
         self
     }
 
@@ -341,7 +342,8 @@ impl TransportConfig {
     /// reports cannot be trusted. This, however, can aid the current endpoint in inferring its
     /// reachable address, which in most NATd networks will not be easily available.
     pub fn accept_observed_address_reports(&mut self, enabled: bool) -> &mut Self {
-        self.accept_observed_address_reports = enabled;
+        self.address_discovery_role
+            .receive_reports_from_peers(enabled);
         self
     }
 }
@@ -384,8 +386,7 @@ impl Default for TransportConfig {
 
             enable_segmentation_offload: true,
 
-            report_observed_addresses: false,
-            accept_observed_address_reports: false,
+            address_discovery_role: address_discovery::Role::default(),
         }
     }
 }
@@ -416,8 +417,7 @@ impl fmt::Debug for TransportConfig {
                 deterministic_packet_numbers: _,
             congestion_controller_factory: _,
             enable_segmentation_offload,
-            report_observed_addresses,
-            accept_observed_address_reports,
+            address_discovery_role,
         } = self;
         fmt.debug_struct("TransportConfig")
             .field("max_concurrent_bidi_streams", max_concurrent_bidi_streams)
@@ -444,11 +444,7 @@ impl fmt::Debug for TransportConfig {
             .field("datagram_send_buffer_size", datagram_send_buffer_size)
             .field("congestion_controller_factory", &"[ opaque ]")
             .field("enable_segmentation_offload", enable_segmentation_offload)
-            .field("report_observed_addresses", report_observed_addresses)
-            .field(
-                "accept_observed_address_reports",
-                accept_observed_address_reports,
-            )
+            .field("address_discovery_role", address_discovery_role)
             .finish()
     }
 }
