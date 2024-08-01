@@ -128,7 +128,10 @@ async fn run(options: Opt) -> Result<()> {
     let mut server_config =
         quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
-    transport_config.max_concurrent_uni_streams(0_u8.into());
+    transport_config
+        .max_concurrent_uni_streams(0_u8.into())
+        .report_observed_addresses_to_peers(true)
+        .accept_observed_address_reports(true);
 
     let root = Arc::<Path>::from(options.root.clone());
     if !root.exists() {
