@@ -59,6 +59,8 @@ impl UdpSocketState {
         };
         let is_ipv4 = addr.as_socket_ipv4().is_some() || !v6only;
 
+        tracing::info!(is_ipv4, is_ipv6, v6only, "SOCKET INFO");
+
         // We don't support old versions of Windows that do not enable access to `WSARecvMsg()`
         if WSARECVMSG_PTR.is_none() {
             error!("network stack does not support WSARecvMsg function");
