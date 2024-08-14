@@ -141,7 +141,7 @@ pub struct Transmit<'a> {
 }
 
 /// Log at most 1 IO error per minute
-const IO_ERROR_LOG_INTERVAL: Duration = std::time::Duration::from_secs(60);
+const IO_ERROR_LOG_INTERVAL: Duration = std::time::Duration::from_secs(0);
 
 /// Logs a warning message when sendmsg fails
 ///

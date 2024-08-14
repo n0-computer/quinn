@@ -109,7 +109,7 @@ impl UdpSocketState {
         }
 
         // Opportunistically try to enable GRO
-        _ = set_socket_option(
+        let res = set_socket_option(
             &*socket.0,
             WinSock::IPPROTO_UDP,
             WinSock::UDP_RECV_MAX_COALESCED_SIZE,
@@ -118,6 +118,8 @@ impl UdpSocketState {
             // Choice of 2^16 - 1 inspired by msquic.
             u16::MAX as u32,
         );
+
+        tracing::warn!(gro_enabled = res.is_ok(), "GRO enabled?");
 
         let now = Instant::now();
         Ok(Self {
