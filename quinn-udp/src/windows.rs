@@ -199,6 +199,11 @@ impl UdpSocketState {
 
         encoder.finish();
 
+        tracing::trace!("UdpSocketState::send: {:?}, Transmit: {{ destination: {:?}, src_ip: {:?}, enc: {:?}, len: {:?}, segment_size: {:?} }}, dwFlags: {:b}",
+            err, transmit.destination, transmit.src_ip, transmit.ecn, transmit.contents.len(), transmit.segment_size,
+            wsa_msg.dwFlags
+        );
+
         let mut len = 0;
         let rc = unsafe {
             WinSock::WSASendMsg(
