@@ -2888,9 +2888,21 @@ impl Connection {
                     }
                 }
                 Frame::ObservedAddr(observed) => {
-                    tracing::info!(?observed, "got observed addr");
-                    // TODO(@divma): do things
-                    // TODO(@divma): this is ack eliciting
+                    if self
+                        .peer_params
+                        .address_discovery_role
+                        .should_report(&self.config.address_discovery_role)
+                    {
+                        tracing::info!(?observed, "got observed addr");
+                        // TODO(@divma): do thingss
+                        // TODO(@divma): this is ack eliciting
+                    } else {
+                        // TODO(@divma): remove, for comedic debugging purposes
+                        tracing::error!(?observed, our_role=?self.config.address_discovery_role, their_role=?self.peer_params.address_discovery_role, "naughty boy sent observed addr with incompatible roles");
+                        return Err(TransportError::PROTOCOL_VIOLATION(
+                            "received observed address frame when not negotiated",
+                        ));
+                    }
                 }
             }
         }
