@@ -941,8 +941,8 @@ impl AckFrequency {
 
 /* Address Discovery https://datatracker.ietf.org/doc/draft-seemann-quic-address-discovery/ */
 
-/// Conjuction of the information contained in the address discovery frames ([`ObservedIpV4Addr`],
-/// [`ObservedIpV6Addr`]).
+/// Conjuction of the information contained in the address discovery frames
+/// ([`Type::OBSERVED_IPV4_ADDR`], [`Type::OBSERVED_IPV6_ADDR`]).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ObservedAddr {
     /// Random request id for debugging.
