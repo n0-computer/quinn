@@ -3032,6 +3032,27 @@ impl Connection {
         let is_0rtt = space_id == SpaceId::Data && space.crypto.is_none();
         space.pending_acks.maybe_ack_non_eliciting();
 
+        let mut send_observed_address = |buf: &mut Vec<u8>, max_size: usize| {
+            if self
+                .config
+                .address_discovery_role
+                .should_report(&self.peer_params.address_discovery_role)
+            {
+                let observed = frame::ObservedAddr {
+                    ip: self.path.remote.ip(),
+                    port: self.path.remote.port(),
+                    request_id: VarInt(self.rng.gen_range(0..VarInt::MAX.0)),
+                };
+                if buf.len() + observed.size() < max_size {
+                    tracing::info!(?observed, "reporting observed addr");
+                    observed.write(buf);
+                    return true;
+                }
+            }
+
+            false
+        };
+
         // HANDSHAKE_DONE
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
             buf.write(frame::Type::HANDSHAKE_DONE);
@@ -3039,6 +3060,10 @@ impl Connection {
             // This is just a u8 counter and the frame is typically just sent once
             self.stats.frame_tx.handshake_done =
                 self.stats.frame_tx.handshake_done.saturating_add(1);
+
+            if send_observed_address(buf, max_size) {
+                self.stats.frame_tx.observed_addr += 1;
+            }
         }
 
         // PING
@@ -3111,24 +3136,9 @@ impl Connection {
                 buf.write(frame::Type::PATH_CHALLENGE);
                 buf.write(token);
 
-                // if address discovery is enabled, send the observed address
-                // TODO(@divma): since this could be retransmitted we should prob store it
-                if self
-                    .config
-                    .address_discovery_role
-                    .should_report(&self.peer_params.address_discovery_role)
-                {
-                    let observed = frame::ObservedAddr {
-                        ip: self.path.remote.ip(),
-                        port: self.path.remote.port(),
-                        // TODO(@divma): gen rand request_id
-                        request_id: 1,
-                    };
-                    tracing::info!(?observed, "sending observed addr with path challenge");
-                    observed.write(buf);
-                    self.stats.frame_tx.observed_addr += 1;
+                if send_observed_address(buf, max_size) {
+                    self.stats.frame_tx.path_challenge += 1;
                 }
-                self.stats.frame_tx.path_challenge += 1;
             }
         }
 

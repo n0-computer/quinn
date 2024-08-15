@@ -209,13 +209,7 @@ impl Frame {
             AckFrequency(_) => Type::ACK_FREQUENCY,
             ImmediateAck => Type::IMMEDIATE_ACK,
             HandshakeDone => Type::HANDSHAKE_DONE,
-            ObservedAddr(ref observed) => {
-                if observed.ip.is_ipv4() {
-                    Type::OBSERVED_IPV4_ADDR
-                } else {
-                    Type::OBSERVED_IPV6_ADDR
-                }
-            }
+            ObservedAddr(ref observed) => observed.get_type(),
         }
     }
 
@@ -949,26 +943,45 @@ impl AckFrequency {
 
 /// Conjuction of the information contained in the address discovery frames ([`ObservedIpV4Addr`],
 /// [`ObservedIpV6Addr`]).
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ObservedAddr {
     /// Random request id for debugging.
     ///
     /// NOTE(@divma): this is an assumption I make since this is not defined anywhere and STUN
     /// indications use a random id as well.
+    pub(crate) request_id: VarInt,
     pub(crate) ip: IpAddr,
     pub(crate) port: u16,
-    pub(crate) request_id: u64,
 }
 
 impl ObservedAddr {
+    /// Get the [`Type`] for this frame.
+    pub(crate) fn get_type(&self) -> Type {
+        if self.ip.is_ipv6() {
+            Type::OBSERVED_IPV6_ADDR
+        } else {
+            Type::OBSERVED_IPV4_ADDR
+        }
+    }
+
+    /// Compute the number of bytes needed to encode the frame.
+    pub(crate) fn size(&self) -> usize {
+        let type_size = VarInt(self.get_type().0).size();
+        let req_id_bytes = self.request_id.size();
+        let ip_bytes = if self.ip.is_ipv6() { 16 } else { 4 };
+        let port_bytes = 2;
+        type_size + req_id_bytes + ip_bytes + port_bytes
+    }
+
+    /// Unconditionally write this frame to `buf`.
     pub(crate) fn write<W: BufMut>(&self, buf: &mut W) {
+        buf.write(self.get_type());
+        buf.write(self.request_id);
         match self.ip {
             IpAddr::V4(ipv4_addr) => {
-                buf.write(Type::OBSERVED_IPV4_ADDR);
                 buf.write(ipv4_addr);
             }
             IpAddr::V6(ipv6_addr) => {
-                buf.write(Type::OBSERVED_IPV6_ADDR);
                 buf.write(ipv6_addr);
             }
         }
@@ -977,7 +990,8 @@ impl ObservedAddr {
 
     /// Reads the frame contents from the buffer.
     ///
-    /// Should only be called when the fram type has been identified as [`Type::OBSERVED_IPV4_ADDR`].
+    /// Should only be called when the fram type has been identified as
+    /// [`Type::OBSERVED_IPV4_ADDR`] or [`Type::OBSERVED_IPV6_ADDR`].
     pub(crate) fn read<R: Buf>(bytes: &mut R, is_ipv6: bool) -> coding::Result<Self> {
         let request_id = bytes.get()?;
         let ip = if is_ipv6 {
@@ -996,6 +1010,7 @@ impl ObservedAddr {
 
 #[cfg(test)]
 mod test {
+
     use super::*;
     use crate::coding::Codec;
     use assert_matches::assert_matches;
@@ -1060,5 +1075,30 @@ mod test {
         let frames = frames(buf);
         assert_eq!(frames.len(), 1);
         assert_matches!(&frames[0], Frame::ImmediateAck);
+    }
+
+    /// Test that encoding and decoding [`ObservedAddr`] produces the same result.
+    #[test]
+    fn test_observed_addr_roundrip() {
+        let observed_addr = ObservedAddr {
+            request_id: VarInt(42),
+            ip: std::net::Ipv4Addr::LOCALHOST.into(),
+            port: 4242,
+        };
+        let mut buf = Vec::with_capacity(observed_addr.size());
+        observed_addr.write(&mut buf);
+
+        assert_eq!(
+            observed_addr.size(),
+            buf.len(),
+            "expected written bytes and actual size differ"
+        );
+
+        let mut decoded = frames(buf);
+        assert_eq!(decoded.len(), 1);
+        match decoded.pop().expect("non empty") {
+            Frame::ObservedAddr(decoded) => assert_eq!(decoded, observed_addr),
+            x => panic!("incorrect frame {x:?}"),
+        }
     }
 }
