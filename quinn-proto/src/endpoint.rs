@@ -590,18 +590,12 @@ impl Endpoint {
         let server_config =
             server_config.unwrap_or_else(|| self.server_config.as_ref().unwrap().clone());
 
-        if incoming
-            .crypto
-            .packet
-            .remote
-            .decrypt(
-                packet_number,
-                &incoming.packet.header_data,
-                &mut incoming.packet.payload,
-            )
-            .is_err()
-        {
-            debug!(packet_number, "failed to authenticate initial packet");
+        if let Err(err) = incoming.crypto.packet.remote.decrypt(
+            packet_number,
+            &incoming.packet.header_data,
+            &mut incoming.packet.payload,
+        ) {
+            debug!(packet_number, ?err, "failed to authenticate initial packet");
             self.index.remove_initial(incoming.orig_dst_cid);
             return Err(AcceptError {
                 cause: TransportError::PROTOCOL_VIOLATION("authentication failed").into(),
