@@ -591,7 +591,10 @@ impl crypto::PacketKey for Box<dyn PacketKey> {
     ) -> Result<(), CryptoError> {
         let plain = self
             .decrypt_in_place(packet, header, payload.as_mut())
-            .map_err(|_| CryptoError)?;
+            .map_err(|e| {
+                tracing::error!(?e, "Crypto error");
+                CryptoError
+            })?;
         let plain_len = plain.len();
         payload.truncate(plain_len);
         Ok(())
