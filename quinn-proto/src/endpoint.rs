@@ -590,17 +590,18 @@ impl Endpoint {
         let server_config =
             server_config.unwrap_or_else(|| self.server_config.as_ref().unwrap().clone());
 
-        let payload = incoming.packet.payload.to_vec();
-
-        if let Err(err) = incoming.crypto.packet.remote.decrypt(
+        if let Err(_) = incoming.crypto.packet.remote.decrypt(
             packet_number,
             &incoming.packet.header_data,
             &mut incoming.packet.payload,
         ) {
             debug!(
                 packet_number,
-                ?err,
-                ?payload,
+                ?incoming.addresses,
+                ?incoming.packet.header,
+                ?incoming.retry_src_cid,
+                ?incoming.orig_dst_cid,
+                ?incoming.incoming_idx,
                 "failed to authenticate initial packet"
             );
             self.index.remove_initial(incoming.orig_dst_cid);
