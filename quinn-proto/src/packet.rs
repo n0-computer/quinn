@@ -584,7 +584,8 @@ impl ProtectedHeader {
         let first = buf.get::<u8>()?;
         let bit_set = first & FIXED_BIT != 0;
         trace!(
-            first = format!("{first:b}"),
+            first = %format!("{first:08b}"),
+            FIXED_BIT = %format!("{FIXED_BIT:08b}"),
             bit_set,
             ?grease_quic_bit,
             "grease quic bit"
