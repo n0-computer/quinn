@@ -597,6 +597,7 @@ impl Endpoint {
         ) {
             debug!(
                 packet_number,
+                pn_bits = %format!("{packet_number:032b}"),
                 ?incoming.addresses,
                 ?incoming.packet.header,
                 ?incoming.retry_src_cid,
