@@ -2,6 +2,7 @@ use std::{cmp::Ordering, io, ops::Range, str};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use thiserror::Error;
+use tracing::trace;
 
 use crate::{
     coding::{self, BufExt, BufMutExt},
@@ -582,6 +583,7 @@ impl ProtectedHeader {
     ) -> Result<Self, PacketDecodeError> {
         let first = buf.get::<u8>()?;
         if !grease_quic_bit && first & FIXED_BIT == 0 {
+            trace!("Skipping packet due to unset grease quic bit");
             return Err(PacketDecodeError::InvalidHeader("fixed bit unset"));
         }
         if first & LONG_HEADER_FORM == 0 {
