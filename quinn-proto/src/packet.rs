@@ -583,7 +583,12 @@ impl ProtectedHeader {
     ) -> Result<Self, PacketDecodeError> {
         let first = buf.get::<u8>()?;
         let bit_set = first & FIXED_BIT != 0;
-        trace!(first, bit_set, ?grease_quic_bit, "grease quic bit");
+        trace!(
+            first = format!("{first:b}"),
+            bit_set,
+            ?grease_quic_bit,
+            "grease quic bit"
+        );
         if !grease_quic_bit && !bit_set {
             return Err(PacketDecodeError::InvalidHeader("fixed bit unset"));
         }
