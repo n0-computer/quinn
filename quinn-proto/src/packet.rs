@@ -299,6 +299,7 @@ impl Header {
                 w.write_var(token.len() as u64);
                 w.put_slice(token);
                 w.write::<u16>(0); // Placeholder for payload length; see `set_payload_length`
+                tracing::trace!(packet_number = ?number, "writing packet number");
                 number.encode(w);
                 PartialEncode {
                     start,
