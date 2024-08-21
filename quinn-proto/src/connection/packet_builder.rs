@@ -119,13 +119,21 @@ impl PacketBuilder {
                 number,
                 version,
             },
-            SpaceId::Initial => Header::Initial(InitialHeader {
-                src_cid: conn.handshake_cid,
-                dst_cid,
-                token: conn.retry_token.clone(),
-                number,
-                version,
-            }),
+            SpaceId::Initial => {
+                trace!(
+                    src_cid = ?conn.handshake_cid,
+                    ?dst_cid,
+                    packet_number = ?number,
+                    "constructing initial handshake packet"
+                );
+                Header::Initial(InitialHeader {
+                    src_cid: conn.handshake_cid,
+                    dst_cid,
+                    token: conn.retry_token.clone(),
+                    number,
+                    version,
+                })
+            }
         };
         let partial_encode = header.encode(buffer);
         if conn.peer_params.grease_quic_bit && conn.rng.gen() {
