@@ -582,8 +582,9 @@ impl ProtectedHeader {
         grease_quic_bit: bool,
     ) -> Result<Self, PacketDecodeError> {
         let first = buf.get::<u8>()?;
-        if !grease_quic_bit && first & FIXED_BIT == 0 {
-            trace!("Skipping packet due to unset grease quic bit");
+        let grease_bit = first & FIXED_BIT == 0;
+        trace!(grease_bit, "grease quic bit");
+        if !grease_quic_bit && grease_bit {
             return Err(PacketDecodeError::InvalidHeader("fixed bit unset"));
         }
         if first & LONG_HEADER_FORM == 0 {
