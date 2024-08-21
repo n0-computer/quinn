@@ -214,6 +214,7 @@ impl Endpoint {
                 first_decode,
                 remaining,
             };
+            tracing::error!(?route_to, hash, "RECV DATAGRAM ROUTED");
             match route_to {
                 RouteDatagramTo::Incoming(incoming_idx) => {
                     let incoming_buffer = &mut self.incoming_buffers[incoming_idx];
@@ -258,6 +259,11 @@ impl Endpoint {
         let server_config = match &self.server_config {
             Some(config) => config,
             None => {
+                tracing::error!(
+                    route_to = "unrecognized connection",
+                    hash,
+                    "RECV DATAGRAM ROUTED"
+                );
                 debug!("packet for unrecognized connection {}", dst_cid);
                 return self
                     .stateless_reset(now, datagram_len, addresses, dst_cid, buf)
@@ -268,6 +274,11 @@ impl Endpoint {
         if let Some(header) = first_decode.initial_header() {
             if datagram_len < MIN_INITIAL_SIZE as usize {
                 debug!("ignoring short initial for connection {}", dst_cid);
+                tracing::error!(
+                    route_to = "short initial, ignored",
+                    hash,
+                    "RECV DATAGRAM ROUTED"
+                );
                 return None;
             }
 
@@ -279,6 +290,11 @@ impl Endpoint {
                     debug!(
                         "ignoring initial packet version {:#x} unsupported by cryptographic layer",
                         header.version
+                    );
+                    tracing::error!(
+                        route_to = "unsupported packet version, ignored",
+                        hash,
+                        "RECV DATAGRAM ROUTED"
                     );
                     return None;
                 }
@@ -298,10 +314,15 @@ impl Endpoint {
             return match first_decode.finish(Some(&*crypto.header.remote)) {
                 Ok(packet) => {
                     trace!(?addresses, hash, "incoming datagram ok, handling");
-                    self.handle_first_packet(addresses, ecn, packet, remaining, crypto, buf)
+                    self.handle_first_packet(hash, addresses, ecn, packet, remaining, crypto, buf)
                 }
                 Err(e) => {
                     trace!("unable to decode initial packet: {}", e);
+                    tracing::error!(
+                        route_to = "unable to decode, ignored",
+                        hash,
+                        "RECV DATAGRAM ROUTED"
+                    );
                     None
                 }
             };
@@ -309,6 +330,11 @@ impl Endpoint {
             debug!(
                 "ignoring non-initial packet for unknown connection {}",
                 dst_cid
+            );
+            tracing::error!(
+                route_to = "non-initial pcaket for unknown connection, ignored",
+                hash,
+                "RECV DATAGRAM ROUTED"
             );
             return None;
         }
@@ -325,6 +351,11 @@ impl Endpoint {
                 .is_err()
         {
             debug!("dropping packet with invalid CID");
+            tracing::error!(
+                route_to = "invalid CID, dropped",
+                hash,
+                "RECV DATAGRAM ROUTED"
+            );
             return None;
         }
 
@@ -334,6 +365,11 @@ impl Endpoint {
                 .map(DatagramEvent::Response);
         }
 
+        tracing::error!(
+            route_to = "unrecognized short missing CID, dropped",
+            hash,
+            "RECV DATAGRAM ROUTED"
+        );
         trace!("dropping unrecognized short packet without ID");
         None
     }
@@ -490,6 +526,7 @@ impl Endpoint {
 
     fn handle_first_packet(
         &mut self,
+        hash: u64,
         addresses: FourTuple,
         ecn: Option<EcnCodepoint>,
         packet: Packet,
@@ -499,6 +536,11 @@ impl Endpoint {
     ) -> Option<DatagramEvent> {
         if !packet.reserved_bits_valid() {
             debug!("dropping connection attempt with invalid reserved bits");
+            tracing::error!(
+                route_to = "invalid reserved bits, dropped",
+                hash,
+                "RECV DATAGRAM ROUTED"
+            );
             return None;
         }
 
@@ -530,6 +572,11 @@ impl Endpoint {
                 }
                 _ => {
                     debug!("rejecting invalid stateless retry token");
+                    tracing::error!(
+                        route_to = "invalid stateless retry, rejected",
+                        hash,
+                        "RECV DATAGRAM ROUTED"
+                    );
                     return Some(DatagramEvent::Response(self.initial_close(
                         header.version,
                         addresses,
@@ -545,6 +592,14 @@ impl Endpoint {
         let incoming_idx = self.incoming_buffers.insert(IncomingBuffer::default());
         self.index
             .insert_initial_incoming(header.dst_cid, incoming_idx);
+
+        tracing::error!(
+            ?addresses,
+            ?header,
+            incoming_idx,
+            hash,
+            "RECV DATAGRAM ROUTED"
+        );
 
         Some(DatagramEvent::NewConnection(Incoming {
             addresses,
@@ -608,9 +663,8 @@ impl Endpoint {
             &incoming.packet.header_data,
             &mut incoming.packet.payload,
         ) {
-            debug!(
+            error!(
                 packet_number,
-                pn_bits = %format!("{packet_number:032b}"),
                 ?incoming.addresses,
                 ?incoming.packet.header,
                 ?incoming.retry_src_cid,
