@@ -148,6 +148,12 @@ impl Endpoint {
         buf: &mut Vec<u8>,
     ) -> Option<DatagramEvent> {
         let datagram_len = data.len();
+        let hash = {
+            use std::hash::Hasher;
+            let mut h = std::hash::DefaultHasher::new();
+            h.write(data.as_ref());
+            h.finish()
+        };
         let (first_decode, remaining) = match PartialDecode::new(
             data,
             &FixedLengthConnectionIdParser::new(self.local_cid_generator.cid_len()),
@@ -238,6 +244,12 @@ impl Endpoint {
             }
         }
 
+        trace!(
+            ?addresses,
+            hash,
+            "incoming datagram can't be associated with connection index"
+        );
+
         //
         // Potentially create a new connection
         //
@@ -285,6 +297,7 @@ impl Endpoint {
 
             return match first_decode.finish(Some(&*crypto.header.remote)) {
                 Ok(packet) => {
+                    trace!(?addresses, hash, "incoming datagram ok, handling");
                     self.handle_first_packet(addresses, ecn, packet, remaining, crypto, buf)
                 }
                 Err(e) => {
@@ -1095,7 +1108,12 @@ impl ConnectionIndex {
             }
         }
         if datagram.is_initial() || datagram.is_0rtt() {
+            trace!(?addresses, "incoming datagram is initial");
             if let Some(&ch) = self.connection_ids_initial.get(datagram.dst_cid()) {
+                trace!(
+                    ?addresses,
+                    "incoming datagram has associated initial connection id"
+                );
                 return Some(ch);
             }
         }
