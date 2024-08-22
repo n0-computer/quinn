@@ -3053,7 +3053,7 @@ impl Connection {
                 let observed = frame::ObservedAddr {
                     ip: self.path.remote.ip(),
                     port: self.path.remote.port(),
-                    request_id: VarInt(self.rng.gen_range(0..VarInt::MAX.0)),
+                    seq_no: VarInt(self.rng.gen_range(0..VarInt::MAX.0)),
                 };
                 if buf.len() + observed.size() < max_size {
                     tracing::info!(?observed, "reporting observed addr");

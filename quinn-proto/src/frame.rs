@@ -945,12 +945,11 @@ impl AckFrequency {
 /// ([`Type::OBSERVED_IPV4_ADDR`], [`Type::OBSERVED_IPV6_ADDR`]).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ObservedAddr {
-    /// Random request id for debugging.
-    ///
-    /// NOTE(@divma): this is an assumption I make since this is not defined anywhere and STUN
-    /// indications use a random id as well.
-    pub(crate) request_id: VarInt,
+    /// Monotonically increasing integer within the same connection.
+    pub(crate) seq_no: VarInt,
+    /// Reported observed address.
     pub(crate) ip: IpAddr,
+    /// Reported observed port.
     pub(crate) port: u16,
 }
 
@@ -967,7 +966,7 @@ impl ObservedAddr {
     /// Compute the number of bytes needed to encode the frame.
     pub(crate) fn size(&self) -> usize {
         let type_size = VarInt(self.get_type().0).size();
-        let req_id_bytes = self.request_id.size();
+        let req_id_bytes = self.seq_no.size();
         let ip_bytes = if self.ip.is_ipv6() { 16 } else { 4 };
         let port_bytes = 2;
         type_size + req_id_bytes + ip_bytes + port_bytes
@@ -976,7 +975,7 @@ impl ObservedAddr {
     /// Unconditionally write this frame to `buf`.
     pub(crate) fn write<W: BufMut>(&self, buf: &mut W) {
         buf.write(self.get_type());
-        buf.write(self.request_id);
+        buf.write(self.seq_no);
         match self.ip {
             IpAddr::V4(ipv4_addr) => {
                 buf.write(ipv4_addr);
@@ -1001,7 +1000,7 @@ impl ObservedAddr {
         };
         let port = bytes.get()?;
         Ok(Self {
-            request_id,
+            seq_no: request_id,
             ip,
             port,
         })
@@ -1081,7 +1080,7 @@ mod test {
     #[test]
     fn test_observed_addr_roundrip() {
         let observed_addr = ObservedAddr {
-            request_id: VarInt(42),
+            seq_no: VarInt(42),
             ip: std::net::Ipv4Addr::LOCALHOST.into(),
             port: 4242,
         };
