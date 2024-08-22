@@ -3072,10 +3072,6 @@ impl Connection {
             // This is just a u8 counter and the frame is typically just sent once
             self.stats.frame_tx.handshake_done =
                 self.stats.frame_tx.handshake_done.saturating_add(1);
-
-            if send_observed_address(buf, max_size) {
-                self.stats.frame_tx.observed_addr += 1;
-            }
         }
 
         // PING
