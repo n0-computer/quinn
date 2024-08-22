@@ -135,8 +135,8 @@ frame_types! {
     IMMEDIATE_ACK = 0x1f,
     // DATAGRAM
     // ADDRESS DISCOVERY REPORT
-    OBSERVED_IPV4_ADDR = 0x9f81a2,
-    OBSERVED_IPV6_ADDR = 0x9f81a3,
+    OBSERVED_IPV4_ADDR = 0x9f81a4,
+    OBSERVED_IPV6_ADDR = 0x9f81a5,
 }
 
 const STREAM_TYS: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
