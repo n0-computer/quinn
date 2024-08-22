@@ -847,3 +847,228 @@ async fn multiple_conns_with_zero_length_cids() {
     .instrument(error_span!("server"));
     tokio::join!(client1, client2, server);
 }
+
+#[tokio::test]
+async fn test_resend_server_answer_packet() {
+    use crate::runtime::Runtime;
+
+    let _guard = subscribe();
+    let runtime = Arc::new(crate::TokioRuntime);
+
+    for i in 0..20 {
+        // setup a "server"
+        let server_cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let server_key =
+            rustls::pki_types::PrivatePkcs8KeyDer::from(server_cert.key_pair.serialize_der());
+        let server_cert = rustls::pki_types::CertificateDer::from(server_cert.cert);
+        let server_config =
+            crate::ServerConfig::with_single_cert(vec![server_cert.clone()], server_key.into())
+                .unwrap();
+
+        let unspecified_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
+
+        let socket = std::net::UdpSocket::bind(unspecified_addr).unwrap();
+        // we give the server a custom socket that both sends *and remembers* the first packet
+        let server_capturing_socket = Arc::new(CapturingUdpSocket::wrap(
+            runtime.wrap_udp_socket(socket).unwrap(),
+        ));
+        let server = crate::Endpoint::new_with_abstract_socket(
+            EndpointConfig::default(),
+            Some(server_config),
+            server_capturing_socket.clone() as Arc<dyn crate::AsyncUdpSocket>,
+            runtime.clone(),
+        )
+        .unwrap();
+
+        // the server loop only accepts connections and closes them again
+        let handle = tokio::task::spawn({
+            let server = server.clone();
+            async move {
+                while let Some(incoming) = server.accept().await {
+                    let conn = incoming.await.unwrap();
+                    // Aaaaand close it again
+                    conn.close(42u32.into(), b"all good, we done");
+                }
+            }
+        });
+
+        // we set up the client
+        let client_cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let client_key =
+            rustls::pki_types::PrivatePkcs8KeyDer::from(client_cert.key_pair.serialize_der());
+        let client_cert = rustls::pki_types::CertificateDer::from(client_cert.cert);
+        let client_server_config =
+            crate::ServerConfig::with_single_cert(vec![client_cert.clone()], client_key.into())
+                .unwrap();
+
+        let socket = socket2::Socket::new(
+            socket2::Domain::for_address(unspecified_addr),
+            socket2::Type::DGRAM,
+            Some(socket2::Protocol::UDP),
+        )
+        .unwrap();
+        socket.bind(&unspecified_addr.into()).unwrap();
+        let abstract_socket = runtime.wrap_udp_socket(socket.into()).unwrap();
+        let client = crate::Endpoint::new_with_abstract_socket(
+            EndpointConfig::default(),
+            Some(client_server_config), // the client has the ability to act as a server, too!
+            abstract_socket,
+            runtime.clone(),
+        )
+        .unwrap();
+
+        // setup for attempting a connection
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(server_cert).unwrap();
+        let client_crypto = rustls::ClientConfig::builder_with_provider(
+            rustls::crypto::ring::default_provider().into(),
+        )
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        let client_config = crate::ClientConfig::new(Arc::new(
+            proto::crypto::rustls::QuicClientConfig::try_from(client_crypto).unwrap(),
+        ));
+
+        let server_addr = SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            server.local_addr().unwrap().port(),
+        );
+
+        // we connect to the server once
+        let connecting = client
+            .connect_with(client_config, server_addr, "localhost")
+            .unwrap();
+
+        let connection = connecting.await.unwrap();
+        let code = connection.closed().await;
+        println!("{code:?}"); // this works fine
+
+        // We've now captures the first packet that the server sends
+        // as a response of the handshake initiation of the client.
+        // When we resend this packet from the server to the client,
+        // this confuses the client (which, remmeber, also acts as a server).
+        // The client thinks this packet is a new incoming connection attempt,
+        // while it's just some delayed duplicate packet coming from the server.
+        server_capturing_socket.resend_captured().unwrap();
+
+        tracing::info!(i, "On iteration");
+
+        // Now the client acts as a "server".
+        // Sometimes, it detects that the packet was bogus early and doesn't even accept. Thus the timeout.
+        // However, on roughly 10% of cases, it accepts a connection from this bogus packet!
+        if let Ok(Some(incoming)) =
+            tokio::time::timeout(Duration::from_millis(100), client.accept()).await
+        {
+            // And then fails late here:
+            let _connecting = incoming.accept().unwrap();
+        }
+
+        // we shut down the server so we can try another iteration.
+        server.close(1u32.into(), b"shutdown");
+        handle.await.unwrap();
+    }
+}
+
+struct OwnedTransmit {
+    destination: SocketAddr,
+    ecn: Option<udp::EcnCodepoint>,
+    contents: Vec<u8>,
+    segment_size: Option<usize>,
+    src_ip: Option<IpAddr>,
+}
+
+impl OwnedTransmit {
+    fn as_transmit(&self) -> udp::Transmit<'_> {
+        udp::Transmit {
+            destination: self.destination,
+            ecn: self.ecn.clone(),
+            contents: &self.contents,
+            segment_size: self.segment_size,
+            src_ip: self.src_ip,
+        }
+    }
+}
+
+impl From<&'_ udp::Transmit<'_>> for OwnedTransmit {
+    fn from(transmit: &'_ udp::Transmit<'_>) -> Self {
+        Self {
+            destination: transmit.destination,
+            ecn: transmit.ecn.clone(),
+            contents: transmit.contents.to_vec(),
+            segment_size: transmit.segment_size,
+            src_ip: transmit.src_ip,
+        }
+    }
+}
+
+struct CapturingUdpSocket {
+    captured: std::sync::OnceLock<OwnedTransmit>,
+    socket: Arc<dyn crate::AsyncUdpSocket>,
+}
+
+impl std::fmt::Debug for CapturingUdpSocket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.socket.fmt(f)
+    }
+}
+
+impl CapturingUdpSocket {
+    fn wrap(socket: Arc<dyn crate::AsyncUdpSocket>) -> Self {
+        Self {
+            captured: std::sync::OnceLock::new(),
+            socket,
+        }
+    }
+
+    fn resend_captured(&self) -> std::io::Result<()> {
+        let transmit = self.captured.get().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::Other, "no packet captured to resend")
+        })?;
+
+        tracing::info!("RESENDING CAPTURED");
+
+        self.socket.try_send(&transmit.as_transmit())?;
+
+        Ok(())
+    }
+}
+
+impl crate::AsyncUdpSocket for CapturingUdpSocket {
+    fn create_io_poller(self: Arc<Self>) -> std::pin::Pin<Box<dyn crate::UdpPoller>> {
+        Arc::clone(&self.socket).create_io_poller()
+    }
+
+    fn try_send(&self, transmit: &udp::Transmit) -> std::io::Result<()> {
+        if let Ok(_) = self.captured.set(transmit.into()) {
+            tracing::info!("Captured a transmit for delayed resending");
+        }
+        self.socket.try_send(transmit)
+    }
+
+    fn poll_recv(
+        &self,
+        cx: &mut std::task::Context,
+        bufs: &mut [std::io::IoSliceMut<'_>],
+        meta: &mut [udp::RecvMeta],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        self.socket.poll_recv(cx, bufs, meta)
+    }
+
+    fn local_addr(&self) -> std::io::Result<SocketAddr> {
+        self.socket.local_addr()
+    }
+
+    fn max_transmit_segments(&self) -> usize {
+        self.socket.max_transmit_segments()
+    }
+
+    fn max_receive_segments(&self) -> usize {
+        self.socket.max_receive_segments()
+    }
+
+    fn may_fragment(&self) -> bool {
+        self.socket.may_fragment()
+    }
+}
