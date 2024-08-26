@@ -53,7 +53,7 @@ pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
     ///
     /// If this returns [`io::ErrorKind::WouldBlock`], [`UdpPoller::poll_writable`] must be called
     /// to register the calling task to be woken when a send should be attempted again.
-    fn try_send(&self, transmit: &Transmit) -> io::Result<()>;
+    fn try_send(&self, transmit: Transmit<'_>) -> io::Result<()>;
 
     /// Receive UDP datagrams, or register to be woken if receiving may succeed in the future
     fn poll_recv(

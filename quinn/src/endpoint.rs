@@ -570,7 +570,7 @@ fn respond(transmit: proto::Transmit, response_buffer: &[u8], socket: &dyn Async
     // to transmit. This is morally equivalent to the packet getting
     // lost due to congestion further along the link, which
     // similarly relies on peer retries for recovery.
-    _ = socket.try_send(&udp_transmit(&transmit, &response_buffer[..transmit.size]));
+    _ = socket.try_send(udp_transmit(&transmit, &response_buffer[..transmit.size]));
 }
 
 #[inline]

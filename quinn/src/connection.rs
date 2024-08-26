@@ -1053,7 +1053,7 @@ impl State {
             let len = t.size;
             let retry = match self
                 .socket
-                .try_send(&udp_transmit(&t, &self.send_buffer[..len]))
+                .try_send(udp_transmit(&t, &self.send_buffer[..len]))
             {
                 Ok(()) => false,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => true,

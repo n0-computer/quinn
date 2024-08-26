@@ -172,7 +172,7 @@ impl UdpSocketState {
     }
 
     pub fn send(&self, socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
-        send(self, socket.0, transmit)
+        send(self, socket.0, &transmit)
     }
 
     pub fn recv(
