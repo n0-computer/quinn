@@ -2659,7 +2659,8 @@ impl Connection {
                 Frame::Padding
                 | Frame::PathChallenge(_)
                 | Frame::PathResponse(_)
-                | Frame::NewConnectionId(_) => {}
+                | Frame::NewConnectionId(_)
+                | Frame::ObservedAddr(_) => {}
                 _ => {
                     is_probing_packet = false;
                 }
@@ -2893,12 +2894,15 @@ impl Connection {
                         .address_discovery_role
                         .should_report(&self.config.address_discovery_role)
                     {
-                        tracing::info!(?observed, "got observed addr");
-                        // TODO(@divma): do thingss
-                        // TODO(@divma): this is ack eliciting
+                        if packet.header.space() == SpaceId::Data {
+                            // TODO(@divma): do things
+                            tracing::info!(?observed, "got observed addr");
+                        } else {
+                            return Err(TransportError::PROTOCOL_VIOLATION(
+                                "observed address outside data space",
+                            ));
+                        }
                     } else {
-                        // TODO(@divma): remove, for comedic debugging purposes
-                        tracing::error!(?observed, our_role=?self.config.address_discovery_role, their_role=?self.peer_params.address_discovery_role, "naughty boy sent observed addr with incompatible roles");
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "received observed address frame when not negotiated",
                         ));
