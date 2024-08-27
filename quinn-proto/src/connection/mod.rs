@@ -3048,6 +3048,7 @@ impl Connection {
         let is_0rtt = space_id == SpaceId::Data && space.crypto.is_none();
         space.pending_acks.maybe_ack_non_eliciting();
 
+        // TODO(@divma): inline if this ends up being sent in just one place
         let mut send_observed_address = |buf: &mut Vec<u8>, max_size: usize| {
             if self
                 .config
@@ -3163,6 +3164,10 @@ impl Connection {
                 buf.write(frame::Type::PATH_RESPONSE);
                 buf.write(token);
                 self.stats.frame_tx.path_response += 1;
+
+                if send_observed_address(buf, max_size) {
+                    self.stats.frame_tx.path_challenge += 1;
+                }
             }
         }
 
