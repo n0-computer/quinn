@@ -943,7 +943,7 @@ impl AckFrequency {
 
 /// Conjuction of the information contained in the address discovery frames
 /// ([`Type::OBSERVED_IPV4_ADDR`], [`Type::OBSERVED_IPV6_ADDR`]).
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct ObservedAddr {
     /// Monotonically increasing integer within the same connection.
     pub(crate) seq_no: VarInt,

@@ -310,6 +310,7 @@ pub struct Retransmits {
     pub(super) retire_cids: Vec<u64>,
     pub(super) ack_frequency: bool,
     pub(super) handshake_done: bool,
+    pub(super) observed_addr: Vec<frame::ObservedAddr>,
 }
 
 impl Retransmits {
@@ -327,6 +328,7 @@ impl Retransmits {
             && self.retire_cids.is_empty()
             && !self.ack_frequency
             && !self.handshake_done
+            && self.observed_addr.is_empty()
     }
 }
 
@@ -348,6 +350,7 @@ impl ::std::ops::BitOrAssign for Retransmits {
         self.retire_cids.extend(rhs.retire_cids);
         self.ack_frequency |= rhs.ack_frequency;
         self.handshake_done |= rhs.handshake_done;
+        self.observed_addr.extend(rhs.observed_addr);
     }
 }
 

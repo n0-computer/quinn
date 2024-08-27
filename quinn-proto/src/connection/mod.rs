@@ -21,7 +21,7 @@ use crate::{
     config::{ServerConfig, TransportConfig},
     crypto::{self, KeyPair, Keys, PacketKey},
     frame,
-    frame::{Close, Datagram, FrameStruct},
+    frame::{Close, Datagram, FrameStruct, ObservedAddr},
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
         PacketNumber, PartialDecode, SpaceId,
@@ -227,6 +227,14 @@ pub struct Connection {
     /// no outgoing application data.
     app_limited: bool,
 
+    //
+    // ObservedAddr
+    //
+    /// Sequence number for ther next observed address frame sent to the peer.
+    next_observed_addr_seq_no: u64,
+    /// Observed address frame with the largest sequence number received from the peer.
+    last_observed_addr_report: Option<ObservedAddr>,
+
     streams: StreamsState,
     /// Surplus remote CIDs for future use on new paths
     rem_cids: CidQueue,
@@ -342,6 +350,9 @@ impl Connection {
             app_limited: false,
             receiving_ecn: false,
             total_authed_packets: 0,
+
+            next_observed_addr_seq_no: 0,
+            last_observed_addr_report: None,
 
             streams: StreamsState::new(
                 side,
@@ -2637,7 +2648,7 @@ impl Connection {
                     trace!(len = f.data.len(), "got datagram frame");
                 }
                 f => {
-                    trace!("got frame {:?}", f);
+                    tracing::info!("got frame {:?}", f);
                 }
             }
 
@@ -2889,23 +2900,28 @@ impl Connection {
                     }
                 }
                 Frame::ObservedAddr(observed) => {
-                    if self
+                    // check if params allows the peer to send report and this node to receive it
+                    if !self
                         .peer_params
                         .address_discovery_role
                         .should_report(&self.config.address_discovery_role)
                     {
-                        if packet.header.space() == SpaceId::Data {
-                            // TODO(@divma): do things
-                            tracing::info!(?observed, "got observed addr");
-                        } else {
-                            return Err(TransportError::PROTOCOL_VIOLATION(
-                                "observed address outside data space",
-                            ));
-                        }
-                    } else {
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "received observed address frame when not negotiated",
                         ));
+                    }
+                    // must only be sent in data space
+                    if packet.header.space() != SpaceId::Data {
+                        return Err(TransportError::PROTOCOL_VIOLATION(
+                            "observed address outside data space",
+                        ));
+                    }
+
+                    match self.last_observed_addr_report.as_ref() {
+                        Some(prev) if prev.seq_no >= observed.seq_no => {
+                            tracing::info!(?prev, ?observed, "ignoring observed address frame")
+                        }
+                        _ => self.last_observed_addr_report = Some(observed),
                     }
                 }
             }
@@ -3049,26 +3065,35 @@ impl Connection {
         space.pending_acks.maybe_ack_non_eliciting();
 
         // TODO(@divma): inline if this ends up being sent in just one place
-        let mut send_observed_address = |buf: &mut Vec<u8>, max_size: usize| {
-            if self
-                .config
-                .address_discovery_role
-                .should_report(&self.peer_params.address_discovery_role)
-            {
-                let observed = frame::ObservedAddr {
-                    ip: self.path.remote.ip(),
-                    port: self.path.remote.port(),
-                    seq_no: VarInt(self.rng.gen_range(0..VarInt::MAX.0)),
-                };
-                if buf.len() + observed.size() < max_size {
-                    tracing::info!(?observed, "reporting observed addr");
-                    observed.write(buf);
-                    return true;
+        let mut send_observed_address =
+            |buf: &mut Vec<u8>,
+             max_size: usize,
+             sent: &mut SentFrames,
+             stats: &mut ConnectionStats| {
+                if self
+                    .config
+                    .address_discovery_role
+                    .should_report(&self.peer_params.address_discovery_role)
+                {
+                    let observed = frame::ObservedAddr {
+                        ip: self.path.remote.ip(),
+                        port: self.path.remote.port(),
+                        seq_no: VarInt(self.next_observed_addr_seq_no),
+                    };
+                    if buf.len() + observed.size() < max_size {
+                        tracing::info!(?observed, "reporting observed addr");
+                        observed.write(buf);
+                        self.next_observed_addr_seq_no =
+                            self.next_observed_addr_seq_no.saturating_add(1);
+                        stats.frame_tx.observed_addr =
+                            stats.frame_tx.observed_addr.saturating_add(1);
+                        sent.retransmits
+                            .get_or_create()
+                            .observed_addr
+                            .push(observed);
+                    }
                 }
-            }
-
-            false
-        };
+            };
 
         // HANDSHAKE_DONE
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
@@ -3149,9 +3174,7 @@ impl Connection {
                 buf.write(frame::Type::PATH_CHALLENGE);
                 buf.write(token);
 
-                if send_observed_address(buf, max_size) {
-                    self.stats.frame_tx.path_challenge += 1;
-                }
+                send_observed_address(buf, max_size, &mut sent, &mut self.stats);
             }
         }
 
@@ -3165,9 +3188,7 @@ impl Connection {
                 buf.write(token);
                 self.stats.frame_tx.path_response += 1;
 
-                if send_observed_address(buf, max_size) {
-                    self.stats.frame_tx.path_challenge += 1;
-                }
+                send_observed_address(buf, max_size, &mut sent, &mut self.stats);
             }
         }
 
