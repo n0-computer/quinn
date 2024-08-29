@@ -3096,7 +3096,7 @@ impl Connection {
                     || !self
                         .config
                         .address_discovery_role
-                        .should_report(&self.peer_params.address_discovery_role) 
+                        .should_report(&self.peer_params.address_discovery_role)
                     || (self.path.observed_addr_sent && !unconditional)
                 {
                     return;
