@@ -234,8 +234,6 @@ pub struct Connection {
     // NOTE: this is encoded as a varint (u62) but _per connection_ up to u16 sent oberved address
     // frames should be more than enough.
     next_observed_addr_seq_no: u16,
-    /// Observed address frame with the largest sequence number received from the peer.
-    last_observed_addr_report: Option<ObservedAddr>,
 
     streams: StreamsState,
     /// Surplus remote CIDs for future use on new paths
@@ -354,7 +352,6 @@ impl Connection {
             total_authed_packets: 0,
 
             next_observed_addr_seq_no: 0,
-            last_observed_addr_report: None,
 
             streams: StreamsState::new(
                 side,
@@ -2629,6 +2626,9 @@ impl Connection {
         let mut close = None;
         let payload_len = payload.len();
         let mut ack_eliciting = false;
+        // if this packet triggers a path migration and includes a observed address frame, it's
+        // stored here
+        let mut migration_observed_addr = None;
         for result in frame::Iter::new(payload)? {
             let frame = result?;
             let span = match frame {
@@ -2919,11 +2919,14 @@ impl Connection {
                         ));
                     }
 
-                    match self.last_observed_addr_report.as_ref() {
-                        Some(prev) if prev.seq_no >= observed.seq_no => {
-                            tracing::info!(?prev, ?observed, "ignoring observed address frame")
+                    if remote == self.path.remote {
+                        if !self.path.update_observed_addr_report(observed) {
+                            // TODO(@divma): remove
+                            tracing::info!("ignoring observed address frame")
                         }
-                        _ => self.last_observed_addr_report = Some(observed),
+                    } else {
+                        // include in migration
+                        migration_observed_addr = Some(observed)
                     }
                 }
             }
@@ -2962,7 +2965,7 @@ impl Connection {
                     .migration,
                 "migration-initiating packets should have been dropped immediately"
             );
-            self.migrate(now, remote);
+            self.migrate(now, remote, migration_observed_addr);
             // Break linkability, if possible
             self.update_rem_cid();
             self.spin = false;
@@ -2971,7 +2974,7 @@ impl Connection {
         Ok(())
     }
 
-    fn migrate(&mut self, now: Instant, remote: SocketAddr) {
+    fn migrate(&mut self, now: Instant, remote: SocketAddr, observed_addr: Option<ObservedAddr>) {
         trace!(%remote, "migration initiated");
         // Reset rtt/congestion state for new path unless it looks like a NAT rebinding.
         // Note that the congestion window will not grow until validation terminates. Helps mitigate
@@ -2991,6 +2994,9 @@ impl Connection {
                 &self.config,
             )
         };
+        if let Some(report) = observed_addr {
+            new_path.update_observed_addr_report(report);
+        }
         new_path.challenge = Some(self.rng.gen());
         new_path.challenge_pending = true;
         let prev_pto = self.pto(SpaceId::Data);

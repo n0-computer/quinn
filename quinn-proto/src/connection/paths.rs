@@ -7,7 +7,7 @@ use super::{
     pacing::Pacer,
     spaces::{PacketSpace, SentPacket},
 };
-use crate::{congestion, packet::SpaceId, TransportConfig, TIMER_GRANULARITY};
+use crate::{congestion, frame::ObservedAddr, packet::SpaceId, TransportConfig, TIMER_GRANULARITY};
 
 /// Description of a particular network path
 pub(super) struct PathData {
@@ -38,8 +38,10 @@ pub(super) struct PathData {
     pub(super) first_packet_after_rtt_sample: Option<(SpaceId, u64)>,
     pub(super) in_flight: InFlight,
     /// Whether this path has had it's remote address reported back to the peer. This only happens
-    /// if both peers agree to so based on their transport paramteres.
+    /// if both peers agree to so based on their transport parameters.
     pub(super) observed_addr_sent: bool,
+    /// Observed address frame with the largest sequence number received from the peer on this path.
+    pub(super) last_observed_addr_report: Option<ObservedAddr>,
     /// Number of the first packet sent on this path
     ///
     /// Used to determine whether a packet was sent on an earlier path. Insufficient to determine if
@@ -94,6 +96,7 @@ impl PathData {
             first_packet_after_rtt_sample: None,
             in_flight: InFlight::new(),
             observed_addr_sent: false,
+            last_observed_addr_report: None,
             first_packet: None,
         }
     }
@@ -119,6 +122,7 @@ impl PathData {
             first_packet_after_rtt_sample: prev.first_packet_after_rtt_sample,
             in_flight: InFlight::new(),
             observed_addr_sent: false,
+            last_observed_addr_report: None,
             first_packet: None,
         }
     }
@@ -151,6 +155,20 @@ impl PathData {
         }
         self.in_flight.remove(packet);
         true
+    }
+
+    /// Updates the last observed address report received on this path.
+    pub(super) fn update_observed_addr_report(&mut self, observed: ObservedAddr) -> bool {
+        match self.last_observed_addr_report.as_ref() {
+            Some(prev) if prev.seq_no >= observed.seq_no => {
+                // frames that do not increase the sequence number on this path are ignored
+                false
+            }
+            _ => {
+                self.last_observed_addr_report = Some(observed);
+                true
+            }
+        }
     }
 }
 
