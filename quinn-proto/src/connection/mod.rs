@@ -3090,9 +3090,9 @@ impl Connection {
                                  // skipped
              | {
                 // should only be sent within Data space and only if allowed by extension
-                // negotiation 
+                // negotiation
                 // send is also skipped if the path has already sent an observed address and
-                // sending it not unconditional
+                // sending is not unconditional
                 if space_id != SpaceId::Data
                     || !self
                         .config
