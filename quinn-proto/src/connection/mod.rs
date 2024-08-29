@@ -3089,8 +3089,9 @@ impl Connection {
              unconditional: bool // whether the check for sent frames on this path should be
                                  // skipped
              | {
-                // should only be sent within Data space and only if extension negotiation allows
-                // it send is also skipped if the path has already sent an observed address and
+                // should only be sent within Data space and only if allowed by extension
+                // negotiation 
+                // send is also skipped if the path has already sent an observed address and
                 // sending it not unconditional
                 if space_id != SpaceId::Data
                     || !self
