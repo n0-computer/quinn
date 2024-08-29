@@ -3083,7 +3083,6 @@ impl Connection {
 
         // OBSERVED_ADDR
         // must be sent as early as possible
-        // TODO(@divma): we don't want to send this all the time. only for new path and probes
         // TODO(@divma): annoying closure required because of the borrows `populate_packet` does
         // throughout its code
         let mut send_observed_address =
