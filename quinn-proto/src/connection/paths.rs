@@ -37,6 +37,9 @@ pub(super) struct PathData {
     /// Used in persistent congestion determination.
     pub(super) first_packet_after_rtt_sample: Option<(SpaceId, u64)>,
     pub(super) in_flight: InFlight,
+    /// Whether this path has had it's remote address reported back to the peer. This only happens
+    /// if both peers agree to so based on their transport paramteres.
+    pub(super) observed_addr_sent: bool,
     /// Number of the first packet sent on this path
     ///
     /// Used to determine whether a packet was sent on an earlier path. Insufficient to determine if
@@ -90,10 +93,14 @@ impl PathData {
                 ),
             first_packet_after_rtt_sample: None,
             in_flight: InFlight::new(),
+            observed_addr_sent: false,
             first_packet: None,
         }
     }
 
+    /// Create a new path from a previous one.
+    ///
+    /// This should only be called when migrating paths.
     pub(super) fn from_previous(remote: SocketAddr, prev: &Self, now: Instant) -> Self {
         let congestion = prev.congestion.clone_box();
         let smoothed_rtt = prev.rtt.get();
@@ -111,6 +118,7 @@ impl PathData {
             mtud: prev.mtud.clone(),
             first_packet_after_rtt_sample: prev.first_packet_after_rtt_sample,
             in_flight: InFlight::new(),
+            observed_addr_sent: false,
             first_packet: None,
         }
     }

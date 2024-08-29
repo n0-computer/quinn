@@ -231,7 +231,9 @@ pub struct Connection {
     // ObservedAddr
     //
     /// Sequence number for ther next observed address frame sent to the peer.
-    next_observed_addr_seq_no: u64,
+    // NOTE: this is encoded as a varint (u62) but _per connection_ up to u16 sent oberved address
+    // frames should be more than enough.
+    next_observed_addr_seq_no: u16,
     /// Observed address frame with the largest sequence number received from the peer.
     last_observed_addr_report: Option<ObservedAddr>,
 
@@ -3064,37 +3066,6 @@ impl Connection {
         let is_0rtt = space_id == SpaceId::Data && space.crypto.is_none();
         space.pending_acks.maybe_ack_non_eliciting();
 
-        // TODO(@divma): inline if this ends up being sent in just one place
-        let mut send_observed_address =
-            |buf: &mut Vec<u8>,
-             max_size: usize,
-             sent: &mut SentFrames,
-             stats: &mut ConnectionStats| {
-                if self
-                    .config
-                    .address_discovery_role
-                    .should_report(&self.peer_params.address_discovery_role)
-                {
-                    let observed = frame::ObservedAddr {
-                        ip: self.path.remote.ip(),
-                        port: self.path.remote.port(),
-                        seq_no: VarInt(self.next_observed_addr_seq_no),
-                    };
-                    if buf.len() + observed.size() < max_size {
-                        tracing::info!(?observed, "reporting observed addr");
-                        observed.write(buf);
-                        self.next_observed_addr_seq_no =
-                            self.next_observed_addr_seq_no.saturating_add(1);
-                        stats.frame_tx.observed_addr =
-                            stats.frame_tx.observed_addr.saturating_add(1);
-                        sent.retransmits
-                            .get_or_create()
-                            .observed_addr
-                            .push(observed);
-                    }
-                }
-            };
-
         // HANDSHAKE_DONE
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
             buf.write(frame::Type::HANDSHAKE_DONE);
@@ -3103,6 +3074,52 @@ impl Connection {
             self.stats.frame_tx.handshake_done =
                 self.stats.frame_tx.handshake_done.saturating_add(1);
         }
+
+        // OBSERVED_ADDR
+        // must be sent as early as possible
+        // TODO(@divma): we don't want to send this all the time. only for new path and probes
+        // TODO(@divma): annoying closure required because of the borrows `populate_packet` does
+        // throughout its code
+        let mut send_observed_address =
+            |space_id: SpaceId,
+             buf: &mut Vec<u8>,
+             max_size: usize,
+             sent: &mut SentFrames,
+             stats: &mut ConnectionStats,
+             unconditional: bool // whether the check for sent frames on this path should be
+                                 // skipped
+             | {
+                // should only be sent within Data space and only if extension negotiation allows
+                // it send is also skipped if the path has already sent an observed address and
+                // sending it not unconditional
+                if space_id != SpaceId::Data
+                    || !self
+                        .config
+                        .address_discovery_role
+                        .should_report(&self.peer_params.address_discovery_role) 
+                    || (self.path.observed_addr_sent && !unconditional)
+                {
+                    return;
+                }
+
+                let observed =
+                    frame::ObservedAddr::new(self.path.remote, self.next_observed_addr_seq_no);
+
+                if buf.len() + observed.size() < max_size {
+                    tracing::info!(?observed, "reporting observed addr");
+                    observed.write(buf);
+
+                    self.next_observed_addr_seq_no += 1;
+                    self.path.observed_addr_sent = true;
+
+                    stats.frame_tx.observed_addr += 1;
+                    sent.retransmits
+                        .get_or_create()
+                        .observed_addr
+                        .push(observed);
+                }
+            };
+        send_observed_address(space_id, buf, max_size, &mut sent, &mut self.stats, false);
 
         // PING
         if mem::replace(&mut space.ping_pending, false) {
@@ -3174,7 +3191,7 @@ impl Connection {
                 buf.write(frame::Type::PATH_CHALLENGE);
                 buf.write(token);
 
-                send_observed_address(buf, max_size, &mut sent, &mut self.stats);
+                send_observed_address(space_id, buf, max_size, &mut sent, &mut self.stats, true);
             }
         }
 
@@ -3188,7 +3205,10 @@ impl Connection {
                 buf.write(token);
                 self.stats.frame_tx.path_response += 1;
 
-                send_observed_address(buf, max_size, &mut sent, &mut self.stats);
+                // NOTE: this is technically not required but might be useful to ride the
+                // request/response nature of path challenges to refresh an observation
+                // Since PATH_RESPONSE is a probing frame, this is allowed by the spec.
+                send_observed_address(space_id, buf, max_size, &mut sent, &mut self.stats, true);
             }
         }
 

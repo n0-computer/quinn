@@ -954,6 +954,14 @@ pub(crate) struct ObservedAddr {
 }
 
 impl ObservedAddr {
+    pub(crate) fn new<N: Into<VarInt>>(remote: std::net::SocketAddr, seq_no: N) -> Self {
+        Self {
+            ip: remote.ip(),
+            port: remote.port(),
+            seq_no: seq_no.into(),
+        }
+    }
+
     /// Get the [`Type`] for this frame.
     pub(crate) fn get_type(&self) -> Type {
         if self.ip.is_ipv6() {
