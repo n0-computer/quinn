@@ -3115,6 +3115,7 @@ impl Connection {
 
                     stats.frame_tx.observed_addr += 1;
                     sent.retransmits.get_or_create().observed_addr = true;
+                    space.pending.observed_addr = false;
                 }
             };
         send_observed_address(
