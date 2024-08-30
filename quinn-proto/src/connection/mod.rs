@@ -3082,29 +3082,23 @@ impl Connection {
         }
 
         // OBSERVED_ADDR
-        // must be sent as early as possible
-        // TODO(@divma): annoying closure required because of the borrows `populate_packet` does
-        // throughout its code
         let mut send_observed_address =
             |space_id: SpaceId,
              buf: &mut Vec<u8>,
              max_size: usize,
              sent: &mut SentFrames,
              stats: &mut ConnectionStats,
-             unconditional: bool // whether the check for sent frames on this path should be
-                                 // skipped
-             | {
+             skip_sent_check: bool| {
                 // should only be sent within Data space and only if allowed by extension
                 // negotiation
-                // send is also skipped if the path has already sent an observed address and
-                // sending is not unconditional
-                if space_id != SpaceId::Data
-                    || !self
+                // send is also skipped if the path has already sent an observed address
+                let should_send = space_id == SpaceId::Data
+                    && self
                         .config
                         .address_discovery_role
                         .should_report(&self.peer_params.address_discovery_role)
-                    || (self.path.observed_addr_sent && !unconditional)
-                {
+                    && (!self.path.observed_addr_sent || skip_sent_check);
+                if !should_send {
                     return;
                 }
 
