@@ -3086,19 +3086,20 @@ impl Connection {
             |space_id: SpaceId,
              buf: &mut Vec<u8>,
              max_size: usize,
+             space: &mut PacketSpace,
              sent: &mut SentFrames,
              stats: &mut ConnectionStats,
              skip_sent_check: bool| {
                 // should only be sent within Data space and only if allowed by extension
                 // negotiation
                 // send is also skipped if the path has already sent an observed address
-                let should_send = space_id == SpaceId::Data
-                    && self
-                        .config
-                        .address_discovery_role
-                        .should_report(&self.peer_params.address_discovery_role)
-                    && (!self.path.observed_addr_sent || skip_sent_check);
-                if !should_send {
+                let send_allowed = self
+                    .config
+                    .address_discovery_role
+                    .should_report(&self.peer_params.address_discovery_role);
+                let send_required =
+                    space.pending.observed_addr && !self.path.observed_addr_sent || skip_sent_check;
+                if space_id != SpaceId::Data || !send_allowed || !send_required {
                     return;
                 }
 
@@ -3113,13 +3114,18 @@ impl Connection {
                     self.path.observed_addr_sent = true;
 
                     stats.frame_tx.observed_addr += 1;
-                    sent.retransmits
-                        .get_or_create()
-                        .observed_addr
-                        .push(observed);
+                    sent.retransmits.get_or_create().observed_addr = true;
                 }
             };
-        send_observed_address(space_id, buf, max_size, &mut sent, &mut self.stats, false);
+        send_observed_address(
+            space_id,
+            buf,
+            max_size,
+            space,
+            &mut sent,
+            &mut self.stats,
+            false,
+        );
 
         // PING
         if mem::replace(&mut space.ping_pending, false) {
@@ -3191,7 +3197,15 @@ impl Connection {
                 buf.write(frame::Type::PATH_CHALLENGE);
                 buf.write(token);
 
-                send_observed_address(space_id, buf, max_size, &mut sent, &mut self.stats, true);
+                send_observed_address(
+                    space_id,
+                    buf,
+                    max_size,
+                    space,
+                    &mut sent,
+                    &mut self.stats,
+                    true,
+                );
             }
         }
 
@@ -3208,7 +3222,15 @@ impl Connection {
                 // NOTE: this is technically not required but might be useful to ride the
                 // request/response nature of path challenges to refresh an observation
                 // Since PATH_RESPONSE is a probing frame, this is allowed by the spec.
-                send_observed_address(space_id, buf, max_size, &mut sent, &mut self.stats, true);
+                send_observed_address(
+                    space_id,
+                    buf,
+                    max_size,
+                    space,
+                    &mut sent,
+                    &mut self.stats,
+                    true,
+                );
             }
         }
 
