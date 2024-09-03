@@ -3098,7 +3098,7 @@ impl Connection {
                     .address_discovery_role
                     .should_report(&self.peer_params.address_discovery_role);
                 let send_required =
-                    space.pending.observed_addr && !self.path.observed_addr_sent || skip_sent_check;
+                    space.pending.observed_addr || !self.path.observed_addr_sent || skip_sent_check;
                 if space_id != SpaceId::Data || !send_allowed || !send_required {
                     return;
                 }
