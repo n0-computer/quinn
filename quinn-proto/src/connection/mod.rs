@@ -2920,9 +2920,8 @@ impl Connection {
                     }
 
                     if remote == self.path.remote {
-                        if !self.path.update_observed_addr_report(observed) {
-                            // TODO(@divma): remove
-                            tracing::info!("ignoring observed address frame")
+                        if let Some(updated) = self.path.update_observed_addr_report(observed) {
+                            self.events.push_back(Event::ObservedAddr(updated));
                         }
                     } else {
                         // include in migration
@@ -2995,7 +2994,9 @@ impl Connection {
             )
         };
         if let Some(report) = observed_addr {
-            new_path.update_observed_addr_report(report);
+            if let Some(updated) = new_path.update_observed_addr_report(report) {
+                self.events.push_back(Event::ObservedAddr(updated));
+            }
         }
         new_path.challenge = Some(self.rng.gen());
         new_path.challenge_pending = true;
@@ -3853,6 +3854,8 @@ pub enum Event {
     DatagramReceived,
     /// One or more application datagrams have been sent after blocking
     DatagramsUnblocked,
+    /// Received an observation of our external address from the peer.
+    ObservedAddr(SocketAddr),
 }
 
 fn instant_saturating_sub(x: Instant, y: Instant) -> Duration {

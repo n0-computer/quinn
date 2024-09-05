@@ -158,15 +158,32 @@ impl PathData {
     }
 
     /// Updates the last observed address report received on this path.
-    pub(super) fn update_observed_addr_report(&mut self, observed: ObservedAddr) -> bool {
-        match self.last_observed_addr_report.as_ref() {
-            Some(prev) if prev.seq_no >= observed.seq_no => {
-                // frames that do not increase the sequence number on this path are ignored
-                false
+    ///
+    /// If the address was updated, it's returned to be informed to the application.
+    #[must_use = "updated observed address must be reported to the application"]
+    pub(super) fn update_observed_addr_report(
+        &mut self,
+        observed: ObservedAddr,
+    ) -> Option<SocketAddr> {
+        match self.last_observed_addr_report.as_mut() {
+            Some(prev) => {
+                if prev.seq_no >= observed.seq_no {
+                    // frames that do not increase the sequence number on this path are ignored
+                    None
+                } else if prev.ip == observed.ip && prev.port == observed.port {
+                    // keep track of the last seq_no but do not report the address as updated
+                    prev.seq_no = observed.seq_no;
+                    None
+                } else {
+                    let addr = (observed.ip, observed.port).into();
+                    self.last_observed_addr_report = Some(observed);
+                    Some(addr)
+                }
             }
-            _ => {
+            None => {
+                let addr = (observed.ip, observed.port).into();
                 self.last_observed_addr_report = Some(observed);
-                true
+                Some(addr)
             }
         }
     }
