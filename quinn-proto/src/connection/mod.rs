@@ -2650,7 +2650,7 @@ impl Connection {
                     trace!(len = f.data.len(), "got datagram frame");
                 }
                 f => {
-                    tracing::info!("got frame {:?}", f);
+                    trace!("got frame {:?}", f);
                 }
             }
 
