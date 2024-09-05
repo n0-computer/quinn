@@ -176,12 +176,14 @@ impl PathData {
                     None
                 } else {
                     let addr = (observed.ip, observed.port).into();
+                    tracing::info!(%addr, "observed addr");
                     self.last_observed_addr_report = Some(observed);
                     Some(addr)
                 }
             }
             None => {
                 let addr = (observed.ip, observed.port).into();
+                tracing::info!(%addr, "observed addr");
                 self.last_observed_addr_report = Some(observed);
                 Some(addr)
             }
