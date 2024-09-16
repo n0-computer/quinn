@@ -2909,13 +2909,13 @@ impl Connection {
                         .should_report(&self.config.address_discovery_role)
                     {
                         return Err(TransportError::PROTOCOL_VIOLATION(
-                            "received observed address frame when not negotiated",
+                            "received OBSERVED_ADDRESS frame when not negotiated",
                         ));
                     }
                     // must only be sent in data space
                     if packet.header.space() != SpaceId::Data {
                         return Err(TransportError::PROTOCOL_VIOLATION(
-                            "observed address outside data space",
+                            "OBSERVED_ADDRESS frame outside data space",
                         ));
                     }
 
