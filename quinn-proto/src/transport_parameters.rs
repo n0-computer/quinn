@@ -430,8 +430,6 @@ impl TransportParameters {
                 address_discovery::TRANSPORT_PARAMETER_CODE => {
                     if !params.address_discovery_role.is_disabled() {
                         // duplicate parameter
-                        // NOTE: this depends on the default being Disabled, which is reasonable. Is
-                        // this handled in a better way somewhere?
                         return Err(Error::Malformed);
                     }
                     let value: VarInt = r.get()?;
