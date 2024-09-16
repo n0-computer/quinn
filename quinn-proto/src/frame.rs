@@ -1000,18 +1000,14 @@ impl ObservedAddr {
     /// Should only be called when the fram type has been identified as
     /// [`Type::OBSERVED_IPV4_ADDR`] or [`Type::OBSERVED_IPV6_ADDR`].
     pub(crate) fn read<R: Buf>(bytes: &mut R, is_ipv6: bool) -> coding::Result<Self> {
-        let request_id = bytes.get()?;
+        let seq_no = bytes.get()?;
         let ip = if is_ipv6 {
             IpAddr::V6(bytes.get()?)
         } else {
             IpAddr::V4(bytes.get()?)
         };
         let port = bytes.get()?;
-        Ok(Self {
-            seq_no: request_id,
-            ip,
-            port,
-        })
+        Ok(Self { seq_no, ip, port })
     }
 }
 

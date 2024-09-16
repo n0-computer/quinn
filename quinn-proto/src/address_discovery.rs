@@ -12,10 +12,10 @@ pub(crate) const TRANSPORT_PARAMETER_CODE: u64 = 0x9f81a175;
 pub(crate) enum Role {
     /// Is able to report observer addresses to other peers, but it's not interested in receiving
     /// reports about its own address.
-    ProvideReportsOnly,
+    ProvideOnly,
     /// Is interested on reports about its own observed address, but will not report back to other
     /// peers.
-    ReceiveReportsOnly,
+    ReceivesOnly,
     /// Will both report and receive reports of observed addresses.
     Both,
     /// Address discovery is disabled.
@@ -26,8 +26,8 @@ pub(crate) enum Role {
 impl From<Role> for Option<VarInt> {
     fn from(role: Role) -> Self {
         match role {
-            Role::ProvideReportsOnly => Some(VarInt(0)),
-            Role::ReceiveReportsOnly => Some(VarInt(1)),
+            Role::ProvideOnly => Some(VarInt(0)),
+            Role::ReceivesOnly => Some(VarInt(1)),
             Role::Both => Some(VarInt(2)),
             Role::Disabled => None,
         }
@@ -39,8 +39,8 @@ impl TryFrom<VarInt> for Role {
 
     fn try_from(value: VarInt) -> Result<Self, Self::Error> {
         match value.0 {
-            0 => Ok(Self::ProvideReportsOnly),
-            1 => Ok(Self::ReceiveReportsOnly),
+            0 => Ok(Self::ProvideOnly),
+            1 => Ok(Self::ReceivesOnly),
             2 => Ok(Self::Both),
             _ => Err(crate::transport_parameters::Error::IllegalValue),
         }
@@ -55,12 +55,12 @@ impl Role {
 
     /// Whether this peer's role allows for address reporting to other peers.
     fn is_reporter(&self) -> bool {
-        matches!(self, Self::ProvideReportsOnly | Self::Both)
+        matches!(self, Self::ProvideOnly | Self::Both)
     }
 
     /// Whether this peer's role allows to receive observed address reports.
     fn receives_reports(&self) -> bool {
-        matches!(self, Self::ReceiveReportsOnly | Self::Both)
+        matches!(self, Self::ReceivesOnly | Self::Both)
     }
 
     /// Whether this peer should report observed addresses to other peers.
@@ -80,19 +80,19 @@ impl Role {
     /// Enables reporting of observed addresses to other peers.
     fn enable_reports_to_peers(&mut self) {
         match self {
-            Self::ProvideReportsOnly => {} // already enabled
-            Self::ReceiveReportsOnly => *self = Self::Both,
+            Self::ProvideOnly => {} // already enabled
+            Self::ReceivesOnly => *self = Self::Both,
             Self::Both => {} // already enabled
-            Self::Disabled => *self = Self::ProvideReportsOnly,
+            Self::Disabled => *self = Self::ProvideOnly,
         }
     }
 
     /// Disables reporting of observed addresses to other peers.
     fn disable_reports_to_peers(&mut self) {
         match self {
-            Self::ProvideReportsOnly => *self = Self::Disabled,
-            Self::ReceiveReportsOnly => {} // already disabled
-            Self::Both => *self = Self::ReceiveReportsOnly,
+            Self::ProvideOnly => *self = Self::Disabled,
+            Self::ReceivesOnly => {} // already disabled
+            Self::Both => *self = Self::ReceivesOnly,
             Self::Disabled => {} // already disabled
         }
     }
@@ -110,19 +110,19 @@ impl Role {
     /// Enables accepting reports of observed addresses from other peers.
     fn enable_receiving_reports_from_peers(&mut self) {
         match self {
-            Self::ProvideReportsOnly => *self = Self::Both,
-            Self::ReceiveReportsOnly => {} // already enabled
-            Self::Both => {}               // already enabled
-            Self::Disabled => *self = Self::ReceiveReportsOnly,
+            Self::ProvideOnly => *self = Self::Both,
+            Self::ReceivesOnly => {} // already enabled
+            Self::Both => {}         // already enabled
+            Self::Disabled => *self = Self::ReceivesOnly,
         }
     }
 
     /// Disables accepting reports of observed addresses from other peers.
     fn disable_receiving_reports_from_peers(&mut self) {
         match self {
-            Self::ProvideReportsOnly => {} // already disabled
-            Self::ReceiveReportsOnly => *self = Self::Disabled,
-            Self::Both => *self = Self::ProvideReportsOnly,
+            Self::ProvideOnly => {} // already disabled
+            Self::ReceivesOnly => *self = Self::Disabled,
+            Self::Both => *self = Self::ProvideOnly,
             Self::Disabled => {} // already disabled
         }
     }
