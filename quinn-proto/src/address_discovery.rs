@@ -23,17 +23,6 @@ pub(crate) enum Role {
     Disabled,
 }
 
-impl From<Role> for Option<VarInt> {
-    fn from(role: Role) -> Self {
-        match role {
-            Role::ProvideOnly => Some(VarInt(0)),
-            Role::ReceivesOnly => Some(VarInt(1)),
-            Role::Both => Some(VarInt(2)),
-            Role::Disabled => None,
-        }
-    }
-}
-
 impl TryFrom<VarInt> for Role {
     type Error = crate::transport_parameters::Error;
 
@@ -124,6 +113,16 @@ impl Role {
             Self::ReceivesOnly => *self = Self::Disabled,
             Self::Both => *self = Self::ProvideOnly,
             Self::Disabled => {} // already disabled
+        }
+    }
+
+    /// Gives the [`VarInt`] representing this [`Role`] as a transport parameter.
+    pub(crate) fn as_transport_parameter(&self) -> Option<VarInt> {
+        match self {
+            Role::ProvideOnly => Some(VarInt(0)),
+            Role::ReceivesOnly => Some(VarInt(1)),
+            Role::Both => Some(VarInt(2)),
+            Role::Disabled => None,
         }
     }
 }

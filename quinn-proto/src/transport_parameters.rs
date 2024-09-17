@@ -357,8 +357,7 @@ impl TransportParameters {
             w.write(x);
         }
 
-        let maybe_role: Option<VarInt> = self.address_discovery_role.into();
-        if let Some(varint_role) = maybe_role {
+        if let Some(varint_role) = self.address_discovery_role.as_transport_parameter() {
             w.write_var(address_discovery::TRANSPORT_PARAMETER_CODE);
             w.write_var(varint_role.size() as u64);
             w.write(varint_role);
