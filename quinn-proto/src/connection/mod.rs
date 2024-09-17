@@ -231,9 +231,7 @@ pub struct Connection {
     // ObservedAddr
     //
     /// Sequence number for ther next observed address frame sent to the peer.
-    // NOTE: this is encoded as a varint (u62) but _per connection_ up to u16 sent oberved address
-    // frames should be more than enough.
-    next_observed_addr_seq_no: u16,
+    next_observed_addr_seq_no: VarInt,
 
     streams: StreamsState,
     /// Surplus remote CIDs for future use on new paths
@@ -351,7 +349,7 @@ impl Connection {
             receiving_ecn: false,
             total_authed_packets: 0,
 
-            next_observed_addr_seq_no: 0,
+            next_observed_addr_seq_no: 0u32.into(),
 
             streams: StreamsState::new(
                 side,
@@ -3111,7 +3109,8 @@ impl Connection {
                     tracing::info!(?observed, "reporting observed addr");
                     observed.write(buf);
 
-                    self.next_observed_addr_seq_no += 1;
+                    self.next_observed_addr_seq_no =
+                        self.next_observed_addr_seq_no.saturating_add(1u8);
                     self.path.observed_addr_sent = true;
 
                     stats.frame_tx.observed_addr += 1;
