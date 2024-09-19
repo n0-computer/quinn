@@ -180,6 +180,21 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Incoming) -> Result<()>
             .protocol
             .map_or_else(|| "<none>".into(), |x| String::from_utf8_lossy(&x).into_owned())
     );
+
+    let mut external_addresses = connection.observed_external_addr();
+    tokio::spawn(
+        async move {
+            loop {
+                if let Some(new_addr) = external_addresses.borrow_and_update().clone() {
+                    info!(%new_addr, "new external address report");
+                }
+                if external_addresses.changed().await.is_err() {
+                    break;
+                }
+            }
+        }
+        .instrument(span.clone()),
+    );
     async {
         info!("established");
 

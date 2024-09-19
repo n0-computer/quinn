@@ -123,6 +123,18 @@ async fn run(options: Opt) -> Result<()> {
         .await
         .map_err(|e| anyhow!("failed to connect: {}", e))?;
     eprintln!("connected at {:?}", start.elapsed());
+    let mut external_addresses = conn.observed_external_addr();
+    tokio::spawn(async move {
+        loop {
+            if let Some(new_addr) = external_addresses.borrow_and_update().clone() {
+                info!(%new_addr, "new external address report");
+            }
+            if external_addresses.changed().await.is_err() {
+                break;
+            }
+        }
+    });
+
     let (mut send, mut recv) = conn
         .open_bi()
         .await
