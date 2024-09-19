@@ -1183,10 +1183,9 @@ impl State {
                     wake_stream(id, &mut self.stopped);
                     wake_stream(id, &mut self.blocked_writers);
                 }
-                ObservedAddr(observed) => self.observed_external_addr.send_modify(|addr| {
-                    tracing::info!(%observed,"updating!");
-                    *addr = Some(observed)
-                }),
+                ObservedAddr(observed) => self
+                    .observed_external_addr
+                    .send_modify(|addr| *addr = Some(observed)),
             }
         }
     }
