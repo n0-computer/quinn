@@ -175,15 +175,13 @@ impl PathData {
                     prev.seq_no = observed.seq_no;
                     None
                 } else {
-                    let addr = (observed.ip, observed.port).into();
-                    tracing::info!(%addr, "observed addr");
+                    let addr = observed.socket_addr();
                     self.last_observed_addr_report = Some(observed);
                     Some(addr)
                 }
             }
             None => {
-                let addr = (observed.ip, observed.port).into();
-                tracing::info!(%addr, "observed addr");
+                let addr = observed.socket_addr();
                 self.last_observed_addr_report = Some(observed);
                 Some(addr)
             }

@@ -1,7 +1,7 @@
 use std::{
     fmt::{self, Write},
     io, mem,
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     ops::{Range, RangeInclusive},
 };
 
@@ -1008,6 +1008,11 @@ impl ObservedAddr {
         };
         let port = bytes.get()?;
         Ok(Self { seq_no, ip, port })
+    }
+
+    /// Gives the [`SocketAddr`] reported in the frame.
+    pub(crate) fn socket_addr(&self) -> SocketAddr {
+        (self.ip, self.port).into()
     }
 }
 
