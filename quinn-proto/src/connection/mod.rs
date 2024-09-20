@@ -2991,6 +2991,7 @@ impl Connection {
                 &self.config,
             )
         };
+        new_path.last_observed_addr_report = self.path.last_observed_addr_report.clone();
         if let Some(report) = observed_addr {
             if let Some(updated) = new_path.update_observed_addr_report(report) {
                 self.events.push_back(Event::ObservedAddr(updated));
@@ -3106,7 +3107,6 @@ impl Connection {
                     frame::ObservedAddr::new(self.path.remote, self.next_observed_addr_seq_no);
 
                 if buf.len() + observed.size() < max_size {
-                    tracing::info!(?observed, "reporting observed addr");
                     observed.write(buf);
 
                     self.next_observed_addr_seq_no =
