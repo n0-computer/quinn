@@ -436,7 +436,7 @@ impl TransportParameters {
                         return Err(Error::Malformed);
                     }
                     params.address_discovery_role = value.try_into()?;
-                    tracing::info!(
+                    tracing::debug!(
                         role = ?params.address_discovery_role,
                         "address discovery enabled for peer"
                     );
