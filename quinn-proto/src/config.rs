@@ -3,7 +3,6 @@ use std::{
     net::{SocketAddrV4, SocketAddrV6},
     num::TryFromIntError,
     sync::Arc,
-    time::Duration,
 };
 
 #[cfg(feature = "ring")]
@@ -21,8 +20,8 @@ use crate::{
     congestion,
     crypto::{self, HandshakeTokenKey, HmacKey},
     shared::ConnectionId,
-    RandomConnectionIdGenerator, VarInt, VarIntBoundsExceeded, DEFAULT_SUPPORTED_VERSIONS,
-    INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
+    Duration, RandomConnectionIdGenerator, VarInt, VarIntBoundsExceeded,
+    DEFAULT_SUPPORTED_VERSIONS, INITIAL_MTU, MAX_CID_SIZE, MAX_UDP_PAYLOAD,
 };
 
 /// Parameters governing the core QUIC state machine
@@ -94,8 +93,8 @@ impl TransportConfig {
     /// idle timeout can result in permanently hung futures!
     ///
     /// ```
-    /// # use std::{convert::TryInto, time::Duration};
-    /// # use quinn_proto::{TransportConfig, VarInt, VarIntBoundsExceeded};
+    /// # use std::convert::TryInto;
+    /// # use quinn_proto::{Duration, TransportConfig, VarInt, VarIntBoundsExceeded};
     /// # fn main() -> Result<(), VarIntBoundsExceeded> {
     /// let mut config = TransportConfig::default();
     ///
@@ -1087,8 +1086,8 @@ impl From<VarIntBoundsExceeded> for ConfigError {
 /// constructed by converting directly from `VarInt`, or using `TryFrom<Duration>`.
 ///
 /// ```
-/// # use std::{convert::TryFrom, time::Duration};
-/// # use quinn_proto::{IdleTimeout, VarIntBoundsExceeded, VarInt};
+/// # use std::{convert::TryFrom};
+/// # use quinn_proto::{Duration, IdleTimeout, VarIntBoundsExceeded, VarInt};
 /// # fn main() -> Result<(), VarIntBoundsExceeded> {
 /// // A `VarInt`-encoded value in milliseconds
 /// let timeout = IdleTimeout::from(VarInt::from_u32(10_000));
