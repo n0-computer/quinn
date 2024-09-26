@@ -8,7 +8,6 @@ use std::{
     net::{SocketAddr, ToSocketAddrs},
     path::PathBuf,
     sync::Arc,
-    time::{Duration, Instant},
 };
 
 use anyhow::{anyhow, Result};
@@ -18,6 +17,7 @@ use proto::crypto::rustls::QuicClientConfig;
 use rustls::pki_types::CertificateDer;
 use tracing::{error, info};
 use url::Url;
+use web_time::{Duration, Instant};
 
 mod common;
 

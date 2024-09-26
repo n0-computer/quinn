@@ -27,14 +27,14 @@
 #![warn(unreachable_pub)]
 #![warn(clippy::use_self)]
 
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 #[cfg(all(unix, feature = "network"))]
 use std::os::unix::io::AsFd;
 #[cfg(all(windows, feature = "network"))]
 use std::os::windows::io::AsSocket;
-use std::{
-    net::{IpAddr, Ipv6Addr, SocketAddr},
-    sync::Mutex,
-};
+#[cfg(feature = "network")]
+use std::sync::Mutex;
+#[cfg(feature = "network")]
 use web_time::{Duration, Instant};
 
 #[cfg(all(any(unix, windows), feature = "network"))]
@@ -145,13 +145,17 @@ pub struct Transmit<'a> {
 }
 
 /// Log at most 1 IO error per minute
+#[cfg(feature = "network")]
 const IO_ERROR_LOG_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Logs a warning message when sendmsg fails
 ///
 /// Logging will only be performed if at least [`IO_ERROR_LOG_INTERVAL`]
 /// has elapsed since the last error was logged.
-#[cfg(any(feature = "tracing", feature = "direct-log"))]
+#[cfg(all(
+    any(feature = "tracing", feature = "direct-log", feature = "network"),
+    feature = "network"
+))]
 fn log_sendmsg_error(
     last_send_error: &Mutex<Instant>,
     err: impl core::fmt::Debug,
@@ -168,7 +172,10 @@ fn log_sendmsg_error(
 }
 
 // No-op
-#[cfg(not(any(feature = "tracing", feature = "direct-log")))]
+#[cfg(all(
+    not(any(feature = "tracing", feature = "direct-log")),
+    feature = "network"
+))]
 fn log_sendmsg_error(_: &Mutex<Instant>, _: impl core::fmt::Debug, _: &Transmit) {}
 
 /// A borrowed UDP socket

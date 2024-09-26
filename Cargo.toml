@@ -43,7 +43,7 @@ smol = "2"
 socket2 = "0.5"
 thiserror = "1.0.21"
 tinyvec = { version = "1.1", features = ["alloc"] }
-tokio = { version = "1.28.1", features = ["sync"] }
+tokio = { version = "1.28.1", default-features = false, features = ["sync"] }
 tracing = { version = "0.1.10", default-features = false, features = ["std"] }
 tracing-futures = { version = "0.2.0", default-features = false, features = ["std-future"] }
 tracing-subscriber = { version = "0.3.1", default-features = false, features = ["env-filter", "fmt", "ansi", "time", "local-time"] }
@@ -52,6 +52,8 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_
 getrandom = { version = "0.2", default-features = false }
 rustls-pki-types = { version = "1.7" }
 web-time = { version = "1" }
+wasmtimer = { version = "0.2" }
+wasm-bindgen-futures = { version = "0.4" }
 
 # Fix minimal dependencies for indirect deps
 async-global-executor = "2.4.1"

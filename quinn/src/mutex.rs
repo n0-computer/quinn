@@ -6,11 +6,9 @@ use std::{
 #[cfg(feature = "lock_tracking")]
 mod tracking {
     use super::*;
-    use std::{
-        collections::VecDeque,
-        time::{Duration, Instant},
-    };
+    use std::collections::VecDeque;
     use tracing::warn;
+    use web_time::{Duration, Instant};
 
     #[derive(Debug)]
     struct Inner<T> {

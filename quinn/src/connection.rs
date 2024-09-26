@@ -7,7 +7,6 @@ use std::{
     pin::Pin,
     sync::{Arc, Weak},
     task::{Context, Poll, Waker},
-    time::{Duration, Instant},
 };
 
 use bytes::Bytes;
@@ -16,6 +15,7 @@ use rustc_hash::FxHashMap;
 use thiserror::Error;
 use tokio::sync::{futures::Notified, mpsc, oneshot, Notify};
 use tracing::{debug_span, Instrument, Span};
+use web_time::{Duration, Instant};
 
 use crate::{
     mutex::Mutex,

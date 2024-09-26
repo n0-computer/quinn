@@ -5,8 +5,9 @@ use std::{
     os::windows::io::AsRawSocket,
     ptr,
     sync::Mutex,
-    time::Instant,
 };
+
+use web_time::Instant;
 
 use libc::{c_int, c_uint};
 use once_cell::sync::Lazy;

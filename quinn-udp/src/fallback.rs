@@ -1,8 +1,9 @@
 use std::{
     io::{self, IoSliceMut},
     sync::Mutex,
-    time::Instant,
 };
+
+use web_time::Instant;
 
 use super::{log_sendmsg_error, RecvMeta, Transmit, UdpSockRef, IO_ERROR_LOG_INTERVAL};
 

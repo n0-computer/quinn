@@ -16,13 +16,11 @@ use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     RootCertStore,
 };
-use tokio::{
-    runtime::{Builder, Runtime},
-    time::{Duration, Instant},
-};
+use tokio::runtime::{Builder, Runtime};
 use tracing::{error_span, info};
 use tracing_futures::Instrument as _;
 use tracing_subscriber::EnvFilter;
+use web_time::{Duration, Instant};
 
 use super::{ClientConfig, Endpoint, EndpointConfig, RecvStream, SendStream, TransportConfig};
 
@@ -155,7 +153,7 @@ fn read_after_close() {
             .unwrap()
             .await
             .expect("connect");
-        tokio::time::sleep_until(Instant::now() + Duration::from_millis(100)).await;
+        tokio::time::sleep_until((Instant::now() + Duration::from_millis(100)).into()).await;
         let mut stream = new_conn.accept_uni().await.expect("incoming streams");
         let msg = stream.read_to_end(usize::MAX).await.expect("read_to_end");
         assert_eq!(msg, MSG);

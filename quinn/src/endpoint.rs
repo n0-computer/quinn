@@ -9,7 +9,6 @@ use std::{
     str,
     sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
-    time::Instant,
 };
 
 #[cfg(feature = "ring")]
@@ -30,6 +29,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 use tokio::sync::{futures::Notified, mpsc, Notify};
 use tracing::{Instrument, Span};
 use udp::{RecvMeta, BATCH_SIZE};
+use web_time::Instant;
 
 use crate::{
     connection::Connecting, incoming::Incoming, work_limiter::WorkLimiter, ConnectionEvent,
@@ -111,6 +111,7 @@ impl Endpoint {
     }
 
     /// Construct an endpoint with arbitrary configuration and socket
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub fn new(
         config: EndpointConfig,
         server_config: Option<ServerConfig>,
@@ -234,6 +235,7 @@ impl Endpoint {
     /// Switch to a new UDP socket
     ///
     /// See [`Endpoint::rebind_abstract()`] for details.
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub fn rebind(&self, socket: std::net::UdpSocket) -> io::Result<()> {
         self.rebind_abstract(self.runtime.wrap_udp_socket(socket)?)
     }

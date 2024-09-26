@@ -2,8 +2,8 @@
 use std::{
     convert::TryInto,
     sync::{Arc, Mutex},
-    time::Duration,
 };
+use web_time::Duration;
 
 use crc::Crc;
 use iroh_quinn::{

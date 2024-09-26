@@ -6,10 +6,10 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::Instant,
 };
 
 use udp::{RecvMeta, Transmit};
+use web_time::Instant;
 
 /// Abstracts I/O and timer operations for runtime independence
 pub trait Runtime: Send + Sync + Debug + 'static {
@@ -18,6 +18,7 @@ pub trait Runtime: Send + Sync + Debug + 'static {
     /// Drive `future` to completion in the background
     fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>);
     /// Convert `t` into the socket type used by this runtime
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     fn wrap_udp_socket(&self, t: std::net::UdpSocket) -> io::Result<Arc<dyn AsyncUdpSocket>>;
     /// Look up the current time
     ///
@@ -181,6 +182,11 @@ pub fn default_runtime() -> Option<Arc<dyn Runtime>> {
         return Some(Arc::new(SmolRuntime));
     }
 
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "runtime-web"))]
+    {
+        return Some(Arc::new(WebRuntime));
+    }
+
     #[cfg(not(any(feature = "runtime-async-std", feature = "runtime-smol")))]
     None
 }
@@ -194,3 +200,8 @@ pub use self::tokio::TokioRuntime;
 mod async_io;
 #[cfg(feature = "async-io")]
 pub use self::async_io::*;
+
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "runtime-web"))]
+mod web;
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "runtime-web"))]
+pub use self::web::WebRuntime;

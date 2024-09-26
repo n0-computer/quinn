@@ -22,10 +22,11 @@ lock_tracking = []
 platform-verifier = ["proto/platform-verifier"]
 rustls = ["dep:rustls", "proto/rustls", "proto/ring"]
 # Enables `Endpoint::client` and `Endpoint::server` conveniences
-ring = ["proto/ring"]
-runtime-tokio = ["tokio/time", "tokio/rt", "tokio/net"]
-runtime-async-std = ["async-io", "async-std"]
-runtime-smol = ["async-io", "smol"]
+ring = ["proto/ring", "dep:socket2"]
+runtime-tokio = ["tokio/time", "tokio/rt", "tokio/net", "udp/network"]
+runtime-async-std = ["async-io", "async-std", "udp/network"]
+runtime-smol = ["async-io", "smol", "udp/network"]
+runtime-web = ["dep:wasmtimer", "dep:wasm-bindgen-futures"]
 
 # Configure `tracing` to log events via `log` if no `tracing` subscriber exists.
 log = ["tracing/log", "proto/log", "udp/log"]
@@ -41,11 +42,14 @@ pin-project-lite = { workspace = true }
 proto = { package = "iroh-quinn-proto", path = "../quinn-proto", version = "0.11.2", default-features = false }
 rustls = { workspace = true, optional = true }
 smol = { workspace = true, optional = true }
-socket2 = { workspace = true }
+socket2 = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tracing =  { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, default-features = false, features = ["sync"] }
 udp = { package = "iroh-quinn-udp", path = "../quinn-udp", version = "0.5", default-features = false, features = ["tracing"] }
+web-time = { workspace = true }
+wasmtimer = { workspace = true, optional = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
 
 # Fix minimal dependencies for indirect deps
 async-global-executor = { workspace = true, optional = true }

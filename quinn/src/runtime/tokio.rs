@@ -4,8 +4,8 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::Instant,
 };
+use web_time::Instant;
 
 use tokio::{
     io::Interest,
