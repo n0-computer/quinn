@@ -56,7 +56,7 @@ jobs:
         if: ${{ matrix.rust }} == "stable"
 
   wasm_test:
-    name: Test wasm32-unknown-unknown
+    name: test wasm32-unknown-unknown
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
