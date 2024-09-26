@@ -187,7 +187,11 @@ pub fn default_runtime() -> Option<Arc<dyn Runtime>> {
         return Some(Arc::new(WebRuntime));
     }
 
-    #[cfg(not(any(feature = "runtime-async-std", feature = "runtime-smol")))]
+    #[cfg(not(any(
+        feature = "runtime-async-std",
+        feature = "runtime-smol",
+        feature = "runtime-web"
+    )))]
     None
 }
 
