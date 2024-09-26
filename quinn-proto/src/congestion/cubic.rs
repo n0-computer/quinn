@@ -2,9 +2,10 @@ use std::any::Any;
 use std::cmp;
 use std::sync::Arc;
 
+use web_time::{Duration, Instant};
+
 use super::{Controller, ControllerFactory, BASE_DATAGRAM_SIZE};
 use crate::connection::RttEstimator;
-use crate::{Duration, Instant};
 
 /// CUBIC Constants.
 ///

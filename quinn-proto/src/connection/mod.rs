@@ -12,6 +12,7 @@ use frame::StreamMetaVec;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use thiserror::Error;
 use tracing::{debug, error, trace, trace_span, warn};
+use web_time::Instant;
 
 use crate::{
     cid_generator::ConnectionIdGenerator,
@@ -32,7 +33,7 @@ use crate::{
     },
     token::ResetToken,
     transport_parameters::TransportParameters,
-    Dir, Duration, EndpointConfig, Frame, Instant, Side, StreamId, Transmit, TransportError,
+    Dir, Duration, EndpointConfig, Frame, Side, StreamId, Transmit, TransportError,
     TransportErrorCode, VarInt, MAX_STREAM_COUNT, MIN_INITIAL_SIZE, TIMER_GRANULARITY,
 };
 

@@ -1,8 +1,9 @@
 use std::{fmt, net::SocketAddr};
 
 use bytes::{Buf, BufMut, BytesMut};
+use web_time::Instant;
 
-use crate::{coding::BufExt, packet::PartialDecode, Instant, ResetToken, MAX_CID_SIZE};
+use crate::{coding::BufExt, packet::PartialDecode, ResetToken, MAX_CID_SIZE};
 
 /// Events sent from an Endpoint to a Connection
 #[derive(Debug)]

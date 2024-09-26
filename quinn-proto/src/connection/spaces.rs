@@ -8,11 +8,12 @@ use std::{
 use rand::Rng;
 use rustc_hash::FxHashSet;
 use tracing::trace;
+use web_time::{Duration, Instant};
 
 use super::assembler::Assembler;
 use crate::{
     connection::StreamsState, crypto::Keys, frame, packet::SpaceId, range_set::ArrayRangeSet,
-    shared::IssuedCid, Dir, Duration, Instant, StreamId, TransportError, VarInt,
+    shared::IssuedCid, Dir, StreamId, TransportError, VarInt,
 };
 
 pub(super) struct PacketSpace {

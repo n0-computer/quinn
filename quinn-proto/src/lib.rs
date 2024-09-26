@@ -88,11 +88,7 @@ use token::{ResetToken, RetryToken};
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 
-// Deal with time
-#[cfg(not(all(target_family = "wasm", target_os = "unknown", feature = "wasm")))]
-pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "wasm"))]
-pub use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use web_time::Duration;
 
 #[doc(hidden)]
 #[cfg(fuzzing)]

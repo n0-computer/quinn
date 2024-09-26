@@ -13,6 +13,7 @@ use rustc_hash::FxHashMap;
 use slab::Slab;
 use thiserror::Error;
 use tracing::{debug, error, trace, warn};
+use web_time::{Instant, SystemTime};
 
 use crate::{
     cid_generator::ConnectionIdGenerator,
@@ -31,8 +32,8 @@ use crate::{
     },
     token::TokenDecodeError,
     transport_parameters::{PreferredAddress, TransportParameters},
-    Instant, ResetToken, RetryToken, Side, SystemTime, Transmit, TransportConfig, TransportError,
-    INITIAL_MTU, MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
+    ResetToken, RetryToken, Side, Transmit, TransportConfig, TransportError, INITIAL_MTU,
+    MAX_CID_SIZE, MIN_INITIAL_SIZE, RESET_TOKEN_SIZE,
 };
 
 /// The main entry point to the library

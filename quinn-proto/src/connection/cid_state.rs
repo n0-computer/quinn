@@ -3,8 +3,9 @@ use std::collections::VecDeque;
 
 use rustc_hash::FxHashSet;
 use tracing::{debug, trace};
+use web_time::{Duration, Instant};
 
-use crate::{shared::IssuedCid, Duration, Instant, TransportError};
+use crate::{shared::IssuedCid, TransportError};
 
 /// Local connection ID management
 pub(super) struct CidState {

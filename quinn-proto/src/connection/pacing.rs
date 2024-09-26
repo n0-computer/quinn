@@ -1,8 +1,7 @@
 //! Pacing of packet transmissions.
 
-use crate::{Duration, Instant};
-
 use tracing::warn;
+use web_time::{Duration, Instant};
 
 /// A simple token-bucket pacer
 ///

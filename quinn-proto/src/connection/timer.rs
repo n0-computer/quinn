@@ -1,4 +1,4 @@
-use crate::Instant;
+use web_time::Instant;
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) enum Timer {

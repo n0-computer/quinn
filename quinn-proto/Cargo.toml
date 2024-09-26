@@ -15,14 +15,13 @@ all-features = true
 
 [features]
 default = ["rustls", "log"]
-rustls = ["dep:rustls", "ring", "dep:rustls-pki-types"]
+rustls = ["dep:rustls", "ring"]
 ring = ["dep:ring"]
 # Enable rustls ring provider and direct ring usage
 # Provides `ClientConfig::with_platform_verifier()` convenience method
 platform-verifier = ["dep:rustls-platform-verifier"]
 # Configure `tracing` to log events via `log` if no `tracing` subscriber exists.
 log = ["tracing/log"]
-wasm = ["getrandom/js", "ring?/wasm32_unknown_unknown_js", "rustls-pki-types?/web", "dep:web-time"]
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
@@ -36,9 +35,12 @@ slab = { workspace = true }
 thiserror = { workspace= true }
 tinyvec = { workspace = true, features = ["alloc"] }
 tracing = { workspace = true }
-getrandom = { workspace = true }
-rustls-pki-types = { workspace = true, optional = true }
-web-time = { workspace = true, optional = true }
+web-time = { workspace = true }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+getrandom = { workspace = true, features = ["js"] }
+rustls-pki-types = { workspace = true, features = ["web"] }
+ring = { workspace = true, features = ["wasm32_unknown_unknown_js"] }
 
 [dev-dependencies]
 assert_matches = { workspace = true }

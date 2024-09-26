@@ -8,7 +8,6 @@ use std::{
     ops::RangeFrom,
     str,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
 };
 
 use assert_matches::assert_matches;
@@ -20,6 +19,7 @@ use rustls::{
     KeyLogFile,
 };
 use tracing::{info_span, trace};
+use web_time::{Duration, Instant};
 
 use super::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use super::*;

@@ -3,12 +3,13 @@ use std::cmp;
 use bytes::Bytes;
 use rand::Rng;
 use tracing::{trace, trace_span};
+use web_time::Instant;
 
 use super::{spaces::SentPacket, Connection, SentFrames};
 use crate::{
     frame::{self, Close},
     packet::{Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId, FIXED_BIT},
-    ConnectionId, Instant, TransportError, TransportErrorCode, INITIAL_MTU,
+    ConnectionId, TransportError, TransportErrorCode, INITIAL_MTU,
 };
 
 pub(super) struct PacketBuilder {

@@ -3,11 +3,11 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use rand::{Rng, SeedableRng};
+use web_time::{Duration, Instant};
 
 use crate::congestion::bbr::bw_estimation::BandwidthEstimation;
 use crate::congestion::bbr::min_max::MinMax;
 use crate::connection::RttEstimator;
-use crate::{Duration, Instant};
 
 use super::{Controller, ControllerFactory, BASE_DATAGRAM_SIZE};
 

@@ -4,12 +4,13 @@ use std::{
 };
 
 use bytes::{Buf, BufMut};
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
     coding::{BufExt, BufMutExt},
     crypto::{CryptoError, HandshakeTokenKey, HmacKey},
     shared::ConnectionId,
-    Duration, SystemTime, RESET_TOKEN_SIZE, UNIX_EPOCH,
+    Duration, RESET_TOKEN_SIZE,
 };
 
 pub(crate) struct RetryToken {
@@ -171,12 +172,10 @@ mod test {
         use super::*;
         use crate::cid_generator::{ConnectionIdGenerator, RandomConnectionIdGenerator};
         use crate::MAX_CID_SIZE;
+        use web_time::{Duration, UNIX_EPOCH};
 
         use rand::RngCore;
-        use std::{
-            net::Ipv6Addr,
-            time::{Duration, UNIX_EPOCH},
-        };
+        use std::net::Ipv6Addr;
 
         let rng = &mut rand::thread_rng();
 

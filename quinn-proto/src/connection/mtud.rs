@@ -1,6 +1,7 @@
-use crate::{packet::SpaceId, Instant, MtuDiscoveryConfig, MAX_UDP_PAYLOAD};
+use crate::{packet::SpaceId, MtuDiscoveryConfig, MAX_UDP_PAYLOAD};
 use std::cmp;
 use tracing::trace;
+use web_time::Instant;
 
 /// Implements Datagram Packetization Layer Path Maximum Transmission Unit Discovery
 ///
