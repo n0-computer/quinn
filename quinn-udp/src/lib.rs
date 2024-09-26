@@ -27,29 +27,29 @@
 #![warn(unreachable_pub)]
 #![warn(clippy::use_self)]
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "network"))]
 use std::os::unix::io::AsFd;
-#[cfg(windows)]
+#[cfg(all(windows, feature = "network"))]
 use std::os::windows::io::AsSocket;
 use std::{
     net::{IpAddr, Ipv6Addr, SocketAddr},
     sync::Mutex,
-    time::{Duration, Instant},
 };
+use web_time::{Duration, Instant};
 
-#[cfg(any(unix, windows))]
+#[cfg(all(any(unix, windows), feature = "network"))]
 mod cmsg;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "network"))]
 #[path = "unix.rs"]
 mod imp;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "network"))]
 #[path = "windows.rs"]
 mod imp;
 
 // No ECN support
-#[cfg(not(any(unix, windows)))]
+#[cfg(all(not(any(unix, windows)), feature = "network"))]
 #[path = "fallback.rs"]
 mod imp;
 
@@ -76,10 +76,14 @@ mod log {
     pub(crate) use no_op::*;
 }
 
+#[cfg(feature = "network")]
 pub use imp::UdpSocketState;
 
 /// Number of UDP packets to send/receive at a time
+#[cfg(feature = "network")]
 pub const BATCH_SIZE: usize = imp::BATCH_SIZE;
+#[cfg(not(feature = "network"))]
+pub const BATCH_SIZE: usize = 1;
 
 /// Metadata for a single buffer filled with bytes received from the network
 ///
@@ -141,7 +145,7 @@ pub struct Transmit<'a> {
 }
 
 /// Log at most 1 IO error per minute
-const IO_ERROR_LOG_INTERVAL: Duration = std::time::Duration::from_secs(60);
+const IO_ERROR_LOG_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Logs a warning message when sendmsg fails
 ///
@@ -172,9 +176,10 @@ fn log_sendmsg_error(_: &Mutex<Instant>, _: impl core::fmt::Debug, _: &Transmit)
 /// On Unix, constructible via `From<T: AsFd>`. On Windows, constructible via `From<T:
 /// AsSocket>`.
 // Wrapper around socket2 to avoid making it a public dependency and incurring stability risk
+#[cfg(feature = "network")]
 pub struct UdpSockRef<'a>(socket2::SockRef<'a>);
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "network"))]
 impl<'s, S> From<&'s S> for UdpSockRef<'s>
 where
     S: AsFd,
@@ -184,7 +189,7 @@ where
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "network"))]
 impl<'s, S> From<&'s S> for UdpSockRef<'s>
 where
     S: AsSocket,
