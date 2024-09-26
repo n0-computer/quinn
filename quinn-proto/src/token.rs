@@ -171,12 +171,10 @@ mod test {
         use super::*;
         use crate::cid_generator::{ConnectionIdGenerator, RandomConnectionIdGenerator};
         use crate::MAX_CID_SIZE;
+        use crate::{Duration, UNIX_EPOCH};
 
         use rand::RngCore;
-        use std::{
-            net::Ipv6Addr,
-            time::{Duration, UNIX_EPOCH},
-        };
+        use std::net::Ipv6Addr;
 
         let rng = &mut rand::thread_rng();
 

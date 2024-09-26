@@ -55,8 +55,8 @@ jobs:
       - run: cargo test --manifest-path fuzz/Cargo.toml
         if: ${{ matrix.rust }} == "stable"
 
-  wasm_build:
-    name: Build wasm32
+  wasm_test:
+    name: Test wasm32-unknown-unknown
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -68,19 +68,11 @@ jobs:
       - name: Add wasm target
         run: rustup target add wasm32-unknown-unknown
 
-      - name: wasm32 build (quinn)
-        run: cargo build -p iroh-quinn --no-default-features --features log,ring,rustls,wasm,runtime-wasm --target wasm32-unknown-unknown
-        env:
-          RUST_BACKTRACE: 1
+      - name: Install wasm-bindgen-test-runner
+        run: cargo install wasm-bindgen-cli
 
-      - name: wasm32 build (quinn-proto)
-        run: cargo build -p iroh-quinn-proto --features wasm --target wasm32-unknown-unknown
-        env:
-          RUST_BACKTRACE: 1
-      - name: wasm32 build (quinn-udp)
-        run: cargo build -p iroh-quinn-udp --no-default-features --features log --target wasm32-unknown-unknown
-        env:
-          RUST_BACKTRACE: 1
+      - name: wasm32 test (quinn-proto)
+        run: cargo test -p quinn-proto --target wasm32-unknown-unknown
 
   msrv:
     runs-on: ubuntu-latest
