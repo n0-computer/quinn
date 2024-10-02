@@ -3143,3 +3143,56 @@ fn voluntary_ack_with_large_datagrams() {
         "client should have sent some ACK-only packets"
     );
 }
+
+#[test]
+fn address_discovery() {
+    let _guard = subscribe();
+
+    let server = ServerConfig {
+        transport: Arc::new(TransportConfig {
+            address_discovery_role: crate::address_discovery::Role::Both,
+            ..TransportConfig::default()
+        }),
+        ..server_config()
+    };
+    let mut pair = Pair::new(Default::default(), server);
+    let client_config = ClientConfig {
+        transport: Arc::new(TransportConfig {
+            address_discovery_role: crate::address_discovery::Role::Both,
+            ..TransportConfig::default()
+        }),
+        ..client_config()
+    };
+    let conn_handle = pair.begin_connect(client_config);
+
+    // wait for idle connections
+    pair.drive();
+
+    // check that the client received the correct address
+    assert_matches!(
+        pair.client_conn_mut(conn_handle).poll(),
+        Some(Event::HandshakeDataReady)
+    );
+    assert_matches!(
+        pair.client_conn_mut(conn_handle).poll(),
+        Some(Event::Connected)
+    );
+    let event = pair.client_conn_mut(conn_handle).poll();
+    assert_matches!(event,
+        Some(Event::ObservedAddr(addr)) if addr == pair.client.addr);
+    assert_matches!(pair.client_conn_mut(conn_handle).poll(), None);
+
+    // check that the server received the correct address
+    assert_matches!(
+        pair.server_conn_mut(conn_handle).poll(),
+        Some(Event::HandshakeDataReady)
+    );
+    assert_matches!(
+        pair.server_conn_mut(conn_handle).poll(),
+        Some(Event::Connected)
+    );
+    let event = pair.server_conn_mut(conn_handle).poll();
+    assert_matches!(event,
+        Some(Event::ObservedAddr(addr)) if addr == pair.server.addr);
+    assert_matches!(pair.server_conn_mut(conn_handle).poll(), None);
+}
