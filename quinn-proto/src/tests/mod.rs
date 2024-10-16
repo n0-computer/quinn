@@ -3348,7 +3348,7 @@ fn address_discovery_zero_rtt_rejection() {
     pair.client.connections.clear();
     pair.server.connections.clear();
 
-    // Changing addres discovery configurations makes the client close the connection
+    // Changing address discovery configurations makes the client close the connection
     pair.server
         .set_server_config(Some(Arc::new(alt_server_cfg)));
     info!("resuming session");
