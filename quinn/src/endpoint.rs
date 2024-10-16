@@ -785,8 +785,11 @@ impl RecvState {
             match socket.poll_recv(cx, &mut iovs, &mut metas) {
                 Poll::Ready(Ok(msgs)) => {
                     self.recv_limiter.record_work(msgs);
+                    let total_len: usize = metas.iter().take(msgs).map(|m| m.len).sum();
+                    let mut allocation = BytesMut::with_capacity(total_len);
                     for (meta, buf) in metas.iter().zip(iovs.iter()).take(msgs) {
-                        let mut data: BytesMut = buf[0..meta.len].into();
+                        allocation.extend_from_slice(&buf[0..meta.len]);
+                        let mut data = allocation.split();
                         while !data.is_empty() {
                             let buf = data.split_to(meta.stride.min(data.len()));
                             let mut response_buffer = Vec::new();
