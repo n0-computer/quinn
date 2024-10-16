@@ -119,10 +119,10 @@ impl Role {
     /// Gives the [`VarInt`] representing this [`Role`] as a transport parameter.
     pub(crate) fn as_transport_parameter(&self) -> Option<VarInt> {
         match self {
-            Role::ProvideOnly => Some(VarInt(0)),
-            Role::ReceivesOnly => Some(VarInt(1)),
-            Role::Both => Some(VarInt(2)),
-            Role::Disabled => None,
+            Self::ProvideOnly => Some(VarInt(0)),
+            Self::ReceivesOnly => Some(VarInt(1)),
+            Self::Both => Some(VarInt(2)),
+            Self::Disabled => None,
         }
     }
 }

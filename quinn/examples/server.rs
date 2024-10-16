@@ -185,7 +185,7 @@ async fn handle_connection(root: Arc<Path>, conn: quinn::Incoming) -> Result<()>
     tokio::spawn(
         async move {
             loop {
-                if let Some(new_addr) = external_addresses.borrow_and_update().clone() {
+                if let Some(new_addr) = *external_addresses.borrow_and_update() {
                     info!(%new_addr, "new external address report");
                 }
                 if external_addresses.changed().await.is_err() {

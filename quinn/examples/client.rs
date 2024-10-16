@@ -126,7 +126,7 @@ async fn run(options: Opt) -> Result<()> {
     let mut external_addresses = conn.observed_external_addr();
     tokio::spawn(async move {
         loop {
-            if let Some(new_addr) = external_addresses.borrow_and_update().clone() {
+            if let Some(new_addr) = *external_addresses.borrow_and_update() {
                 info!(%new_addr, "new external address report");
             }
             if external_addresses.changed().await.is_err() {
