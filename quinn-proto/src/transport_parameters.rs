@@ -184,10 +184,12 @@ impl TransportParameters {
             || cached.grease_quic_bit && !self.grease_quic_bit
             || cached.address_discovery_role != self.address_discovery_role
         {
+            tracing::info!(cached=?cached.address_discovery_role, new=?self.address_discovery_role, "0rtt rejected!");
             return Err(TransportError::PROTOCOL_VIOLATION(
                 "0-RTT accepted with incompatible transport parameters",
             ));
         }
+        tracing::info!(cached=?cached.address_discovery_role, new=?self.address_discovery_role, "0rtt accepted!");
         Ok(())
     }
 
