@@ -3144,6 +3144,7 @@ fn voluntary_ack_with_large_datagrams() {
     );
 }
 
+/// Test the address discovery extension on a normal setup.
 #[test]
 fn address_discovery() {
     let _guard = subscribe();
@@ -3183,6 +3184,7 @@ fn address_discovery() {
     assert_matches!(pair.client_conn_mut(conn_handle).poll(), None);
 
     // check that the server received the correct address
+    let conn_handle = pair.server.assert_accept();
     assert_matches!(
         pair.server_conn_mut(conn_handle).poll(),
         Some(Event::HandshakeDataReady)
@@ -3195,4 +3197,93 @@ fn address_discovery() {
     assert_matches!(event,
         Some(Event::ObservedAddr(addr)) if addr == pair.server.addr);
     assert_matches!(pair.server_conn_mut(conn_handle).poll(), None);
+}
+
+/// Test that a different address discovery configuration on 0rtt is accepted by the server.
+// NOTE: this test is the same as zero_rtt_happypath, changing client transport parameters on resumption.
+#[test]
+fn address_discovery_zero_rtt_accepted() {
+    let _guard = subscribe();
+    let server = ServerConfig {
+        transport: Arc::new(TransportConfig {
+            address_discovery_role: crate::address_discovery::Role::Both,
+            ..TransportConfig::default()
+        }),
+        ..server_config()
+    };
+    let mut pair = Pair::new(Default::default(), server);
+
+    pair.server.incoming_connection_behavior = IncomingConnectionBehavior::Validate;
+    let client_cfg = ClientConfig {
+        transport: Arc::new(TransportConfig {
+            address_discovery_role: crate::address_discovery::Role::Both,
+            ..TransportConfig::default()
+        }),
+        ..client_config()
+    };
+    let alt_client_cfg = ClientConfig {
+        transport: Arc::new(TransportConfig {
+            address_discovery_role: crate::address_discovery::Role::Disabled,
+            ..TransportConfig::default()
+        }),
+        ..client_cfg.clone()
+    };
+
+    // Establish normal connection
+    let client_ch = pair.begin_connect(client_cfg);
+    pair.drive();
+    pair.server.assert_accept();
+    pair.client
+        .connections
+        .get_mut(&client_ch)
+        .unwrap()
+        .close(pair.time, VarInt(0), [][..].into());
+    pair.drive();
+
+    pair.client.addr = SocketAddr::new(
+        Ipv6Addr::LOCALHOST.into(),
+        CLIENT_PORTS.lock().unwrap().next().unwrap(),
+    );
+    info!("resuming session");
+    let client_ch = pair.begin_connect(alt_client_cfg);
+    assert!(pair.client_conn_mut(client_ch).has_0rtt());
+    let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
+    const MSG: &[u8] = b"Hello, 0-RTT!";
+    pair.client_send(client_ch, s).write(MSG).unwrap();
+    pair.drive();
+
+    assert_matches!(
+        pair.client_conn_mut(client_ch).poll(),
+        Some(Event::HandshakeDataReady)
+    );
+    assert_matches!(
+        pair.client_conn_mut(client_ch).poll(),
+        Some(Event::Connected)
+    );
+
+    assert!(pair.client_conn_mut(client_ch).accepted_0rtt());
+    let server_ch = pair.server.assert_accept();
+
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
+        Some(Event::HandshakeDataReady)
+    );
+    // We don't currently preserve stream event order wrt. connection events
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
+        Some(Event::Connected)
+    );
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
+        Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
+    );
+
+    let mut recv = pair.server_recv(server_ch, s);
+    let mut chunks = recv.read(false).unwrap();
+    assert_matches!(
+        chunks.next(usize::MAX),
+        Ok(Some(chunk)) if chunk.offset == 0 && chunk.bytes == MSG
+    );
+    let _ = chunks.finalize();
+    assert_eq!(pair.client_conn_mut(client_ch).lost_packets(), 0);
 }
