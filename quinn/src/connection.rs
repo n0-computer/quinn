@@ -643,11 +643,6 @@ impl Connection {
     }
 
     /// Track changed on our external address as reported by the peer.
-    // NOTE: this is currently leaking an implementation detail, but quinn does not use common deps
-    // like futures, so no access to the Stream future for example. Other utilities are also not
-    // imported, so for the sake of not incurring in bloat, but prevent the impl detail to leak, we
-    // should at least check on alternative implementations that do not use these common libraries
-    // first.
     pub fn observed_external_addr(&self) -> watch::Receiver<Option<SocketAddr>> {
         let conn = self.0.state.lock("external_addr");
         conn.observed_external_addr.subscribe()
@@ -1024,7 +1019,7 @@ pub(crate) struct State {
     send_buffer: Vec<u8>,
     /// We buffer a transmit when the underlying I/O would block
     buffered_transmit: Option<proto::Transmit>,
-    /// our last external address reported by the peer.
+    /// Our last external address reported by the peer.
     pub(crate) observed_external_addr: watch::Sender<Option<SocketAddr>>,
 }
 

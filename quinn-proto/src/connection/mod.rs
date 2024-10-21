@@ -230,7 +230,7 @@ pub struct Connection {
     //
     // ObservedAddr
     //
-    /// Sequence number for ther next observed address frame sent to the peer.
+    /// Sequence number for the next observed address frame sent to the peer.
     next_observed_addr_seq_no: VarInt,
 
     streams: StreamsState,

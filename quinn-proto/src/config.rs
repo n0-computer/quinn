@@ -338,7 +338,7 @@ impl TransportConfig {
     /// Whether to accept observed address_reports from other peers.
     ///
     /// Peers with the address discovery extension enabled that are willing to provide observed
-    /// address reports will do so if this transport paramter is set. In general, observed address
+    /// address reports will do so if this transport parameter is set. In general, observed address
     /// reports cannot be trusted. This, however, can aid the current endpoint in inferring its
     /// reachable address, which in most NATd networks will not be easily available.
     pub fn accept_observed_address_reports(&mut self, enabled: bool) -> &mut Self {

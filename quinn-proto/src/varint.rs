@@ -50,7 +50,8 @@ impl VarInt {
         self.0
     }
 
-    /// Saturating integer addition. Computes self + rhs, saturating at the numeric bounds instead of overflowing.
+    /// Saturating integer addition. Computes self + rhs, saturating at the numeric bounds instead
+    /// of overflowing.
     pub fn saturating_add(self, rhs: impl Into<Self>) -> Self {
         let rhs = rhs.into();
         let inner = self.0.saturating_add(rhs.0).min(Self::MAX.0);
