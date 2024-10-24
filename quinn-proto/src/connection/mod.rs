@@ -1215,6 +1215,7 @@ impl Connection {
         let mut stats = self.stats;
         stats.path.rtt = self.path.rtt.get();
         stats.path.cwnd = self.path.congestion.window();
+        stats.path.current_mtu = self.path.mtud.current_mtu();
 
         stats
     }
@@ -1313,19 +1314,16 @@ impl Connection {
         self.path.congestion.as_ref()
     }
 
-    /// Resets the congestion controller and round-trip estimator for the current path.
+    /// Resets path-specific settings.
     ///
-    /// This force-resets the congestion controller and round-trip estimator for the current
-    /// path.
-    pub fn reset_congestion_state(&mut self) {
-        let now = Instant::now();
-        self.path.rtt = RttEstimator::new(self.config.initial_rtt);
-        self.path.congestion = self
-            .config
-            .congestion_controller_factory
-            .clone()
-            .build(now, self.config.get_initial_mtu());
-        // TODO: probably needs MTU discovery reset as well.
+    /// This will force-reset several subsystems related to a specific network path.
+    /// Currently this is the congestion controller, round-trip estimator, and the MTU
+    /// discovery.
+    ///
+    /// This is useful when it is know the underlying network path has changed and the old
+    /// state of these subsystems is no longer valid.
+    pub fn network_path_changed(&mut self) {
+        self.path.reset(&self.config);
     }
 
     /// Modify the number of remotely initiated streams that may be concurrently open
