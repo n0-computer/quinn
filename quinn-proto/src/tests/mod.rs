@@ -3196,33 +3196,21 @@ fn address_discovery() {
     pair.drive();
 
     // check that the client received the correct address
-    assert_matches!(
-        pair.client_conn_mut(conn_handle).poll(),
-        Some(Event::HandshakeDataReady)
-    );
-    assert_matches!(
-        pair.client_conn_mut(conn_handle).poll(),
-        Some(Event::Connected)
-    );
-    let event = pair.client_conn_mut(conn_handle).poll();
-    assert_matches!(event,
-        Some(Event::ObservedAddr(addr)) if addr == pair.client.addr);
-    assert_matches!(pair.client_conn_mut(conn_handle).poll(), None);
+    let expected_addr = pair.client.addr;
+    let conn = pair.client_conn_mut(conn_handle);
+    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.poll(), Some(Event::Connected));
+    assert_matches!(conn.poll(), Some(Event::ObservedAddr(addr)) if addr == expected_addr);
+    assert_matches!(conn.poll(), None);
 
     // check that the server received the correct address
     let conn_handle = pair.server.assert_accept();
-    assert_matches!(
-        pair.server_conn_mut(conn_handle).poll(),
-        Some(Event::HandshakeDataReady)
-    );
-    assert_matches!(
-        pair.server_conn_mut(conn_handle).poll(),
-        Some(Event::Connected)
-    );
-    let event = pair.server_conn_mut(conn_handle).poll();
-    assert_matches!(event,
-        Some(Event::ObservedAddr(addr)) if addr == pair.server.addr);
-    assert_matches!(pair.server_conn_mut(conn_handle).poll(), None);
+    let expected_addr = pair.server.addr;
+    let conn = pair.server_conn_mut(conn_handle);
+    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.poll(), Some(Event::Connected));
+    assert_matches!(conn.poll(), Some(Event::ObservedAddr(addr)) if addr == expected_addr);
+    assert_matches!(conn.poll(), None);
 }
 
 /// Test that a different address discovery configuration on 0rtt used by the client is accepted by
@@ -3280,29 +3268,19 @@ fn address_discovery_zero_rtt_accepted() {
     pair.client_send(client_ch, s).write(MSG).unwrap();
     pair.drive();
 
-    assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
-        Some(Event::HandshakeDataReady)
-    );
-    assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
-        Some(Event::Connected)
-    );
+    let conn = pair.client_conn_mut(client_ch);
+    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.poll(), Some(Event::Connected));
 
     assert!(pair.client_conn_mut(client_ch).accepted_0rtt());
     let server_ch = pair.server.assert_accept();
 
-    assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
-        Some(Event::HandshakeDataReady)
-    );
+    let conn = pair.server_conn_mut(server_ch);
+    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
     // We don't currently preserve stream event order wrt. connection events
+    assert_matches!(conn.poll(), Some(Event::Connected));
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
-        Some(Event::Connected)
-    );
-    assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        conn.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
 
@@ -3351,15 +3329,10 @@ fn address_discovery_zero_rtt_rejection() {
     let client_ch = pair.begin_connect(client_cfg.clone());
     pair.drive();
     let server_ch = pair.server.assert_accept();
-    assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
-        Some(Event::HandshakeDataReady)
-    );
-    assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
-        Some(Event::Connected)
-    );
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    let conn = pair.server_conn_mut(server_ch);
+    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.poll(), Some(Event::Connected));
+    assert_matches!(conn.poll(), None);
     pair.client
         .connections
         .get_mut(&client_ch)
@@ -3384,12 +3357,10 @@ fn address_discovery_zero_rtt_rejection() {
     const MSG: &[u8] = b"Hello, 0-RTT!";
     pair.client_send(client_ch, s).write(MSG).unwrap();
     pair.drive();
+    let conn = pair.client_conn_mut(server_ch);
+    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
     assert_matches!(
-        pair.client_conn_mut(server_ch).poll(),
-        Some(Event::HandshakeDataReady)
-    );
-    assert_matches!(
-        pair.client_conn_mut(server_ch).poll(),
+        conn.poll(),
         Some(Event::ConnectionLost { reason }) if matches!(reason, ConnectionError::TransportError(_) )
     );
 }
@@ -3433,7 +3404,7 @@ fn address_discovery_retransmission() {
 
     pair.drive();
     let conn = pair.client_conn_mut(client_ch);
-    assert_matches!(conn.poll(), 
+    assert_matches!(conn.poll(),
         Some(Event::ObservedAddr(addr)) if addr == pair.client.addr);
 }
 
