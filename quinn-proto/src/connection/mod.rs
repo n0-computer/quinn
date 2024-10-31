@@ -1309,6 +1309,20 @@ impl Connection {
         self.path.congestion.as_ref()
     }
 
+    /// Resets path-specific settings.
+    ///
+    /// This will force-reset several subsystems related to a specific network path.
+    /// Currently this is the congestion controller, round-trip estimator, and the MTU
+    /// discovery.
+    ///
+    /// This is useful when it is known the underlying network path has changed and the old
+    /// state of these subsystems is no longer valid or optimal. In which case it might be
+    /// faster or more desirable to settle on optimal values by restarting from the initial
+    /// configuration in the [`TransportConfig`].
+    pub fn network_path_changed(&mut self) {
+        self.path.reset(&self.config);
+    }
+
     /// Modify the number of remotely initiated streams that may be concurrently open
     ///
     /// No streams may be opened by the peer unless fewer than `count` are already open. Large
