@@ -60,14 +60,14 @@ impl Role {
     /// Sets whether this peer should provide observed addresses to other peers.
     pub(crate) fn send_reports_to_peers(&mut self, provide: bool) {
         if provide {
-            self.enable_reports_to_peers()
+            self.enable_sending_reports_to_peers()
         } else {
-            self.disable_reports_to_peers()
+            self.disable_sending_reports_to_peers()
         }
     }
 
-    /// Enables reporting of observed addresses to other peers.
-    fn enable_reports_to_peers(&mut self) {
+    /// Enables sending reports of observed addresses to other peers.
+    fn enable_sending_reports_to_peers(&mut self) {
         match self {
             Self::SendOnly => {} // already enabled
             Self::ReceiveOnly => *self = Self::Both,
@@ -76,8 +76,8 @@ impl Role {
         }
     }
 
-    /// Disables reporting of observed addresses to other peers.
-    fn disable_reports_to_peers(&mut self) {
+    /// Disables sending reports of observed addresses to other peers.
+    fn disable_sending_reports_to_peers(&mut self) {
         match self {
             Self::SendOnly => *self = Self::Disabled,
             Self::ReceiveOnly => {} // already disabled
@@ -96,7 +96,7 @@ impl Role {
         }
     }
 
-    /// Enables accepting reports of observed addresses from other peers.
+    /// Enables receiving reports of observed addresses from other peers.
     fn enable_receiving_reports_from_peers(&mut self) {
         match self {
             Self::SendOnly => *self = Self::Both,
@@ -106,7 +106,7 @@ impl Role {
         }
     }
 
-    /// Disables accepting reports of observed addresses from other peers.
+    /// Disables receiving reports of observed addresses from other peers.
     fn disable_receiving_reports_from_peers(&mut self) {
         match self {
             Self::SendOnly => {} // already disabled
