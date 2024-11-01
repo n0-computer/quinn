@@ -528,7 +528,7 @@ mod test {
             }),
             grease_quic_bit: true,
             min_ack_delay: Some(2_000u32.into()),
-            address_discovery_role: address_discovery::Role::ProvideOnly,
+            address_discovery_role: address_discovery::Role::SendOnly,
             ..TransportParameters::default()
         };
         params.write(&mut buf);

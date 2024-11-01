@@ -130,8 +130,8 @@ async fn run(options: Opt) -> Result<()> {
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
     transport_config
         .max_concurrent_uni_streams(0_u8.into())
-        .report_observed_addresses_to_peers(true)
-        .accept_observed_address_reports(true);
+        .send_observed_address_reports(true)
+        .receive_observed_address_reports(true);
 
     let root = Arc::<Path>::from(options.root.clone());
     if !root.exists() {

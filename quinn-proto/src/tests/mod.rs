@@ -3311,7 +3311,7 @@ fn address_discovery_zero_rtt_rejection() {
     };
     let alt_server_cfg = ServerConfig {
         transport: Arc::new(TransportConfig {
-            address_discovery_role: crate::address_discovery::Role::ProvideOnly,
+            address_discovery_role: crate::address_discovery::Role::SendOnly,
             ..TransportConfig::default()
         }),
         ..server_cfg.clone()
@@ -3367,6 +3367,42 @@ fn address_discovery_zero_rtt_rejection() {
 
 #[test]
 fn address_discovery_retransmission() {
+    let _guard = subscribe();
+
+    let server = ServerConfig {
+        transport: Arc::new(TransportConfig {
+            address_discovery_role: crate::address_discovery::Role::Both,
+            ..TransportConfig::default()
+        }),
+        ..server_config()
+    };
+    let mut pair = Pair::new(Default::default(), server);
+    let client_config = ClientConfig {
+        transport: Arc::new(TransportConfig {
+            address_discovery_role: crate::address_discovery::Role::Both,
+            ..TransportConfig::default()
+        }),
+        ..client_config()
+    };
+    let client_ch = pair.begin_connect(client_config);
+    pair.step();
+
+    // lose the last packet
+    pair.client.inbound.pop_back().unwrap();
+    pair.step();
+    let conn = pair.client_conn_mut(client_ch);
+    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.poll(), Some(Event::Connected));
+    assert_matches!(conn.poll(), None);
+
+    pair.drive();
+    let conn = pair.client_conn_mut(client_ch);
+    assert_matches!(conn.poll(),
+        Some(Event::ObservedAddr(addr)) if addr == pair.client.addr);
+}
+
+#[test]
+fn address_discovery_rebind_retransmission() {
     let _guard = subscribe();
 
     let server = ServerConfig {

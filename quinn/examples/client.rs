@@ -104,8 +104,8 @@ async fn run(options: Opt) -> Result<()> {
 
     let mut transport = TransportConfig::default();
     transport
-        .report_observed_addresses_to_peers(true)
-        .accept_observed_address_reports(true);
+        .send_observed_address_reports(true)
+        .receive_observed_address_reports(true);
     let mut client_config =
         quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
     client_config.transport_config(Arc::new(transport));
