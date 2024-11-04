@@ -96,6 +96,9 @@ jobs:
       - name: Look at wasm imports
         run: wasm-tools print --skeleton ./target/wasm32-unknown-unknown/debug/deps/quinn_proto-*.wasm | grep import
 
+      - name: Give me the tree
+        run: cargo tree -i ring -p quinn-proto --target wasm32-unknown-unknown -e features
+
       - name: wasm32 test (quinn-proto)
         run: cargo test -p quinn-proto --target wasm32-unknown-unknown
         env:
