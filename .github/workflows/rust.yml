@@ -88,7 +88,7 @@ jobs:
         run: cargo binstall wasm-bindgen-cli --version 0.2.95 --no-confirm
 
       - name: Install binaryen tools (like wasm-dis)
-        uses: Aandreba/setup-binaryen@1.0.0
+        uses: Aandreba/setup-binaryen@v1.0.0
         with:
           version: 120
 
