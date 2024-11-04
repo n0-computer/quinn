@@ -87,6 +87,17 @@ jobs:
       - name: Install wasm-bindgen-test-runner
         run: cargo binstall wasm-bindgen-cli --version 0.2.95 --no-confirm
 
+      - name: Install binaryen tools (like wasm-dis)
+        uses: Aandreba/setup-binaryen
+        with:
+          version: 120
+
+      - name: wasm32 build (quinn-proto)
+        run: cargo test -p quinn-proto --target wasm32-unknown-unknown --no-run
+      
+      - name: Look at wasm imports
+        run: wasm-dis ./target/wasm32-unknown-unknown/debug/deps/quinn_proto-*.wasm | grep import
+
       - name: wasm32 test (quinn-proto)
         run: cargo test -p quinn-proto --target wasm32-unknown-unknown
         env:
