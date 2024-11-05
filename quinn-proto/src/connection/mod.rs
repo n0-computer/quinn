@@ -1316,11 +1316,11 @@ impl Connection {
     /// discovery.
     ///
     /// This is useful when it is known the underlying network path has changed and the old
-    /// state of these subsystems is no longer valid or optimal. In which case it might be
-    /// faster or more desirable to settle on optimal values by restarting from the initial
+    /// state of these subsystems is no longer valid or optimal. In this case it might be
+    /// faster or reduce loss to settle on optimal values by restarting from the initial
     /// configuration in the [`TransportConfig`].
-    pub fn network_path_changed(&mut self) {
-        self.path.reset(&self.config);
+    pub fn path_changed(&mut self, now: Instant) {
+        self.path.reset(now, &self.config);
     }
 
     /// Modify the number of remotely initiated streams that may be concurrently open

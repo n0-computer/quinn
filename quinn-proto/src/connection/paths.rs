@@ -118,8 +118,7 @@ impl PathData {
     /// Resets RTT, congestion control and MTU states.
     ///
     /// This is useful when it is known the underlying path has changed.
-    pub(super) fn reset(&mut self, config: &TransportConfig) {
-        let now = Instant::now();
+    pub(super) fn reset(&mut self, now: Instant, config: &TransportConfig) {
         self.rtt = RttEstimator::new(config.initial_rtt);
         self.congestion = config
             .congestion_controller_factory
