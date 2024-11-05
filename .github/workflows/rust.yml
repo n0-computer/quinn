@@ -78,6 +78,11 @@ jobs:
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install nodejs v20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Add wasm target
         run: rustup target add wasm32-unknown-unknown
 
@@ -93,6 +98,10 @@ jobs:
       - name: wasm32 build (quinn-proto)
         run: cargo test -p quinn-proto --target wasm32-unknown-unknown --no-run
       
+      - uses: actions/upload-artifact@v4
+        with:
+          path: Cargo.lock
+
       - name: Look at wasm imports
         run: wasm-tools print --skeleton ./target/wasm32-unknown-unknown/debug/deps/quinn_proto-*.wasm | grep import
 
