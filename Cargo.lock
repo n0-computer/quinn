@@ -475,9 +475,9 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.1.29"
+version = "1.1.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58e804ac3194a48bb129643eb1d62fcc20d18c6b8c181704489353d13120bcd1"
+checksum = "538b056773ee67775e422d15c33169f5415706855814b96505c84ee942f2bae2"
 dependencies = [
  "jobserver",
  "libc",
