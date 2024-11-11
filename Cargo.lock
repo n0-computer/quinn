@@ -476,8 +476,7 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 [[package]]
 name = "cc"
 version = "1.1.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40545c26d092346d8a8dab71ee48e7685a7a9cba76e634790c215b41a4a7b4cf"
+source = "git+https://github.com/madsmtm/cc-rs?branch=fix-wasm#e473a886fd3bd544fe87299807927abf6bfb2080"
 dependencies = [
  "jobserver",
  "libc",
