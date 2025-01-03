@@ -28,11 +28,11 @@
 #![warn(clippy::use_self)]
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-#[cfg(all(feature = "net", unix))]
+#[cfg(all(not(wasm_browser), unix))]
 use std::os::unix::io::AsFd;
-#[cfg(all(feature = "net", windows))]
+#[cfg(all(not(wasm_browser), windows))]
 use std::os::windows::io::AsSocket;
-#[cfg(feature = "net")]
+#[cfg(not(wasm_browser))]
 use std::sync::Mutex;
 // Allowing unused, otherwise the cfg condition complexity gets
 // out of control only to skip an unused `Duration` import.
@@ -43,19 +43,19 @@ use std::time::{Duration, Instant};
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 use web_time::{Duration, Instant};
 
-#[cfg(all(feature = "net", any(unix, windows)))]
+#[cfg(any(unix, windows))]
 mod cmsg;
 
-#[cfg(all(feature = "net", unix))]
+#[cfg(unix)]
 #[path = "unix.rs"]
 mod imp;
 
-#[cfg(all(feature = "net", windows))]
+#[cfg(windows)]
 #[path = "windows.rs"]
 mod imp;
 
 // No ECN support
-#[cfg(all(feature = "net", not(any(unix, windows))))]
+#[cfg(not(any(wasm_browser, unix, windows)))]
 #[path = "fallback.rs"]
 mod imp;
 
@@ -82,14 +82,14 @@ mod log {
     pub(crate) use no_op::*;
 }
 
-#[cfg(feature = "net")]
+#[cfg(not(wasm_browser))]
 pub use imp::UdpSocketState;
 
 /// Number of UDP packets to send/receive at a time
-#[cfg(feature = "net")]
+#[cfg(not(wasm_browser))]
 pub const BATCH_SIZE: usize = imp::BATCH_SIZE;
 /// Number of UDP packets to send/receive at a time
-#[cfg(not(feature = "net"))]
+#[cfg(wasm_browser)]
 pub const BATCH_SIZE: usize = 1;
 
 /// Metadata for a single buffer filled with bytes received from the network
@@ -152,14 +152,14 @@ pub struct Transmit<'a> {
 }
 
 /// Log at most 1 IO error per minute
-#[cfg(feature = "net")]
+#[cfg(not(wasm_browser))]
 const IO_ERROR_LOG_INTERVAL: Duration = std::time::Duration::from_secs(60);
 
 /// Logs a warning message when sendmsg fails
 ///
 /// Logging will only be performed if at least [`IO_ERROR_LOG_INTERVAL`]
 /// has elapsed since the last error was logged.
-#[cfg(all(feature = "net", any(feature = "tracing", feature = "direct-log")))]
+#[cfg(all(not(wasm_browser), any(feature = "tracing", feature = "direct-log")))]
 fn log_sendmsg_error(
     last_send_error: &Mutex<Instant>,
     err: impl core::fmt::Debug,
@@ -176,7 +176,7 @@ fn log_sendmsg_error(
 }
 
 // No-op
-#[cfg(all(feature = "net", not(any(feature = "tracing", feature = "direct-log"))))]
+#[cfg(not(any(wasm_browser, feature = "tracing", feature = "direct-log")))]
 fn log_sendmsg_error(_: &Mutex<Instant>, _: impl core::fmt::Debug, _: &Transmit) {}
 
 /// A borrowed UDP socket
@@ -184,10 +184,10 @@ fn log_sendmsg_error(_: &Mutex<Instant>, _: impl core::fmt::Debug, _: &Transmit)
 /// On Unix, constructible via `From<T: AsFd>`. On Windows, constructible via `From<T:
 /// AsSocket>`.
 // Wrapper around socket2 to avoid making it a public dependency and incurring stability risk
-#[cfg(feature = "net")]
+#[cfg(not(wasm_browser))]
 pub struct UdpSockRef<'a>(socket2::SockRef<'a>);
 
-#[cfg(all(feature = "net", unix))]
+#[cfg(unix)]
 impl<'s, S> From<&'s S> for UdpSockRef<'s>
 where
     S: AsFd,
@@ -197,7 +197,7 @@ where
     }
 }
 
-#[cfg(all(feature = "net", windows))]
+#[cfg(windows)]
 impl<'s, S> From<&'s S> for UdpSockRef<'s>
 where
     S: AsSocket,
