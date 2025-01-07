@@ -3,6 +3,7 @@
 
 use crate::VarInt;
 
+// https://datatracker.ietf.org/doc/html/draft-seemann-quic-address-discovery/#name-negotiating-extension-use
 pub(crate) const TRANSPORT_PARAMETER_CODE: u64 = 0x9f81a176;
 
 /// The role of each participant.

@@ -106,8 +106,8 @@ pub struct RecvMeta {
     pub ecn: Option<EcnCodepoint>,
     /// The destination IP address which was encoded in this datagram
     ///
-    /// Populated on platforms: Windows, Linux, Android, FreeBSD, OpenBSD, NetBSD, macOS,
-    /// and iOS.
+    /// Populated on platforms: Windows, Linux, Android (API level > 25),
+    /// FreeBSD, OpenBSD, NetBSD, macOS, and iOS.
     pub dst_ip: Option<IpAddr>,
 }
 
@@ -198,18 +198,18 @@ where
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum EcnCodepoint {
-    #[doc(hidden)]
+    /// The ECT(0) codepoint, indicating that an endpoint is ECN-capable
     Ect0 = 0b10,
-    #[doc(hidden)]
+    /// The ECT(1) codepoint, indicating that an endpoint is ECN-capable
     Ect1 = 0b01,
-    #[doc(hidden)]
+    /// The CE codepoint, signalling that congestion was experienced
     Ce = 0b11,
 }
 
 impl EcnCodepoint {
     /// Create new object from the given bits
     pub fn from_bits(x: u8) -> Option<Self> {
-        use self::EcnCodepoint::*;
+        use EcnCodepoint::*;
         Some(match x & 0b11 {
             0b10 => Ect0,
             0b01 => Ect1,

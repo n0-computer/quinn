@@ -1,4 +1,4 @@
-use std::{cmp, net::SocketAddr, time::Duration, time::Instant};
+use std::{cmp, net::SocketAddr};
 
 use tracing::trace;
 
@@ -7,7 +7,10 @@ use super::{
     pacing::Pacer,
     spaces::{PacketSpace, SentPacket},
 };
-use crate::{congestion, frame::ObservedAddr, packet::SpaceId, TransportConfig, TIMER_GRANULARITY};
+use crate::{
+    congestion, frame::ObservedAddr, packet::SpaceId, Duration, Instant, TransportConfig,
+    TIMER_GRANULARITY,
+};
 
 /// Description of a particular network path
 pub(super) struct PathData {
@@ -130,8 +133,7 @@ impl PathData {
     /// Resets RTT, congestion control and MTU states.
     ///
     /// This is useful when it is known the underlying path has changed.
-    pub(super) fn reset(&mut self, config: &TransportConfig) {
-        let now = Instant::now();
+    pub(super) fn reset(&mut self, now: Instant, config: &TransportConfig) {
         self.rtt = RttEstimator::new(config.initial_rtt);
         self.congestion = config
             .congestion_controller_factory
@@ -305,9 +307,9 @@ impl PathResponses {
         }
     }
 
-    pub(crate) fn pop_off_path(&mut self, remote: &SocketAddr) -> Option<(u64, SocketAddr)> {
+    pub(crate) fn pop_off_path(&mut self, remote: SocketAddr) -> Option<(u64, SocketAddr)> {
         let response = *self.pending.last()?;
-        if response.remote == *remote {
+        if response.remote == remote {
             // We don't bother searching further because we expect that the on-path response will
             // get drained in the immediate future by a call to `pop_on_path`
             return None;
@@ -316,9 +318,9 @@ impl PathResponses {
         Some((response.token, response.remote))
     }
 
-    pub(crate) fn pop_on_path(&mut self, remote: &SocketAddr) -> Option<u64> {
+    pub(crate) fn pop_on_path(&mut self, remote: SocketAddr) -> Option<u64> {
         let response = *self.pending.last()?;
-        if response.remote != *remote {
+        if response.remote != remote {
             // We don't bother searching further because we expect that the off-path response will
             // get drained in the immediate future by a call to `pop_off_path`
             return None;

@@ -144,7 +144,7 @@ impl SendStream {
                 conn.wake();
                 Ok(())
             }
-            Err(FinishError::ClosedStream) => Err(ClosedStream::new()),
+            Err(FinishError::ClosedStream) => Err(ClosedStream::default()),
             // Harmless. If the application needs to know about stopped streams at this point, it
             // should call `stopped`.
             Err(FinishError::Stopped(_)) => Ok(()),
@@ -203,8 +203,7 @@ impl SendStream {
         Stopped { stream: self }.await
     }
 
-    #[doc(hidden)]
-    pub fn poll_stopped(&mut self, cx: &mut Context) -> Poll<Result<Option<VarInt>, StoppedError>> {
+    fn poll_stopped(&mut self, cx: &mut Context) -> Poll<Result<Option<VarInt>, StoppedError>> {
         let mut conn = self.conn.state.lock("SendStream::poll_stopped");
 
         if self.is_0rtt {
@@ -305,7 +304,6 @@ impl Drop for SendStream {
 }
 
 /// Future produced by `SendStream::stopped`
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct Stopped<'a> {
     stream: &'a mut SendStream,
 }
@@ -321,13 +319,12 @@ impl Future for Stopped<'_> {
 /// Future produced by [`SendStream::write()`].
 ///
 /// [`SendStream::write()`]: crate::SendStream::write
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct Write<'a> {
     stream: &'a mut SendStream,
     buf: &'a [u8],
 }
 
-impl<'a> Future for Write<'a> {
+impl Future for Write<'_> {
     type Output = Result<usize, WriteError>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -339,13 +336,12 @@ impl<'a> Future for Write<'a> {
 /// Future produced by [`SendStream::write_all()`].
 ///
 /// [`SendStream::write_all()`]: crate::SendStream::write_all
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct WriteAll<'a> {
     stream: &'a mut SendStream,
     buf: &'a [u8],
 }
 
-impl<'a> Future for WriteAll<'a> {
+impl Future for WriteAll<'_> {
     type Output = Result<(), WriteError>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -363,13 +359,12 @@ impl<'a> Future for WriteAll<'a> {
 /// Future produced by [`SendStream::write_chunks()`].
 ///
 /// [`SendStream::write_chunks()`]: crate::SendStream::write_chunks
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct WriteChunks<'a> {
     stream: &'a mut SendStream,
     bufs: &'a mut [Bytes],
 }
 
-impl<'a> Future for WriteChunks<'a> {
+impl Future for WriteChunks<'_> {
     type Output = Result<Written, WriteError>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -381,13 +376,12 @@ impl<'a> Future for WriteChunks<'a> {
 /// Future produced by [`SendStream::write_chunk()`].
 ///
 /// [`SendStream::write_chunk()`]: crate::SendStream::write_chunk
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct WriteChunk<'a> {
     stream: &'a mut SendStream,
     buf: [Bytes; 1],
 }
 
-impl<'a> Future for WriteChunk<'a> {
+impl Future for WriteChunk<'_> {
     type Output = Result<(), WriteError>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -404,14 +398,13 @@ impl<'a> Future for WriteChunk<'a> {
 /// Future produced by [`SendStream::write_all_chunks()`].
 ///
 /// [`SendStream::write_all_chunks()`]: crate::SendStream::write_all_chunks
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct WriteAllChunks<'a> {
     stream: &'a mut SendStream,
     bufs: &'a mut [Bytes],
     offset: usize,
 }
 
-impl<'a> Future for WriteAllChunks<'a> {
+impl Future for WriteAllChunks<'_> {
     type Output = Result<(), WriteError>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -468,7 +461,7 @@ impl From<StoppedError> for WriteError {
 
 impl From<WriteError> for io::Error {
     fn from(x: WriteError) -> Self {
-        use self::WriteError::*;
+        use WriteError::*;
         let kind = match x {
             Stopped(_) | ZeroRttRejected => io::ErrorKind::ConnectionReset,
             ConnectionLost(_) | ClosedStream => io::ErrorKind::NotConnected,

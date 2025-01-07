@@ -1,6 +1,6 @@
 //! Pacing of packet transmissions.
 
-use std::time::{Duration, Instant};
+use crate::{Duration, Instant};
 
 use tracing::warn;
 
@@ -104,7 +104,7 @@ impl Pacer {
 
         let unscaled_delay = smoothed_rtt
             .checked_mul((bytes_to_send.max(self.capacity) - self.tokens) as _)
-            .unwrap_or_else(|| Duration::new(u64::MAX, 999_999_999))
+            .unwrap_or(Duration::MAX)
             / window;
 
         // divisions come before multiplications to prevent overflow

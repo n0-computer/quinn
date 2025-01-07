@@ -24,15 +24,13 @@ use std::{
     fmt,
     net::{IpAddr, SocketAddr},
     ops,
-    time::Duration,
 };
 
 mod cid_queue;
-#[doc(hidden)]
 pub mod coding;
 mod constant_time;
 mod range_set;
-#[cfg(all(test, feature = "rustls"))]
+#[cfg(all(test, any(feature = "rustls-aws-lc-rs", feature = "rustls-ring")))]
 mod tests;
 pub mod transport_parameters;
 mod varint;
@@ -43,21 +41,24 @@ mod connection;
 pub use crate::connection::{
     BytesSource, Chunk, Chunks, ClosedStream, Connection, ConnectionError, ConnectionStats,
     Datagrams, Event, FinishError, FrameStats, PathStats, ReadError, ReadableError, RecvStream,
-    RttEstimator, SendDatagramError, SendStream, StreamEvent, Streams, UdpStats, WriteError,
-    Written,
+    RttEstimator, SendDatagramError, SendStream, ShouldTransmit, StreamEvent, Streams, UdpStats,
+    WriteError, Written,
 };
+
+#[cfg(feature = "rustls")]
+pub use rustls;
 
 mod config;
 pub use config::{
     AckFrequencyConfig, ClientConfig, ConfigError, EndpointConfig, IdleTimeout, MtuDiscoveryConfig,
-    ServerConfig, TransportConfig,
+    ServerConfig, StdSystemTime, TimeSource, TransportConfig,
 };
 
 pub mod crypto;
 
 mod frame;
 use crate::frame::Frame;
-pub use crate::frame::{ApplicationClose, ConnectionClose, Datagram};
+pub use crate::frame::{ApplicationClose, ConnectionClose, Datagram, FrameType};
 
 mod endpoint;
 pub use crate::endpoint::{
@@ -84,14 +85,19 @@ pub use crate::cid_generator::{
 };
 
 mod token;
-use token::{ResetToken, RetryToken};
+use token::ResetToken;
 
 mod address_discovery;
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 
-#[doc(hidden)]
+// Deal with time
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(crate) use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
 #[cfg(fuzzing)]
 pub mod fuzzing {
     pub use crate::connection::{Retransmits, State as ConnectionState, StreamsState};
@@ -202,7 +208,7 @@ impl Dir {
 
 impl fmt::Display for Dir {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::Dir::*;
+        use Dir::*;
         f.pad(match *self {
             Bi => "bidirectional",
             Uni => "unidirectional",
@@ -213,7 +219,7 @@ impl fmt::Display for Dir {
 /// Identifier for a stream within a particular connection
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct StreamId(#[doc(hidden)] pub u64);
+pub struct StreamId(u64);
 
 impl fmt::Display for StreamId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -271,6 +277,12 @@ impl From<StreamId> for VarInt {
 impl From<VarInt> for StreamId {
     fn from(v: VarInt) -> Self {
         Self(v.0)
+    }
+}
+
+impl From<StreamId> for u64 {
+    fn from(x: StreamId) -> Self {
+        x.0
     }
 }
 

@@ -31,7 +31,6 @@ use proto::{
 
 /// In-progress connection attempt future
 #[derive(Debug)]
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 pub struct Connecting {
     conn: Option<ConnectionRef>,
     connected: oneshot::Receiver<bool>,
@@ -173,6 +172,8 @@ impl Connecting {
     /// This will return `None` for clients, or when the platform does not expose this
     /// information. See [`quinn_udp::RecvMeta::dst_ip`](udp::RecvMeta::dst_ip) for a list of
     /// supported platforms when using [`quinn_udp`](udp) for I/O, which is the default.
+    ///
+    /// Will panic if called after `poll` has returned `Ready`.
     pub fn local_ip(&self) -> Option<IpAddr> {
         let conn = self.conn.as_ref().unwrap();
         let inner = conn.state.lock("local_ip");
@@ -180,7 +181,7 @@ impl Connecting {
         inner.inner.local_ip()
     }
 
-    /// The peer's UDP address.
+    /// The peer's UDP address
     ///
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn remote_address(&self) -> SocketAddr {
@@ -212,7 +213,6 @@ impl Future for Connecting {
 ///
 /// For clients, the resulting value indicates if 0-RTT was accepted. For servers, the resulting
 /// value is meaningless.
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 pub struct ZeroRttAccepted(oneshot::Receiver<bool>);
 
 impl Future for ZeroRttAccepted {
@@ -239,8 +239,7 @@ struct ConnectionDriver(ConnectionRef);
 impl Future for ConnectionDriver {
     type Output = Result<(), io::Error>;
 
-    #[allow(unused_mut)] // MSRV
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         let conn = &mut *self.0.state.lock("poll");
 
         let span = debug_span!("drive", id = conn.handle.0);
@@ -581,14 +580,15 @@ impl Connection {
         self.0.stable_id()
     }
 
-    // Update traffic keys spontaneously for testing purposes.
-    #[doc(hidden)]
+    /// Update traffic keys spontaneously
+    ///
+    /// This primarily exists for testing purposes.
     pub fn force_key_update(&self) {
         self.0
             .state
             .lock("force_key_update")
             .inner
-            .initiate_key_update()
+            .force_key_update()
     }
 
     /// Derive keying material from this connection's TLS session secrets.
@@ -980,7 +980,7 @@ impl WeakConnectionHandle {
     pub fn network_path_changed(&self) -> bool {
         if let Some(inner) = self.0.upgrade() {
             let mut inner_state = inner.state.lock("reset-congestion-state");
-            inner_state.inner.network_path_changed();
+            inner_state.inner.path_changed(Instant::now());
             true
         } else {
             false
