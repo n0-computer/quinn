@@ -1,6 +1,6 @@
 use std::{
     cmp,
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     convert::TryFrom,
     fmt, io, mem,
     net::{IpAddr, SocketAddr},
@@ -139,7 +139,7 @@ pub struct Connection {
     /// The "real" local IP address which was was used to receive the initial packet.
     /// This is only populated for the server case, and if known
     local_ip: Option<IpAddr>,
-    path: PathData,
+    paths: BTreeMap<PathId, PathData>,
     /// Whether MTU detection is supported in this environment
     allow_mtud: bool,
     prev_path: Option<(ConnectionId, PathData)>,
@@ -170,7 +170,9 @@ pub struct Connection {
     /// Outgoing spin bit state
     spin: bool,
     /// Packet number spaces: initial, handshake, 1-RTT
-    spaces: [PacketSpace; 3],
+    initial_space: PacketSpace,
+    handshake_space: PacketSpace,
+    data_spaces: BTreeMap<PathId, PacketSpace>,
     /// Highest usable packet number space
     highest_space: SpaceId,
     /// 1-RTT keys used prior to a key update
@@ -290,7 +292,10 @@ impl Connection {
                 now,
                 if pref_addr_cid.is_some() { 2 } else { 1 },
             ),
-            path: PathData::new(remote, allow_mtud, None, now, path_validated, &config),
+            paths: BTreeMap::from([(
+                PathId(0),
+                PathData::new(remote, allow_mtud, None, now, path_validated, &config),
+            )]),
             allow_mtud,
             local_ip,
             prev_path: None,
@@ -315,7 +320,9 @@ impl Connection {
             endpoint_events: VecDeque::new(),
             spin_enabled: config.allow_spin && rng.gen_ratio(7, 8),
             spin: false,
-            spaces: [initial_space, PacketSpace::new(now), PacketSpace::new(now)],
+            initial_space,
+            handshake_space: PacketSpace::new(now),
+            data_spaces: BTreeMap::from([(PathId(0), PacketSpace::new(now))]),
             highest_space: SpaceId::Initial,
             prev_crypto: None,
             next_crypto: None,
@@ -376,6 +383,43 @@ impl Connection {
         this
     }
 
+    fn path_mut(&mut self, path_id: PathId) -> &mut PathData {
+        self.paths.get_mut(&path_id).unwrap()
+    }
+
+    fn path_ref(&self, path_id: PathId) -> &PathData {
+        self.paths.get(&path_id).unwrap()
+    }
+
+    fn has_space(&self, path_id: PathId, space_id: SpaceId) -> bool {
+        match space_id {
+            SpaceId::Initial | SpaceId::Handshake => true,
+            SpaceId::Data => self.data_spaces.contains_key(&path_id),
+        }
+    }
+
+    /// Convenience access to the packet space.
+    ///
+    /// Panics if the packet space does not exists.
+    ///
+    /// Unfortunately this mut borrows self so can not be used where other items from conn
+    /// need to be borrowed at the same time.
+    fn space_mut(&mut self, path_id: PathId, space_id: SpaceId) -> &mut PacketSpace {
+        match space_id {
+            SpaceId::Initial => &mut self.initial_space,
+            SpaceId::Handshake => &mut self.handshake_space,
+            SpaceId::Data => self.data_spaces.get_mut(&path_id).unwrap(),
+        }
+    }
+
+    fn space_ref(&self, path_id: PathId, space_id: SpaceId) -> &PacketSpace {
+        match space_id {
+            SpaceId::Initial => &self.initial_space,
+            SpaceId::Handshake => &self.handshake_space,
+            SpaceId::Data => self.data_spaces.get(&path_id).unwrap(),
+        }
+    }
+
     /// Returns the next time at which `handle_timeout` should be called
     ///
     /// The value returned may change after:
@@ -432,7 +476,7 @@ impl Connection {
         RecvStream {
             id,
             state: &mut self.streams,
-            pending: &mut self.spaces[SpaceId::Data].pending,
+            pending: &mut self.data_spaces.get_mut(&PathId(0)).unwrap().pending,
         }
     }
 
@@ -443,7 +487,7 @@ impl Connection {
         SendStream {
             id,
             state: &mut self.streams,
-            pending: &mut self.spaces[SpaceId::Data].pending,
+            pending: &mut self.data_spaces.get_mut(&PathId(0)).unwrap().pending,
             conn_state: &self.state,
         }
     }
@@ -470,11 +514,14 @@ impl Connection {
             true => max_datagrams.min(MAX_TRANSMIT_SEGMENTS),
         };
 
+        // TODO(flub): We only have one path for now.
+        let path_id = PathId(0);
+
         let mut num_datagrams = 0;
         // Position in `buf` of the first byte of the current UDP datagram. When coalescing QUIC
         // packets, this can be earlier than the start of the current QUIC packet.
         let mut datagram_start = 0;
-        let mut segment_size = usize::from(self.path.current_mtu());
+        let mut segment_size = usize::from(self.path_mut(path_id).current_mtu());
 
         // Send PATH_CHALLENGE for a previous path if necessary
         if let Some((prev_cid, ref mut prev_path)) = self.prev_path {
@@ -500,6 +547,7 @@ impl Connection {
                 // this is sent first.
                 let mut builder = PacketBuilder::new(
                     now,
+                    path_id,
                     SpaceId::Data,
                     prev_cid,
                     buf,
@@ -535,7 +583,8 @@ impl Connection {
         for space in SpaceId::iter() {
             let request_immediate_ack =
                 space == SpaceId::Data && self.peer_supports_ack_frequency();
-            self.spaces[space].maybe_queue_probe(request_immediate_ack, &self.streams);
+            self.space_mut(path_id, space)
+                .maybe_queue_probe(request_immediate_ack, &self.streams);
         }
 
         // Check whether we need to send a close message
@@ -558,11 +607,13 @@ impl Connection {
 
         // Check whether we need to send an ACK_FREQUENCY frame
         if let Some(config) = &self.config.ack_frequency_config {
-            self.spaces[SpaceId::Data].pending.ack_frequency = self
-                .ack_frequency
-                .should_send_ack_frequency(self.path.rtt.get(), config, &self.peer_params)
-                && self.highest_space == SpaceId::Data
-                && self.peer_supports_ack_frequency();
+            self.space_mut(path_id, SpaceId::Data).pending.ack_frequency =
+                self.ack_frequency.should_send_ack_frequency(
+                    self.path_mut(path_id).rtt.get(),
+                    config,
+                    &self.peer_params,
+                ) && self.highest_space == SpaceId::Data
+                    && self.peer_supports_ack_frequency();
         }
 
         // Reserving capacity can provide more capacity than we asked for. However, we are not
@@ -589,20 +640,26 @@ impl Connection {
             // handle large fixed-size frames, which only exist in 1-RTT (application datagrams). We
             // don't account for coalesced packets potentially occupying space because frames can
             // always spill into the next datagram.
-            let pn = self.packet_number_filter.peek(&self.spaces[SpaceId::Data]);
+            let pn = self
+                .packet_number_filter
+                .peek(&self.space_mut(path_id, SpaceId::Data));
             let frame_space_1rtt =
                 segment_size.saturating_sub(self.predict_1rtt_overhead(Some(pn)));
 
             // Is there data or a close message to send in this space?
-            let can_send = self.space_can_send(space_id, frame_space_1rtt);
-            if can_send.is_empty() && (!close || self.spaces[space_id].crypto.is_none()) {
+            let can_send = self.space_can_send(path_id, space_id, frame_space_1rtt);
+            if can_send.is_empty() && (!close || self.space_mut(path_id, space_id).crypto.is_none())
+            {
                 space_idx += 1;
                 continue;
             }
 
-            let mut ack_eliciting = !self.spaces[space_id].pending.is_empty(&self.streams)
-                || self.spaces[space_id].ping_pending
-                || self.spaces[space_id].immediate_ack_pending;
+            let mut ack_eliciting = !self
+                .space_mut(path_id, space_id)
+                .pending
+                .is_empty(&self.streams)
+                || self.space_mut(path_id, space_id).ping_pending
+                || self.space_mut(path_id, space_id).immediate_ack_pending;
             if space_id == SpaceId::Data {
                 ack_eliciting |= self.can_send_1rtt(frame_space_1rtt);
             }
@@ -616,7 +673,7 @@ impl Connection {
                 buf.len()
             };
 
-            let tag_len = if let Some(ref crypto) = self.spaces[space_id].crypto {
+            let tag_len = if let Some(ref crypto) = self.space_mut(path_id, space_id).crypto {
                 crypto.packet.local.tag_len()
             } else if space_id == SpaceId::Data {
                 self.zero_rtt_crypto.as_ref().expect(
@@ -641,7 +698,7 @@ impl Connection {
                 // budget left, we always allow a full MTU to be sent
                 // (see https://github.com/quinn-rs/quinn/issues/1082)
                 if self
-                    .path
+                    .path_mut(path_id)
                     .anti_amplification_blocked(segment_size as u64 * num_datagrams + 1)
                 {
                     trace!("blocked by anti-amplification");
@@ -650,7 +707,7 @@ impl Connection {
 
                 // Congestion control and pacing checks
                 // Tail loss probes must not be blocked by congestion, or a deadlock could arise
-                if ack_eliciting && self.spaces[space_id].loss_probes == 0 {
+                if ack_eliciting && self.space_mut(path_id, space_id).loss_probes == 0 {
                     // Assume the current packet will get padded to fill the segment
                     let untracked_bytes = if let Some(builder) = &builder_storage {
                         buf_capacity - builder.partial_encode.start
@@ -659,8 +716,9 @@ impl Connection {
                     } as u64;
                     debug_assert!(untracked_bytes <= segment_size as u64);
 
+                    let path = self.path_mut(path_id);
                     let bytes_to_send = segment_size as u64 + untracked_bytes;
-                    if self.path.in_flight.bytes + bytes_to_send >= self.path.congestion.window() {
+                    if path.in_flight.bytes + bytes_to_send >= path.congestion.window() {
                         space_idx += 1;
                         congestion_blocked = true;
                         // We continue instead of breaking here in order to avoid
@@ -670,12 +728,12 @@ impl Connection {
                     }
 
                     // Check whether the next datagram is blocked by pacing
-                    let smoothed_rtt = self.path.rtt.get();
-                    if let Some(delay) = self.path.pacing.delay(
+                    let smoothed_rtt = path.rtt.get();
+                    if let Some(delay) = path.pacing.delay(
                         smoothed_rtt,
                         bytes_to_send,
-                        self.path.current_mtu(),
-                        self.path.congestion.window(),
+                        path.current_mtu(),
+                        path.congestion.window(),
                         now,
                     ) {
                         self.timers.set(Timer::Pacing, delay);
@@ -749,7 +807,10 @@ impl Connection {
                         if space_id == SpaceId::Data {
                             let frame_space_1rtt =
                                 segment_size.saturating_sub(self.predict_1rtt_overhead(Some(pn)));
-                            if self.space_can_send(space_id, frame_space_1rtt).is_empty() {
+                            if self
+                                .space_can_send(path_id, space_id, frame_space_1rtt)
+                                .is_empty()
+                            {
                                 break;
                             }
                         }
@@ -757,10 +818,10 @@ impl Connection {
                 }
 
                 // Allocate space for another datagram
-                let next_datagram_size_limit = match self.spaces[space_id].loss_probes {
+                let next_datagram_size_limit = match self.space_mut(path_id, space_id).loss_probes {
                     0 => segment_size,
                     _ => {
-                        self.spaces[space_id].loss_probes -= 1;
+                        self.space_mut(path_id, space_id).loss_probes -= 1;
                         // Clamp the datagram to at most the minimum MTU to ensure that loss probes
                         // can get through and enable recovery even if the path MTU has shrank
                         // unexpectedly.
@@ -804,7 +865,7 @@ impl Connection {
             // From here on, we've determined that a packet will definitely be sent.
             //
 
-            if self.spaces[SpaceId::Initial].crypto.is_some()
+            if self.space_mut(path_id, SpaceId::Initial).crypto.is_some()
                 && space_id == SpaceId::Handshake
                 && self.side.is_client()
             {
@@ -823,6 +884,7 @@ impl Connection {
 
             let builder = builder_storage.insert(PacketBuilder::new(
                 now,
+                path_id,
                 space_id,
                 self.rem_cids.active(),
                 buf,
@@ -843,12 +905,17 @@ impl Connection {
                 // a better approximate on what data has been processed. This is
                 // especially important with ack delay, since the peer might not
                 // have gotten any other ACK for the data earlier on.
-                if !self.spaces[space_id].pending_acks.ranges().is_empty() {
+                if !self
+                    .space_mut(path_id, space_id)
+                    .pending_acks
+                    .ranges()
+                    .is_empty()
+                {
                     Self::populate_acks(
                         now,
                         self.receiving_ecn,
                         &mut SentFrames::default(),
-                        &mut self.spaces[space_id],
+                        self.space_mut(path_id, space_id),
                         buf,
                         &mut self.stats,
                         self.path_id,
@@ -862,7 +929,7 @@ impl Connection {
                     buf.len() + frame::ConnectionClose::SIZE_BOUND < builder.max_size,
                     "ACKs should leave space for ConnectionClose"
                 );
-                if buf.len() + frame::ConnectionClose::SIZE_BOUND < builder.max_size {
+                if (buf.len() + frame::ConnectionClose::SIZE_BOUND) < builder.max_size {
                     let max_frame_size = builder.max_size - buf.len();
                     match self.state {
                         State::Closed(state::Closed { ref reason }) => {
@@ -905,7 +972,10 @@ impl Connection {
             // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that path
             // validation can occur while the link is saturated.
             if space_id == SpaceId::Data && num_datagrams == 1 {
-                if let Some((token, remote)) = self.path_responses.pop_off_path(&self.path.remote) {
+                if let Some((token, remote)) = self
+                    .path_responses
+                    .pop_off_path(&self.path_ref(path_id).remote)
+                {
                     // `unwrap` guaranteed to succeed because `builder_storage` was populated just
                     // above.
                     let mut builder = builder_storage.take().unwrap();
@@ -947,14 +1017,15 @@ impl Connection {
                 !(sent.is_ack_only(&self.streams)
                     && !can_send.acks
                     && can_send.other
-                    && (buf_capacity - builder.datagram_start) == self.path.current_mtu() as usize
+                    && (buf_capacity - builder.datagram_start)
+                        == self.path_ref(path_id).current_mtu() as usize
                     && self.datagrams.outgoing.is_empty()),
                 "SendableFrames was {can_send:?}, but only ACKs have been written"
             );
             pad_datagram |= sent.requires_padding;
 
             if sent.largest_acked.is_some() {
-                self.spaces[space_id].pending_acks.acks_sent();
+                self.space_mut(path_id, space_id).pending_acks.acks_sent();
                 self.timers.stop(Timer::MaxAckDelay);
             }
 
@@ -972,7 +1043,7 @@ impl Connection {
             }
             let last_packet_number = builder.exact_number;
             builder.finish_and_track(now, self, sent_frames, buf);
-            self.path
+            self.path_mut(path_id)
                 .congestion
                 .on_sent(now, buf.len() as u64, last_packet_number);
         }
@@ -982,16 +1053,18 @@ impl Connection {
         // Send MTU probe if necessary
         if buf.is_empty() && self.state.is_established() {
             let space_id = SpaceId::Data;
-            let probe_size = self
-                .path
-                .mtud
-                .poll_transmit(now, self.packet_number_filter.peek(&self.spaces[space_id]))?;
+            let probe_size = self.path_mut(path_id).mtud.poll_transmit(
+                now,
+                self.packet_number_filter
+                    .peek(&self.space_ref(path_id, space_id)),
+            )?;
 
             let buf_capacity = probe_size as usize;
             buf.reserve(buf_capacity);
 
             let mut builder = PacketBuilder::new(
                 now,
+                path_id,
                 space_id,
                 self.rem_cids.active(),
                 buf,
@@ -1018,7 +1091,11 @@ impl Connection {
             };
             builder.finish_and_track(now, self, Some(sent_frames), buf);
 
-            self.stats.path.sent_plpmtud_probes += 1;
+            self.stats
+                .paths
+                .entry(path_id)
+                .or_default()
+                .sent_plpmtud_probes += 1;
             num_datagrams = 1;
 
             trace!(?probe_size, "writing MTUD probe");
@@ -1029,14 +1106,17 @@ impl Connection {
         }
 
         trace!("sending {} bytes in {} datagrams", buf.len(), num_datagrams);
-        self.path.total_sent = self.path.total_sent.saturating_add(buf.len() as u64);
+        self.path_mut(path_id).total_sent = self
+            .path_mut(path_id)
+            .total_sent
+            .saturating_add(buf.len() as u64);
 
         self.stats.udp_tx.on_sent(num_datagrams, buf.len());
 
         Some(Transmit {
-            destination: self.path.remote,
+            destination: self.path_ref(path_id).remote,
             size: buf.len(),
-            ecn: if self.path.sending_ecn {
+            ecn: if self.path_ref(path_id).sending_ecn {
                 Some(EcnCodepoint::Ect0)
             } else {
                 None
@@ -1050,8 +1130,13 @@ impl Connection {
     }
 
     /// Indicate what types of frames are ready to send for the given space
-    fn space_can_send(&self, space_id: SpaceId, frame_space_1rtt: usize) -> SendableFrames {
-        if self.spaces[space_id].crypto.is_none()
+    fn space_can_send(
+        &self,
+        path_id: PathId,
+        space_id: SpaceId,
+        frame_space_1rtt: usize,
+    ) -> SendableFrames {
+        if self.space_ref(path_id, space_id).crypto.is_none()
             && (space_id != SpaceId::Data
                 || self.zero_rtt_crypto.is_none()
                 || self.side.is_server())
@@ -1059,7 +1144,7 @@ impl Connection {
             // No keys available for this space
             return SendableFrames::empty();
         }
-        let mut can_send = self.spaces[space_id].can_send(&self.streams);
+        let mut can_send = self.space_ref(path_id, space_id).can_send(&self.streams);
         if space_id == SpaceId::Data {
             can_send.other |= self.can_send_1rtt(frame_space_1rtt);
         }
@@ -1084,12 +1169,16 @@ impl Connection {
                 // If this packet could initiate a migration and we're a client or a server that
                 // forbids migration, drop the datagram. This could be relaxed to heuristically
                 // permit NAT-rebinding-like migration.
-                if remote != self.path.remote && !self.side.remote_may_migrate() {
+                // TODO(flub): dst CID is not encrypted in the header and signals the
+                // PathId.  Derive the PathId from this.
+                let path_id = PathId(0);
+                if remote != self.path_ref(path_id).remote && !self.side.remote_may_migrate() {
                     trace!("discarding packet from unrecognized peer {}", remote);
                     return;
                 }
 
-                let was_anti_amplification_blocked = self.path.anti_amplification_blocked(1);
+                let was_anti_amplification_blocked =
+                    self.path_ref(path_id).anti_amplification_blocked(1);
 
                 self.stats.udp_rx.datagrams += 1;
                 self.stats.udp_rx.bytes += first_decode.len() as u64;
@@ -1100,7 +1189,12 @@ impl Connection {
                 // since the packet could have triggered a migration. Make sure
                 // the data received is accounted for the most recent path by accessing
                 // `path` after `handle_decode`.
-                self.path.total_recvd = self.path.total_recvd.saturating_add(data_len as u64);
+                // TODO(flub): path migration for multipath still to be done.  Currently
+                // everything is PathId(0).
+                self.path_mut(path_id).total_recvd = self
+                    .path_mut(path_id)
+                    .total_recvd
+                    .saturating_add(data_len as u64);
 
                 if let Some(data) = remaining {
                     self.stats.udp_rx.bytes += data.len() as u64;
@@ -1115,9 +1209,14 @@ impl Connection {
                 }
             }
             NewIdentifiers(ids, now) => {
+                // TODO(flub): new identifiers will need the multipath treatment too.
+                let path_id = PathId(0);
                 self.local_cid_state.new_cids(&ids, now);
                 ids.into_iter().rev().for_each(|frame| {
-                    self.spaces[SpaceId::Data].pending.new_cids.push(frame);
+                    self.space_mut(path_id, SpaceId::Data)
+                        .pending
+                        .new_cids
+                        .push(frame);
                 });
                 // Update Timer::PushNewCid
                 if self
@@ -1141,6 +1240,7 @@ impl Connection {
     /// `Instant` that was output by `poll_timeout`; however spurious extra calls will simply
     /// no-op and therefore are safe.
     pub fn handle_timeout(&mut self, now: Instant) {
+        // TODO(flub): timers will need multipath support
         for &timer in &Timer::VALUES {
             if !self.timers.is_expired(timer, now) {
                 continue;
@@ -1168,11 +1268,14 @@ impl Connection {
                 }
                 Timer::PathValidation => {
                     debug!("path validation failed");
+                    // TODO(flub): path migration is not yet moved: the prev path is still
+                    // stored in `prev_path`.  We need to work out how to handle path
+                    // migration both when multipath is enabled and disabled.
                     if let Some((_, prev)) = self.prev_path.take() {
-                        self.path = prev;
+                        self.paths.insert(PathId(0), prev);
                     }
-                    self.path.challenge = None;
-                    self.path.challenge_pending = false;
+                    self.path_mut(PathId(0)).challenge = None;
+                    self.path_mut(PathId(0)).challenge_pending = false;
                 }
                 Timer::Pacing => trace!("pacing timer expired"),
                 Timer::PushNewCid => {
@@ -1190,7 +1293,8 @@ impl Connection {
                 Timer::MaxAckDelay => {
                     trace!("max ack delay reached");
                     // This timer is only armed in the Data space
-                    self.spaces[SpaceId::Data]
+                    // TODO(flub): PathId hardcoded for now.
+                    self.space_mut(PathId(0), SpaceId::Data)
                         .pending_acks
                         .on_max_ack_delay_timeout()
                 }
@@ -1233,11 +1337,13 @@ impl Connection {
 
     /// Returns connection statistics
     pub fn stats(&self) -> ConnectionStats {
-        let mut stats = self.stats;
-        stats.path.rtt = self.path.rtt.get();
-        stats.path.cwnd = self.path.congestion.window();
-        stats.path.current_mtu = self.path.mtud.current_mtu();
-
+        let mut stats = self.stats.clone();
+        for (path_id, path) in self.paths.iter() {
+            let path_stats = stats.paths.entry(*path_id).or_default();
+            path_stats.rtt = path.rtt.get();
+            path_stats.cwnd = path.congestion.window();
+            path_stats.current_mtu = path.mtud.current_mtu();
+        }
         stats
     }
 
@@ -1245,7 +1351,17 @@ impl Connection {
     ///
     /// Causes an ACK-eliciting packet to be transmitted.
     pub fn ping(&mut self) {
-        self.spaces[self.highest_space].ping_pending = true;
+        match self.highest_space {
+            SpaceId::Initial => self.initial_space.ping_pending = true,
+            SpaceId::Handshake => self.handshake_space.ping_pending = true,
+            SpaceId::Data => {
+                // TODO(flub): This pings *all* paths, maybe this function should take a
+                // PathId parameter?
+                for space in self.data_spaces.values_mut() {
+                    space.ping_pending = true;
+                }
+            }
+        }
     }
 
     #[doc(hidden)]
@@ -1299,7 +1415,9 @@ impl Connection {
 
     /// Whether there are any pending retransmits
     pub fn has_pending_retransmits(&self) -> bool {
-        !self.spaces[SpaceId::Data].pending.is_empty(&self.streams)
+        self.data_spaces
+            .values()
+            .any(|space| !space.pending.is_empty(&self.streams))
     }
 
     /// Look up whether we're the client or server of this Connection
@@ -1308,8 +1426,11 @@ impl Connection {
     }
 
     /// The latest socket address for this connection's peer
-    pub fn remote_address(&self) -> SocketAddr {
-        self.path.remote
+    ///
+    /// Returns `None` if the [`PathId`] does not exist.  Use `PathId(0)` when multipath is
+    /// disabled.
+    pub fn remote_address(&self, path_id: PathId) -> Option<SocketAddr> {
+        self.paths.get(&path_id).map(|path| path.remote)
     }
 
     /// The local IP address which was used when the peer established
@@ -1322,17 +1443,26 @@ impl Connection {
     /// [`Endpoint::handle()`](crate::Endpoint::handle) for the datagrams establishing this
     /// connection.
     pub fn local_ip(&self) -> Option<IpAddr> {
+        // TODO(flub): Does this need multipath treatment?  Probably not yet.
         self.local_ip
     }
 
     /// Current best estimate of this connection's latency (round-trip-time)
-    pub fn rtt(&self) -> Duration {
-        self.path.rtt.get()
+    ///
+    /// Returns `None` if the [`PathId`] does not exist.  Use `PathId(0)` when multipath is
+    /// disabled.
+    pub fn rtt(&self, path_id: PathId) -> Option<Duration> {
+        self.paths.get(&path_id).map(|path| path.rtt.get())
     }
 
     /// Current state of this connection's congestion controller, for debugging purposes
-    pub fn congestion_state(&self) -> &dyn Controller {
-        self.path.congestion.as_ref()
+    ///
+    /// Returns `None` if the [`PathId`] does not exist.  Use `PathId(0)` when multipath is
+    /// disabled.
+    pub fn congestion_state(&self, path_id: PathId) -> Option<&dyn Controller> {
+        self.paths
+            .get(&path_id)
+            .map(|path| path.congestion.as_ref())
     }
 
     /// Resets path-specific settings.
@@ -1345,8 +1475,11 @@ impl Connection {
     /// state of these subsystems is no longer valid or optimal. In this case it might be
     /// faster or reduce loss to settle on optimal values by restarting from the initial
     /// configuration in the [`TransportConfig`].
-    pub fn path_changed(&mut self, now: Instant) {
-        self.path.reset(now, &self.config);
+    pub fn path_changed(&mut self, path_id: PathId, now: Instant) {
+        // TODO(flub): Think about what this means for multipath
+        self.paths
+            .get_mut(&path_id)
+            .map(|path| path.reset(now, &self.config));
     }
 
     /// Modify the number of remotely initiated streams that may be concurrently open
@@ -1357,7 +1490,9 @@ impl Connection {
         self.streams.set_max_concurrent(dir, count);
         // If the limit was reduced, then a flow control update previously deemed insignificant may
         // now be significant.
-        let pending = &mut self.spaces[SpaceId::Data].pending;
+        // TODO(flub): right now this works for just PathId(0) but the pending stuff needs
+        // to be sorted out for multipath.
+        let pending = &mut self.space_mut(PathId(0), SpaceId::Data).pending;
         self.streams.queue_max_stream_id(pending);
     }
 
@@ -1373,7 +1508,8 @@ impl Connection {
     /// See [`TransportConfig::receive_window()`]
     pub fn set_receive_window(&mut self, receive_window: VarInt) {
         if self.streams.set_receive_window(receive_window) {
-            self.spaces[SpaceId::Data].pending.max_data = true;
+            // TODO(flub): same problems as set_max_concurrent_streams above
+            self.space_mut(PathId(0), SpaceId::Data).pending.max_data = true;
         }
     }
 
@@ -1387,15 +1523,21 @@ impl Connection {
     fn on_ack_received(
         &mut self,
         now: Instant,
+        path_id: PathId,
         space: SpaceId,
         ack: frame::Ack,
     ) -> Result<(), TransportError> {
-        // TODO(@divma): check path id
-        if ack.largest >= self.spaces[space].next_packet_number {
+        if !(self.paths.contains_key(&path_id) && self.has_space(path_id, space)) {
+            // TODO(flub): Should this return an error?  Check the spec.
+            return Ok(());
+        }
+        // Now it is safe to use the panicking access to self.paths and self.data_spaces.
+
+        if ack.largest >= self.space_ref(path_id, space).next_packet_number {
             return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
         }
         let new_largest = {
-            let space = &mut self.spaces[space];
+            let space = &mut self.space_mut(path_id, space);
             if space
                 .largest_acked_packet
                 .map_or(true, |pn| ack.largest > pn)
@@ -1417,7 +1559,7 @@ impl Connection {
         let mut newly_acked = ArrayRangeSet::new();
         for range in ack.iter() {
             self.packet_number_filter.check_ack(space, range.clone())?;
-            for (&pn, _) in self.spaces[space].sent_packets.range(range) {
+            for (&pn, _) in self.space_ref(path_id, space).sent_packets.range(range) {
                 newly_acked.insert_one(pn);
             }
         }
@@ -1428,37 +1570,44 @@ impl Connection {
 
         let mut ack_eliciting_acked = false;
         for packet in newly_acked.elts() {
-            if let Some(info) = self.spaces[space].take(packet) {
+            if let Some(info) = self.space_mut(path_id, space).take(packet) {
                 if let Some(acked) = info.largest_acked {
                     // Assume ACKs for all packets below the largest acknowledged in `packet` have
                     // been received. This can cause the peer to spuriously retransmit if some of
                     // our earlier ACKs were lost, but allows for simpler state tracking. See
                     // discussion at
                     // https://www.rfc-editor.org/rfc/rfc9000.html#name-limiting-ranges-by-tracking
-                    self.spaces[space].pending_acks.subtract_below(acked);
+                    self.space_mut(path_id, space)
+                        .pending_acks
+                        .subtract_below(acked);
                 }
                 ack_eliciting_acked |= info.ack_eliciting;
 
                 // Notify MTU discovery that a packet was acked, because it might be an MTU probe
-                let mtu_updated = self.path.mtud.on_acked(space, packet, info.size);
+                let mtu_updated = self
+                    .path_mut(path_id)
+                    .mtud
+                    .on_acked(space, packet, info.size);
                 if mtu_updated {
-                    self.path
+                    self.path_mut(path_id)
                         .congestion
-                        .on_mtu_update(self.path.mtud.current_mtu());
+                        .on_mtu_update(self.path_mut(path_id).mtud.current_mtu());
                 }
 
                 // Notify ack frequency that a packet was acked, because it might contain an ACK_FREQUENCY frame
                 self.ack_frequency.on_acked(packet);
 
-                self.on_packet_acked(now, packet, info);
+                self.on_packet_acked(path_id, now, packet, info);
             }
         }
 
-        self.path.congestion.on_end_acks(
+        let in_flight_bytes = self.path_ref(path_id).in_flight.bytes;
+        let largest_acked_packet = self.space_ref(path_id, space).largest_acked_packet;
+        self.path_mut(path_id).congestion.on_end_acks(
             now,
-            self.path.in_flight.bytes,
+            in_flight_bytes,
             self.app_limited,
-            self.spaces[space].largest_acked_packet,
+            largest_acked_packet,
         );
 
         if new_largest && ack_eliciting_acked {
@@ -1470,11 +1619,18 @@ impl Connection {
                     Duration::from_micros(ack.delay << self.peer_params.ack_delay_exponent.0),
                 )
             };
-            let rtt = instant_saturating_sub(now, self.spaces[space].largest_acked_packet_sent);
-            self.path.rtt.update(ack_delay, rtt);
-            if self.path.first_packet_after_rtt_sample.is_none() {
-                self.path.first_packet_after_rtt_sample =
-                    Some((space, self.spaces[space].next_packet_number));
+            let rtt = instant_saturating_sub(
+                now,
+                self.space_ref(path_id, space).largest_acked_packet_sent,
+            );
+            self.path_mut(path_id).rtt.update(ack_delay, rtt);
+            if self
+                .path_mut(path_id)
+                .first_packet_after_rtt_sample
+                .is_none()
+            {
+                self.path_mut(path_id).first_packet_after_rtt_sample =
+                    Some((space, self.space_mut(path_id, space).next_packet_number));
             }
         }
 
@@ -1486,20 +1642,20 @@ impl Connection {
         }
 
         // Explicit congestion notification
-        if self.path.sending_ecn {
+        if self.path_ref(path_id).sending_ecn {
             if let Some(ecn) = ack.ecn {
                 // We only examine ECN counters from ACKs that we are certain we received in transmit
                 // order, allowing us to compute an increase in ECN counts to compare against the number
                 // of newly acked packets that remains well-defined in the presence of arbitrary packet
                 // reordering.
                 if new_largest {
-                    let sent = self.spaces[space].largest_acked_packet_sent;
-                    self.process_ecn(now, space, newly_acked.len() as u64, ecn, sent);
+                    let sent = self.space_ref(path_id, space).largest_acked_packet_sent;
+                    self.process_ecn(now, path_id, space, newly_acked.len() as u64, ecn, sent);
                 }
             } else {
                 // We always start out sending ECN, so any ack that doesn't acknowledge it disables it.
                 debug!("ECN not acknowledged by peer");
-                self.path.sending_ecn = false;
+                self.path_mut(path_id).sending_ecn = false;
             }
         }
 
@@ -1511,42 +1667,59 @@ impl Connection {
     fn process_ecn(
         &mut self,
         now: Instant,
+        path: PathId,
         space: SpaceId,
         newly_acked: u64,
         ecn: frame::EcnCounts,
         largest_sent_time: Instant,
     ) {
-        match self.spaces[space].detect_ecn(newly_acked, ecn) {
+        if !(self.paths.contains_key(&path) && self.has_space(path, space)) {
+            // TODO(flub): Should this return an error?  Check the spec.
+            return;
+        }
+        // Now it is safe to use the panicking access to self.paths and self.data_spaces.
+
+        match self.space_mut(path, space).detect_ecn(newly_acked, ecn) {
             Err(e) => {
                 debug!("halting ECN due to verification failure: {}", e);
-                self.path.sending_ecn = false;
+                self.path_mut(path).sending_ecn = false;
                 // Wipe out the existing value because it might be garbage and could interfere with
                 // future attempts to use ECN on new paths.
-                self.spaces[space].ecn_feedback = frame::EcnCounts::ZERO;
+                self.space_mut(path, space).ecn_feedback = frame::EcnCounts::ZERO;
             }
             Ok(false) => {}
             Ok(true) => {
-                self.stats.path.congestion_events += 1;
-                self.path
-                    .congestion
-                    .on_congestion_event(now, largest_sent_time, false, 0);
+                self.stats.paths.entry(path).or_default().congestion_events += 1;
+                self.path_mut(path).congestion.on_congestion_event(
+                    now,
+                    largest_sent_time,
+                    false,
+                    0,
+                );
             }
         }
     }
 
     // Not timing-aware, so it's safe to call this for inferred acks, such as arise from
     // high-latency handshakes
-    fn on_packet_acked(&mut self, now: Instant, pn: u64, info: SentPacket) {
+    fn on_packet_acked(&mut self, path_id: PathId, now: Instant, pn: u64, info: SentPacket) {
+        if !self.paths.contains_key(&path_id) {
+            // TODO(flub): meh
+            return;
+        }
+
         self.remove_in_flight(pn, &info);
-        if info.ack_eliciting && self.path.challenge.is_none() {
+        if info.ack_eliciting && self.path_ref(path_id).challenge.is_none() {
             // Only pass ACKs to the congestion controller if we are not validating the current
             // path, so as to ignore any ACKs from older paths still coming in.
-            self.path.congestion.on_ack(
+            let app_limited = self.app_limited;
+            let path = self.path_mut(path_id);
+            path.congestion.on_ack(
                 now,
                 info.time_sent,
                 info.size.into(),
-                self.app_limited,
-                &self.path.rtt,
+                app_limited,
+                &path.rtt,
             );
         }
 

@@ -22,8 +22,11 @@ pub(super) struct PacketSpace {
     pub(super) rx_packet: u64,
 
     /// Data to send
+    // TODO(flub): probably doesn't belong in the packet space on multipath?  These are per
+    // SpaceId, but seem common for all paths regardless of SpaceId::Data.
     pub(super) pending: Retransmits,
     /// Packet numbers to acknowledge
+    // TODO(flub): same as pending here
     pub(super) pending_acks: PendingAcks,
 
     /// The packet number of the next packet that will be sent, if any. In the Data space, the

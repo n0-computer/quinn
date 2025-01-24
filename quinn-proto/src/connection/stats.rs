@@ -1,6 +1,10 @@
 //! Connection statistics
 
+use std::collections::BTreeMap;
+
 use crate::{frame::Frame, Dir, Duration};
+
+use super::PathId;
 
 /// Statistics about UDP datagrams transmitted or received on a connection
 #[derive(Default, Debug, Copy, Clone)]
@@ -169,7 +173,7 @@ pub struct PathStats {
 }
 
 /// Connection statistics
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct ConnectionStats {
     /// Statistics about UDP datagrams transmitted on a connection
@@ -181,5 +185,5 @@ pub struct ConnectionStats {
     /// Statistics about frames received on a connection
     pub frame_rx: FrameStats,
     /// Statistics related to the current transmission path
-    pub path: PathStats,
+    pub paths: BTreeMap<PathId, PathStats>,
 }

@@ -811,7 +811,7 @@ async fn two_datagram_readers() {
             x
         },
         async {
-            server.send_datagram(b"one"[..].into()).unwrap();
+            server.send_datagram(path_id, b"one"[..].into()).unwrap();
             done.notified().await;
             server.send_datagram_wait(b"two"[..].into()).await.unwrap();
         }

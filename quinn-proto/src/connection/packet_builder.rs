@@ -2,7 +2,7 @@ use bytes::Bytes;
 use rand::Rng;
 use tracing::{trace, trace_span};
 
-use super::{spaces::SentPacket, Connection, SentFrames};
+use super::{spaces::SentPacket, Connection, PathId, SentFrames};
 use crate::{
     connection::ConnectionSide,
     frame::{self, Close},
@@ -12,6 +12,7 @@ use crate::{
 
 pub(super) struct PacketBuilder {
     pub(super) datagram_start: usize,
+    pub(super) path: PathId,
     pub(super) space: SpaceId,
     pub(super) partial_encode: PartialEncode,
     pub(super) ack_eliciting: bool,
@@ -34,6 +35,7 @@ impl PacketBuilder {
     /// violated.
     pub(super) fn new(
         now: Instant,
+        path_id: PathId,
         space_id: SpaceId,
         dst_cid: ConnectionId,
         buffer: &mut Vec<u8>,
@@ -44,13 +46,14 @@ impl PacketBuilder {
     ) -> Option<Self> {
         let version = conn.version;
         // Initiate key update if we're approaching the confidentiality limit
-        let sent_with_keys = conn.spaces[space_id].sent_with_keys;
+        let sent_with_keys = conn.space_mut(path_id, space_id).sent_with_keys;
         if space_id == SpaceId::Data {
             if sent_with_keys >= conn.key_phase_size {
                 conn.initiate_key_update();
             }
         } else {
-            let confidentiality_limit = conn.spaces[space_id]
+            let confidentiality_limit = conn
+                .space_mut(path_id, space_id)
                 .crypto
                 .as_ref()
                 .map_or_else(
@@ -77,7 +80,11 @@ impl PacketBuilder {
             }
         }
 
-        let space = &mut conn.spaces[space_id];
+        let space = match space_id {
+            SpaceId::Initial => &mut conn.initial_space,
+            SpaceId::Handshake => &mut conn.handshake_space,
+            SpaceId::Data => conn.data_spaces.get_mut(&path_id).unwrap(),
+        };
         let exact_number = match space_id {
             SpaceId::Data => conn.packet_number_filter.allocate(&mut conn.rng, space),
             _ => space.get_tx_number(),
@@ -156,6 +163,7 @@ impl PacketBuilder {
 
         Some(Self {
             datagram_start,
+            path: path_id,
             space: space_id,
             partial_encode,
             exact_number,
@@ -189,6 +197,7 @@ impl PacketBuilder {
     ) {
         let ack_eliciting = self.ack_eliciting;
         let exact_number = self.exact_number;
+        let path_id = self.path;
         let space_id = self.space;
         let (size, padded) = self.finish(conn, buffer);
         let sent = match sent {
@@ -210,20 +219,31 @@ impl PacketBuilder {
             stream_frames: sent.stream_frames,
         };
 
-        conn.path
-            .sent(exact_number, packet, &mut conn.spaces[space_id]);
-        conn.stats.path.sent_packets += 1;
         conn.reset_keep_alive(now);
+        let space = match space_id {
+            SpaceId::Initial => &mut conn.initial_space,
+            SpaceId::Handshake => &mut conn.handshake_space,
+            SpaceId::Data => conn.data_spaces.get_mut(&path_id).unwrap(),
+        };
+        conn.paths
+            .get_mut(&path_id)
+            .unwrap()
+            .sent(exact_number, packet, space);
+        conn.stats.paths.entry(path_id).or_default().sent_packets += 1;
         if size != 0 {
             if ack_eliciting {
-                conn.spaces[space_id].time_of_last_ack_eliciting_packet = Some(now);
+                space.time_of_last_ack_eliciting_packet = Some(now);
                 if conn.permit_idle_reset {
                     conn.reset_idle_timeout(now, space_id);
                 }
                 conn.permit_idle_reset = false;
             }
             conn.set_loss_detection_timer(now);
-            conn.path.pacing.on_transmit(size);
+            conn.paths
+                .get_mut(&path_id)
+                .unwrap()
+                .pacing
+                .on_transmit(size);
         }
     }
 
@@ -235,15 +255,20 @@ impl PacketBuilder {
             buffer.resize(self.min_size, 0);
         }
 
-        let space = &conn.spaces[self.space];
-        let (header_crypto, packet_crypto) = if let Some(ref crypto) = space.crypto {
-            (&*crypto.header.local, &*crypto.packet.local)
-        } else if self.space == SpaceId::Data {
-            let zero_rtt = conn.zero_rtt_crypto.as_ref().unwrap();
-            (&*zero_rtt.header, &*zero_rtt.packet)
-        } else {
-            unreachable!("tried to send {:?} packet without keys", self.space);
-        };
+        // let space = match self.space {
+        //     SpaceId::Initial => &mut conn.initial_space,
+        //     SpaceId::Handshake => &mut conn.handshake_space,
+        //     SpaceId::Data => conn.data_spaces.get_mut(&self.path).unwrap(),
+        // };
+        let (header_crypto, packet_crypto) =
+            if let Some(ref crypto) = conn.space_mut(self.path, self.space).crypto {
+                (&*crypto.header.local, &*crypto.packet.local)
+            } else if self.space == SpaceId::Data {
+                let zero_rtt = conn.zero_rtt_crypto.as_ref().unwrap();
+                (&*zero_rtt.header, &*zero_rtt.packet)
+            } else {
+                unreachable!("tried to send {:?} packet without keys", self.space);
+            };
 
         debug_assert_eq!(
             packet_crypto.tag_len(),

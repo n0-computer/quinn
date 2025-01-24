@@ -4,7 +4,7 @@ use bytes::Bytes;
 use thiserror::Error;
 use tracing::{debug, trace};
 
-use super::Connection;
+use super::{Connection, PathId};
 use crate::{
     frame::{Datagram, FrameStruct},
     TransportError,
@@ -30,7 +30,7 @@ impl Datagrams<'_> {
             return Err(SendDatagramError::Disabled);
         }
         let max = self
-            .max_size()
+            .max_size(PathId(0))
             .ok_or(SendDatagramError::UnsupportedByPeer)?;
         if data.len() > max {
             return Err(SendDatagramError::TooLarge);
@@ -66,11 +66,12 @@ impl Datagrams<'_> {
     /// limit is large this is guaranteed to be a little over a kilobyte at minimum.
     ///
     /// Not necessarily the maximum size of received datagrams.
-    pub fn max_size(&self) -> Option<usize> {
+    pub fn max_size(&self, path_id: PathId) -> Option<usize> {
         // We use the conservative overhead bound for any packet number, reducing the budget by at
         // most 3 bytes, so that PN size fluctuations don't cause users sending maximum-size
         // datagrams to suffer avoidable packet loss.
-        let max_size = self.conn.path.current_mtu() as usize
+        let path = self.conn.paths.get(&path_id).expect("PathId");
+        let max_size = path.current_mtu() as usize
             - self.conn.predict_1rtt_overhead(None)
             - Datagram::SIZE_BOUND;
         let limit = self
