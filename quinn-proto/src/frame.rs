@@ -980,7 +980,7 @@ impl NewConnectionId {
         }
         let mut reset_token = [0; RESET_TOKEN_SIZE];
         bytes.copy_to_slice(&mut reset_token);
-        Ok(NewConnectionId {
+        Ok(Self {
             path_id,
             sequence,
             retire_prior_to,
