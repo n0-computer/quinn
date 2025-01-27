@@ -59,8 +59,8 @@ mod packet_crypto;
 use packet_crypto::{PrevCrypto, ZeroRttCrypto};
 
 mod paths;
-pub use paths::RttEstimator;
 use paths::{PathData, PathResponses};
+pub use paths::{PathId, RttEstimator};
 
 mod send_buffer;
 
@@ -239,6 +239,12 @@ pub struct Connection {
     stats: ConnectionStats,
     /// QUIC version used for the connection.
     version: u32,
+
+    //
+    // Multipath
+    //
+    /// [`PathId`] associated with this connection if any.
+    path_id: Option<PathId>,
 }
 
 impl Connection {
@@ -272,6 +278,7 @@ impl Connection {
             client_hello: None,
         });
         let mut rng = StdRng::from_seed(rng_seed);
+
         let mut this = Self {
             endpoint_config,
             crypto,
@@ -358,6 +365,8 @@ impl Connection {
             rng,
             stats: ConnectionStats::default(),
             version,
+
+            path_id: None,
         };
         if side.is_client() {
             // Kick off the connection
@@ -842,6 +851,7 @@ impl Connection {
                         &mut self.spaces[space_id],
                         buf,
                         &mut self.stats,
+                        self.path_id,
                     );
                 }
 
@@ -1367,12 +1377,20 @@ impl Connection {
         }
     }
 
+    /// Whether the Multipath for QUIC extension is enabled.
+    // TODO(flub): not a useful API, once we do real things with multipath we can remove
+    // this again.
+    pub fn is_multipath_enabled(&self) -> bool {
+        self.config.initial_max_path_id.is_some() && self.peer_params.initial_max_path_id.is_some()
+    }
+
     fn on_ack_received(
         &mut self,
         now: Instant,
         space: SpaceId,
         ack: frame::Ack,
     ) -> Result<(), TransportError> {
+        // TODO(@divma): check path id
         if ack.largest >= self.spaces[space].next_packet_number {
             return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
         }
@@ -1966,6 +1984,7 @@ impl Connection {
                         max_ack_delay: TransportParameters::default().max_ack_delay,
                         ..params
                     };
+                    // TODO(@divma): check if we need to to anything here regarding multipath
                     self.set_peer_params(params);
                 }
                 Err(e) => {
@@ -2788,7 +2807,11 @@ impl Connection {
                     }
                     self.streams.received_stop_sending(id, error_code);
                 }
-                Frame::RetireConnectionId { sequence } => {
+                Frame::RetireConnectionId(frame::RetireConnectionId {
+                    path_id: _,
+                    sequence,
+                }) => {
+                    // TODO(@divma): use path id
                     let allow_more_cids = self
                         .local_cid_state
                         .on_cid_retirement(sequence, self.peer_params.issue_cids_limit())?;
@@ -2941,6 +2964,18 @@ impl Connection {
                         // include in migration
                         migration_observed_addr = Some(observed)
                     }
+                }
+                Frame::PathAbandon(_) => {
+                    // TODO(@divma): jump ship?
+                }
+                Frame::PathAvailable(_) => {
+                    // TODO(@divma): do stuff
+                }
+                Frame::MaxPathId(_) => {
+                    // TODO(@divma): do stuff
+                }
+                Frame::PathsBlocked(_) => {
+                    // TODO(@divma): do stuff
                 }
             }
         }
@@ -3169,6 +3204,7 @@ impl Connection {
                 space,
                 buf,
                 &mut self.stats,
+                self.path_id,
             );
         }
 
@@ -3304,6 +3340,7 @@ impl Connection {
         }
 
         // NEW_CONNECTION_ID
+        // TODO(@divma): need to change this; add a decent size fn
         while buf.len() + 44 < max_size {
             let issued = match space.pending.new_cids.pop() {
                 Some(x) => x,
@@ -3315,6 +3352,7 @@ impl Connection {
                 "NEW_CONNECTION_ID"
             );
             frame::NewConnectionId {
+                path_id: None, // TODO(@divma): multipath!
                 sequence: issued.sequence,
                 retire_prior_to: self.local_cid_state.retire_prior_to(),
                 id: issued.id,
@@ -3326,15 +3364,19 @@ impl Connection {
         }
 
         // RETIRE_CONNECTION_ID
+        // TODO(@divma): buf size bounds are now wrong
         while buf.len() + frame::RETIRE_CONNECTION_ID_SIZE_BOUND < max_size {
-            let seq = match space.pending.retire_cids.pop() {
+            let sequence = match space.pending.retire_cids.pop() {
                 Some(x) => x,
                 None => break,
             };
-            trace!(sequence = seq, "RETIRE_CONNECTION_ID");
-            buf.write(frame::FrameType::RETIRE_CONNECTION_ID);
-            buf.write_var(seq);
-            sent.retransmits.get_or_create().retire_cids.push(seq);
+            trace!(sequence, "RETIRE_CONNECTION_ID");
+            frame::RetireConnectionId {
+                path_id: self.path_id,
+                sequence,
+            }
+            .write(buf);
+            sent.retransmits.get_or_create().retire_cids.push(sequence);
             self.stats.frame_tx.retire_connection_id += 1;
         }
 
@@ -3377,6 +3419,7 @@ impl Connection {
         space: &mut PacketSpace,
         buf: &mut Vec<u8>,
         stats: &mut ConnectionStats,
+        path_id: Option<PathId>,
     ) {
         debug_assert!(!space.pending_acks.ranges().is_empty());
 
@@ -3401,7 +3444,7 @@ impl Connection {
             delay_micros
         );
 
-        frame::Ack::encode(delay as _, space.pending_acks.ranges(), ecn, buf);
+        frame::Ack::encode(path_id, delay as _, space.pending_acks.ranges(), ecn, buf);
         stats.frame_tx.acks += 1;
     }
 
@@ -3419,6 +3462,7 @@ impl Connection {
 
     /// Handle transport parameters received from the peer
     fn handle_peer_params(&mut self, params: TransportParameters) -> Result<(), TransportError> {
+        // TODO(@divma): check if we need to validate anything regarding multipath here
         if Some(self.orig_rem_cid) != params.initial_src_cid
             || (self.side.is_client()
                 && (Some(self.initial_dst_cid) != params.original_dst_cid
@@ -3439,8 +3483,14 @@ impl Connection {
         self.idle_timeout =
             negotiate_max_idle_timeout(self.config.max_idle_timeout, Some(params.max_idle_timeout));
         trace!("negotiated max idle timeout {:?}", self.idle_timeout);
+        if self.is_multipath_enabled() {
+            // check if extra validations are needed to prevent overwriting the path id
+            self.path_id = Some(PathId::default());
+        };
+
         if let Some(ref info) = params.preferred_address {
             self.rem_cids.insert(frame::NewConnectionId {
+                path_id: None, // TODO(@divma): check if this needs to be set later or now
                 sequence: 1,
                 id: info.connection_id,
                 reset_token: info.stateless_reset_token,
@@ -3461,6 +3511,7 @@ impl Connection {
     ) -> Result<Option<u64>, Option<TransportError>> {
         let result = packet_crypto::decrypt_packet_body(
             packet,
+            self.path_id.unwrap_or_default(),
             &self.spaces,
             self.zero_rtt_crypto.as_ref(),
             self.key_phase,
@@ -3557,6 +3608,7 @@ impl Connection {
         let mut packet = decrypted_header.packet?;
         packet_crypto::decrypt_packet_body(
             &mut packet,
+            self.path_id.unwrap_or_default(),
             &self.spaces,
             self.zero_rtt_crypto.as_ref(),
             self.key_phase,

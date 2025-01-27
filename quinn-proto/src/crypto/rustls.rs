@@ -19,7 +19,7 @@ use crate::{
         self, CryptoError, ExportKeyingMaterialError, HeaderKey, KeyPair, Keys, UnsupportedVersion,
     },
     transport_parameters::TransportParameters,
-    ConnectError, ConnectionId, Side, TransportError, TransportErrorCode,
+    ConnectError, ConnectionId, PathId, Side, TransportError, TransportErrorCode,
 };
 
 impl From<Side> for rustls::Side {
@@ -582,21 +582,24 @@ pub(crate) fn initial_keys(
 }
 
 impl crypto::PacketKey for Box<dyn PacketKey> {
-    fn encrypt(&self, packet: u64, buf: &mut [u8], header_len: usize) {
+    fn encrypt(&self, PathId(path_id): PathId, packet: u64, buf: &mut [u8], header_len: usize) {
         let (header, payload_tag) = buf.split_at_mut(header_len);
         let (payload, tag_storage) = payload_tag.split_at_mut(payload_tag.len() - self.tag_len());
-        let tag = self.encrypt_in_place(packet, &*header, payload).unwrap();
+        let tag = self
+            .encrypt_in_place_for_path(path_id, packet, &*header, payload)
+            .unwrap();
         tag_storage.copy_from_slice(tag.as_ref());
     }
 
     fn decrypt(
         &self,
+        PathId(path_id): PathId,
         packet: u64,
         header: &[u8],
         payload: &mut BytesMut,
     ) -> Result<(), CryptoError> {
         let plain = self
-            .decrypt_in_place(packet, header, payload.as_mut())
+            .decrypt_in_place_for_path(path_id, packet, header, payload.as_mut())
             .map_err(|_| CryptoError)?;
         let plain_len = plain.len();
         payload.truncate(plain_len);

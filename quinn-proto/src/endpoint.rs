@@ -605,6 +605,7 @@ impl Endpoint {
             .packet
             .remote
             .decrypt(
+                Default::default(), // for the first packet multipath has not been negotiated
                 packet_number,
                 &incoming.packet.header_data,
                 &mut incoming.packet.payload,
@@ -906,7 +907,11 @@ impl Endpoint {
             INITIAL_MTU as usize - partial_encode.header_len - crypto.packet.local.tag_len();
         frame::Close::from(reason).encode(buf, max_len);
         buf.resize(buf.len() + crypto.packet.local.tag_len(), 0);
-        partial_encode.finish(buf, &*crypto.header.local, Some((0, &*crypto.packet.local)));
+        partial_encode.finish(
+            buf,
+            &*crypto.header.local,
+            Some((0, Default::default(), &*crypto.packet.local)),
+        );
         Transmit {
             destination: addresses.remote,
             ecn: None,
