@@ -95,6 +95,12 @@ pub(super) struct PathData {
     /// Used to determine whether a packet was sent on an earlier path. Insufficient to determine if
     /// a packet was sent on a later path.
     first_packet: Option<u64>,
+
+    //
+    // Loss Detection
+    //
+    /// The number of times a PTO has been sent without receiving an ack.
+    pub(super) pto_count: u32,
 }
 
 impl PathData {
@@ -146,6 +152,7 @@ impl PathData {
             observed_addr_sent: false,
             last_observed_addr_report: None,
             first_packet: None,
+            pto_count: 0,
         }
     }
 
@@ -172,6 +179,7 @@ impl PathData {
             observed_addr_sent: false,
             last_observed_addr_report: None,
             first_packet: None,
+            pto_count: 0,
         }
     }
 

@@ -234,7 +234,7 @@ impl PacketBuilder {
             if ack_eliciting {
                 space.time_of_last_ack_eliciting_packet = Some(now);
                 if conn.permit_idle_reset {
-                    conn.reset_idle_timeout(now, space_id);
+                    conn.reset_idle_timeout(now, path_id, space_id);
                 }
                 conn.permit_idle_reset = false;
             }

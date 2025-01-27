@@ -208,14 +208,9 @@ pub struct Connection {
     ack_frequency: AckFrequencyState,
 
     //
-    // Loss Detection
-    //
-    /// The number of times a PTO has been sent without receiving an ack.
-    pto_count: u32,
-
-    //
     // Congestion Control
     //
+    // TODO(flub): this section probably needs to move to PathData
     /// Whether the most recently received packet had an ECN codepoint set
     receiving_ecn: bool,
     /// Number of packets authenticated
@@ -227,6 +222,7 @@ pub struct Connection {
     //
     // ObservedAddr
     //
+    // TODO(flub): this is probably also path-specific
     /// Sequence number for the next observed address frame sent to the peer.
     next_observed_addr_seq_no: VarInt,
 
@@ -246,6 +242,7 @@ pub struct Connection {
     // Multipath
     //
     /// [`PathId`] associated with this connection if any.
+    // TODO(flub): remove this before the PR
     path_id: Option<PathId>,
 }
 
@@ -349,8 +346,6 @@ impl Connection {
             ack_frequency: AckFrequencyState::new(get_max_ack_delay(
                 &TransportParameters::default(),
             )),
-
-            pto_count: 0,
 
             app_limited: false,
             receiving_ecn: false,
@@ -1635,10 +1630,10 @@ impl Connection {
         }
 
         // Must be called before crypto/pto_count are clobbered
-        self.detect_lost_packets(now, space, true);
+        self.detect_lost_packets(now, path_id, space, true);
 
-        if self.peer_completed_address_validation() {
-            self.pto_count = 0;
+        if self.peer_completed_address_validation(path_id) {
+            self.path_mut(path_id).pto_count = 0;
         }
 
         // Explicit congestion notification
@@ -1735,7 +1730,7 @@ impl Connection {
         }
     }
 
-    fn set_key_discard_timer(&mut self, now: Instant, space: SpaceId) {
+    fn set_key_discard_timer(&mut self, now: Instant, path_id: PathId, space_id: SpaceId) {
         let start = if self.zero_rtt_crypto.is_some() {
             now
         } else {
@@ -1748,18 +1743,21 @@ impl Connection {
                 .1
         };
         self.timers
-            .set(Timer::KeyDiscard, start + self.pto(space) * 3);
+            .set(Timer::KeyDiscard, start + self.pto(path_id, space_id) * 3);
     }
 
     fn on_loss_detection_timeout(&mut self, now: Instant) {
-        if let Some((_, pn_space)) = self.loss_time_and_space() {
+        // TODO(flub): time is timer-triggered.  Currently I'm not changing the timers and
+        // this could be the timer from any path, if we need to end up with per-path timers
+        // then this needs to be revisited.
+        if let Some((_, path_id, pn_space)) = self.loss_time_and_space() {
             // Time threshold loss Detection
-            self.detect_lost_packets(now, pn_space, false);
+            self.detect_lost_packets(now, path_id, pn_space, false);
             self.set_loss_detection_timer(now);
             return;
         }
 
-        let (_, space) = match self.pto_time_and_space(now) {
+        let (_, path_id, space) = match self.pto_time_and_space(now) {
             Some(x) => x,
             None => {
                 error!("PTO expired while unset");
@@ -1767,37 +1765,49 @@ impl Connection {
             }
         };
         trace!(
-            in_flight = self.path.in_flight.bytes,
-            count = self.pto_count,
+            in_flight = self.path_ref(path_id).in_flight.bytes,
+            count = self.path_ref(path_id).pto_count,
             ?space,
             "PTO fired"
         );
 
-        let count = match self.path.in_flight.ack_eliciting {
+        let count = match self.path_ref(path_id).in_flight.ack_eliciting {
             // A PTO when we're not expecting any ACKs must be due to handshake anti-amplification
             // deadlock preventions
             0 => {
-                debug_assert!(!self.peer_completed_address_validation());
+                debug_assert!(!self.peer_completed_address_validation(path_id));
                 1
             }
             // Conventional loss probe
             _ => 2,
         };
-        self.spaces[space].loss_probes = self.spaces[space].loss_probes.saturating_add(count);
-        self.pto_count = self.pto_count.saturating_add(1);
+        self.space_mut(path_id, space).loss_probes = self
+            .space_mut(path_id, space)
+            .loss_probes
+            .saturating_add(count);
+        self.path_mut(path_id).pto_count = self.path_mut(path_id).pto_count.saturating_add(1);
         self.set_loss_detection_timer(now);
     }
 
-    fn detect_lost_packets(&mut self, now: Instant, pn_space: SpaceId, due_to_ack: bool) {
+    fn detect_lost_packets(
+        &mut self,
+        now: Instant,
+        path_id: PathId,
+        pn_space: SpaceId,
+        due_to_ack: bool,
+    ) {
         let mut lost_packets = Vec::<u64>::new();
         let mut lost_mtu_probe = None;
-        let in_flight_mtu_probe = self.path.mtud.in_flight_mtu_probe();
-        let rtt = self.path.rtt.conservative();
+        let in_flight_mtu_probe = self.path_ref(path_id).mtud.in_flight_mtu_probe();
+        let rtt = self.path_ref(path_id).rtt.conservative();
         let loss_delay = cmp::max(rtt.mul_f32(self.config.time_threshold), TIMER_GRANULARITY);
 
         // Packets sent before this time are deemed lost.
         let lost_send_time = now.checked_sub(loss_delay).unwrap();
-        let largest_acked_packet = self.spaces[pn_space].largest_acked_packet.unwrap();
+        let largest_acked_packet = self
+            .space_ref(path_id, pn_space)
+            .largest_acked_packet
+            .unwrap();
         let packet_threshold = self.config.packet_threshold as u64;
         let mut size_of_lost_packets = 0u64;
 
@@ -1805,12 +1815,12 @@ impl Connection {
         // lost packet, including the edges, are marked lost. PTO computation must always
         // include max ACK delay, i.e. operate as if in Data space (see RFC9001 §7.6.1).
         let congestion_period =
-            self.pto(SpaceId::Data) * self.config.persistent_congestion_threshold;
+            self.pto(path_id, SpaceId::Data) * self.config.persistent_congestion_threshold;
         let mut persistent_congestion_start: Option<Instant> = None;
         let mut prev_packet = None;
         let mut in_persistent_congestion = false;
 
-        let space = &mut self.spaces[pn_space];
+        let space = &mut self.space_mut(path_id, pn_space);
         space.loss_time = None;
 
         for (&packet, info) in space.sent_packets.range(0..largest_acked_packet) {
@@ -1837,7 +1847,7 @@ impl Connection {
                             }
                             // Persistent congestion must start after the first RTT sample
                             None if self
-                                .path
+                                .path_ref(path_id)
                                 .first_packet_after_rtt_sample
                                 .is_some_and(|x| x < (pn_space, packet)) =>
                             {
@@ -1862,11 +1872,12 @@ impl Connection {
 
         // OnPacketsLost
         if let Some(largest_lost) = lost_packets.last().cloned() {
-            let old_bytes_in_flight = self.path.in_flight.bytes;
-            let largest_lost_sent = self.spaces[pn_space].sent_packets[&largest_lost].time_sent;
+            let old_bytes_in_flight = self.path_ref(path_id).in_flight.bytes;
+            let largest_lost_sent =
+                self.space_ref(path_id, pn_space).sent_packets[&largest_lost].time_sent;
             self.lost_packets += lost_packets.len() as u64;
-            self.stats.path.lost_packets += lost_packets.len() as u64;
-            self.stats.path.lost_bytes += size_of_lost_packets;
+            self.stats.paths.entry(path_id).or_default().lost_packets += lost_packets.len() as u64;
+            self.stats.paths.entry(path_id).or_default().lost_bytes += size_of_lost_packets;
             trace!(
                 "packets lost: {:?}, bytes lost: {}",
                 lost_packets,
@@ -1874,31 +1885,41 @@ impl Connection {
             );
 
             for &packet in &lost_packets {
-                let info = self.spaces[pn_space].take(packet).unwrap(); // safe: lost_packets is populated just above
+                let info = self.space_mut(path_id, pn_space).take(packet).unwrap(); // safe: lost_packets is populated just above
                 self.remove_in_flight(packet, &info);
                 for frame in info.stream_frames {
                     self.streams.retransmit(frame);
                 }
-                self.spaces[pn_space].pending |= info.retransmits;
-                self.path.mtud.on_non_probe_lost(packet, info.size);
+                self.space_mut(path_id, pn_space).pending |= info.retransmits;
+                self.path_mut(path_id)
+                    .mtud
+                    .on_non_probe_lost(packet, info.size);
             }
 
-            if self.path.mtud.black_hole_detected(now) {
-                self.stats.path.black_holes_detected += 1;
-                self.path
+            if self.path_mut(path_id).mtud.black_hole_detected(now) {
+                self.stats
+                    .paths
+                    .entry(path_id)
+                    .or_default()
+                    .black_holes_detected += 1;
+                self.path_mut(path_id)
                     .congestion
-                    .on_mtu_update(self.path.mtud.current_mtu());
-                if let Some(max_datagram_size) = self.datagrams().max_size() {
+                    .on_mtu_update(self.path_ref(path_id).mtud.current_mtu());
+                if let Some(max_datagram_size) = self.datagrams().max_size(path_id) {
                     self.datagrams.drop_oversized(max_datagram_size);
                 }
             }
 
             // Don't apply congestion penalty for lost ack-only packets
-            let lost_ack_eliciting = old_bytes_in_flight != self.path.in_flight.bytes;
+            let lost_ack_eliciting = old_bytes_in_flight != self.path_ref(path_id).in_flight.bytes;
 
             if lost_ack_eliciting {
-                self.stats.path.congestion_events += 1;
-                self.path.congestion.on_congestion_event(
+                self.stats
+                    .paths
+                    .entry(path_id)
+                    .or_default()
+                    .congestion_events += 1;
+                self.path_mut(path_id).congestion.on_congestion_event(
                     now,
                     largest_lost_sent,
                     in_persistent_congestion,
@@ -1909,25 +1930,67 @@ impl Connection {
 
         // Handle a lost MTU probe
         if let Some(packet) = lost_mtu_probe {
-            let info = self.spaces[SpaceId::Data].take(packet).unwrap(); // safe: lost_mtu_probe is omitted from lost_packets, and therefore must not have been removed yet
+            let info = self.space_mut(path_id, SpaceId::Data).take(packet).unwrap(); // safe: lost_mtu_probe is omitted from lost_packets, and therefore must not have been removed yet
             self.remove_in_flight(packet, &info);
-            self.path.mtud.on_probe_lost();
-            self.stats.path.lost_plpmtud_probes += 1;
+            self.path_mut(path_id).mtud.on_probe_lost();
+            self.stats
+                .paths
+                .entry(path_id)
+                .or_default()
+                .lost_plpmtud_probes += 1;
         }
     }
 
-    fn loss_time_and_space(&self) -> Option<(Instant, SpaceId)> {
-        SpaceId::iter()
-            .filter_map(|id| Some((self.spaces[id].loss_time?, id)))
-            .min_by_key(|&(time, _)| time)
+    /// Returns the space and path with the earliest loss time.
+    fn loss_time_and_space(&self) -> Option<(Instant, PathId, SpaceId)> {
+        let loss_times = Vec::new();
+        for space_id in SpaceId::iter() {
+            match space_id {
+                SpaceId::Initial => {
+                    let space = &mut self.initial_space;
+                    if let Some(when) = space.loss_time {
+                        loss_times.push((when, PathId(0), space_id));
+                    }
+                }
+                SpaceId::Handshake => {
+                    let space = &mut self.handshake_space;
+                    if let Some(when) = space.loss_time {
+                        loss_times.push((when, PathId(0), space_id));
+                    }
+                }
+                SpaceId::Data => {
+                    for (path_id, space) in self.data_spaces.iter() {
+                        if let Some(when) = space.loss_time {
+                            loss_times.push((when, PathId(0), space_id));
+                        }
+                    }
+                }
+            }
+        }
+        loss_times.into_iter().min_by_key(|&(when, _, _)| when)
     }
 
-    fn pto_time_and_space(&self, now: Instant) -> Option<(Instant, SpaceId)> {
-        let backoff = 2u32.pow(self.pto_count.min(MAX_BACKOFF_EXPONENT));
-        let mut duration = self.path.rtt.pto_base() * backoff;
+    /// Returns the earliest next PTO for all paths.
+    fn pto_time_and_space(&self, now: Instant) -> Option<(Instant, PathId, SpaceId)> {
+        self.paths
+            .keys()
+            .filter_map(|path_id| {
+                self.pto_time_and_space_for_path(now, *path_id)
+                    .map(|(when, space_id)| (when, *path_id, space_id))
+            })
+            .min_by_key(|(when, _, _)| *when)
+    }
 
-        if self.path.in_flight.ack_eliciting == 0 {
-            debug_assert!(!self.peer_completed_address_validation());
+    fn pto_time_and_space_for_path(
+        &self,
+        now: Instant,
+        path_id: PathId,
+    ) -> Option<(Instant, SpaceId)> {
+        let backoff = 2u32.pow(self.path_ref(path_id).pto_count.min(MAX_BACKOFF_EXPONENT));
+        let mut duration = self.path_ref(path_id).rtt.pto_base() * backoff;
+
+        if self.path_ref(path_id).in_flight.ack_eliciting == 0 {
+            debug_assert!(!self.peer_completed_address_validation(path_id));
             let space = match self.highest_space {
                 SpaceId::Handshake => SpaceId::Handshake,
                 _ => SpaceId::Initial,
@@ -1937,7 +2000,7 @@ impl Connection {
 
         let mut result = None;
         for space in SpaceId::iter() {
-            if self.spaces[space].in_flight == 0 {
+            if self.space_ref(path_id, space).in_flight == 0 {
                 continue;
             }
             if space == SpaceId::Data {
@@ -1948,7 +2011,10 @@ impl Connection {
                 // Include max_ack_delay and backoff for ApplicationData.
                 duration += self.ack_frequency.max_ack_delay_for_pto() * backoff;
             }
-            let last_ack_eliciting = match self.spaces[space].time_of_last_ack_eliciting_packet {
+            let last_ack_eliciting = match self
+                .space_ref(path_id, space)
+                .time_of_last_ack_eliciting_packet
+            {
                 Some(time) => time,
                 None => continue,
             };
@@ -1961,18 +2027,25 @@ impl Connection {
     }
 
     #[allow(clippy::suspicious_operation_groupings)]
-    fn peer_completed_address_validation(&self) -> bool {
+    fn peer_completed_address_validation(&self, _path_id: PathId) -> bool {
+        // TODO(flub): Figure out how we know this for paths other than PathId(0)
+
         if self.side.is_server() || self.state.is_closed() {
             return true;
         }
         // The server is guaranteed to have validated our address if any of our handshake or 1-RTT
         // packets are acknowledged or we've seen HANDSHAKE_DONE and discarded handshake keys.
-        self.spaces[SpaceId::Handshake]
-            .largest_acked_packet
-            .is_some()
-            || self.spaces[SpaceId::Data].largest_acked_packet.is_some()
-            || (self.spaces[SpaceId::Data].crypto.is_some()
-                && self.spaces[SpaceId::Handshake].crypto.is_none())
+        let handshake_acked = self.handshake_space.largest_acked_packet.is_some();
+        let data_acked = self
+            .data_spaces
+            .values()
+            .any(|space| space.largest_acked_packet.is_some());
+        let handshake_done = self.handshake_space.crypto.is_none()
+            && self
+                .data_spaces
+                .values()
+                .any(|space| space.crypto.is_some());
+        handshake_acked || data_acked || handshake_done
     }
 
     fn set_loss_detection_timer(&mut self, now: Instant) {
@@ -1983,19 +2056,25 @@ impl Connection {
             return;
         }
 
-        if let Some((loss_time, _)) = self.loss_time_and_space() {
+        if let Some((loss_time, _, _)) = self.loss_time_and_space() {
             // Time threshold loss detection.
             self.timers.set(Timer::LossDetection, loss_time);
             return;
         }
 
-        if self.path.anti_amplification_blocked(1) {
+        if self
+            .paths
+            .values()
+            .all(|path| path.anti_amplification_blocked(1))
+        {
             // We wouldn't be able to send anything, so don't bother.
             self.timers.stop(Timer::LossDetection);
             return;
         }
 
-        if self.path.in_flight.ack_eliciting == 0 && self.peer_completed_address_validation() {
+        if self.paths.iter().all(|(path_id, path)| {
+            path.in_flight.ack_eliciting == 0 && self.peer_completed_address_validation(*path_id)
+        }) {
             // There is nothing to detect lost, so no timer is set. However, the client needs to arm
             // the timer if the server might be blocked by the anti-amplification limit.
             self.timers.stop(Timer::LossDetection);
@@ -2004,7 +2083,7 @@ impl Connection {
 
         // Determine which PN space to arm PTO for.
         // Calculate PTO duration
-        if let Some((timeout, _)) = self.pto_time_and_space(now) {
+        if let Some((timeout, _, _)) = self.pto_time_and_space(now) {
             self.timers.set(Timer::LossDetection, timeout);
         } else {
             self.timers.stop(Timer::LossDetection);
@@ -2012,17 +2091,19 @@ impl Connection {
     }
 
     /// Probe Timeout
-    fn pto(&self, space: SpaceId) -> Duration {
-        let max_ack_delay = match space {
+    // TODO(flub): Really?  But we also have pto_time_and_space().  Who's wrong?
+    fn pto(&self, path_id: PathId, space_id: SpaceId) -> Duration {
+        let max_ack_delay = match space_id {
             SpaceId::Initial | SpaceId::Handshake => Duration::new(0, 0),
             SpaceId::Data => self.ack_frequency.max_ack_delay_for_pto(),
         };
-        self.path.rtt.pto_base() + max_ack_delay
+        self.path_ref(path_id).rtt.pto_base() + max_ack_delay
     }
 
     fn on_packet_authenticated(
         &mut self,
         now: Instant,
+        path_id: PathId,
         space_id: SpaceId,
         ecn: Option<EcnCodepoint>,
         packet: Option<u64>,
@@ -2031,11 +2112,11 @@ impl Connection {
     ) {
         self.total_authed_packets += 1;
         self.reset_keep_alive(now);
-        self.reset_idle_timeout(now, space_id);
+        self.reset_idle_timeout(now, path_id, space_id);
         self.permit_idle_reset = true;
         self.receiving_ecn |= ecn.is_some();
         if let Some(x) = ecn {
-            let space = &mut self.spaces[space_id];
+            let space = self.space_mut(path_id, space_id);
             space.ecn_counters += x;
 
             if x.is_ce() {
@@ -2048,16 +2129,18 @@ impl Connection {
             None => return,
         };
         if self.side.is_server() {
-            if self.spaces[SpaceId::Initial].crypto.is_some() && space_id == SpaceId::Handshake {
+            if self.space_ref(path_id, SpaceId::Initial).crypto.is_some()
+                && space_id == SpaceId::Handshake
+            {
                 // A server stops sending and processing Initial packets when it receives its first Handshake packet.
                 self.discard_space(now, SpaceId::Initial);
             }
             if self.zero_rtt_crypto.is_some() && is_1rtt {
                 // Discard 0-RTT keys soon after receiving a 1-RTT packet
-                self.set_key_discard_timer(now, space_id)
+                self.set_key_discard_timer(now, path_id, space_id)
             }
         }
-        let space = &mut self.spaces[space_id];
+        let space = self.space_mut(path_id, space_id);
         space.pending_acks.insert_one(packet, now);
         if packet >= space.rx_packet {
             space.rx_packet = packet;
@@ -2066,7 +2149,7 @@ impl Connection {
         }
     }
 
-    fn reset_idle_timeout(&mut self, now: Instant, space: SpaceId) {
+    fn reset_idle_timeout(&mut self, now: Instant, path_id: PathId, space: SpaceId) {
         let timeout = match self.idle_timeout {
             None => return,
             Some(dur) => dur,
@@ -2075,7 +2158,7 @@ impl Connection {
             self.timers.stop(Timer::Idle);
             return;
         }
-        let dt = cmp::max(timeout, 3 * self.pto(space));
+        let dt = cmp::max(timeout, 3 * self.pto(path_id, space));
         self.timers.set(Timer::Idle, now + dt);
     }
 
@@ -2102,6 +2185,7 @@ impl Connection {
         now: Instant,
         remote: SocketAddr,
         ecn: Option<EcnCodepoint>,
+        path_id: PathId,
         packet_number: u64,
         packet: InitialPacket,
         remaining: Option<BytesMut>,
@@ -2110,7 +2194,7 @@ impl Connection {
         let _guard = span.enter();
         debug_assert!(self.side.is_server());
         let len = packet.header_data.len() + packet.payload.len();
-        self.path.total_recvd = len as u64;
+        self.path_mut(path_id).total_recvd = len as u64;
 
         match self.state {
             State::Handshake(ref mut state) => {
@@ -2121,6 +2205,7 @@ impl Connection {
 
         self.on_packet_authenticated(
             now,
+            path_id,
             SpaceId::Initial,
             ecn,
             Some(packet_number),
@@ -2173,6 +2258,7 @@ impl Connection {
 
     fn read_crypto(
         &mut self,
+        path: PathId,
         space: SpaceId,
         crypto: &frame::Crypto,
         payload_len: usize,
@@ -2192,7 +2278,7 @@ impl Connection {
         debug_assert!(space <= expected, "received out-of-order CRYPTO data");
 
         let end = crypto.offset + crypto.data.len() as u64;
-        if space < expected && end > self.spaces[space].crypto_stream.bytes_read() {
+        if space < expected && end > self.space_ref(path, space).crypto_stream.bytes_read() {
             warn!(
                 "received new {:?} CRYPTO data when expecting {:?}",
                 space, expected
@@ -2202,7 +2288,7 @@ impl Connection {
             ));
         }
 
-        let space = &mut self.spaces[space];
+        let space = self.space_mut(path, space);
         let max = end.saturating_sub(space.crypto_stream.bytes_read());
         if max > self.config.crypto_buffer_size as u64 {
             return Err(TransportError::CRYPTO_BUFFER_EXCEEDED(""));
@@ -2244,7 +2330,7 @@ impl Connection {
                     continue;
                 }
             }
-            let offset = self.spaces[space].crypto_offset;
+            let offset = self.space_ref(path, space).crypto_offset;
             let outgoing = Bytes::from(outgoing);
             if let State::Handshake(ref mut state) = self.state {
                 if space == SpaceId::Initial && offset == 0 && self.side.is_client() {
