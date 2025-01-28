@@ -16,6 +16,7 @@ use crate::{
 };
 
 pub(super) struct PacketSpace {
+    // TODO(flub): Not sure this really belongs here, does it?
     pub(super) crypto: Option<Keys>,
     pub(super) dedup: Dedup,
     /// Highest received packet number

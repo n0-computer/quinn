@@ -866,7 +866,7 @@ impl Connection {
             {
                 // A client stops both sending and processing Initial packets when it
                 // sends its first Handshake packet.
-                self.discard_space(now, SpaceId::Initial);
+                self.discard_space(now, path_id, SpaceId::Initial);
             }
             if let Some(ref mut prev) = self.prev_crypto {
                 prev.update_unacked = false;
@@ -1193,7 +1193,7 @@ impl Connection {
 
                 if let Some(data) = remaining {
                     self.stats.udp_rx.bytes += data.len() as u64;
-                    self.handle_coalesced(now, remote, ecn, data);
+                    self.handle_coalesced(now, remote, path_id, ecn, data);
                 }
 
                 if was_anti_amplification_blocked {
@@ -2133,7 +2133,7 @@ impl Connection {
                 && space_id == SpaceId::Handshake
             {
                 // A server stops sending and processing Initial packets when it receives its first Handshake packet.
-                self.discard_space(now, SpaceId::Initial);
+                self.discard_space(now, path_id, SpaceId::Initial);
             }
             if self.zero_rtt_crypto.is_some() && is_1rtt {
                 // Discard 0-RTT keys soon after receiving a 1-RTT packet
@@ -2215,7 +2215,7 @@ impl Connection {
 
         self.process_decrypted_packet(now, remote, Some(packet_number), packet.into())?;
         if let Some(data) = remaining {
-            self.handle_coalesced(now, remote, ecn, data);
+            self.handle_coalesced(now, remote, path_id, ecn, data);
         }
         Ok(())
     }
@@ -2330,6 +2330,8 @@ impl Connection {
                     continue;
                 }
             }
+            // TODO(flub): Only used during handshake, so always PathId(0)?
+            let path = PathId(0);
             let offset = self.space_ref(path, space).crypto_offset;
             let outgoing = Bytes::from(outgoing);
             if let State::Handshake(ref mut state) = self.state {
@@ -2337,19 +2339,23 @@ impl Connection {
                     state.client_hello = Some(outgoing.clone());
                 }
             }
-            self.spaces[space].crypto_offset += outgoing.len() as u64;
+            self.space_mut(path, space).crypto_offset += outgoing.len() as u64;
             trace!("wrote {} {:?} CRYPTO bytes", outgoing.len(), space);
-            self.spaces[space].pending.crypto.push_back(frame::Crypto {
-                offset,
-                data: outgoing,
-            });
+            self.space_mut(path, space)
+                .pending
+                .crypto
+                .push_back(frame::Crypto {
+                    offset,
+                    data: outgoing,
+                });
         }
     }
 
     /// Switch to stronger cryptography during handshake
     fn upgrade_crypto(&mut self, space: SpaceId, crypto: Keys) {
+        debug_assert!(matches!(space, SpaceId::Initial | SpaceId::Handshake));
         debug_assert!(
-            self.spaces[space].crypto.is_none(),
+            self.space_ref(PathId(0), space).crypto.is_none(),
             "already reached packet space {space:?}"
         );
         trace!("{:?} keys ready", space);
@@ -2362,7 +2368,7 @@ impl Connection {
             );
         }
 
-        self.spaces[space].crypto = Some(crypto);
+        self.space_mut(PathId(0), space).crypto = Some(crypto);
         debug_assert!(space as usize > self.highest_space as usize);
         self.highest_space = space;
         if space == SpaceId::Data && self.side.is_client() {
@@ -2371,7 +2377,7 @@ impl Connection {
         }
     }
 
-    fn discard_space(&mut self, now: Instant, space_id: SpaceId) {
+    fn discard_space(&mut self, now: Instant, path_id: PathId, space_id: SpaceId) {
         debug_assert!(space_id != SpaceId::Data);
         trace!("discarding {:?} keys", space_id);
         if space_id == SpaceId::Initial {
@@ -2380,7 +2386,7 @@ impl Connection {
                 *token = Bytes::new();
             }
         }
-        let space = &mut self.spaces[space_id];
+        let space = self.space_mut(path_id, space_id);
         space.crypto = None;
         space.time_of_last_ack_eliciting_packet = None;
         space.loss_time = None;
@@ -2396,10 +2402,14 @@ impl Connection {
         &mut self,
         now: Instant,
         remote: SocketAddr,
+        path_id: PathId,
         ecn: Option<EcnCodepoint>,
         data: BytesMut,
     ) {
-        self.path.total_recvd = self.path.total_recvd.saturating_add(data.len() as u64);
+        self.path_mut(path_id).total_recvd = self
+            .path_mut(path_id)
+            .total_recvd
+            .saturating_add(data.len() as u64);
         let mut remaining = Some(data);
         while let Some(data) = remaining {
             match PartialDecode::new(
