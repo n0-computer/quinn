@@ -3413,8 +3413,13 @@ impl Connection {
     }
 
     fn set_close_timer(&mut self, now: Instant) {
-        self.timers
-            .set(Timer::Close, now + 3 * self.pto(self.highest_space));
+        // If we haven't had any ACK from the peer yet the connection might just not exist.
+        // This timer should be set to the time of the very first packet sent in that case.
+        let drain_timeout = match self.highest_space {
+            SpaceId::Initial => self.pto(self.highest_space),
+            _ => 3 * self.pto(self.highest_space),
+        };
+        self.timers.set(Timer::Close, now + drain_timeout);
     }
 
     /// Handle transport parameters received from the peer
