@@ -139,6 +139,7 @@ impl<'a> TransmitBuf<'a> {
     pub(super) fn clip_datagram_size(&mut self) {
         debug_assert_eq!(self.num_datagrams, 1);
         self.segment_size = self.buf.len();
+        self.buf_capacity = self.buf.len();
     }
 
     /// Returns the GSO segment size
