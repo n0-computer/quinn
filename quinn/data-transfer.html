@@ -31,10 +31,11 @@
         <!-- Custom theme stylesheets -->
 
 
-        <!-- Provide site root to javascript -->
+        <!-- Provide site root and default themes to javascript -->
         <script>
-            var path_to_root = "../";
-            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc.js"></script>
@@ -44,8 +45,8 @@
         <!-- Work around some values being stored in localStorage wrapped in quotes -->
         <script>
             try {
-                var theme = localStorage.getItem('mdbook-theme');
-                var sidebar = localStorage.getItem('mdbook-sidebar');
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
 
                 if (theme.startsWith('"') && theme.endsWith('"')) {
                     localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
@@ -59,7 +60,8 @@
 
         <!-- Set the theme before any content is loaded, prevents flash -->
         <script>
-            var theme;
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
             try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
             if (theme === null || theme === undefined) { theme = default_theme; }
             const html = document.documentElement;
@@ -72,8 +74,8 @@
 
         <!-- Hide / unhide sidebar before it is displayed -->
         <script>
-            var sidebar = null;
-            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
             if (document.body.clientWidth >= 1080) {
                 try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
                 sidebar = sidebar || 'visible';
@@ -109,6 +111,7 @@
                             <i class="fa fa-paint-brush"></i>
                         </button>
                         <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
@@ -179,15 +182,10 @@ For example, from the connection initiator to the peer and the other way around.
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>async fn open_bidirectional_stream(connection: Connection) -&gt; anyhow::Result&lt;()&gt; {
-    let (mut send, recv) = connection
-        .open_bi()
-        .await?;
-
+    let (mut send, mut recv) = connection.open_bi().await?;
     send.write_all(b"test").await?;
-    send.finish().await?;
-    
+    send.finish()?;
     let received = recv.read_to_end(10).await?;
-
     Ok(())
 }
 <span class="boring">}</span></code></pre></pre>
@@ -195,14 +193,12 @@ For example, from the connection initiator to the peer and the other way around.
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>async fn receive_bidirectional_stream(connection: Connection) -&gt; anyhow::Result&lt;()&gt; {
-    while let Ok((mut send, recv)) = connection.accept_bi().await {
+    while let Ok((mut send, mut recv)) = connection.accept_bi().await {
         // Because it is a bidirectional stream, we can both send and receive.
         println!("request: {:?}", recv.read_to_end(50).await?);
-
         send.write_all(b"response").await?;
-        send.finish().await?;
+        send.finish()?;
     }
-
     Ok(())
 }
 <span class="boring">}</span></code></pre></pre>
@@ -212,14 +208,10 @@ It is possible to get reliability without ordering (so no head-of-line blocking)
 <p><em>open unidirectional stream</em></p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>async fn open_unidirectional_stream(connection: Connection)-&gt; anyhow::Result&lt;()&gt; {
-    let mut send = connection
-        .open_uni()
-        .await?;
-
+</span>async fn open_unidirectional_stream(connection: Connection) -&gt; anyhow::Result&lt;()&gt; {
+    let mut send = connection.open_uni().await?;
     send.write_all(b"test").await?;
-    send.finish().await?;
-
+    send.finish()?;
     Ok(())
 }
 <span class="boring">}</span></code></pre></pre>
@@ -227,11 +219,10 @@ It is possible to get reliability without ordering (so no head-of-line blocking)
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>async fn receive_unidirectional_stream(connection: Connection) -&gt; anyhow::Result&lt;()&gt; {
-    while let Ok(recv) = connection.accept_uni().await {
+    while let Ok(mut recv) = connection.accept_uni().await {
         // Because it is a unidirectional stream, we can only receive not send back.
         println!("{:?}", recv.read_to_end(50).await?);
     }
-
     Ok(())
 }
 <span class="boring">}</span></code></pre></pre>
@@ -241,11 +232,8 @@ This could be useful if data arrival isn't essential or when high throughput is 
 <p><em>send datagram</em></p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>async fn send_unreliable(connection: Connection)-&gt; anyhow::Result&lt;()&gt; {
-    connection
-        .send_datagram(b"test".into())
-        .await?;
-
+</span>async fn send_unreliable(connection: Connection) -&gt; anyhow::Result&lt;()&gt; {
+    connection.send_datagram(Bytes::from(&amp;b"test"[..]))?;
     Ok(())
 }
 <span class="boring">}</span></code></pre></pre>
@@ -255,9 +243,8 @@ This could be useful if data arrival isn't essential or when high throughput is 
 </span>async fn receive_datagram(connection: Connection) -&gt; anyhow::Result&lt;()&gt; {
     while let Ok(received_bytes) = connection.read_datagram().await {
         // Because it is a unidirectional stream, we can only receive not send back.
-        println!("request: {:?}", received);
+        println!("request: {:?}", received_bytes);
     }
-
     Ok(())
 }
 <span class="boring">}</span></code></pre></pre>
