@@ -880,6 +880,7 @@ impl ConnectionRef {
         socket: Arc<dyn AsyncUdpSocket>,
         runtime: Arc<dyn Runtime>,
     ) -> Self {
+        let remote = conn.remote_address();
         Self(Arc::new(ConnectionInner {
             state: Mutex::new(State {
                 inner: conn,
@@ -897,7 +898,7 @@ impl ConnectionRef {
                 stopped: FxHashMap::default(),
                 error: None,
                 ref_count: 0,
-                io_poller: socket.clone().create_io_poller(),
+                io_poller: socket.clone().create_io_poller(remote),
                 socket,
                 runtime,
                 send_buffer: Vec::new(),
@@ -1110,7 +1111,10 @@ impl State {
             match self.conn_events.poll_recv(cx) {
                 Poll::Ready(Some(ConnectionEvent::Rebind(socket))) => {
                     self.socket = socket;
-                    self.io_poller = self.socket.clone().create_io_poller();
+                    self.io_poller = self
+                        .socket
+                        .clone()
+                        .create_io_poller(self.inner.remote_address());
                     self.inner.local_address_changed();
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
