@@ -97,7 +97,10 @@ impl UdpSocket {
 }
 
 impl AsyncUdpSocket for UdpSocket {
-    fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn super::UdpPoller>> {
+    fn create_io_poller(
+        self: Arc<Self>,
+        _remote: std::net::SocketAddr,
+    ) -> Pin<Box<dyn super::UdpPoller>> {
         Box::pin(UdpPollHelper::new(move || {
             let socket = self.clone();
             async move { socket.io.writable().await }

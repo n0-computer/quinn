@@ -48,7 +48,7 @@ pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
     /// [`Waker`].
     ///
     /// [`Waker`]: std::task::Waker
-    fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>>;
+    fn create_io_poller(self: Arc<Self>, remote: SocketAddr) -> Pin<Box<dyn UdpPoller>>;
 
     /// Send UDP datagrams from `transmits`, or return `WouldBlock` and clear the underlying
     /// socket's readiness, or return an I/O error

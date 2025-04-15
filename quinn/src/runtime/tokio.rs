@@ -1,6 +1,7 @@
 use std::{
     future::Future,
     io,
+    net::SocketAddr,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -55,7 +56,7 @@ struct UdpSocket {
 }
 
 impl AsyncUdpSocket for UdpSocket {
-    fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn super::UdpPoller>> {
+    fn create_io_poller(self: Arc<Self>, _remote: SocketAddr) -> Pin<Box<dyn super::UdpPoller>> {
         Box::pin(UdpPollHelper::new(move || {
             let socket = self.clone();
             async move { socket.io.writable().await }
