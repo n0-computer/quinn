@@ -21,7 +21,7 @@ use crate::{
     cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
     coding::{BufExt, BufMutExt, UnexpectedEnd},
-    config::{EndpointConfig, ServerConfig, TransportConfig},
+    config::{EndpointConfig, Racenonce, ServerConfig, TransportConfig},
     connection::PathId,
     shared::ConnectionId,
 };
@@ -118,6 +118,9 @@ macro_rules! make_struct {
 
             // Multipath extension
             pub(crate) initial_max_path_id: Option<PathId>,
+
+            // Racenonce
+            pub(crate) racenonce: Option<Racenonce>,
         }
 
         // We deliberately don't implement the `Default` trait, since that would be public, and
@@ -143,6 +146,7 @@ macro_rules! make_struct {
                     write_order: None,
                     address_discovery_role: address_discovery::Role::Disabled,
                     initial_max_path_id: None,
+                    racenonce: None
                 }
             }
         }
@@ -157,6 +161,7 @@ impl TransportParameters {
         endpoint_config: &EndpointConfig,
         cid_gen: &dyn ConnectionIdGenerator,
         initial_src_cid: ConnectionId,
+        racenonce: Option<Racenonce>,
         server_config: Option<&ServerConfig>,
         rng: &mut impl RngCore,
     ) -> Self {
@@ -193,6 +198,7 @@ impl TransportParameters {
             address_discovery_role: config.address_discovery_role,
             // TODO(@divma): TransportConfig or..?
             initial_max_path_id: config.initial_max_path_id.map(PathId::from),
+            racenonce,
             ..Self::default()
         }
     }
@@ -409,6 +415,13 @@ impl TransportParameters {
                         w.write(val);
                     }
                 }
+                TransportParameterId::Racenonce => {
+                    if let Some(val) = self.racenonce {
+                        w.write_var(id as u64);
+                        w.write_var(val.len() as u64);
+                        w.put_slice(&val);
+                    }
+                }
                 id => {
                     macro_rules! write_params {
                         {$($(#[$doc:meta])* $name:ident ($id:ident) = $default:expr,)*} => {
@@ -534,6 +547,14 @@ impl TransportParameters {
 
                     params.initial_max_path_id = Some(value);
                     tracing::debug!(initial_max_path_id=%value, "multipath enabled");
+                }
+                TransportParameterId::Racenonce => {
+                    if len != 32 || params.racenonce.is_some() {
+                        return Err(Error::Malformed);
+                    }
+                    let mut val = [0; 32];
+                    r.copy_to_slice(&mut val);
+                    params.racenonce = Some(val);
                 }
                 _ => {
                     macro_rules! parse {
@@ -703,11 +724,13 @@ pub(crate) enum TransportParameterId {
 
     // https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath
     InitialMaxPathId = 0x0f739bbc1b666d0c,
+
+    Racenonce = 0x0f138193fac,
 }
 
 impl TransportParameterId {
     /// Array with all supported transport parameter IDs
-    const SUPPORTED: [Self; 23] = [
+    const SUPPORTED: [Self; 24] = [
         Self::MaxIdleTimeout,
         Self::MaxUdpPayloadSize,
         Self::InitialMaxData,
@@ -731,6 +754,7 @@ impl TransportParameterId {
         Self::MinAckDelayDraft07,
         Self::ObservedAddr,
         Self::InitialMaxPathId,
+        Self::Racenonce,
     ];
 }
 
@@ -772,6 +796,7 @@ impl TryFrom<u64> for TransportParameterId {
             id if Self::MinAckDelayDraft07 == id => Self::MinAckDelayDraft07,
             id if Self::ObservedAddr == id => Self::ObservedAddr,
             id if Self::InitialMaxPathId == id => Self::InitialMaxPathId,
+            id if Self::Racenonce == id => Self::Racenonce,
             _ => return Err(()),
         };
         Ok(param)
@@ -812,6 +837,7 @@ mod test {
             min_ack_delay: Some(2_000u32.into()),
             address_discovery_role: address_discovery::Role::SendOnly,
             initial_max_path_id: Some(PathId::MAX),
+            racenonce: Some([42u8; 32]),
             ..TransportParameters::default()
         };
         params.write(&mut buf);

@@ -16,7 +16,10 @@ use std::{
 use crate::runtime::TokioRuntime;
 use crate::{Duration, Instant};
 use bytes::Bytes;
-use proto::{RandomConnectionIdGenerator, crypto::rustls::QuicClientConfig};
+use proto::{
+    ConnectionError, RandomConnectionIdGenerator, TransportErrorCode,
+    crypto::rustls::QuicClientConfig,
+};
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use rustls::{
     RootCertStore,
@@ -309,6 +312,13 @@ impl EndpointFactory {
         endpoint.set_default_client_config(client_config);
 
         endpoint
+    }
+
+    fn client_config(&self) -> ClientConfig {
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(self.cert.cert.der().clone()).unwrap();
+
+        ClientConfig::with_root_certificates(Arc::new(roots)).unwrap()
     }
 }
 
@@ -891,4 +901,57 @@ async fn test_multipath_negotiated() {
     .instrument(info_span!("client"));
 
     tokio::join!(server_task, client_task);
+}
+
+#[tokio::test]
+async fn racenonce() {
+    let _guard = subscribe();
+    let factory = EndpointFactory::new();
+    let server = factory.endpoint("server");
+    let server_addr = server.local_addr().unwrap();
+
+    let client = factory.endpoint("client1");
+
+    let client_task = async move {
+        let mut config = factory.client_config();
+        config.racenonce([1u8; 32]);
+        let conn1 = client
+            .connect_with(config, server_addr, "localhost")
+            .unwrap()
+            .await
+            .unwrap();
+        let mut config = factory.client_config();
+        config.racenonce([1u8; 32]);
+        let conn2 = client
+            .connect_with(config, server_addr, "localhost")
+            .unwrap()
+            .await;
+        assert!(matches!(conn2,
+            Err(ConnectionError::ConnectionClosed(ref frame))
+            if frame.error_code == TransportErrorCode::CONNECTION_REFUSED && frame.reason.as_ref() == b"duplicate racenonce"
+        ));
+        let mut config = factory.client_config();
+        config.racenonce([2u8; 32]);
+        let conn3 = client
+            .connect_with(config, server_addr, "localhost")
+            .unwrap()
+            .await
+            .unwrap();
+        drop(conn1);
+        drop(conn2);
+        drop(conn3);
+    };
+    let server_task = async move {
+        let _client1 = server.accept().await.unwrap().await.unwrap();
+        let incoming2 = server.accept().await.unwrap();
+        let res = incoming2.accept();
+        assert!(matches!(
+            res,
+            Err(ConnectionError::TransportError(err))
+            if err.code == TransportErrorCode::CONNECTION_REFUSED && &err.reason == "duplicate racenonce"
+        ));
+        let _client1 = server.accept().await.unwrap().await.unwrap();
+    }
+    .instrument(error_span!("server"));
+    tokio::join!(client_task, server_task);
 }

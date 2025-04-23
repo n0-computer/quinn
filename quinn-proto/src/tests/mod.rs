@@ -3569,3 +3569,52 @@ fn reject_short_idcid() {
         panic!("expected an initial close");
     };
 }
+
+#[test]
+fn racenonce() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+
+    println!("connect1");
+    // first connect with a racenonce: succeeds
+    {
+        let mut cfg = client_config();
+        cfg.racenonce([1u8; 32]);
+        pair.connect_with(cfg);
+    }
+
+    println!("connect2");
+    // second connect with the same racenonce: fails
+    {
+        let mut cfg = client_config();
+        cfg.racenonce([1u8; 32]);
+
+        let client_ch = pair.begin_connect(cfg);
+        pair.drive();
+
+        assert_matches!(
+            pair.server.assert_accept_error(),
+            ConnectionError::TransportError(TransportError {
+                code,
+                reason,
+                ..
+            })
+            if code == TransportErrorCode::CONNECTION_REFUSED && &reason == "duplicate racenonce"
+        );
+
+        let client_conn = pair.client_conn_mut(client_ch);
+        assert_matches!(
+            client_conn.poll(),
+            Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(err) }) if err.error_code == TransportErrorCode::CONNECTION_REFUSED && err.reason.as_ref() == b"duplicate racenonce"
+        );
+        assert_matches!(client_conn.poll(), None);
+    }
+
+    // third connect with a different racenonce: succeeds
+    println!("connect3");
+    {
+        let mut cfg = client_config();
+        cfg.racenonce([2u8; 32]);
+        pair.connect_with(cfg);
+    }
+}
