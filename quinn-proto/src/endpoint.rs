@@ -19,7 +19,7 @@ use crate::{
     ResetToken, Side, Transmit, TransportConfig, TransportError,
     cid_generator::ConnectionIdGenerator,
     coding::BufMutExt,
-    config::{ClientConfig, EndpointConfig, ServerConfig},
+    config::{ClientConfig, EndpointConfig, Racenonce, ServerConfig},
     connection::{Connection, ConnectionError, SideArgs},
     crypto::{self, Keys, UnsupportedVersion},
     frame,
@@ -356,6 +356,7 @@ impl Endpoint {
             &self.config,
             self.local_cid_generator.as_ref(),
             loc_cid,
+            config.racenonce,
             None,
             &mut self.rng,
         );
@@ -612,6 +613,7 @@ impl Endpoint {
             &self.config,
             self.local_cid_generator.as_ref(),
             loc_cid,
+            None,
             Some(&server_config),
             &mut self.rng,
         );
@@ -663,6 +665,31 @@ impl Endpoint {
             incoming.rest,
         ) {
             Ok(()) => {
+                if let Some(nonce) = conn.racenonce() {
+                    if self
+                        .connections
+                        .iter()
+                        .any(|(_idx, conn)| conn.racenonce == Some(nonce))
+                    {
+                        debug!("handshake failed: duplicate racenonce");
+                        self.handle_event(ch, EndpointEvent(EndpointEventInner::Drained));
+                        let e = TransportError::CONNECTION_REFUSED("duplicate racenonce");
+                        let response = self.initial_close(
+                            version,
+                            incoming.addresses,
+                            &incoming.crypto,
+                            &src_cid,
+                            e.clone(),
+                            buf,
+                        );
+                        return Err(AcceptError {
+                            cause: e.into(),
+                            response: Some(response),
+                        });
+                    } else {
+                        self.connections[ch].racenonce = Some(nonce);
+                    }
+                }
                 trace!(id = ch.0, icid = %dst_cid, "new connection");
 
                 for event in incoming_buffer.datagrams {
@@ -853,6 +880,7 @@ impl Endpoint {
             addresses,
             side,
             reset_token: None,
+            racenonce: None,
         });
         debug_assert_eq!(id, ch.0, "connection handle allocation out of sync");
 
@@ -1138,6 +1166,7 @@ pub(crate) struct ConnectionMeta {
     /// Reset token provided by the peer for the CID we're currently sending to, and the address
     /// being sent to
     reset_token: Option<(SocketAddr, ResetToken)>,
+    racenonce: Option<Racenonce>,
 }
 
 /// Local connection IDs for a single path

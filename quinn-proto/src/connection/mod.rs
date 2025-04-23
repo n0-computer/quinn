@@ -21,7 +21,7 @@ use crate::{
     cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
     coding::BufMutExt,
-    config::{ServerConfig, TransportConfig},
+    config::{Racenonce, ServerConfig, TransportConfig},
     congestion::Controller,
     crypto::{self, KeyPair, Keys, PacketKey},
     frame::{self, Close, Datagram, FrameStruct, NewToken, ObservedAddr},
@@ -4277,6 +4277,10 @@ impl Connection {
         for _ in 0..server_config.validation_token.sent {
             new_tokens.push(remote_addr);
         }
+    }
+
+    pub(crate) fn racenonce(&self) -> Option<Racenonce> {
+        self.peer_params.racenonce
     }
 }
 
