@@ -238,8 +238,6 @@ async fn test_connect_with_virtual_socket() {
     // assert_eq!(read, b"hello, world!");
     client_ep.close(1u32.into(), b"endpoint closed");
     server_ep.close(1u32.into(), b"endpoint closed");
-    client_ep.wait_idle().await;
-    server_ep.wait_idle().await;
 
     client_socket
         .try_send(&to_resend.as_quinn_transmit())
