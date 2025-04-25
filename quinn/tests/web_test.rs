@@ -129,12 +129,9 @@ impl AsyncUdpSocket for VirtualSocket {
         let transmit = OwnedTransmit::new(self.addr, transmit);
         socket_state.datagrams.push_back(transmit.clone());
         if let Some(sender) = &socket_state.wiretap {
-            println!("Sending wiretap");
             if sender.send(transmit).is_err() {
                 socket_state.wiretap = None;
             }
-        } else {
-            println!("try_send, but no wiretap");
         }
         if !socket_state.paused {
             while let Some(waker) = socket_state.wakers.pop() {
@@ -167,7 +164,7 @@ impl AsyncUdpSocket for VirtualSocket {
             let meta = &mut meta[num_msgs];
 
             if buf.len() >= t.contents.len() {
-                println!(
+                tracing::debug!(
                     "Received from {:?} to {:?}: {} bytes",
                     t.src_ip,
                     t.destination,
@@ -240,7 +237,6 @@ async fn test_connect_with_virtual_socket() {
         async move {
             // Simple echo loop
             while let Some(incoming) = server_ep.accept().await {
-                println!("Accepted incoming");
                 let conn = incoming.accept().unwrap().await.unwrap();
                 conn.close(0u32.into(), b"bye!");
             }
@@ -262,9 +258,7 @@ async fn test_connect_with_virtual_socket() {
         },
         async {
             // Grab the last
-            println!("Waiting for wiretap");
             let mut to_resend = wiretap.recv().await.unwrap();
-            println!("Wiretap received");
             to_resend.src_ip = SocketAddr::new([192, 168, 0, 133].into(), 1234);
             server_socket
                 .try_send(&to_resend.as_quinn_transmit())
