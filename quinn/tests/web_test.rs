@@ -9,6 +9,7 @@ use std::{
 use bytes::Bytes;
 use proto::{ClientConfig, EndpointConfig, ServerConfig};
 use quinn::{AsyncUdpSocket, Endpoint, Runtime as _};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use udp::{EcnCodepoint, Transmit};
 
 #[derive(Debug)]
@@ -25,8 +26,9 @@ struct VirtualNet {
 #[derive(Debug, Default)]
 struct VirtualSocketState {
     datagrams: VecDeque<OwnedTransmit>,
-    recently_received: Option<OwnedTransmit>,
+    wiretap: Option<UnboundedSender<OwnedTransmit>>,
     wakers: Vec<Waker>,
+    paused: bool,
 }
 
 impl VirtualNet {
@@ -45,14 +47,30 @@ impl VirtualSocket {
         })
     }
 
-    fn peek_latest(&self) -> Option<OwnedTransmit> {
+    fn wiretap(&self) -> UnboundedReceiver<OwnedTransmit> {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        self.socket_state().wiretap = Some(sender);
+        receiver
+    }
+
+    fn set_paused(&self, paused: bool) {
+        let mut socket_state = self.socket_state();
+
+        socket_state.paused = paused;
+        if !paused {
+            while let Some(waker) = socket_state.wakers.pop() {
+                waker.wake();
+            }
+        }
+    }
+
+    fn socket_state(&self) -> std::sync::MutexGuard<'_, VirtualSocketState> {
         self.net
             .sockets
-            .get(&self.addr)?
+            .get(&self.addr)
+            .expect("socket missing")
             .lock()
             .expect("poisoned")
-            .recently_received
-            .clone()
     }
 }
 
@@ -108,11 +126,20 @@ impl AsyncUdpSocket for VirtualSocket {
         };
 
         let mut socket_state = send.lock().expect("poisoned");
-        socket_state
-            .datagrams
-            .push_back(OwnedTransmit::new(self.addr, transmit));
-        while let Some(waker) = socket_state.wakers.pop() {
-            waker.wake();
+        let transmit = OwnedTransmit::new(self.addr, transmit);
+        socket_state.datagrams.push_back(transmit.clone());
+        if let Some(sender) = &socket_state.wiretap {
+            println!("Sending wiretap");
+            if sender.send(transmit).is_err() {
+                socket_state.wiretap = None;
+            }
+        } else {
+            println!("try_send, but no wiretap");
+        }
+        if !socket_state.paused {
+            while let Some(waker) = socket_state.wakers.pop() {
+                waker.wake();
+            }
         }
         Ok(())
     }
@@ -123,15 +150,15 @@ impl AsyncUdpSocket for VirtualSocket {
         bufs: &mut [std::io::IoSliceMut<'_>],
         meta: &mut [udp::RecvMeta],
     ) -> Poll<std::io::Result<usize>> {
-        let Some(socket_state) = self.net.sockets.get(&self.addr) else {
-            // If there's no socket state, there's nothing to ever receive
-            return Poll::Pending;
-        };
+        let mut socket_state = self.socket_state();
 
-        let mut socket_state = socket_state.lock().expect("poisoned");
+        if socket_state.paused {
+            socket_state.wakers.push(cx.waker().clone());
+            return Poll::Pending;
+        }
+
         let mut num_msgs = 0;
         while let Some(t) = socket_state.datagrams.pop_front() {
-            socket_state.recently_received = Some(t.clone());
             if bufs.len() <= num_msgs || meta.len() <= num_msgs {
                 break;
             }
@@ -220,22 +247,35 @@ async fn test_connect_with_virtual_socket() {
         }
     }));
 
-    // Connect from the client
-    let conn = client_ep
-        .connect(server_socket.addr, "localhost")
-        .unwrap()
-        .await
-        .unwrap();
+    server_socket.set_paused(true);
+    let mut wiretap = server_socket.wiretap();
 
-    // Grab the last
-    let to_resend = server_socket.peek_latest().expect("client sent a datagram");
-    client_socket
-        .try_send(&to_resend.as_quinn_transmit())
-        .expect("couldn't resend packet");
+    let (conn, to_resend) = tokio::join!(
+        async {
+            // Connect from the client
+            let conn = client_ep
+                .connect(server_socket.addr, "localhost")
+                .unwrap()
+                .await
+                .unwrap();
+            conn
+        },
+        async {
+            // Grab the last
+            println!("Waiting for wiretap");
+            let mut to_resend = wiretap.recv().await.unwrap();
+            println!("Wiretap received");
+            to_resend.src_ip = SocketAddr::new([192, 168, 0, 133].into(), 1234);
+            server_socket
+                .try_send(&to_resend.as_quinn_transmit())
+                .expect("couldn't resend packet");
+            server_socket.set_paused(false);
+            to_resend
+        }
+    );
 
     conn.closed().await;
 
-    // assert_eq!(read, b"hello, world!");
     client_ep.close(1u32.into(), b"endpoint closed");
     server_ep.close(1u32.into(), b"endpoint closed");
 
