@@ -199,28 +199,12 @@ impl SendStream {
     /// For a variety of reasons, the peer may not send acknowledgements immediately upon receiving
     /// data. As such, relying on `stopped` to know when the peer has read a stream to completion
     /// may introduce more latency than using an application-level response of some sort.
-    pub async fn stopped(&mut self) -> Result<Option<VarInt>, StoppedError> {
-        Stopped { stream: self }.await
-    }
-
-    fn poll_stopped(&mut self, cx: &mut Context) -> Poll<Result<Option<VarInt>, StoppedError>> {
-        let mut conn = self.conn.state.lock("SendStream::poll_stopped");
-
-        if self.is_0rtt {
-            conn.check_0rtt()
-                .map_err(|()| StoppedError::ZeroRttRejected)?;
-        }
-
-        match conn.inner.send_stream(self.stream).stopped() {
-            Err(_) => Poll::Ready(Ok(None)),
-            Ok(Some(error_code)) => Poll::Ready(Ok(Some(error_code))),
-            Ok(None) => {
-                if let Some(e) = &conn.error {
-                    return Poll::Ready(Err(e.clone().into()));
-                }
-                conn.stopped.insert(self.stream, cx.waker().clone());
-                Poll::Pending
-            }
+    pub fn stopped(&self) -> Stopped {
+        Stopped {
+            conn: self.conn.clone(),
+            stream: self.stream,
+            is_0rtt: self.is_0rtt,
+            waker_key: None,
         }
     }
 
@@ -303,15 +287,46 @@ impl Drop for SendStream {
 }
 
 /// Future produced by `SendStream::stopped`
-struct Stopped<'a> {
-    stream: &'a mut SendStream,
+pub struct Stopped {
+    conn: ConnectionRef,
+    stream: StreamId,
+    is_0rtt: bool,
+    waker_key: Option<usize>,
 }
 
-impl Future for Stopped<'_> {
+impl Stopped {
+    fn poll_unpin(&mut self, cx: &mut Context) -> Poll<<Self as Future>::Output> {
+        let mut conn = self.conn.state.lock("SendStream::poll_stopped");
+
+        if self.is_0rtt {
+            conn.check_0rtt()
+                .map_err(|()| StoppedError::ZeroRttRejected)?;
+        }
+
+        match conn.inner.send_stream(self.stream).stopped() {
+            Err(_) => Poll::Ready(Ok(None)),
+            Ok(Some(error_code)) => Poll::Ready(Ok(Some(error_code))),
+            Ok(None) => {
+                if let Some(e) = &conn.error {
+                    return Poll::Ready(Err(e.clone().into()));
+                }
+                let slab = conn.stopped.entry(self.stream).or_default();
+                if let Some(key) = self.waker_key.take() {
+                    let _ = slab.try_remove(key);
+                }
+                let key = slab.insert(cx.waker().clone());
+                self.waker_key = Some(key);
+                Poll::Pending
+            }
+        }
+    }
+}
+
+impl Future for Stopped {
     type Output = Result<Option<VarInt>, StoppedError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        self.get_mut().stream.poll_stopped(cx)
+        self.get_mut().poll_unpin(cx)
     }
 }
 
