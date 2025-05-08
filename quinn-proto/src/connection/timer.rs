@@ -137,6 +137,9 @@ mod tests {
                 timer: Timer::Close,
                 time: now - 2 * sec
             })
-        )
+        );
+        assert_eq!(timers.expire_before(now), Some(Timer::Close));
+        assert_eq!(timers.expire_before(now), Some(Timer::Idle));
+        assert_eq!(timers.expire_before(now), None);
     }
 }
