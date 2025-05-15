@@ -525,6 +525,9 @@ impl fmt::Debug for ValidationTokenConfig {
     }
 }
 
+/// Racenonce
+pub(crate) type Racenonce = [u8; 32];
+
 /// Configuration for outgoing connections
 ///
 /// Default values should be suitable for most internet applications.
@@ -545,6 +548,8 @@ pub struct ClientConfig {
 
     /// QUIC protocol version to use
     pub(crate) version: u32,
+
+    pub(crate) racenonce: Option<Racenonce>,
 }
 
 impl ClientConfig {
@@ -558,6 +563,7 @@ impl ClientConfig {
                 RandomConnectionIdGenerator::new(MAX_CID_SIZE).generate_cid()
             }),
             version: 1,
+            racenonce: None,
         }
     }
 
@@ -595,6 +601,12 @@ impl ClientConfig {
     /// Set the QUIC version to use
     pub fn version(&mut self, version: u32) -> &mut Self {
         self.version = version;
+        self
+    }
+
+    /// Set the racenonce.
+    pub fn racenonce(&mut self, racenonce: [u8; 32]) -> &mut Self {
+        self.racenonce = Some(racenonce);
         self
     }
 }
