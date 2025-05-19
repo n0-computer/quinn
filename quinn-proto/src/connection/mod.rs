@@ -148,7 +148,7 @@ pub struct Connection {
     /// This needs to be ordered because [`Connection::poll_transmit`] needs to
     /// deterministically select the next PathId to send on.
     ///
-    /// TODO(flub): well does it really? But deterministic is nice for now.
+    // TODO(flub): well does it really? But deterministic is nice for now.
     paths: BTreeMap<PathId, PathState>,
     /// Whether MTU detection is supported in this environment
     allow_mtud: bool,
