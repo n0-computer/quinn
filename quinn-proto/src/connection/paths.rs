@@ -47,12 +47,6 @@ impl PathId {
         let inner = self.0.saturating_add(rhs.0);
         Self(inner)
     }
-
-    /// Compares and returns the minimum of the two.
-    #[inline]
-    pub fn min(&self, other: &PathId) -> PathId {
-        PathId(self.0.min(other.0))
-    }
 }
 
 impl std::fmt::Display for PathId {
