@@ -1057,7 +1057,7 @@ impl State {
                 }
             };
 
-            if self.io_poller.as_mut().poll_writable(cx)?.is_pending() {
+            if self.io_poller.as_mut().poll_writable(cx, &t)?.is_pending() {
                 // Retry after a future wakeup
                 self.buffered_transmit = Some(t);
                 return Ok(false);

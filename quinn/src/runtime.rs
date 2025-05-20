@@ -98,7 +98,11 @@ pub trait UdpPoller: Send + Sync + Debug + 'static {
     /// register the task associated with `cx` to be woken when a send should be attempted
     /// again. Unlike in [`Future::poll`], a [`UdpPoller`] may be reused indefinitely no matter how
     /// many times `poll_writable` returns [`Poll::Ready`].
-    fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>>;
+    fn poll_writable(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+        t: &proto::Transmit,
+    ) -> Poll<io::Result<()>>;
 }
 
 pin_project_lite::pin_project! {
@@ -133,7 +137,11 @@ where
     MakeFut: Fn() -> Fut + Send + Sync + 'static,
     Fut: Future<Output = io::Result<()>> + Send + Sync + 'static,
 {
-    fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+    fn poll_writable(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+        _t: &proto::Transmit,
+    ) -> Poll<io::Result<()>> {
         let mut this = self.project();
         if this.fut.is_none() {
             this.fut.set(Some((this.make_fut)()));
