@@ -898,7 +898,6 @@ impl ConnectionRef {
                 error: None,
                 ref_count: 0,
                 udp_sender: socket.clone().create_sender(),
-                socket,
                 runtime,
                 send_buffer: Vec::new(),
                 observed_external_addr: watch::Sender::new(None),
@@ -1016,7 +1015,6 @@ pub(crate) struct State {
     pub(crate) error: Option<ConnectionError>,
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
     ref_count: usize,
-    socket: Arc<dyn AsyncUdpSocket>,
     udp_sender: Pin<Box<dyn UdpSender>>,
     runtime: Arc<dyn Runtime>,
     send_buffer: Vec<u8>,
@@ -1029,7 +1027,7 @@ impl State {
         let now = self.runtime.now();
         let mut transmits = 0;
 
-        let max_datagrams = self.socket.max_transmit_segments();
+        let max_datagrams = self.udp_sender.max_transmit_segments();
 
         loop {
             let t = {
@@ -1088,9 +1086,8 @@ impl State {
     ) -> Result<(), ConnectionError> {
         loop {
             match self.conn_events.poll_recv(cx) {
-                Poll::Ready(Some(ConnectionEvent::Rebind(socket))) => {
-                    self.socket = socket;
-                    self.udp_sender = self.socket.clone().create_sender();
+                Poll::Ready(Some(ConnectionEvent::Rebind(sender))) => {
+                    self.udp_sender = sender;
                     self.inner.local_address_changed();
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {

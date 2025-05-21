@@ -41,7 +41,7 @@
 #![warn(unreachable_pub)]
 #![warn(clippy::use_self)]
 
-use std::sync::Arc;
+use std::pin::Pin;
 
 macro_rules! ready {
     ($e:expr $(,)?) => {
@@ -105,7 +105,7 @@ enum ConnectionEvent {
         reason: bytes::Bytes,
     },
     Proto(proto::ConnectionEvent),
-    Rebind(Arc<dyn AsyncUdpSocket>),
+    Rebind(Pin<Box<dyn UdpSender>>),
 }
 
 fn udp_transmit<'a>(t: &proto::Transmit, buffer: &'a [u8]) -> udp::Transmit<'a> {

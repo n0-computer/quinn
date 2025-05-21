@@ -255,7 +255,9 @@ impl Endpoint {
         // Update connection socket references
         for sender in inner.recv_state.connections.senders.values() {
             // Ignoring errors from dropped connections
-            let _ = sender.send(ConnectionEvent::Rebind(inner.socket.clone()));
+            let _ = sender.send(ConnectionEvent::Rebind(
+                inner.socket.clone().create_sender(),
+            ));
         }
 
         Ok(())

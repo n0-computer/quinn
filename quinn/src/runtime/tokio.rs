@@ -113,6 +113,10 @@ impl super::UdpSender for UdpSender {
         }
     }
 
+    fn max_transmit_segments(&self) -> usize {
+        self.inner.inner.max_gso_segments()
+    }
+
     fn try_send(self: Pin<&mut Self>, transmit: &udp::Transmit) -> io::Result<()> {
         let socket = &self.inner;
         socket.io.try_io(Interest::WRITABLE, || {
@@ -152,10 +156,6 @@ impl AsyncUdpSocket for UdpSocket {
 
     fn may_fragment(&self) -> bool {
         self.inner.may_fragment()
-    }
-
-    fn max_transmit_segments(&self) -> usize {
-        self.inner.max_gso_segments()
     }
 
     fn max_receive_segments(&self) -> usize {

@@ -61,11 +61,6 @@ pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
     /// Look up the local IP address and port used by this socket
     fn local_addr(&self) -> io::Result<SocketAddr>;
 
-    /// Maximum number of datagrams that a [`Transmit`] may encode
-    fn max_transmit_segments(&self) -> usize {
-        1
-    }
-
     /// Maximum number of datagrams that might be described by a single [`RecvMeta`]
     fn max_receive_segments(&self) -> usize {
         1
@@ -104,6 +99,11 @@ pub trait UdpSender: Send + Sync + Debug + 'static {
         transmit: &Transmit,
         cx: &mut Context,
     ) -> Poll<io::Result<()>>;
+
+    /// Maximum number of datagrams that a [`Transmit`] may encode
+    fn max_transmit_segments(&self) -> usize {
+        1
+    }
 
     /// TODO(matheus23): Docs
     /// Last ditch/best effort of sending a transmit.
