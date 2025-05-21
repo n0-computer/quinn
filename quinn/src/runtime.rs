@@ -122,23 +122,23 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<TrySend, MakeFut, Fut> UdpPollHelper<TrySend, MakeFut, Fut> {
-    /// Construct a [`UdpPoller`] that calls `make_fut` to get the future to poll, storing it until
-    /// it yields [`Poll::Ready`], then creating a new one on the next
-    /// [`poll_writable`](UdpPoller::poll_writable)
-    #[cfg(any(
-        feature = "runtime-async-std",
-        feature = "runtime-smol",
-        feature = "runtime-tokio"
-    ))]
-    fn new(try_send: TrySend, make_fut: MakeFut) -> Self {
-        Self {
-            try_send,
-            make_fut,
-            fut: None,
-        }
-    }
-}
+// impl<TrySend, MakeFut, Fut> UdpPollHelper<TrySend, MakeFut, Fut> {
+//     /// Construct a [`UdpPoller`] that calls `make_fut` to get the future to poll, storing it until
+//     /// it yields [`Poll::Ready`], then creating a new one on the next
+//     /// [`poll_writable`](UdpPoller::poll_writable)
+//     #[cfg(any(
+//         feature = "runtime-async-std",
+//         feature = "runtime-smol",
+//         feature = "runtime-tokio"
+//     ))]
+//     fn new(try_send: TrySend, make_fut: MakeFut) -> Self {
+//         Self {
+//             try_send,
+//             make_fut,
+//             fut: None,
+//         }
+//     }
+// }
 
 // impl<TrySend, MakeFut, Fut> UdpSender for UdpPollHelper<TrySend, MakeFut, Fut>
 // where
