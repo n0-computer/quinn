@@ -56,20 +56,35 @@ struct UdpSocket {
 }
 
 pin_project_lite::pin_project! {
-    struct UdpSender {
-        #[pin]
-        fut: Option<Pin<Box<dyn Future<Output = io::Result<()>> + Send + Sync + 'static>>>,
+    struct UdpSender<MakeFut, Fut> {
         inner: Arc<UdpSocket>,
+        make_fut: MakeFut,
+        #[pin]
+        fut: Option<Fut>,
     }
 }
 
-impl Debug for UdpSender {
+impl<MakeFut, Fut> Debug for UdpSender<MakeFut, Fut> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("UdpSender")
     }
 }
 
-impl super::UdpSender for UdpSender {
+impl<MakeFut, Fut> UdpSender<MakeFut, Fut> {
+    fn new(inner: Arc<UdpSocket>, make_fut: MakeFut) -> Self {
+        Self {
+            inner,
+            fut: None,
+            make_fut,
+        }
+    }
+}
+
+impl<MakeFut, Fut> super::UdpSender for UdpSender<MakeFut, Fut>
+where
+    MakeFut: Fn() -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = io::Result<()>> + Send + Sync + 'static,
+{
     fn poll_send(
         self: Pin<&mut Self>,
         transmit: &udp::Transmit,
@@ -78,10 +93,7 @@ impl super::UdpSender for UdpSender {
         let mut this = self.project();
         loop {
             if this.fut.is_none() {
-                this.fut.set(Some(Box::pin({
-                    let socket = this.inner.clone();
-                    async move { socket.io.writable().await }
-                })));
+                this.fut.set(Some((this.make_fut)()));
             }
             // We're forced to `unwrap` here because `Fut` may be `!Unpin`, which means we can't safely
             // obtain an `&mut Fut` after storing it in `self.fut` when `self` is already behind `Pin`,
@@ -127,11 +139,11 @@ impl super::UdpSender for UdpSender {
 
 impl AsyncUdpSocket for UdpSocket {
     fn create_sender(self: Arc<Self>) -> Pin<Box<dyn super::UdpSender>> {
-        // TODO(matheus23): There's probably a way to get rid of the double-boxing here (and the box inside UdpSender)
-        Box::pin(UdpSender {
-            fut: None,
-            inner: self,
-        })
+        let socket = self.clone();
+        Box::pin(UdpSender::new(self, move || {
+            let socket = socket.clone();
+            async move { socket.io.writable().await }
+        }))
     }
 
     fn poll_recv(
