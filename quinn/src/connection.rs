@@ -19,7 +19,7 @@ use tracing::{debug_span, Instrument, Span};
 use crate::{
     mutex::Mutex,
     recv_stream::RecvStream,
-    runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpSender},
+    runtime::{AsyncTimer, Runtime, UdpSender},
     send_stream::SendStream,
     udp_transmit, ConnectionEvent, Duration, Instant, VarInt,
 };
@@ -42,7 +42,7 @@ impl Connecting {
         conn: proto::Connection,
         endpoint_events: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>,
         conn_events: mpsc::UnboundedReceiver<ConnectionEvent>,
-        socket: Arc<dyn AsyncUdpSocket>,
+        sender: Pin<Box<dyn UdpSender>>,
         runtime: Arc<dyn Runtime>,
     ) -> Self {
         let (on_handshake_data_send, on_handshake_data_recv) = oneshot::channel();
@@ -54,7 +54,7 @@ impl Connecting {
             conn_events,
             on_handshake_data_send,
             on_connected_send,
-            socket,
+            sender,
             runtime.clone(),
         );
 
@@ -877,7 +877,7 @@ impl ConnectionRef {
         conn_events: mpsc::UnboundedReceiver<ConnectionEvent>,
         on_handshake_data: oneshot::Sender<()>,
         on_connected: oneshot::Sender<bool>,
-        socket: Arc<dyn AsyncUdpSocket>,
+        sender: Pin<Box<dyn UdpSender>>,
         runtime: Arc<dyn Runtime>,
     ) -> Self {
         Self(Arc::new(ConnectionInner {
@@ -897,7 +897,7 @@ impl ConnectionRef {
                 stopped: FxHashMap::default(),
                 error: None,
                 ref_count: 0,
-                udp_sender: socket.clone().create_sender(),
+                udp_sender: sender,
                 runtime,
                 send_buffer: Vec::new(),
                 observed_external_addr: watch::Sender::new(None),

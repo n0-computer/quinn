@@ -28,10 +28,10 @@ impl Runtime for TokioRuntime {
         tokio::spawn(future);
     }
 
-    fn wrap_udp_socket(&self, sock: std::net::UdpSocket) -> io::Result<Arc<dyn AsyncUdpSocket>> {
-        Ok(Arc::new(UdpSocket {
-            inner: udp::UdpSocketState::new((&sock).into())?,
-            io: tokio::net::UdpSocket::from_std(sock)?,
+    fn wrap_udp_socket(&self, sock: std::net::UdpSocket) -> io::Result<Box<dyn AsyncUdpSocket>> {
+        Ok(Box::new(UdpSocket {
+            inner: Arc::new(udp::UdpSocketState::new((&sock).into())?),
+            io: Arc::new(tokio::net::UdpSocket::from_std(sock)?),
         }))
     }
 
@@ -49,15 +49,15 @@ impl AsyncTimer for Sleep {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct UdpSocket {
-    io: tokio::net::UdpSocket,
-    inner: udp::UdpSocketState,
+    io: Arc<tokio::net::UdpSocket>,
+    inner: Arc<udp::UdpSocketState>,
 }
 
 pin_project_lite::pin_project! {
     struct UdpSender<MakeFut, Fut> {
-        inner: Arc<UdpSocket>,
+        inner: UdpSocket,
         make_fut: MakeFut,
         #[pin]
         fut: Option<Fut>,
@@ -71,7 +71,7 @@ impl<MakeFut, Fut> Debug for UdpSender<MakeFut, Fut> {
 }
 
 impl<MakeFut, Fut> UdpSender<MakeFut, Fut> {
-    fn new(inner: Arc<UdpSocket>, make_fut: MakeFut) -> Self {
+    fn new(inner: UdpSocket, make_fut: MakeFut) -> Self {
         Self {
             inner,
             fut: None,
@@ -138,22 +138,23 @@ where
 }
 
 impl AsyncUdpSocket for UdpSocket {
-    fn create_sender(self: Arc<Self>) -> Pin<Box<dyn super::UdpSender>> {
+    fn create_sender(&self) -> Pin<Box<dyn super::UdpSender>> {
         let socket = self.clone();
-        Box::pin(UdpSender::new(self, move || {
+        Box::pin(UdpSender::new(self.clone(), move || {
             let socket = socket.clone();
             async move { socket.io.writable().await }
         }))
     }
 
     fn poll_recv(
-        &self,
+        &mut self,
         cx: &mut Context,
         bufs: &mut [std::io::IoSliceMut<'_>],
         meta: &mut [udp::RecvMeta],
     ) -> Poll<io::Result<usize>> {
         loop {
             ready!(self.io.poll_recv_ready(cx))?;
+            // TODO(matheus23) I think this should actually propagate errors that aren't `WouldBlock`
             if let Ok(res) = self.io.try_io(Interest::READABLE, || {
                 self.inner.recv((&self.io).into(), bufs, meta)
             }) {
