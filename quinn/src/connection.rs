@@ -1030,22 +1030,18 @@ impl State {
         let max_datagrams = self.udp_sender.max_transmit_segments();
 
         loop {
-            let t = {
-                self.send_buffer.clear();
-                self.send_buffer.reserve(self.inner.current_mtu() as usize);
-                match self
-                    .inner
-                    .poll_transmit(now, max_datagrams, &mut self.send_buffer)
-                {
-                    Some(t) => {
-                        transmits += match t.segment_size {
-                            None => 1,
-                            Some(s) => (t.size + s - 1) / s, // round up
-                        };
-                        t
-                    }
-                    None => break,
-                }
+            self.send_buffer.clear();
+            self.send_buffer.reserve(self.inner.current_mtu() as usize);
+            let Some(t) = self
+                .inner
+                .poll_transmit(now, max_datagrams, &mut self.send_buffer)
+            else {
+                break;
+            };
+
+            transmits += match t.segment_size {
+                None => 1,
+                Some(s) => (t.size + s - 1) / s, // round up
             };
 
             let len = t.size;
