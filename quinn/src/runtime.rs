@@ -91,13 +91,23 @@ pub trait UdpSender: Send + Sync + Debug + 'static {
     /// register the task associated with `cx` to be woken when a send should be attempted
     /// again. Unlike in [`Future::poll`], a [`UdpPoller`] may be reused indefinitely no matter how
     /// many times `poll_writable` returns [`Poll::Ready`].
-    fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>>;
-
+    ///
+    /// // TODO(matheus23): Fix weird documentation merge
+    ///
     /// Send UDP datagrams from `transmits`, or return `WouldBlock` and clear the underlying
     /// socket's readiness, or return an I/O error
     ///
     /// If this returns [`io::ErrorKind::WouldBlock`], [`UdpPoller::poll_writable`] must be called
     /// to register the calling task to be woken when a send should be attempted again.
+    fn poll_send(
+        self: Pin<&mut Self>,
+        transmit: &Transmit,
+        cx: &mut Context,
+    ) -> Poll<io::Result<()>>;
+
+    /// TODO(matheus23): Docs
+    /// Last ditch/best effort of sending a transmit.
+    /// Used by the endpoint for resets / close frames when dropped, etc.
     fn try_send(self: Pin<&mut Self>, transmit: &Transmit) -> io::Result<()>;
 }
 
@@ -130,34 +140,34 @@ impl<TrySend, MakeFut, Fut> UdpPollHelper<TrySend, MakeFut, Fut> {
     }
 }
 
-impl<TrySend, MakeFut, Fut> UdpSender for UdpPollHelper<TrySend, MakeFut, Fut>
-where
-    TrySend: for<'a> Fn(&'a Transmit) -> io::Result<()> + Send + Sync + 'static,
-    MakeFut: Fn() -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = io::Result<()>> + Send + Sync + 'static,
-{
-    fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        let mut this = self.project();
-        if this.fut.is_none() {
-            this.fut.set(Some((this.make_fut)()));
-        }
-        // We're forced to `unwrap` here because `Fut` may be `!Unpin`, which means we can't safely
-        // obtain an `&mut Fut` after storing it in `self.fut` when `self` is already behind `Pin`,
-        // and if we didn't store it then we wouldn't be able to keep it alive between
-        // `poll_writable` calls.
-        let result = this.fut.as_mut().as_pin_mut().unwrap().poll(cx);
-        if result.is_ready() {
-            // Polling an arbitrary `Future` after it becomes ready is a logic error, so arrange for
-            // a new `Future` to be created on the next call.
-            this.fut.set(None);
-        }
-        result
-    }
+// impl<TrySend, MakeFut, Fut> UdpSender for UdpPollHelper<TrySend, MakeFut, Fut>
+// where
+//     TrySend: for<'a> Fn(&'a Transmit) -> io::Result<()> + Send + Sync + 'static,
+//     MakeFut: Fn() -> Fut + Send + Sync + 'static,
+//     Fut: Future<Output = io::Result<()>> + Send + Sync + 'static,
+// {
+//     fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+//         let mut this = self.project();
+//         if this.fut.is_none() {
+//             this.fut.set(Some((this.make_fut)()));
+//         }
+//         // We're forced to `unwrap` here because `Fut` may be `!Unpin`, which means we can't safely
+//         // obtain an `&mut Fut` after storing it in `self.fut` when `self` is already behind `Pin`,
+//         // and if we didn't store it then we wouldn't be able to keep it alive between
+//         // `poll_writable` calls.
+//         let result = this.fut.as_mut().as_pin_mut().unwrap().poll(cx);
+//         if result.is_ready() {
+//             // Polling an arbitrary `Future` after it becomes ready is a logic error, so arrange for
+//             // a new `Future` to be created on the next call.
+//             this.fut.set(None);
+//         }
+//         result
+//     }
 
-    fn try_send(self: Pin<&mut Self>, transmit: &Transmit) -> io::Result<()> {
-        (self.try_send)(transmit)
-    }
-}
+//     fn try_send(self: Pin<&mut Self>, transmit: &Transmit) -> io::Result<()> {
+//         (self.try_send)(transmit)
+//     }
+// }
 
 impl<TrySend, MakeFut, Fut> Debug for UdpPollHelper<TrySend, MakeFut, Fut> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

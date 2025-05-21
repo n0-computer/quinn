@@ -70,25 +70,47 @@ impl Debug for UdpSender {
 }
 
 impl super::UdpSender for UdpSender {
-    fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+    fn poll_send(
+        self: Pin<&mut Self>,
+        transmit: &udp::Transmit,
+        cx: &mut Context,
+    ) -> Poll<io::Result<()>> {
         let mut this = self.project();
-        if this.fut.is_none() {
-            this.fut.set(Some(Box::pin({
-                let socket = this.inner.clone();
-                async move { socket.io.writable().await }
-            })));
-        }
-        // We're forced to `unwrap` here because `Fut` may be `!Unpin`, which means we can't safely
-        // obtain an `&mut Fut` after storing it in `self.fut` when `self` is already behind `Pin`,
-        // and if we didn't store it then we wouldn't be able to keep it alive between
-        // `poll_writable` calls.
-        let result = this.fut.as_mut().as_pin_mut().unwrap().poll(cx);
-        if result.is_ready() {
+        loop {
+            if this.fut.is_none() {
+                this.fut.set(Some(Box::pin({
+                    let socket = this.inner.clone();
+                    async move { socket.io.writable().await }
+                })));
+            }
+            // We're forced to `unwrap` here because `Fut` may be `!Unpin`, which means we can't safely
+            // obtain an `&mut Fut` after storing it in `self.fut` when `self` is already behind `Pin`,
+            // and if we didn't store it then we wouldn't be able to keep it alive between
+            // `poll_writable` calls.
+            let result = ready!(this.fut.as_mut().as_pin_mut().unwrap().poll(cx));
+
             // Polling an arbitrary `Future` after it becomes ready is a logic error, so arrange for
             // a new `Future` to be created on the next call.
             this.fut.set(None);
+
+            // If .writable() fails, propagate the error
+            result?;
+
+            let socket = &this.inner;
+            let result = socket.io.try_io(Interest::WRITABLE, || {
+                socket.inner.send((&socket.io).into(), transmit)
+            });
+
+            match result {
+                // We thought the socket was writable, but it wasn't, then retry so that either another
+                // `writable().await` call determines that the socket is indeed not writable and
+                // registers us for a wakeup, or the send succeeds if this really was just a
+                // transient failure.
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                // In all other cases, either propagate the error or we're Ok
+                _ => return Poll::Ready(result),
+            }
         }
-        result
     }
 
     fn try_send(self: Pin<&mut Self>, transmit: &udp::Transmit) -> io::Result<()> {
@@ -101,6 +123,7 @@ impl super::UdpSender for UdpSender {
 
 impl AsyncUdpSocket for UdpSocket {
     fn create_sender(self: Arc<Self>) -> Pin<Box<dyn super::UdpSender>> {
+        // TODO(matheus23): There's probably a way to get rid of the double-boxing here (and the box inside UdpSender)
         Box::pin(UdpSender {
             fut: None,
             inner: self,

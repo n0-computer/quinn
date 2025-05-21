@@ -901,7 +901,6 @@ impl ConnectionRef {
                 socket,
                 runtime,
                 send_buffer: Vec::new(),
-                buffered_transmit: None,
                 observed_external_addr: watch::Sender::new(None),
             }),
             shared: Shared::default(),
@@ -1021,8 +1020,6 @@ pub(crate) struct State {
     udp_sender: Pin<Box<dyn UdpSender>>,
     runtime: Arc<dyn Runtime>,
     send_buffer: Vec<u8>,
-    /// We buffer a transmit when the underlying I/O would block
-    buffered_transmit: Option<proto::Transmit>,
     /// Our last external address reported by the peer.
     pub(crate) observed_external_addr: watch::Sender<Option<SocketAddr>>,
 }
@@ -1035,51 +1032,33 @@ impl State {
         let max_datagrams = self.socket.max_transmit_segments();
 
         loop {
-            // Retry the last transmit, or get a new one.
-            let t = match self.buffered_transmit.take() {
-                Some(t) => t,
-                None => {
-                    self.send_buffer.clear();
-                    self.send_buffer.reserve(self.inner.current_mtu() as usize);
-                    match self
-                        .inner
-                        .poll_transmit(now, max_datagrams, &mut self.send_buffer)
-                    {
-                        Some(t) => {
-                            transmits += match t.segment_size {
-                                None => 1,
-                                Some(s) => (t.size + s - 1) / s, // round up
-                            };
-                            t
-                        }
-                        None => break,
+            let t = {
+                self.send_buffer.clear();
+                self.send_buffer.reserve(self.inner.current_mtu() as usize);
+                match self
+                    .inner
+                    .poll_transmit(now, max_datagrams, &mut self.send_buffer)
+                {
+                    Some(t) => {
+                        transmits += match t.segment_size {
+                            None => 1,
+                            Some(s) => (t.size + s - 1) / s, // round up
+                        };
+                        t
                     }
+                    None => break,
                 }
             };
 
-            if self.udp_sender.as_mut().poll_writable(cx)?.is_pending() {
-                // Retry after a future wakeup
-                self.buffered_transmit = Some(t);
-                return Ok(false);
-            }
-
             let len = t.size;
-            let retry = match self
+            // TODO(matheus23): What to do with the poll result? Is `return Ok(true)` fine?
+            match self
                 .udp_sender
                 .as_mut()
-                .try_send(&udp_transmit(&t, &self.send_buffer[..len]))
+                .poll_send(&udp_transmit(&t, &self.send_buffer[..len]), cx)
             {
-                Ok(()) => false,
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => true,
-                Err(e) => return Err(e),
-            };
-            if retry {
-                // We thought the socket was writable, but it wasn't. Retry so that either another
-                // `poll_writable` call determines that the socket is indeed not writable and
-                // registers us for a wakeup, or the send succeeds if this really was just a
-                // transient failure.
-                self.buffered_transmit = Some(t);
-                continue;
+                Poll::Pending => return Ok(true),
+                Poll::Ready(result) => result?, // propagate errors
             }
 
             if transmits >= MAX_TRANSMIT_DATAGRAMS {
