@@ -19,7 +19,7 @@ use tracing::{debug_span, Instrument, Span};
 use crate::{
     mutex::Mutex,
     recv_stream::RecvStream,
-    runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpPoller},
+    runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpSender},
     send_stream::SendStream,
     udp_transmit, ConnectionEvent, Duration, Instant, VarInt,
 };
@@ -897,7 +897,7 @@ impl ConnectionRef {
                 stopped: FxHashMap::default(),
                 error: None,
                 ref_count: 0,
-                io_poller: socket.clone().create_io_poller(),
+                udp_sender: socket.clone().create_sender(),
                 socket,
                 runtime,
                 send_buffer: Vec::new(),
@@ -1018,7 +1018,7 @@ pub(crate) struct State {
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
     ref_count: usize,
     socket: Arc<dyn AsyncUdpSocket>,
-    io_poller: Pin<Box<dyn UdpPoller>>,
+    udp_sender: Pin<Box<dyn UdpSender>>,
     runtime: Arc<dyn Runtime>,
     send_buffer: Vec<u8>,
     /// We buffer a transmit when the underlying I/O would block
@@ -1057,7 +1057,7 @@ impl State {
                 }
             };
 
-            if self.io_poller.as_mut().poll_writable(cx)?.is_pending() {
+            if self.udp_sender.as_mut().poll_writable(cx)?.is_pending() {
                 // Retry after a future wakeup
                 self.buffered_transmit = Some(t);
                 return Ok(false);
@@ -1065,7 +1065,8 @@ impl State {
 
             let len = t.size;
             let retry = match self
-                .socket
+                .udp_sender
+                .as_mut()
                 .try_send(&udp_transmit(&t, &self.send_buffer[..len]))
             {
                 Ok(()) => false,
@@ -1110,7 +1111,7 @@ impl State {
             match self.conn_events.poll_recv(cx) {
                 Poll::Ready(Some(ConnectionEvent::Rebind(socket))) => {
                     self.socket = socket;
-                    self.io_poller = self.socket.clone().create_io_poller();
+                    self.udp_sender = self.socket.clone().create_sender();
                     self.inner.local_address_changed();
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {

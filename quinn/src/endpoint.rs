@@ -15,7 +15,7 @@ use std::{
 #[cfg(all(not(wasm_browser), any(feature = "aws-lc-rs", feature = "ring")))]
 use crate::runtime::default_runtime;
 use crate::{
-    runtime::{AsyncUdpSocket, Runtime},
+    runtime::{AsyncUdpSocket, Runtime, UdpSender},
     udp_transmit, Instant,
 };
 use bytes::{Bytes, BytesMut};
@@ -429,7 +429,7 @@ impl EndpointInner {
             }
             Err(error) => {
                 if let Some(transmit) = error.response {
-                    respond(transmit, &response_buffer, &*state.socket);
+                    respond(transmit, &response_buffer, &mut state.sender);
                 }
                 Err(error.cause)
             }
@@ -441,14 +441,14 @@ impl EndpointInner {
         state.stats.refused_handshakes += 1;
         let mut response_buffer = Vec::new();
         let transmit = state.inner.refuse(incoming, &mut response_buffer);
-        respond(transmit, &response_buffer, &*state.socket);
+        respond(transmit, &response_buffer, &mut state.sender);
     }
 
     pub(crate) fn retry(&self, incoming: proto::Incoming) -> Result<(), proto::RetryError> {
         let mut state = self.state.lock().unwrap();
         let mut response_buffer = Vec::new();
         let transmit = state.inner.retry(incoming, &mut response_buffer)?;
-        respond(transmit, &response_buffer, &*state.socket);
+        respond(transmit, &response_buffer, &mut state.sender);
         Ok(())
     }
 
@@ -462,6 +462,7 @@ impl EndpointInner {
 #[derive(Debug)]
 pub(crate) struct State {
     socket: Arc<dyn AsyncUdpSocket>,
+    sender: Pin<Box<dyn UdpSender>>,
     /// During an active migration, abandoned_socket receives traffic
     /// until the first packet arrives on the new socket.
     prev_socket: Option<Arc<dyn AsyncUdpSocket>>,
@@ -489,16 +490,26 @@ impl State {
         self.recv_state.recv_limiter.start_cycle(get_time);
         if let Some(socket) = &self.prev_socket {
             // We don't care about the `PollProgress` from old sockets.
-            let poll_res =
-                self.recv_state
-                    .poll_socket(cx, &mut self.inner, &**socket, &*self.runtime, now);
+            let poll_res = self.recv_state.poll_socket(
+                cx,
+                &mut self.inner,
+                &**socket,
+                &mut self.sender,
+                &*self.runtime,
+                now,
+            );
             if poll_res.is_err() {
                 self.prev_socket = None;
             }
         };
-        let poll_res =
-            self.recv_state
-                .poll_socket(cx, &mut self.inner, &*self.socket, &*self.runtime, now);
+        let poll_res = self.recv_state.poll_socket(
+            cx,
+            &mut self.inner,
+            &*self.socket,
+            &mut self.sender,
+            &*self.runtime,
+            now,
+        );
         self.recv_state.recv_limiter.finish_cycle(get_time);
         let poll_res = poll_res?;
         if poll_res.received_connection_packet {
@@ -550,7 +561,11 @@ impl Drop for State {
     }
 }
 
-fn respond(transmit: proto::Transmit, response_buffer: &[u8], socket: &dyn AsyncUdpSocket) {
+fn respond(
+    transmit: proto::Transmit,
+    response_buffer: &[u8],
+    sender: &mut Pin<Box<dyn UdpSender>>,
+) {
     // Send if there's kernel buffer space; otherwise, drop it
     //
     // As an endpoint-generated packet, we know this is an
@@ -571,7 +586,9 @@ fn respond(transmit: proto::Transmit, response_buffer: &[u8], socket: &dyn Async
     // to transmit. This is morally equivalent to the packet getting
     // lost due to congestion further along the link, which
     // similarly relies on peer retries for recovery.
-    _ = socket.try_send(&udp_transmit(&transmit, &response_buffer[..transmit.size]));
+    _ = sender
+        .as_mut()
+        .try_send(&udp_transmit(&transmit, &response_buffer[..transmit.size]));
 }
 
 #[inline]
@@ -676,6 +693,7 @@ impl EndpointRef {
     ) -> Self {
         let (sender, events) = mpsc::unbounded_channel();
         let recv_state = RecvState::new(sender, socket.max_receive_segments(), &inner);
+        let sender = socket.clone().create_sender();
         Self(Arc::new(EndpointInner {
             shared: Shared {
                 incoming: Notify::new(),
@@ -683,6 +701,7 @@ impl EndpointRef {
             },
             state: Mutex::new(State {
                 socket,
+                sender,
                 prev_socket: None,
                 inner,
                 ipv6,
@@ -765,6 +784,7 @@ impl RecvState {
         cx: &mut Context,
         endpoint: &mut proto::Endpoint,
         socket: &dyn AsyncUdpSocket,
+        sender: &mut Pin<Box<dyn UdpSender>>,
         runtime: &dyn Runtime,
         now: Instant,
     ) -> Result<PollProgress, io::Error> {
@@ -804,7 +824,7 @@ impl RecvState {
                                     } else {
                                         let transmit =
                                             endpoint.refuse(incoming, &mut response_buffer);
-                                        respond(transmit, &response_buffer, socket);
+                                        respond(transmit, &response_buffer, sender);
                                     }
                                 }
                                 Some(DatagramEvent::ConnectionEvent(handle, event)) => {
@@ -818,7 +838,7 @@ impl RecvState {
                                         .send(ConnectionEvent::Proto(event));
                                 }
                                 Some(DatagramEvent::Response(transmit)) => {
-                                    respond(transmit, &response_buffer, socket);
+                                    respond(transmit, &response_buffer, sender);
                                 }
                                 None => {}
                             }

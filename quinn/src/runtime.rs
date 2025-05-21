@@ -48,14 +48,7 @@ pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
     /// [`Waker`].
     ///
     /// [`Waker`]: std::task::Waker
-    fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>>;
-
-    /// Send UDP datagrams from `transmits`, or return `WouldBlock` and clear the underlying
-    /// socket's readiness, or return an I/O error
-    ///
-    /// If this returns [`io::ErrorKind::WouldBlock`], [`UdpPoller::poll_writable`] must be called
-    /// to register the calling task to be woken when a send should be attempted again.
-    fn try_send(&self, transmit: &Transmit) -> io::Result<()>;
+    fn create_sender(self: Arc<Self>) -> Pin<Box<dyn UdpSender>>;
 
     /// Receive UDP datagrams, or register to be woken if receiving may succeed in the future
     fn poll_recv(
@@ -91,7 +84,7 @@ pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
 ///
 /// Any number of `UdpPoller`s may exist for a single [`AsyncUdpSocket`]. Each `UdpPoller` is
 /// responsible for notifying at most one task when that socket becomes writable.
-pub trait UdpPoller: Send + Sync + Debug + 'static {
+pub trait UdpSender: Send + Sync + Debug + 'static {
     /// Check whether the associated socket is likely to be writable
     ///
     /// Must be called after [`AsyncUdpSocket::try_send`] returns [`io::ErrorKind::WouldBlock`] to
@@ -99,19 +92,27 @@ pub trait UdpPoller: Send + Sync + Debug + 'static {
     /// again. Unlike in [`Future::poll`], a [`UdpPoller`] may be reused indefinitely no matter how
     /// many times `poll_writable` returns [`Poll::Ready`].
     fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>>;
+
+    /// Send UDP datagrams from `transmits`, or return `WouldBlock` and clear the underlying
+    /// socket's readiness, or return an I/O error
+    ///
+    /// If this returns [`io::ErrorKind::WouldBlock`], [`UdpPoller::poll_writable`] must be called
+    /// to register the calling task to be woken when a send should be attempted again.
+    fn try_send(self: Pin<&mut Self>, transmit: &Transmit) -> io::Result<()>;
 }
 
 pin_project_lite::pin_project! {
     /// Helper adapting a function `MakeFut` that constructs a single-use future `Fut` into a
     /// [`UdpPoller`] that may be reused indefinitely
-    struct UdpPollHelper<MakeFut, Fut> {
+    struct UdpPollHelper<TrySend, MakeFut, Fut> {
+        try_send: TrySend,
         make_fut: MakeFut,
         #[pin]
         fut: Option<Fut>,
     }
 }
 
-impl<MakeFut, Fut> UdpPollHelper<MakeFut, Fut> {
+impl<TrySend, MakeFut, Fut> UdpPollHelper<TrySend, MakeFut, Fut> {
     /// Construct a [`UdpPoller`] that calls `make_fut` to get the future to poll, storing it until
     /// it yields [`Poll::Ready`], then creating a new one on the next
     /// [`poll_writable`](UdpPoller::poll_writable)
@@ -120,16 +121,18 @@ impl<MakeFut, Fut> UdpPollHelper<MakeFut, Fut> {
         feature = "runtime-smol",
         feature = "runtime-tokio"
     ))]
-    fn new(make_fut: MakeFut) -> Self {
+    fn new(try_send: TrySend, make_fut: MakeFut) -> Self {
         Self {
+            try_send,
             make_fut,
             fut: None,
         }
     }
 }
 
-impl<MakeFut, Fut> UdpPoller for UdpPollHelper<MakeFut, Fut>
+impl<TrySend, MakeFut, Fut> UdpSender for UdpPollHelper<TrySend, MakeFut, Fut>
 where
+    TrySend: for<'a> Fn(&'a Transmit) -> io::Result<()> + Send + Sync + 'static,
     MakeFut: Fn() -> Fut + Send + Sync + 'static,
     Fut: Future<Output = io::Result<()>> + Send + Sync + 'static,
 {
@@ -150,9 +153,13 @@ where
         }
         result
     }
+
+    fn try_send(self: Pin<&mut Self>, transmit: &Transmit) -> io::Result<()> {
+        (self.try_send)(transmit)
+    }
 }
 
-impl<MakeFut, Fut> Debug for UdpPollHelper<MakeFut, Fut> {
+impl<TrySend, MakeFut, Fut> Debug for UdpPollHelper<TrySend, MakeFut, Fut> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UdpPollHelper").finish_non_exhaustive()
     }

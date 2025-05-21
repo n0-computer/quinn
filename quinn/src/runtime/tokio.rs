@@ -1,4 +1,5 @@
 use std::{
+    fmt::Debug,
     future::Future,
     io,
     pin::Pin,
@@ -12,7 +13,7 @@ use tokio::{
     time::{sleep_until, Sleep},
 };
 
-use super::{AsyncTimer, AsyncUdpSocket, Runtime, UdpPollHelper};
+use super::{AsyncTimer, AsyncUdpSocket, Runtime};
 
 /// A Quinn runtime for Tokio
 #[derive(Debug)]
@@ -54,17 +55,55 @@ struct UdpSocket {
     inner: udp::UdpSocketState,
 }
 
-impl AsyncUdpSocket for UdpSocket {
-    fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn super::UdpPoller>> {
-        Box::pin(UdpPollHelper::new(move || {
-            let socket = self.clone();
-            async move { socket.io.writable().await }
-        }))
+pin_project_lite::pin_project! {
+    struct UdpSender {
+        #[pin]
+        fut: Option<Pin<Box<dyn Future<Output = io::Result<()>> + Send + Sync + 'static>>>,
+        inner: Arc<UdpSocket>,
+    }
+}
+
+impl Debug for UdpSender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("UdpSender")
+    }
+}
+
+impl super::UdpSender for UdpSender {
+    fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        let mut this = self.project();
+        if this.fut.is_none() {
+            this.fut.set(Some(Box::pin({
+                let socket = this.inner.clone();
+                async move { socket.io.writable().await }
+            })));
+        }
+        // We're forced to `unwrap` here because `Fut` may be `!Unpin`, which means we can't safely
+        // obtain an `&mut Fut` after storing it in `self.fut` when `self` is already behind `Pin`,
+        // and if we didn't store it then we wouldn't be able to keep it alive between
+        // `poll_writable` calls.
+        let result = this.fut.as_mut().as_pin_mut().unwrap().poll(cx);
+        if result.is_ready() {
+            // Polling an arbitrary `Future` after it becomes ready is a logic error, so arrange for
+            // a new `Future` to be created on the next call.
+            this.fut.set(None);
+        }
+        result
     }
 
-    fn try_send(&self, transmit: &udp::Transmit) -> io::Result<()> {
-        self.io.try_io(Interest::WRITABLE, || {
-            self.inner.send((&self.io).into(), transmit)
+    fn try_send(self: Pin<&mut Self>, transmit: &udp::Transmit) -> io::Result<()> {
+        let socket = &self.inner;
+        socket.io.try_io(Interest::WRITABLE, || {
+            socket.inner.send((&socket.io).into(), transmit)
+        })
+    }
+}
+
+impl AsyncUdpSocket for UdpSocket {
+    fn create_sender(self: Arc<Self>) -> Pin<Box<dyn super::UdpSender>> {
+        Box::pin(UdpSender {
+            fut: None,
+            inner: self,
         })
     }
 
