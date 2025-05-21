@@ -55,17 +55,30 @@ struct UdpSocket {
 }
 
 impl AsyncUdpSocket for UdpSocket {
-    fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn super::UdpPoller>> {
-        Box::pin(UdpPollHelper::new(move || {
-            let socket = self.clone();
-            async move { socket.io.writable().await }
-        }))
-    }
-
     fn try_send(&self, transmit: &udp::Transmit) -> io::Result<()> {
         self.io.try_io(Interest::WRITABLE, || {
             self.inner.send((&self.io).into(), transmit)
         })
+    }
+
+    fn poll_send(&self, cx: &mut Context, transmit: &udp::Transmit) -> Poll<io::Result<()>> {
+        match self.io.poll_send_ready(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(res) => {
+                res?;
+                let res = self.inner.send((&self.io).into(), transmit);
+                match res {
+                    Ok(()) => Poll::Ready(Ok(())),
+                    Err(err) => {
+                        if err.kind() == io::ErrorKind::WouldBlock {
+                            Poll::Pending
+                        } else {
+                            Poll::Ready(Err(err))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn poll_recv(

@@ -39,23 +39,15 @@ pub trait AsyncTimer: Send + Debug + 'static {
 
 /// Abstract implementation of a UDP socket for runtime independence
 pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
-    /// Create a [`UdpPoller`] that can register a single task for write-readiness notifications
-    ///
-    /// A `poll_send` method on a single object can usually store only one [`Waker`] at a time,
-    /// i.e. allow at most one caller to wait for an event. This method allows any number of
-    /// interested tasks to construct their own [`UdpPoller`] object. They can all then wait for the
-    /// same event and be notified concurrently, because each [`UdpPoller`] can store a separate
-    /// [`Waker`].
-    ///
-    /// [`Waker`]: std::task::Waker
-    fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>>;
-
     /// Send UDP datagrams from `transmits`, or return `WouldBlock` and clear the underlying
     /// socket's readiness, or return an I/O error
     ///
     /// If this returns [`io::ErrorKind::WouldBlock`], [`UdpPoller::poll_writable`] must be called
     /// to register the calling task to be woken when a send should be attempted again.
     fn try_send(&self, transmit: &Transmit) -> io::Result<()>;
+
+    /// Proper poll send
+    fn poll_send(&self, cx: &mut Context, transmit: &Transmit) -> Poll<io::Result<()>>;
 
     /// Receive UDP datagrams, or register to be woken if receiving may succeed in the future
     fn poll_recv(

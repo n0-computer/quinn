@@ -73,6 +73,10 @@ fn handshake_timeout() {
 
 #[tokio::test]
 async fn close_endpoint() {
+    tracing_subscriber::fmt::try_init().ok();
+    use tracing::info;
+
+    info!("START");
     let _guard = subscribe();
 
     // Avoid NoRootAnchors error
@@ -85,6 +89,7 @@ async fn close_endpoint() {
     endpoint
         .set_default_client_config(ClientConfig::with_root_certificates(Arc::new(roots)).unwrap());
 
+    info!("connect");
     let conn = endpoint
         .connect(
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 1234),
@@ -92,17 +97,22 @@ async fn close_endpoint() {
         )
         .unwrap();
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
+        info!("task conn start");
         let _ = conn.await;
+        info!("task conn done");
     });
 
+    info!("connect 2");
     let conn = endpoint
         .connect(
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 1234),
             "localhost",
         )
         .unwrap();
+    info!("close");
     endpoint.close(0u32.into(), &[]);
+    info!("conn wait");
     match conn.await {
         Err(crate::ConnectionError::LocallyClosed) => (),
         Err(e) => panic!("unexpected error: {e}"),
@@ -110,6 +120,8 @@ async fn close_endpoint() {
             panic!("unexpected success");
         }
     }
+
+    handle.await.unwrap();
 }
 
 #[test]

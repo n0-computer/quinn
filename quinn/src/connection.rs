@@ -239,6 +239,7 @@ impl Future for ConnectionDriver {
     type Output = Result<(), io::Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        tracing::debug!("poll connection");
         let conn = &mut *self.0.state.lock("poll");
 
         let span = debug_span!("drive", id = conn.handle.0);
@@ -249,6 +250,7 @@ impl Future for ConnectionDriver {
             return Poll::Ready(Ok(()));
         }
         let mut keep_going = conn.drive_transmit(cx)?;
+        tracing::debug!("keep going? {}", keep_going);
         // If a timer expires, there might be more to transmit. When we transmit something, we
         // might need to reset a timer. Hence, we must loop until neither happens.
         keep_going |= conn.drive_timer(cx);
@@ -258,8 +260,10 @@ impl Future for ConnectionDriver {
         if !conn.inner.is_drained() {
             if keep_going {
                 // If the connection hasn't processed all tasks, schedule it again
+                tracing::debug!("reschedule");
                 cx.waker().wake_by_ref();
             } else {
+                tracing::debug!("moving on");
                 conn.driver = Some(cx.waker().clone());
             }
             return Poll::Pending;
@@ -897,7 +901,6 @@ impl ConnectionRef {
                 stopped: FxHashMap::default(),
                 error: None,
                 ref_count: 0,
-                io_poller: socket.clone().create_io_poller(),
                 socket,
                 runtime,
                 send_buffer: Vec::new(),
@@ -1018,7 +1021,6 @@ pub(crate) struct State {
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
     ref_count: usize,
     socket: Arc<dyn AsyncUdpSocket>,
-    io_poller: Pin<Box<dyn UdpPoller>>,
     runtime: Arc<dyn Runtime>,
     send_buffer: Vec<u8>,
     /// We buffer a transmit when the underlying I/O would block
@@ -1057,20 +1059,14 @@ impl State {
                 }
             };
 
-            if self.io_poller.as_mut().poll_writable(cx, &t)?.is_pending() {
-                // Retry after a future wakeup
-                self.buffered_transmit = Some(t);
-                return Ok(false);
-            }
-
             let len = t.size;
             let retry = match self
                 .socket
-                .try_send(&udp_transmit(&t, &self.send_buffer[..len]))
+                .poll_send(cx, &udp_transmit(&t, &self.send_buffer[..len]))
             {
-                Ok(()) => false,
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => true,
-                Err(e) => return Err(e),
+                Poll::Ready(Ok(())) => false,
+                Poll::Pending => true,
+                Poll::Ready(Err(e)) => return Err(e),
             };
             if retry {
                 // We thought the socket was writable, but it wasn't. Retry so that either another
@@ -1078,7 +1074,7 @@ impl State {
                 // registers us for a wakeup, or the send succeeds if this really was just a
                 // transient failure.
                 self.buffered_transmit = Some(t);
-                continue;
+                return Ok(false);
             }
 
             if transmits >= MAX_TRANSMIT_DATAGRAMS {
@@ -1110,7 +1106,6 @@ impl State {
             match self.conn_events.poll_recv(cx) {
                 Poll::Ready(Some(ConnectionEvent::Rebind(socket))) => {
                     self.socket = socket;
-                    self.io_poller = self.socket.clone().create_io_poller();
                     self.inner.local_address_changed();
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
