@@ -900,6 +900,7 @@ impl ConnectionRef {
                 udp_sender: sender,
                 runtime,
                 send_buffer: Vec::new(),
+                buffered_transmit: None,
                 observed_external_addr: watch::Sender::new(None),
             }),
             shared: Shared::default(),
@@ -1018,6 +1019,8 @@ pub(crate) struct State {
     udp_sender: Pin<Box<dyn UdpSender>>,
     runtime: Arc<dyn Runtime>,
     send_buffer: Vec<u8>,
+    /// We buffer a transmit when the underlying I/O would block
+    buffered_transmit: Option<proto::Transmit>,
     /// Our last external address reported by the peer.
     pub(crate) observed_external_addr: watch::Sender<Option<SocketAddr>>,
 }
@@ -1030,18 +1033,26 @@ impl State {
         let max_datagrams = self.udp_sender.max_transmit_segments();
 
         loop {
-            self.send_buffer.clear();
-            self.send_buffer.reserve(self.inner.current_mtu() as usize);
-            let Some(t) = self
-                .inner
-                .poll_transmit(now, max_datagrams, &mut self.send_buffer)
-            else {
-                break;
-            };
-
-            transmits += match t.segment_size {
-                None => 1,
-                Some(s) => (t.size + s - 1) / s, // round up
+            // Retry the last transmit, or get a new one.
+            let t = match self.buffered_transmit.take() {
+                Some(t) => t,
+                None => {
+                    self.send_buffer.clear();
+                    self.send_buffer.reserve(self.inner.current_mtu() as usize);
+                    match self
+                        .inner
+                        .poll_transmit(now, max_datagrams, &mut self.send_buffer)
+                    {
+                        Some(t) => {
+                            transmits += match t.segment_size {
+                                None => 1,
+                                Some(s) => (t.size + s - 1) / s, // round up
+                            };
+                            t
+                        }
+                        None => break,
+                    }
+                }
             };
 
             let len = t.size;
@@ -1051,7 +1062,10 @@ impl State {
                 .as_mut()
                 .poll_send(&udp_transmit(&t, &self.send_buffer[..len]), cx)
             {
-                Poll::Pending => return Ok(true),
+                Poll::Pending => {
+                    self.buffered_transmit = Some(t);
+                    return Ok(false);
+                }
                 Poll::Ready(result) => result?, // propagate errors
             }
 
