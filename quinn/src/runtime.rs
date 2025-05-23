@@ -111,6 +111,89 @@ pub trait UdpSender: Send + Sync + Debug + 'static {
     fn try_send(self: Pin<&mut Self>, transmit: &Transmit) -> io::Result<()>;
 }
 
+pin_project_lite::pin_project! {
+    struct UdpSenderHelper<Socket, MakeFut, Fut> {
+        socket: Socket,
+        make_fut: MakeFut,
+        #[pin]
+        fut: Option<Fut>,
+    }
+}
+
+impl<Socket, MakeFut, Fut> Debug for UdpSenderHelper<Socket, MakeFut, Fut> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("UdpSender")
+    }
+}
+
+impl<Socket, MakeFut, Fut> UdpSenderHelper<Socket, MakeFut, Fut> {
+    fn new(inner: Socket, make_fut: MakeFut) -> Self {
+        Self {
+            socket: inner,
+            make_fut,
+            fut: None,
+        }
+    }
+}
+
+impl<Socket, MakeFut, Fut> super::UdpSender for UdpSenderHelper<Socket, MakeFut, Fut>
+where
+    Socket: UdpSenderHelperSocket,
+    MakeFut: Fn(&Socket) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = io::Result<()>> + Send + Sync + 'static,
+{
+    fn poll_send(
+        self: Pin<&mut Self>,
+        transmit: &udp::Transmit,
+        cx: &mut Context,
+    ) -> Poll<io::Result<()>> {
+        let mut this = self.project();
+        loop {
+            if this.fut.is_none() {
+                this.fut.set(Some((this.make_fut)(&this.socket)));
+            }
+            // We're forced to `unwrap` here because `Fut` may be `!Unpin`, which means we can't safely
+            // obtain an `&mut Fut` after storing it in `self.fut` when `self` is already behind `Pin`,
+            // and if we didn't store it then we wouldn't be able to keep it alive between
+            // `poll_writable` calls.
+            let result = ready!(this.fut.as_mut().as_pin_mut().unwrap().poll(cx));
+
+            // Polling an arbitrary `Future` after it becomes ready is a logic error, so arrange for
+            // a new `Future` to be created on the next call.
+            this.fut.set(None);
+
+            // If .writable() fails, propagate the error
+            result?;
+
+            let result = this.socket.try_send(transmit);
+
+            match result {
+                // We thought the socket was writable, but it wasn't, then retry so that either another
+                // `writable().await` call determines that the socket is indeed not writable and
+                // registers us for a wakeup, or the send succeeds if this really was just a
+                // transient failure.
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                // In all other cases, either propagate the error or we're Ok
+                _ => return Poll::Ready(result),
+            }
+        }
+    }
+
+    fn max_transmit_segments(&self) -> usize {
+        self.socket.max_transmit_segments()
+    }
+
+    fn try_send(self: Pin<&mut Self>, transmit: &udp::Transmit) -> io::Result<()> {
+        self.socket.try_send(transmit)
+    }
+}
+
+trait UdpSenderHelperSocket: Send + Sync + 'static {
+    fn try_send(&self, transmit: &udp::Transmit) -> io::Result<()>;
+
+    fn max_transmit_segments(&self) -> usize;
+}
+
 /// Automatically select an appropriate runtime from those enabled at compile time
 ///
 /// If `runtime-tokio` is enabled and this function is called from within a Tokio runtime context,
