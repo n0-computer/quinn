@@ -897,7 +897,7 @@ impl ConnectionRef {
                 stopped: FxHashMap::default(),
                 error: None,
                 ref_count: 0,
-                udp_sender: sender,
+                sender,
                 runtime,
                 send_buffer: Vec::new(),
                 buffered_transmit: None,
@@ -1016,7 +1016,7 @@ pub(crate) struct State {
     pub(crate) error: Option<ConnectionError>,
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
     ref_count: usize,
-    udp_sender: Pin<Box<dyn UdpSender>>,
+    sender: Pin<Box<dyn UdpSender>>,
     runtime: Arc<dyn Runtime>,
     send_buffer: Vec<u8>,
     /// We buffer a transmit when the underlying I/O would block
@@ -1030,7 +1030,7 @@ impl State {
         let now = self.runtime.now();
         let mut transmits = 0;
 
-        let max_datagrams = self.udp_sender.max_transmit_segments();
+        let max_datagrams = self.sender.max_transmit_segments();
 
         loop {
             // Retry the last transmit, or get a new one.
@@ -1056,9 +1056,8 @@ impl State {
             };
 
             let len = t.size;
-            // TODO(matheus23): What to do with the poll result? Is `return Ok(true)` fine?
             match self
-                .udp_sender
+                .sender
                 .as_mut()
                 .poll_send(&udp_transmit(&t, &self.send_buffer[..len]), cx)
             {
@@ -1066,7 +1065,8 @@ impl State {
                     self.buffered_transmit = Some(t);
                     return Ok(false);
                 }
-                Poll::Ready(result) => result?, // propagate errors
+                Poll::Ready(Err(e)) => return Err(e),
+                Poll::Ready(Ok(())) => {}
             }
 
             if transmits >= MAX_TRANSMIT_DATAGRAMS {
@@ -1097,7 +1097,7 @@ impl State {
         loop {
             match self.conn_events.poll_recv(cx) {
                 Poll::Ready(Some(ConnectionEvent::Rebind(sender))) => {
-                    self.udp_sender = sender;
+                    self.sender = sender;
                     self.inner.local_address_changed();
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {

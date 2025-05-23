@@ -57,7 +57,7 @@ struct UdpSocket {
 
 pin_project_lite::pin_project! {
     struct UdpSender<MakeFut, Fut> {
-        inner: UdpSocket,
+        socket: UdpSocket,
         make_fut: MakeFut,
         #[pin]
         fut: Option<Fut>,
@@ -73,7 +73,7 @@ impl<MakeFut, Fut> Debug for UdpSender<MakeFut, Fut> {
 impl<MakeFut, Fut> UdpSender<MakeFut, Fut> {
     fn new(inner: UdpSocket, make_fut: MakeFut) -> Self {
         Self {
-            inner,
+            socket: inner,
             fut: None,
             make_fut,
         }
@@ -82,7 +82,7 @@ impl<MakeFut, Fut> UdpSender<MakeFut, Fut> {
 
 impl<MakeFut, Fut> super::UdpSender for UdpSender<MakeFut, Fut>
 where
-    MakeFut: Fn() -> Fut + Send + Sync + 'static,
+    MakeFut: Fn(&UdpSocket) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = io::Result<()>> + Send + Sync + 'static,
 {
     fn poll_send(
@@ -93,7 +93,7 @@ where
         let mut this = self.project();
         loop {
             if this.fut.is_none() {
-                this.fut.set(Some((this.make_fut)()));
+                this.fut.set(Some((this.make_fut)(&this.socket)));
             }
             // We're forced to `unwrap` here because `Fut` may be `!Unpin`, which means we can't safely
             // obtain an `&mut Fut` after storing it in `self.fut` when `self` is already behind `Pin`,
@@ -108,9 +108,8 @@ where
             // If .writable() fails, propagate the error
             result?;
 
-            let socket = &this.inner;
-            let result = socket.io.try_io(Interest::WRITABLE, || {
-                socket.inner.send((&socket.io).into(), transmit)
+            let result = this.socket.io.try_io(Interest::WRITABLE, || {
+                this.socket.inner.send((&this.socket.io).into(), transmit)
             });
 
             match result {
@@ -126,21 +125,19 @@ where
     }
 
     fn max_transmit_segments(&self) -> usize {
-        self.inner.inner.max_gso_segments()
+        self.socket.inner.max_gso_segments()
     }
 
     fn try_send(self: Pin<&mut Self>, transmit: &udp::Transmit) -> io::Result<()> {
-        let socket = &self.inner;
-        socket.io.try_io(Interest::WRITABLE, || {
-            socket.inner.send((&socket.io).into(), transmit)
+        self.socket.io.try_io(Interest::WRITABLE, || {
+            self.socket.inner.send((&self.socket.io).into(), transmit)
         })
     }
 }
 
 impl AsyncUdpSocket for UdpSocket {
     fn create_sender(&self) -> Pin<Box<dyn super::UdpSender>> {
-        let socket = self.clone();
-        Box::pin(UdpSender::new(self.clone(), move || {
+        Box::pin(UdpSender::new(self.clone(), |socket: &UdpSocket| {
             let socket = socket.clone();
             async move { socket.io.writable().await }
         }))
