@@ -112,7 +112,7 @@ pub trait UdpSender: Send + Sync + Debug + 'static {
 }
 
 pin_project_lite::pin_project! {
-    struct UdpSenderHelper<Socket, MakeFut, Fut> {
+    pub struct UdpSenderHelper<Socket, MakeFut, Fut> {
         socket: Socket,
         make_fut: MakeFut,
         #[pin]
@@ -127,7 +127,7 @@ impl<Socket, MakeFut, Fut> Debug for UdpSenderHelper<Socket, MakeFut, Fut> {
 }
 
 impl<Socket, MakeFut, Fut> UdpSenderHelper<Socket, MakeFut, Fut> {
-    fn new(inner: Socket, make_fut: MakeFut) -> Self {
+    pub fn new(inner: Socket, make_fut: MakeFut) -> Self {
         Self {
             socket: inner,
             make_fut,
@@ -188,7 +188,7 @@ where
     }
 }
 
-trait UdpSenderHelperSocket: Send + Sync + 'static {
+pub trait UdpSenderHelperSocket: Send + Sync + 'static {
     fn try_send(&self, transmit: &udp::Transmit) -> io::Result<()>;
 
     fn max_transmit_segments(&self) -> usize;
