@@ -539,20 +539,6 @@ impl Connection {
         // What about PATH_CHALLENGE or PATH_RESPONSE?  We need to check if we need to send
         // any of those.
 
-        // TODO(flub): We only have PathId(0) for now.  For multipath we need to figure
-        //    out which path we want to send the packet on before we start building it.
-        let path_id = PathId(0);
-
-        let mut buf = TransmitBuf::new(
-            buf,
-            max_datagrams,
-            self.path_data(path_id).current_mtu().into(),
-        );
-
-        if let Some(challenge) = self.send_prev_path_challenge(now, &mut buf, path_id) {
-            return Some(challenge);
-        }
-
         // Check whether we need to send a close message
         let close = match self.state {
             State::Drained => {
@@ -602,6 +588,16 @@ impl Connection {
         let mut last_packet_number = None;
 
         let mut path_id = *self.paths.first_key_value().expect("one path must exist").0;
+
+        let mut buf = TransmitBuf::new(
+            buf,
+            max_datagrams,
+            self.path_data(path_id).current_mtu().into(),
+        );
+
+        if let Some(challenge) = self.send_prev_path_challenge(now, &mut buf, path_id) {
+            return Some(challenge);
+        }
         let mut space_id = match path_id {
             PathId(0) => SpaceId::Initial,
             _ => SpaceId::Data,
