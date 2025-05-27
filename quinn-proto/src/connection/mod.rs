@@ -259,6 +259,8 @@ pub struct Connection {
     /// This is kept instead of calculated to account for abandoned paths for which data has been
     /// purged.
     max_path_id_in_use: PathId,
+    /// Path ids requested to be opened via [`Connection::add_path`].
+    paths_to_open: Vec<(PathId, SocketAddr, PathStatus)>,
 }
 
 struct PathState {
@@ -397,6 +399,7 @@ impl Connection {
             local_max_path_id: PathId::ZERO,
             remote_max_path_id: PathId::ZERO,
             max_path_id_in_use: PathId::ZERO,
+            paths_to_open: Vec::default(),
         };
         if path_validated {
             this.on_path_validated(PathId(0));
@@ -512,6 +515,33 @@ impl Connection {
     #[track_caller]
     fn path_data_mut(&mut self, path_id: PathId) -> &mut PathData {
         &mut self.paths.get_mut(&path_id).expect("known path").data
+    }
+
+    /// Start opening a new path.
+    // TODO(@divma): pending how to inform the application of all and any errors that might arrise
+    // afterwards. The point of the name, at least so far, is that this begins the process, without
+    // guarantee that at the end of this method the path is indeed open.
+    pub fn queue_open_path(
+        &mut self,
+        remote: SocketAddr,
+        status: PathStatus,
+    ) -> Result<PathId, OpenPathError> {
+        let max_path_id = self
+            .max_path_id()
+            .ok_or(OpenPathError::MultipathNotNegotiated)?;
+        if self.side().is_server() {
+            return Err(OpenPathError::ServerSideNotAllowed);
+        }
+
+        let next_path_id = self.max_path_id_in_use.saturating_add(1u8);
+        if next_path_id > max_path_id {
+            return Err(OpenPathError::MaxPathIdReached);
+        }
+
+        self.paths_to_open.insert(0, (next_path_id, remote, status));
+        self.max_path_id_in_use = next_path_id;
+
+        Ok(next_path_id)
     }
 
     /// Returns packets to transmit
@@ -4795,6 +4825,12 @@ impl From<ConnectionError> for io::Error {
         };
         Self::new(kind, x)
     }
+}
+
+pub enum OpenPathError {
+    MultipathNotNegotiated,
+    ServerSideNotAllowed,
+    MaxPathIdReached,
 }
 
 #[allow(unreachable_pub)] // fuzzing only
