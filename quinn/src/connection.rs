@@ -25,8 +25,8 @@ use crate::{
     udp_transmit,
 };
 use proto::{
-    ConnectionError, ConnectionHandle, ConnectionStats, Dir, EndpointEvent, StreamEvent, StreamId,
-    congestion::Controller,
+    ConnectionError, ConnectionHandle, ConnectionStats, Dir, EndpointEvent, PathEvent, PathId,
+    PathStatus, StreamEvent, StreamId, congestion::Controller,
 };
 
 /// In-progress connection attempt future
@@ -355,6 +355,16 @@ impl Connection {
         ReadDatagram {
             conn: &self.0,
             notify: self.0.shared.datagram_received.notified(),
+        }
+    }
+
+    /// Open a (Multi)Path.
+    pub fn open_path(&self, addr: SocketAddr, initial_status: PathStatus) -> OpenPath<'_> {
+        OpenPath {
+            conn: &self.0,
+            notify: self.0.shared.open_path.notified(),
+            addr,
+            initial_status,
         }
     }
 
@@ -874,6 +884,57 @@ impl Future for SendDatagram<'_> {
     }
 }
 
+pin_project! {
+    /// Future produced by [`Connection::open_path`]
+    pub struct OpenPath<'a> {
+        conn: &'a ConnectionRef,
+        #[pin]
+        notify: Notified<'a>,
+        addr: SocketAddr,
+        initial_status: PathStatus,
+    }
+}
+
+impl Future for OpenPath<'_> {
+    type Output = Result<PathId, ConnectionError>;
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        let id = ready!(poll_open_path(
+            ctx,
+            this.conn,
+            this.notify,
+            *this.addr,
+            *this.initial_status
+        ))?;
+
+        Poll::Ready(Ok(id))
+    }
+}
+
+fn poll_open_path<'a>(
+    ctx: &mut Context<'_>,
+    conn: &'a ConnectionRef,
+    mut notify: Pin<&mut Notified<'a>>,
+    addr: SocketAddr,
+    initial_status: PathStatus,
+) -> Poll<Result<PathId, ConnectionError>> {
+    let mut state = conn.state.lock("poll_open_path");
+    if let Some(ref e) = state.error {
+        return Poll::Ready(Err(e.clone()));
+    } else if let Some(id) = state.inner.open_path(addr, initial_status) {
+        drop(state); // Release the lock so clone can take it
+        return Poll::Ready(Ok(id));
+    }
+    loop {
+        match notify.as_mut().poll(ctx) {
+            // `state` lock ensures we didn't race with readiness
+            Poll::Pending => return Poll::Pending,
+            // Spurious wakeup, get a new future
+            Poll::Ready(()) => notify.set(conn.shared.open_path.notified()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct ConnectionRef(Arc<ConnectionInner>);
 
@@ -1005,6 +1066,7 @@ pub(crate) struct Shared {
     stream_incoming: [Notify; 2],
     datagram_received: Notify,
     datagrams_unblocked: Notify,
+    open_path: Notify,
     closed: Notify,
 }
 
@@ -1200,6 +1262,9 @@ impl State {
                         old != *addr
                     });
                 }
+                Path(PathEvent::Opened { .. }) => shared.open_path.notify_waiters(),
+                Path(PathEvent::StatusChanged { id, status }) => {}
+                Path(PathEvent::Closed { id, error_code }) => {}
             }
         }
     }

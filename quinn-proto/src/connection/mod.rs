@@ -61,8 +61,8 @@ mod packet_crypto;
 use packet_crypto::{PrevCrypto, ZeroRttCrypto};
 
 mod paths;
-use paths::{PathData, PathStatus};
-pub use paths::{PathId, RttEstimator};
+use paths::PathData;
+pub use paths::{PathEvent, PathId, PathStatus, RttEstimator};
 
 mod send_buffer;
 
@@ -480,6 +480,13 @@ impl Connection {
             pending: &mut self.spaces[SpaceId::Data].pending,
             conn_state: &self.state,
         }
+    }
+
+    /// Opens a path
+    ///
+    /// Returns `None` if the paths are exhausted.
+    pub fn open_path(&mut self, addr: SocketAddr, initial_status: PathStatus) -> Option<PathId> {
+        todo!()
     }
 
     /// Gets the [`PathData`] for a known [`PathId`].
@@ -4799,6 +4806,8 @@ pub enum Event {
     DatagramsUnblocked,
     /// Received an observation of our external address from the peer.
     ObservedAddr(SocketAddr),
+    /// (Multi)Path events
+    Path(PathEvent),
 }
 
 fn instant_saturating_sub(x: Instant, y: Instant) -> Duration {
