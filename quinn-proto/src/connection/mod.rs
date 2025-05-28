@@ -673,7 +673,7 @@ impl Connection {
                         space_id = SpaceId::Data;
 
                         // update per path state
-                        transmit.reset(self.path_data(path_id).current_mtu().into());
+                        transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
                         if let Some(challenge) =
                             self.send_prev_path_challenge(now, &mut transmit, path_id)
                         {
