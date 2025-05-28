@@ -3463,16 +3463,16 @@ impl Connection {
                     }
                 }
                 Frame::PathsBlocked(max_path_id) => {
-                    // TODO(dig): decide if we want to do anything here
-
                     // Receipt of a value of Maximum Path Identifier or Path Identifier that is higher than the local maximum value MUST
                     // be treated as a connection error of type PROTOCOL_VIOLATION.
+                    // Ref <https://www.ietf.org/archive/id/draft-ietf-quic-multipath-14.html#name-paths_blocked-and-path_cids>
                     if self.is_multipath_enabled() {
                         if self.local_max_path_id > max_path_id {
                             return Err(TransportError::PROTOCOL_VIOLATION(
                                 "PATHS_BLOCKED maximum path identifier was larger than local maximum",
                             ));
                         }
+                        debug!("received PATHS_BLOCKED({:?})", max_path_id);
                     } else {
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "received PATHS_BLOCKED frame when not multipath was not negotiated",
@@ -3486,12 +3486,14 @@ impl Connection {
 
                     // Receipt of a value of Maximum Path Identifier or Path Identifier that is higher than the local maximum value MUST
                     // be treated as a connection error of type PROTOCOL_VIOLATION.
+                    // Ref <https://www.ietf.org/archive/id/draft-ietf-quic-multipath-14.html#name-paths_blocked-and-path_cids>
                     if self.is_multipath_enabled() {
                         if self.local_max_path_id > path_id {
                             return Err(TransportError::PROTOCOL_VIOLATION(
                                 "PATH_CIDS_BLOCKED path identifier was larger than local maximum",
                             ));
                         }
+                        debug!("received PATH_CIDS_BLOCKED({:?})", path_id);
                     } else {
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "received PATH_CIDS_BLOCKED frame when not multipath was not negotiated",
