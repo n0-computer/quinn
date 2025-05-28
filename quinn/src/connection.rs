@@ -919,6 +919,7 @@ impl ConnectionRef {
                 blocked_readers: FxHashMap::default(),
                 stopped: FxHashMap::default(),
                 open_path: FxHashMap::default(),
+                close_path: FxHashMap::default(),
                 error: None,
                 ref_count: 0,
                 io_poller: socket.clone().create_io_poller(),
@@ -1039,7 +1040,10 @@ pub(crate) struct State {
     pub(crate) stopped: FxHashMap<StreamId, Arc<Notify>>,
     /// Always set to Some before the connection becomes drained
     pub(crate) error: Option<ConnectionError>,
+    /// Tracks paths being opened
     open_path: FxHashMap<PathId, oneshot::Sender<()>>,
+    /// Tracks paths being closed
+    pub(crate) close_path: FxHashMap<PathId, oneshot::Sender<VarInt>>,
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
     ref_count: usize,
     socket: Arc<dyn AsyncUdpSocket>,
@@ -1221,8 +1225,11 @@ impl State {
                         let _ = sender.send(());
                     }
                 }
-                Path(PathEvent::StatusChanged { id, status }) => {}
-                Path(PathEvent::Closed { id, error_code }) => {}
+                Path(PathEvent::Closed { id, error_code }) => {
+                    if let Some(sender) = self.close_path.remove(&id) {
+                        let _ = sender.send(error_code);
+                    }
+                }
             }
         }
     }

@@ -483,7 +483,12 @@ impl Connection {
     }
 
     /// Opens a path
-    pub fn open_path(&mut self, addr: SocketAddr, initial_status: PathStatus) -> PathId {
+    pub fn open_path(&mut self, _addr: SocketAddr, _initial_status: PathStatus) -> PathId {
+        todo!()
+    }
+
+    /// Closes a path
+    pub fn close_path(&mut self, _id: PathId, _error_code: VarInt) {
         todo!()
     }
 

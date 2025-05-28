@@ -502,13 +502,6 @@ pub enum PathEvent {
         /// Which path is now open
         id: PathId,
     },
-    /// The status of a path has changed
-    StatusChanged {
-        /// Which path has changed status
-        id: PathId,
-        /// The new status of the path
-        status: PathStatus,
-    },
     /// A path has been closed
     Closed {
         /// Which path has been closed
