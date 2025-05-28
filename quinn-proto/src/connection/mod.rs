@@ -495,6 +495,13 @@ impl Connection {
         &self.paths.get(&path_id).expect("known path").data
     }
 
+    /// Gets the [`PathStatus`] for a known [`PathId`].
+    ///
+    /// Will panic if the path_id does not reference any known path.
+    pub fn path_status(&self, path_id: PathId) -> PathStatus {
+        self.path_data(path_id).status
+    }
+
     /// Gets the [`PathData`] for a known [`PathId`].
     ///
     /// Will panic if the path_id does not reference any known path.

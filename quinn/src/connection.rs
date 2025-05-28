@@ -19,6 +19,7 @@ use tracing::{Instrument, Span, debug_span};
 use crate::{
     ConnectionEvent, Duration, Instant, VarInt,
     mutex::Mutex,
+    path::OpenPath,
     recv_stream::RecvStream,
     runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpPoller},
     send_stream::SendStream,
@@ -368,10 +369,7 @@ impl Connection {
             path_id
         };
 
-        OpenPath {
-            opened: on_open_path_recv,
-            path_id,
-        }
+        OpenPath::new(path_id, on_open_path_recv, self.0.clone())
     }
 
     /// Wait for the connection to be closed for any reason
@@ -887,22 +885,6 @@ impl Future for SendDatagram<'_> {
                 TooLarge => SendDatagramError::TooLarge,
             })),
         }
-    }
-}
-
-/// Future produced by [`Connection::open_path`]
-pub struct OpenPath {
-    opened: oneshot::Receiver<()>,
-    path_id: PathId,
-}
-
-impl Future for OpenPath {
-    type Output = Result<PathId, ConnectionError>;
-    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
-        // TODO: thread through errors
-        Pin::new(&mut self.opened)
-            .poll(ctx)
-            .map(|_| Ok(self.path_id))
     }
 }
 
