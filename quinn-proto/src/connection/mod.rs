@@ -4509,17 +4509,16 @@ impl Connection {
         if let Some(path_data) = self.paths.get_mut(&path_id) {
             let data = &mut path_data.data;
             // If a newer sequence no was sent, update the information.
-            if data.status_seq_no < status_seq_no {
+            if data.status_seq_no < Some(status_seq_no) {
                 data.status = if is_backup {
                     PathStatus::Backup
                 } else {
                     PathStatus::Available
                 };
-                data.status_seq_no = status_seq_no;
+                data.status_seq_no.replace(status_seq_no);
             }
         } else {
-            // TODO(dig): what should we do here?
-            warn!("unknown path {:?}", path_id);
+            debug!("PATH_AVAILABLE received unknown path {:?}", path_id);
         }
     }
 
