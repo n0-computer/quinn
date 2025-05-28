@@ -68,6 +68,13 @@ impl<'a> TransmitBuf<'a> {
         }
     }
 
+    pub(super) fn reset(&mut self, mtu: usize) {
+        self.datagram_start = 0;
+        self.buf_capacity = 0;
+        self.num_datagrams = 0;
+        self.segment_size = mtu;
+    }
+
     /// Starts a datagram with a custom datagram size
     ///
     /// This is a specialized version of [`TransmitBuf::start_new_datagram`] which sets the
