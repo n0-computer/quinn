@@ -260,7 +260,14 @@ pub struct Connection {
     /// purged.
     max_path_id_in_use: PathId,
     /// Path ids requested to be opened via [`Connection::add_path`].
-    paths_to_open: Vec<(PathId, SocketAddr, PathStatus)>,
+    paths_to_open: BTreeMap<PathId, (SocketAddr, PathStatus)>,
+}
+
+struct PendingPath {
+    remote: SocketAddr,
+    status: PathStatus,
+    //     needs_local_cid: bool,
+    //     needs_remote_cid: bool,
 }
 
 struct PathState {
@@ -399,7 +406,7 @@ impl Connection {
             local_max_path_id: PathId::ZERO,
             remote_max_path_id: PathId::ZERO,
             max_path_id_in_use: PathId::ZERO,
-            paths_to_open: Vec::default(),
+            paths_to_open: BTreeMap::default(),
         };
         if path_validated {
             this.on_path_validated(PathId(0));
@@ -521,10 +528,14 @@ impl Connection {
     // TODO(@divma): pending how to inform the application of all and any errors that might arrise
     // afterwards. The point of the name, at least so far, is that this begins the process, without
     // guarantee that at the end of this method the path is indeed open.
+    //
+    // NOTE: if this fails we still consider the path id used, which might be wrong in some cases..
+    // for example if the peer  has not issued CIDs and later on decides to do it
     pub fn queue_open_path(
         &mut self,
         remote: SocketAddr,
         status: PathStatus,
+        now: Instant,
     ) -> Result<PathId, OpenPathError> {
         let max_path_id = self
             .max_path_id()
@@ -535,13 +546,45 @@ impl Connection {
 
         let next_path_id = self.max_path_id_in_use.saturating_add(1u8);
         if next_path_id > max_path_id {
+            // TODO(@divma): we want to check who is the one limiting this and act accordingly
+            // for example, if we are the ones with the limit and the application has requested to
+            // open another path we might want to increase the limit directly. We can also rely on
+            // the application explicitely increasing the limit.
+            // if it's the peer, then we need to send a frame indicating so
             return Err(OpenPathError::MaxPathIdReached);
         }
 
-        self.paths_to_open.insert(0, (next_path_id, remote, status));
-        self.max_path_id_in_use = next_path_id;
+        // TODO(@divma): this part might be an overkill
+        // ensure we have CIDs to use on our side
+
+        self.issue_first_path_cids(now);
+
+        self.paths_to_open.insert(next_path_id, (remote, status));
 
         Ok(next_path_id)
+    }
+
+    fn open_new_path(&mut self, now: Instant) -> Option<Transmit> {
+        let entry = self.paths_to_open.first_entry()?;
+
+        let Some(remote_cid) = self.rem_cids.get(&path_id) else {
+            // TODO(@divma): send these errors up somehow
+            let err = OpenPathError::RemoteCidsExhausted;
+            debug!(?err, %path_id, "failed to open path");
+            // TODO(@divma): here we want to send the cid blocked frame, but this probably can be
+            // sent with anything else as well
+            return None;
+        };
+        // self.local_cid_state.
+        let mut builder = PacketBuilder::new(
+            now,
+            space_id,
+            path_id,
+            self.rem_cids.get(&path_id).unwrap().active(),
+            &mut buf,
+            can_send.other,
+            self,
+        )?;
     }
 
     /// Returns packets to transmit
@@ -565,6 +608,10 @@ impl Connection {
             false => 1,
             true => max_datagrams,
         };
+
+        if let Some(transmit) = self.open_new_path(now) {
+            return Some(transmit);
+        }
 
         // Each call to poll_transmit can only send datagrams to one destination, because
         // all datagrams in a GSO batch are for the same destination.  Therefore only
@@ -3528,9 +3575,12 @@ impl Connection {
                     }
                 }
                 Frame::MaxPathId(path_id) => {
-                    if self.is_multipath_negotiated() {
+                    if let Some(current_max) = self.max_path_id() {
                         // frames that do not increase the path id are ignored
                         self.remote_max_path_id = self.remote_max_path_id.max(path_id);
+                        if self.max_path_id() != Some(current_max) {
+                            self.issue_first_path_cids(now);
+                        }
                     } else {
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "received MAX_PATH_ID frame when not multipath was not negotiated",
@@ -3742,12 +3792,23 @@ impl Connection {
         if let Some(PathId(max_path_id)) = self.max_path_id() {
             let start_path_id = self.max_path_id_in_use.0 + 1;
             for n in start_path_id..=max_path_id {
-                self.endpoint_events
-                    .push_back(EndpointEventInner::NeedIdentifiers(
-                        PathId(n),
-                        now,
-                        self.peer_params.issue_cids_limit(),
-                    ));
+                let path_id = PathId(n);
+                // check how many CIDs are required. This method might have been called in the past
+                // with a lower max_path_id
+                // TODO(@divma): alternatively, just check if there's any instead of calculating
+                // how many. I think this always is either `issue_cids_limit` or 0
+                let existing = self
+                    .local_cid_state
+                    .get(&path_id)
+                    .map(CidState::active_cid_count)
+                    .unwrap_or_default()
+                    .try_into()
+                    .expect("usize is at max u64 at moment of writing");
+                let required = self.peer_params.issue_cids_limit().saturating_sub(existing);
+                if required > 0 {
+                    let ev = EndpointEventInner::NeedIdentifiers(path_id, now, required);
+                    self.endpoint_events.push_back(ev);
+                }
             }
         }
     }
@@ -4828,9 +4889,14 @@ impl From<ConnectionError> for io::Error {
 }
 
 pub enum OpenPathError {
+    /// The extension was not negotiated with the peer
     MultipathNotNegotiated,
+    /// Paths can only be opened client-side
     ServerSideNotAllowed,
+    /// Current limits do not allow us to open more paths
     MaxPathIdReached,
+    /// No remove CIDs avaiable to open a new path
+    RemoteCidsExhausted,
 }
 
 #[allow(unreachable_pub)] // fuzzing only

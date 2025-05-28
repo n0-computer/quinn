@@ -61,6 +61,12 @@ impl<T: Into<u32>> From<T> for PathId {
     }
 }
 
+pub(super) struct PendingPath {
+    pub id: PathId,
+    pub remote: SocketAddr,
+    pub status: PathStatus,
+}
+
 /// Description of a particular network path
 pub(super) struct PathData {
     pub(super) remote: SocketAddr,
