@@ -483,9 +483,7 @@ impl Connection {
     }
 
     /// Opens a path
-    ///
-    /// Returns `None` if the paths are exhausted.
-    pub fn open_path(&mut self, addr: SocketAddr, initial_status: PathStatus) -> Option<PathId> {
+    pub fn open_path(&mut self, addr: SocketAddr, initial_status: PathStatus) -> PathId {
         todo!()
     }
 

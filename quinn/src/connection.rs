@@ -359,12 +359,18 @@ impl Connection {
     }
 
     /// Open a (Multi)Path.
-    pub fn open_path(&self, addr: SocketAddr, initial_status: PathStatus) -> OpenPath<'_> {
+    pub fn open_path(&self, addr: SocketAddr, initial_status: PathStatus) -> OpenPath {
+        let (on_open_path_send, on_open_path_recv) = oneshot::channel();
+        let path_id = {
+            let mut state = self.0.state.lock("open_path");
+            let path_id = state.inner.open_path(addr, initial_status);
+            state.open_path.insert(path_id, on_open_path_send);
+            path_id
+        };
+
         OpenPath {
-            conn: &self.0,
-            notify: self.0.shared.open_path.notified(),
-            addr,
-            initial_status,
+            opened: on_open_path_recv,
+            path_id,
         }
     }
 
@@ -884,54 +890,19 @@ impl Future for SendDatagram<'_> {
     }
 }
 
-pin_project! {
-    /// Future produced by [`Connection::open_path`]
-    pub struct OpenPath<'a> {
-        conn: &'a ConnectionRef,
-        #[pin]
-        notify: Notified<'a>,
-        addr: SocketAddr,
-        initial_status: PathStatus,
-    }
+/// Future produced by [`Connection::open_path`]
+pub struct OpenPath {
+    opened: oneshot::Receiver<()>,
+    path_id: PathId,
 }
 
-impl Future for OpenPath<'_> {
+impl Future for OpenPath {
     type Output = Result<PathId, ConnectionError>;
-    fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-        let id = ready!(poll_open_path(
-            ctx,
-            this.conn,
-            this.notify,
-            *this.addr,
-            *this.initial_status
-        ))?;
-
-        Poll::Ready(Ok(id))
-    }
-}
-
-fn poll_open_path<'a>(
-    ctx: &mut Context<'_>,
-    conn: &'a ConnectionRef,
-    mut notify: Pin<&mut Notified<'a>>,
-    addr: SocketAddr,
-    initial_status: PathStatus,
-) -> Poll<Result<PathId, ConnectionError>> {
-    let mut state = conn.state.lock("poll_open_path");
-    if let Some(ref e) = state.error {
-        return Poll::Ready(Err(e.clone()));
-    } else if let Some(id) = state.inner.open_path(addr, initial_status) {
-        drop(state); // Release the lock so clone can take it
-        return Poll::Ready(Ok(id));
-    }
-    loop {
-        match notify.as_mut().poll(ctx) {
-            // `state` lock ensures we didn't race with readiness
-            Poll::Pending => return Poll::Pending,
-            // Spurious wakeup, get a new future
-            Poll::Ready(()) => notify.set(conn.shared.open_path.notified()),
-        }
+    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
+        // TODO: thread through errors
+        Pin::new(&mut self.opened)
+            .poll(ctx)
+            .map(|_| Ok(self.path_id))
     }
 }
 
@@ -965,6 +936,7 @@ impl ConnectionRef {
                 blocked_writers: FxHashMap::default(),
                 blocked_readers: FxHashMap::default(),
                 stopped: FxHashMap::default(),
+                open_path: FxHashMap::default(),
                 error: None,
                 ref_count: 0,
                 io_poller: socket.clone().create_io_poller(),
@@ -1066,7 +1038,6 @@ pub(crate) struct Shared {
     stream_incoming: [Notify; 2],
     datagram_received: Notify,
     datagrams_unblocked: Notify,
-    open_path: Notify,
     closed: Notify,
 }
 
@@ -1086,6 +1057,7 @@ pub(crate) struct State {
     pub(crate) stopped: FxHashMap<StreamId, Arc<Notify>>,
     /// Always set to Some before the connection becomes drained
     pub(crate) error: Option<ConnectionError>,
+    open_path: FxHashMap<PathId, oneshot::Sender<()>>,
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
     ref_count: usize,
     socket: Arc<dyn AsyncUdpSocket>,
@@ -1262,7 +1234,11 @@ impl State {
                         old != *addr
                     });
                 }
-                Path(PathEvent::Opened { .. }) => shared.open_path.notify_waiters(),
+                Path(PathEvent::Opened { id }) => {
+                    if let Some(sender) = self.open_path.remove(&id) {
+                        let _ = sender.send(());
+                    }
+                }
                 Path(PathEvent::StatusChanged { id, status }) => {}
                 Path(PathEvent::Closed { id, error_code }) => {}
             }
