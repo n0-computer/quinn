@@ -61,6 +61,8 @@ mod runtime;
 mod send_stream;
 mod work_limiter;
 
+pub mod virtualnet;
+
 #[cfg(not(wasm_browser))]
 pub(crate) use std::time::{Duration, Instant};
 #[cfg(wasm_browser)]
