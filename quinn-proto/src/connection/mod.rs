@@ -245,15 +245,14 @@ pub struct Connection {
 
     /// Local maximum [`PathId`] to be used.
     ///
-    /// This is initially set to [`TransportConfig::initial_max_path_id`] when multipath is enabled, or to
-    /// [`PathId::ZERO`] otherwise.
-    // TODO(@divma): we probably need an API to imcrease upon the original value
+    /// This is initially set to [`TransportConfig::get_initial_max_path_id`] when multipath is
+    /// negotiated, or to [`PathId::ZERO`] otherwise.
     local_max_path_id: PathId,
     /// Remote's maximum [`PathId`] to be used.
     ///
     /// This is initially set to the peer's [`TransportParameters::initial_max_path_id`] when
-    /// multipath is enabled, or to [`PathId::ZERO`] otherwise. A peer may increase this limit by
-    /// sending [`Frame::MaxPathId`] frames.
+    /// multipath is negotiated, or to [`PathId::ZERO`] otherwise. A peer may increase this limit
+    /// by sending [`Frame::MaxPathId`] frames.
     remote_max_path_id: PathId,
     /// The greatest [`PathId`] this connection has used.
     ///

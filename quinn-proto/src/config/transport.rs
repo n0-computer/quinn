@@ -356,7 +356,7 @@ impl TransportConfig {
         self
     }
 
-    /// Get the initial max [`PathId`] this endpoint allows.
+    /// Get the initial max [`crate::PathId`] this endpoint allows.
     ///
     /// Returns `None` if multipath is disabled.
     pub(crate) fn get_initial_max_path_id(&self) -> Option<crate::PathId> {
