@@ -7,7 +7,7 @@ use tokio::sync::oneshot;
 
 use crate::connection::ConnectionRef;
 
-/// Future produced by [`Connection::open_path`]
+/// Future produced by [`crate::Connection::open_path`]
 pub struct OpenPath {
     opened: oneshot::Receiver<()>,
     path_id: PathId,
