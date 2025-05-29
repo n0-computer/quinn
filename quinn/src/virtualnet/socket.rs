@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::AsyncUdpSocket;
+use bytes::Bytes;
 use tokio::sync::mpsc;
 use tokio_util::sync::PollSender;
 use udp::Transmit;
@@ -53,8 +54,7 @@ impl VirtualSocket {
         }
     }
 
-    #[cfg(test)]
-    pub async fn receive_data(&mut self) -> std::io::Result<(SocketAddr, bytes::Bytes)> {
+    pub async fn receive_datagram(&mut self) -> std::io::Result<(SocketAddr, Bytes)> {
         use std::io::IoSliceMut;
 
         let mut buf = [0u8; 1200];
@@ -66,10 +66,31 @@ impl VirtualSocket {
 
         debug_assert_eq!(num_datagrams, 1); // we don't support GSO/GRO(?)
 
-        Ok((
-            meta[0].addr,
-            bytes::Bytes::copy_from_slice(&buf[..meta[0].len]),
-        ))
+        Ok((meta[0].addr, Bytes::copy_from_slice(&buf[..meta[0].len])))
+    }
+
+    pub async fn send_datagram(
+        &self,
+        destination: SocketAddr,
+        contents: Bytes,
+    ) -> std::io::Result<()> {
+        let transmit = OwnedTransmit {
+            contents,
+            destination,
+            ecn: None,
+            segment_size: None,
+            src_ip: self.addr,
+        };
+
+        let mut socket_sender = self.create_sender();
+        std::future::poll_fn(|cx| {
+            socket_sender
+                .as_mut()
+                .poll_send(&transmit.as_quinn_transmit(), cx)
+        })
+        .await?;
+
+        Ok(())
     }
 }
 
@@ -163,10 +184,7 @@ impl AsyncUdpSocket for VirtualSocket {
 mod tests {
     use bytes::Bytes;
 
-    use crate::{
-        virtualnet::{OwnedTransmit, TestAddr},
-        AsyncUdpSocket,
-    };
+    use crate::virtualnet::{OwnedTransmit, TestAddr};
 
     use super::{Plug, VirtualSocket};
 
@@ -187,7 +205,7 @@ mod tests {
 
         sender.send(transmit).await?;
 
-        let (source_addr, received) = socket.receive_data().await?;
+        let (source_addr, received) = socket.receive_datagram().await?;
 
         assert_eq!(received, contents);
         assert_eq!(source_addr, other_addr);
@@ -199,24 +217,10 @@ mod tests {
     async fn test_send() -> anyhow::Result<()> {
         let (plug, _sender, mut receiver) = Plug::testometer(64);
         let socket = VirtualSocket::new(TestAddr(11), plug);
-        let mut socket_sender = socket.create_sender();
 
         let other_addr = TestAddr(99).into();
         let contents = Bytes::copy_from_slice(b"Hello, world!");
-        let transmit = OwnedTransmit {
-            contents: contents.clone(),
-            destination: other_addr,
-            ecn: None,
-            segment_size: None,
-            src_ip: socket.addr,
-        };
-
-        std::future::poll_fn(|cx| {
-            socket_sender
-                .as_mut()
-                .poll_send(&transmit.as_quinn_transmit(), cx)
-        })
-        .await?;
+        socket.send_datagram(other_addr, contents.clone()).await?;
 
         assert!(!receiver.is_empty());
         let received = receiver.recv().await.unwrap();

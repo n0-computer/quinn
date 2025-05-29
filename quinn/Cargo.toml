@@ -63,6 +63,9 @@ tokio-util = { version = "0.7.15", features = ["rt"] }
 async-global-executor = { workspace = true, optional = true }
 async-fs = { workspace = true, optional = true }
 async-executor = { workspace = true, optional = true }
+futures-buffered = "0.2.8"
+tokio-stream = "0.1.15"
+n0-future = "0.1.3"
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
 socket2 = { workspace = true }

@@ -3,8 +3,8 @@ use tokio::sync::mpsc;
 use super::socket::Plug;
 
 pub struct Wire {
-    start: Plug,
-    end: Plug,
+    pub start: Plug,
+    pub end: Plug,
 }
 
 impl Wire {
@@ -30,10 +30,7 @@ impl Wire {
 mod tests {
     use bytes::Bytes;
 
-    use crate::{
-        virtualnet::{socket::VirtualSocket, OwnedTransmit, TestAddr},
-        AsyncUdpSocket,
-    };
+    use crate::virtualnet::{socket::VirtualSocket, TestAddr};
 
     use super::Wire;
 
@@ -44,23 +41,11 @@ mod tests {
         let mut socket1 = VirtualSocket::new(TestAddr(99), wire.end);
 
         let contents = Bytes::copy_from_slice(b"Hello, world!");
-        let transmit = OwnedTransmit {
-            contents: contents.clone(),
-            destination: socket1.addr,
-            ecn: None,
-            segment_size: None,
-            src_ip: socket0.addr,
-        };
+        socket0
+            .send_datagram(socket1.addr, contents.clone())
+            .await?;
 
-        let mut socket_sender = socket0.create_sender();
-        std::future::poll_fn(|cx| {
-            socket_sender
-                .as_mut()
-                .poll_send(&transmit.as_quinn_transmit(), cx)
-        })
-        .await?;
-
-        let (source_addr, received) = socket1.receive_data().await?;
+        let (source_addr, received) = socket1.receive_datagram().await?;
 
         assert_eq!(source_addr, socket0.addr);
         assert_eq!(received, contents);
