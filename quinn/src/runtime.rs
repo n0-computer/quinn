@@ -129,11 +129,11 @@ pin_project_lite::pin_project! {
     ///
     /// The `UdpSenderHelper` generic type parameters don't need to named, as it will be
     /// used in its dyn-compatible form as a `Pin<Box<dyn UdpSender>>`.
-    pub struct UdpSenderHelper<Socket, MakeWritableFn, WritableFut> {
+    pub struct UdpSenderHelper<Socket, MakeWritableFutFn, WritableFut> {
         socket: Socket,
-        make_fut: MakeWritableFn,
+        make_writable_fut_fn: MakeWritableFutFn,
         #[pin]
-        fut: Option<WritableFut>,
+        writable_fut: Option<WritableFut>,
     }
 }
 
@@ -156,8 +156,8 @@ impl<Socket, MakeWritableFutFn, WriteableFut>
     pub fn new(inner: Socket, make_fut: MakeWritableFutFn) -> Self {
         Self {
             socket: inner,
-            make_fut,
-            fut: None,
+            make_writable_fut_fn: make_fut,
+            writable_fut: None,
         }
     }
 }
@@ -176,18 +176,19 @@ where
     ) -> Poll<io::Result<()>> {
         let mut this = self.project();
         loop {
-            if this.fut.is_none() {
-                this.fut.set(Some((this.make_fut)(&this.socket)));
+            if this.writable_fut.is_none() {
+                this.writable_fut
+                    .set(Some((this.make_writable_fut_fn)(&this.socket)));
             }
             // We're forced to `unwrap` here because `Fut` may be `!Unpin`, which means we can't safely
-            // obtain an `&mut Fut` after storing it in `self.fut` when `self` is already behind `Pin`,
+            // obtain an `&mut Fut` after storing it in `self.writable_fut` when `self` is already behind `Pin`,
             // and if we didn't store it then we wouldn't be able to keep it alive between
             // `poll_writable` calls.
-            let result = ready!(this.fut.as_mut().as_pin_mut().unwrap().poll(cx));
+            let result = ready!(this.writable_fut.as_mut().as_pin_mut().unwrap().poll(cx));
 
             // Polling an arbitrary `Future` after it becomes ready is a logic error, so arrange for
             // a new `Future` to be created on the next call.
-            this.fut.set(None);
+            this.writable_fut.set(None);
 
             // If .writable() fails, propagate the error
             result?;
