@@ -148,9 +148,10 @@ impl<Socket, MakeWritableFutFn, WritableFut> Debug
 impl<Socket, MakeWritableFutFn, WriteableFut>
     UdpSenderHelper<Socket, MakeWritableFutFn, WriteableFut>
 {
-    /// Create a [`UdpSender`] from a socket and a function that takes
-    /// the socket's reference and produces a future that resolves to
-    /// `std::io::Result<()>`, once the socket is write-ready.
+    /// Create helper that implements [`UdpSender`] from a socket.
+    ///
+    /// Additionally you need to provide what is essentially an async function
+    /// that resolves once the socket is write-ready.
     ///
     /// See also the bounds on this struct's [`UdpSender`] implementation.
     pub fn new(inner: Socket, make_fut: MakeWritableFutFn) -> Self {
