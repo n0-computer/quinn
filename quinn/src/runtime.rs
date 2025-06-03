@@ -181,9 +181,9 @@ where
                     .set(Some((this.make_writable_fut_fn)(&this.socket)));
             }
             // We're forced to `unwrap` here because `Fut` may be `!Unpin`, which means we can't safely
-            // obtain an `&mut Fut` after storing it in `self.writable_fut` when `self` is already behind `Pin`,
+            // obtain an `&mut WritableFut` after storing it in `self.writable_fut` when `self` is already behind `Pin`,
             // and if we didn't store it then we wouldn't be able to keep it alive between
-            // `poll_writable` calls.
+            // `poll_send` calls.
             let result = ready!(this.writable_fut.as_mut().as_pin_mut().unwrap().poll(cx));
 
             // Polling an arbitrary `Future` after it becomes ready is a logic error, so arrange for
