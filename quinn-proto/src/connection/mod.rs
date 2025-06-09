@@ -24,7 +24,9 @@ use crate::{
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     crypto::{self, KeyPair, Keys, PacketKey},
-    frame::{self, Close, Datagram, FrameStruct, NewToken, ObservedAddr},
+    frame::{
+        self, Close, Datagram, FrameStruct, NewToken, ObservedAddr, PathAbandon, PathAvailable,
+    },
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
         PacketNumber, PartialDecode, SpaceId,
@@ -532,12 +534,6 @@ impl Connection {
     }
 
     /// Start opening a new path.
-    // TODO(@divma): pending how to inform the application of all and any errors that might arrise
-    // afterwards. The point of the name, at least so far, is that this begins the process, without
-    // guarantee that at the end of this method the path is indeed open.
-    //
-    // NOTE: if this fails we still consider the path id used, which might be wrong in some cases..
-    // for example if the peer  has not issued CIDs and later on decides to do it
     pub fn queue_open_path(
         &mut self,
         remote: SocketAddr,
@@ -573,27 +569,59 @@ impl Connection {
         Ok(next_path_id)
     }
 
-    fn open_new_path(&mut self, now: Instant) -> Option<Transmit> {
-        let entry = self.paths_to_open.first_entry()?;
+    // TODO(@divma): for now this creates a bare bones packet that just does the path opening.
+    fn open_new_path(
+        &mut self,
+        now: Instant,
+        buf: &mut Vec<u8>,
+    ) -> Option<(Option<(PathId, ConnectionId)>, Vec<Frame>)>
+// TODO(@divma): return type is ugly for now
+    {
+        let (path_id, (remote, status)) = self.paths_to_open.pop_first()?;
 
-        let Some(remote_cid) = self.rem_cids.get(&path_id) else {
-            // TODO(@divma): send these errors up somehow
+        let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
             let err = OpenPathError::RemoteCidsExhausted;
             debug!(?err, %path_id, "failed to open path");
-            // TODO(@divma): here we want to send the cid blocked frame, but this probably can be
-            // sent with anything else as well
-            return None;
+            self.events
+                .push_back(Event::Path(PathEvent::OpenFailed { error: err }));
+            //   This allows us to safely consume the path_id due to the failed attempt, otherwise
+            //   we would need to keep track of holes in the range and revert the
+            //   max_path_id_in_use
+
+            return Some((
+                None,
+                vec![Frame::PathAbandon(PathAbandon {
+                    path_id,
+                    error_code: TransportErrorCode::NO_CID_AVAILABLE,
+                })],
+            ));
         };
-        // self.local_cid_state.
-        let mut builder = PacketBuilder::new(
-            now,
-            space_id,
+
+        let mut path = PathData::new(remote, self.allow_mtud, None, now, &self.config);
+        path.status = status;
+
+        let challenge = self.rng.random();
+        path.challenge = Some(challenge);
+        let status_seq_no = path.local_status_seq_no;
+        path.local_status_seq_no = path.local_status_seq_no.saturating_add(1u8);
+        self.paths.insert(
             path_id,
-            self.rem_cids.get(&path_id).unwrap().active(),
-            &mut buf,
-            can_send.other,
-            self,
-        )?;
+            PathState {
+                data: path,
+                prev: None,
+            },
+        );
+
+        // regardles of what's the status we inform it to the remote
+        let frames = vec![
+            Frame::PathChallenge(challenge),
+            Frame::PathAvailable(PathAvailable {
+                is_backup: status == PathStatus::Backup,
+                path_id,
+                status_seq_no,
+            }),
+        ];
+        Some((Some((path_id, remote_cid)), frames))
     }
 
     /// Returns packets to transmit
@@ -618,9 +646,9 @@ impl Connection {
             true => max_datagrams,
         };
 
-        if let Some(transmit) = self.open_new_path(now) {
-            return Some(transmit);
-        }
+        // if let Some(transmit) = self.open_new_path(now, buf) {
+        // return Some(transmit);
+        // }
 
         // Each call to poll_transmit can only send datagrams to one destination, because
         // all datagrams in a GSO batch are for the same destination.  Therefore only
@@ -4897,7 +4925,7 @@ impl From<ConnectionError> for io::Error {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum OpenPathError {
     /// The extension was not negotiated with the peer
     MultipathNotNegotiated,
