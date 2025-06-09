@@ -261,6 +261,11 @@ pub struct Connection {
     max_path_id_in_use: PathId,
     /// Path ids requested to be opened via [`Connection::add_path`].
     paths_to_open: BTreeMap<PathId, (SocketAddr, PathStatus)>,
+    /// Whether we should inform the peer we will allow higher [`PathId`]s.
+    increase_local_max_path_id: bool,
+    /// Whether we should inform the peer their current `MAX_PATH_ID` is blocking our attempts to
+    /// open a new path,
+    path_cids_blocked: bool,
 }
 
 struct PendingPath {
@@ -407,6 +412,8 @@ impl Connection {
             remote_max_path_id: PathId::ZERO,
             max_path_id_in_use: PathId::ZERO,
             paths_to_open: BTreeMap::default(),
+            increase_local_max_path_id: false,
+            path_cids_blocked: false,
         };
         if path_validated {
             this.on_path_validated(PathId(0));
@@ -537,20 +544,22 @@ impl Connection {
         status: PathStatus,
         now: Instant,
     ) -> Result<PathId, OpenPathError> {
-        let max_path_id = self
-            .max_path_id()
-            .ok_or(OpenPathError::MultipathNotNegotiated)?;
+        if !self.is_multipath_negotiated() {
+            return Err(OpenPathError::MultipathNotNegotiated);
+        }
         if self.side().is_server() {
             return Err(OpenPathError::ServerSideNotAllowed);
         }
 
         let next_path_id = self.max_path_id_in_use.saturating_add(1u8);
-        if next_path_id > max_path_id {
-            // TODO(@divma): we want to check who is the one limiting this and act accordingly
-            // for example, if we are the ones with the limit and the application has requested to
-            // open another path we might want to increase the limit directly. We can also rely on
-            // the application explicitely increasing the limit.
-            // if it's the peer, then we need to send a frame indicating so
+
+        if next_path_id > self.local_max_path_id {
+            self.increase_local_max_path_id = true;
+            return Err(OpenPathError::MaxPathIdReached);
+        }
+
+        if next_path_id > self.remote_max_path_id {
+            self.path_cids_blocked = true;
             return Err(OpenPathError::MaxPathIdReached);
         }
 
@@ -4888,6 +4897,7 @@ impl From<ConnectionError> for io::Error {
     }
 }
 
+#[derive(Debug)]
 pub enum OpenPathError {
     /// The extension was not negotiated with the peer
     MultipathNotNegotiated,
