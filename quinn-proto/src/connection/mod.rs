@@ -270,13 +270,6 @@ pub struct Connection {
     path_cids_blocked: bool,
 }
 
-struct PendingPath {
-    remote: SocketAddr,
-    status: PathStatus,
-    //     needs_local_cid: bool,
-    //     needs_remote_cid: bool,
-}
-
 struct PathState {
     data: PathData,
     prev: Option<(ConnectionId, PathData)>,
@@ -500,9 +493,43 @@ impl Connection {
         }
     }
 
-    /// Opens a path
-    pub fn open_path(&mut self, _addr: SocketAddr, _initial_status: PathStatus) -> PathId {
-        todo!()
+    /// Start opening a new path
+    ///
+    /// Further errors might occur and they will be emitted in [`PathEvent::OpenFailed`] events.
+    pub fn queue_open_path(
+        &mut self,
+        remote: SocketAddr,
+        initial_status: PathStatus,
+        now: Instant,
+    ) -> Result<PathId, OpenPathError> {
+        if !self.is_multipath_negotiated() {
+            return Err(OpenPathError::MultipathNotNegotiated);
+        }
+        if self.side().is_server() {
+            return Err(OpenPathError::ServerSideNotAllowed);
+        }
+
+        let next_path_id = self.max_path_id_in_use.saturating_add(1u8);
+
+        if next_path_id > self.local_max_path_id {
+            self.increase_local_max_path_id = true;
+            return Err(OpenPathError::MaxPathIdReached);
+        }
+
+        if next_path_id > self.remote_max_path_id {
+            self.path_cids_blocked = true;
+            return Err(OpenPathError::MaxPathIdReached);
+        }
+
+        // TODO(@divma): self part might be an overkill
+        // ensure we have CIDs to use on our side
+
+        self.issue_first_path_cids(now);
+
+        self.paths_to_open
+            .insert(next_path_id, (remote, initial_status));
+
+        Ok(next_path_id)
     }
 
     /// Closes a path
@@ -533,57 +560,23 @@ impl Connection {
         &mut self.paths.get_mut(&path_id).expect("known path").data
     }
 
-    /// Start opening a new path.
-    pub fn queue_open_path(
-        &mut self,
-        remote: SocketAddr,
-        status: PathStatus,
-        now: Instant,
-    ) -> Result<PathId, OpenPathError> {
-        if !self.is_multipath_negotiated() {
-            return Err(OpenPathError::MultipathNotNegotiated);
-        }
-        if self.side().is_server() {
-            return Err(OpenPathError::ServerSideNotAllowed);
-        }
-
-        let next_path_id = self.max_path_id_in_use.saturating_add(1u8);
-
-        if next_path_id > self.local_max_path_id {
-            self.increase_local_max_path_id = true;
-            return Err(OpenPathError::MaxPathIdReached);
-        }
-
-        if next_path_id > self.remote_max_path_id {
-            self.path_cids_blocked = true;
-            return Err(OpenPathError::MaxPathIdReached);
-        }
-
-        // TODO(@divma): this part might be an overkill
-        // ensure we have CIDs to use on our side
-
-        self.issue_first_path_cids(now);
-
-        self.paths_to_open.insert(next_path_id, (remote, status));
-
-        Ok(next_path_id)
-    }
-
-    // TODO(@divma): for now this creates a bare bones packet that just does the path opening.
+    // TODO(@divma): wip. for now this creates a bare bones packet that just does the path
+    // opening.
+    #[allow(dead_code)]
     fn open_new_path(
         &mut self,
         now: Instant,
-        buf: &mut Vec<u8>,
-    ) -> Option<(Option<(PathId, ConnectionId)>, Vec<Frame>)>
-// TODO(@divma): return type is ugly for now
+    ) -> Option<(Option<(PathId, ConnectionId)>, Vec<Frame>)> // TODO(@divma): return type is ugly for now
     {
         let (path_id, (remote, status)) = self.paths_to_open.pop_first()?;
 
         let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
             let err = OpenPathError::RemoteCidsExhausted;
             debug!(?err, %path_id, "failed to open path");
-            self.events
-                .push_back(Event::Path(PathEvent::OpenFailed { error: err }));
+            self.events.push_back(Event::Path(PathEvent::OpenFailed {
+                id: path_id,
+                error: err,
+            }));
             //   This allows us to safely consume the path_id due to the failed attempt, otherwise
             //   we would need to keep track of holes in the range and revert the
             //   max_path_id_in_use
@@ -4925,6 +4918,7 @@ impl From<ConnectionError> for io::Error {
     }
 }
 
+/// Errors that might happen when opening a path.
 #[derive(Debug, PartialEq, Eq)]
 pub enum OpenPathError {
     /// The extension was not negotiated with the peer

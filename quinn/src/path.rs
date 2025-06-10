@@ -2,25 +2,38 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll, ready};
 
-use proto::{ConnectionError, PathId, PathStatus, VarInt};
+use proto::{ConnectionError, OpenPathError, PathId, PathStatus, VarInt};
 use tokio::sync::oneshot;
 
 use crate::connection::ConnectionRef;
 
 /// Future produced by [`crate::Connection::open_path`]
-pub struct OpenPath {
-    opened: oneshot::Receiver<()>,
-    path_id: PathId,
-    conn: ConnectionRef,
+pub enum OpenPath {
+    Ongoing {
+        opened: oneshot::Receiver<Result<(), OpenPathError>>,
+        path_id: PathId,
+        conn: ConnectionRef,
+    },
+    Rejected {
+        err: OpenPathError,
+    },
 }
 
 impl OpenPath {
-    pub(crate) fn new(path_id: PathId, opened: oneshot::Receiver<()>, conn: ConnectionRef) -> Self {
-        Self {
+    pub(crate) fn new(
+        path_id: PathId,
+        opened: oneshot::Receiver<Result<(), OpenPathError>>,
+        conn: ConnectionRef,
+    ) -> Self {
+        Self::Ongoing {
             opened,
             path_id,
             conn,
         }
+    }
+
+    pub(crate) fn rejected(err: OpenPathError) -> Self {
+        Self::Rejected { err }
     }
 }
 

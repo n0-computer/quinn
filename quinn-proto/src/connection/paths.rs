@@ -62,12 +62,6 @@ impl<T: Into<u32>> From<T> for PathId {
     }
 }
 
-pub(super) struct PendingPath {
-    pub id: PathId,
-    pub remote: SocketAddr,
-    pub status: PathStatus,
-}
-
 /// Description of a particular network path
 pub(super) struct PathData {
     pub(super) remote: SocketAddr,
@@ -522,7 +516,11 @@ pub enum PathEvent {
         /// for a list of known errors.
         error_code: VarInt,
     },
+    /// Opening a path failed
     OpenFailed {
+        /// Path for which opening failed
+        id: PathId,
+        /// The error that occurred
         error: OpenPathError,
     },
 }
