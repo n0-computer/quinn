@@ -261,7 +261,7 @@ pub struct Connection {
     /// This is kept instead of calculated to account for abandoned paths for which data has been
     /// purged.
     max_path_id_in_use: PathId,
-    /// Path ids requested to be opened via [`Connection::add_path`].
+    /// Path ids requested to be opened via [`Connection::queue_open_path`].
     paths_to_open: BTreeMap<PathId, (SocketAddr, PathStatus)>,
     /// Whether we should inform the peer we will allow higher [`PathId`]s.
     increase_local_max_path_id: bool,
