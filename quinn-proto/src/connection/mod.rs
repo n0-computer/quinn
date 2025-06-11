@@ -521,7 +521,7 @@ impl Connection {
             return Err(OpenPathError::MaxPathIdReached);
         }
 
-        // TODO(@divma): self part might be an overkill
+        // TODO(@divma): this part might be an overkill
         // ensure we have CIDs to use on our side
 
         self.issue_first_path_cids(now);
@@ -562,6 +562,7 @@ impl Connection {
 
     // TODO(@divma): wip. for now this creates a bare bones packet that just does the path
     // opening.
+    #[allow(clippy::type_complexity)]
     #[allow(dead_code)]
     fn open_new_path(
         &mut self,
@@ -638,10 +639,6 @@ impl Connection {
             false => 1,
             true => max_datagrams,
         };
-
-        // if let Some(transmit) = self.open_new_path(now, buf) {
-        // return Some(transmit);
-        // }
 
         // Each call to poll_transmit can only send datagrams to one destination, because
         // all datagrams in a GSO batch are for the same destination.  Therefore only
