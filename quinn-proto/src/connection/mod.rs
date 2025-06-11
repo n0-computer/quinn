@@ -4919,7 +4919,7 @@ impl From<ConnectionError> for io::Error {
 }
 
 /// Errors that might happen when opening a path.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum OpenPathError {
     /// The extension was not negotiated with the peer
     MultipathNotNegotiated,
