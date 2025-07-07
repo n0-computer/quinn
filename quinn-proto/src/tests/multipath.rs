@@ -7,6 +7,7 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use tracing::info;
 
+use crate::Event;
 use crate::{
     ClientConfig, ClosePathError, ConnectionHandle, ConnectionId, ConnectionIdGenerator, Endpoint,
     EndpointConfig, Instant, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator,
@@ -363,23 +364,17 @@ fn issue_max_path_id() {
 #[test]
 fn open_path() {
     let _guard = subscribe();
-    let (mut pair, client_ch, server_ch) = multipath_pair();
+    let (mut pair, client_ch, _server_ch) = multipath_pair();
 
     let server_addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
         .open_path(server_addr, PathStatus::Available, Instant::now())
         .unwrap();
-    info!(?path_id, "opening path");
     pair.drive();
-    info!("pair idle!");
-    let server_conn = pair.server_conn_mut(server_ch);
-    while let Some(ev) = server_conn.poll() {
-        info!(?ev, "server event");
-    }
-
     let client_conn = pair.client_conn_mut(client_ch);
-    while let Some(ev) = client_conn.poll() {
-        info!(?ev, "client event");
-    }
+    assert_matches!(
+        client_conn.poll().unwrap(),
+        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+    );
 }
