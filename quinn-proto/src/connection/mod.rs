@@ -1575,7 +1575,6 @@ impl Connection {
                 // If this packet could initiate a migration and we're a client or a server that
                 // forbids migration, drop the datagram. This could be relaxed to heuristically
                 // permit NAT-rebinding-like migration.
-
                 if let Some(known_remote) = self.path(path_id).map(|path| path.remote) {
                     if remote != known_remote && !self.side.remote_may_migrate() {
                         trace!("discarding packet from unrecognized peer {}", remote);
@@ -3593,7 +3592,6 @@ impl Connection {
                     close = Some(reason);
                 }
                 Frame::PathChallenge(token) => {
-                    // A PATH_CHALLENGE
                     let path = &mut self
                         .path_mut(path_id)
                         .expect("payload is processed only after the path becomes known");
