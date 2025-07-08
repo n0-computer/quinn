@@ -4413,6 +4413,7 @@ impl Connection {
             };
 
             let seq = path.status.seq();
+            sent.retransmits.get_or_create().path_status.insert(path_id);
             match path.local_status() {
                 PathStatus::Available => {
                     frame::PathAvailable {
