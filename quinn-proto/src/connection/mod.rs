@@ -571,11 +571,6 @@ impl Connection {
             },
         );
 
-        // Inform the remote of the path status.
-        self.spaces[SpaceId::Data]
-            .pending
-            .path_status
-            .insert(path_id);
         let pn_space = spaces::PacketNumberSpace::new(now, SpaceId::Data, &mut self.rng);
         self.spaces[SpaceId::Data]
             .number_spaces
@@ -4277,6 +4272,13 @@ impl Connection {
                 trace!("PATH_CHALLENGE {:08x}", token);
                 buf.write(frame::FrameType::PATH_CHALLENGE);
                 buf.write(token);
+
+                // TODO(@divma): this is a bit of a bandaid, revisit this once the validation story
+                // is clear
+                if !path.validated {
+                    // queue informing the path status along with the challenge
+                    space.pending.path_status.insert(path_id);
+                }
 
                 // Always include an OBSERVED_ADDR frame with a PATH_CHALLENGE, regardless
                 // of whether one has already been sent on this path.
