@@ -4275,7 +4275,7 @@ impl Connection {
 
                 // TODO(@divma): this is a bit of a bandaid, revisit this once the validation story
                 // is clear
-                if !path.validated {
+                if is_multipath_negotiated && !path.validated {
                     // queue informing the path status along with the challenge
                     space.pending.path_status.insert(path_id);
                 }
