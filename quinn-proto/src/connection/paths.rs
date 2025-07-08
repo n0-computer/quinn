@@ -548,9 +548,8 @@ impl PathStatusState {
             return None;
         }
 
-        let prev = std::mem::replace(&mut self.local_status, status);
         self.local_seq = self.local_seq.saturating_add(1u8);
-        return Some(prev);
+        Some(std::mem::replace(&mut self.local_status, status))
     }
 
     pub(crate) fn seq(&self) -> VarInt {
