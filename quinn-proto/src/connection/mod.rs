@@ -580,27 +580,39 @@ impl Connection {
 
     /// Closes a path by sending a PATH_ABANDON frame
     ///
-    /// This will not allow closing the last path.
+    /// This will not allow closing the last path. It does allow closing paths which have
+    /// not yet been opened, as e.g. is the case when receiving a PATH_ABANDON from the peer
+    /// for a path that was never opened locally.
     pub fn close_path(
         &mut self,
         path_id: PathId,
-        _error_code: VarInt,
+        error_code: VarInt,
     ) -> Result<(), ClosePathError> {
-        // TODO(flub): We are allowed to close paths that have not yet been opened to use up
-        //    already issued path IDs.
-        let _path = self
-            .paths
-            .get_mut(&path_id)
-            .ok_or(ClosePathError::ClosedPath)?;
+        if self.abandoned_paths.contains(&path_id) || Some(path_id) > self.max_path_id() {
+            return Err(ClosePathError::ClosedPath);
+        }
         if self.paths.len() < 2 {
             return Err(ClosePathError::LastOpenPath);
         }
-        // - send PATH_ABANDON
-        // - retire received CIDs for this path - this means no more sending anything using
-        //   it.
+
+        // Send PATH_ABANDON
+        self.spaces[SpaceId::Data]
+            .pending
+            .path_abandon
+            .insert(path_id, error_code.into());
+
+        // Retire CIDs.
+        // Technically we don't have to do this just yet.  We only need to do this *after*
+        // the ABANDON_PATH frame is sent, allowing us to still send it on the
+        // to-be-abandoned path.  However it is recommended to send it on another path, and
+        // we do not allow abandoning the last path anyway.
+        self.rem_cids.remove(&path_id);
+
         // - Now set a timer for 3 * PTO to remove the rest of the state? and set the reset
         //   token.
-        todo!()
+
+        self.abandoned_paths.insert(path_id);
+        Ok(())
     }
 
     /// Gets the [`PathData`] for a known [`PathId`].
@@ -843,19 +855,24 @@ impl Connection {
             // check if there is at least one active CID to use for sending
             let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
                 let err = PathError::RemoteCidsExhausted;
-                debug!(?err, %path_id, "no active CID for path");
-                self.events.push_back(Event::Path(PathEvent::LocallyClosed {
-                    id: path_id,
-                    error: err,
-                }));
-                // Locally we should have refused to open this path, the remote should have
-                // given us CIDs for this path before opening it.
-                self.close_path(path_id, TransportErrorCode::NO_CID_AVAILABLE.into())
-                    .ok();
-                self.spaces[SpaceId::Data]
-                    .pending
-                    .path_cids_blocked
-                    .push(path_id);
+                if !self.abandoned_paths.contains(&path_id) {
+                    debug!(?err, %path_id, "no active CID for path");
+                    self.events.push_back(Event::Path(PathEvent::LocallyClosed {
+                        id: path_id,
+                        error: err,
+                    }));
+                    // Locally we should have refused to open this path, the remote should
+                    // have given us CIDs for this path before opening it.  So we can always
+                    // abandon this here.
+                    self.close_path(path_id, TransportErrorCode::NO_CID_AVAILABLE.into())
+                        .ok();
+                    self.spaces[SpaceId::Data]
+                        .pending
+                        .path_cids_blocked
+                        .push(path_id);
+                } else {
+                    trace!(?path_id, "CIDs retired for abandoned path");
+                }
 
                 match self.paths.keys().find(|&&next| next > path_id) {
                     Some(next_path_id) => {
@@ -864,7 +881,7 @@ impl Connection {
                             ?space_id,
                             ?path_id,
                             ?next_path_id,
-                            "nothing to send on path"
+                            "no CIDs to send on path"
                         );
                         path_id = *next_path_id;
                         space_id = SpaceId::Data;
@@ -884,7 +901,7 @@ impl Connection {
                         trace!(
                             ?space_id,
                             ?path_id,
-                            "nothing to send on path, no more paths"
+                            "no CIDs to send on path, no more paths"
                         );
                         break;
                     }
@@ -3861,8 +3878,28 @@ impl Connection {
                         migration_observed_addr = Some(observed)
                     }
                 }
-                Frame::PathAbandon(_) => {
-                    // TODO(@divma): jump ship?
+                Frame::PathAbandon(frame::PathAbandon {
+                    path_id,
+                    error_code,
+                }) => {
+                    // TODO(flub): don't really know which error code to use here.
+                    match self.close_path(path_id, error_code.into()) {
+                        Ok(()) => {
+                            trace!(?path_id, "peer abandoned path");
+                        }
+                        Err(ClosePathError::LastOpenPath) => {
+                            trace!("peer abandoned last path, closing connection");
+                            // TODO(flub): which error code?
+                            self.close(
+                                now,
+                                0u8.into(),
+                                Bytes::from_static(b"last path abandoned by peer"),
+                            );
+                        }
+                        Err(ClosePathError::ClosedPath) => {
+                            trace!(?path_id, "peer abandoned already closed path");
+                        }
+                    }
                 }
                 Frame::PathAvailable(info) => {
                     if self.is_multipath_negotiated() {
@@ -4387,7 +4424,7 @@ impl Connection {
             && space_id == SpaceId::Data
             && frame::PathAbandon::SIZE_BOUND <= buf.remaining_mut()
         {
-            let Some((path_id, error_code)) = space.pending.path_abandon.pop() else {
+            let Some((path_id, error_code)) = space.pending.path_abandon.pop_first() else {
                 break;
             };
             frame::PathAbandon {
@@ -4396,6 +4433,12 @@ impl Connection {
             }
             .encode(buf);
             self.stats.frame_tx.path_abandon += 1;
+            trace!(?path_id, "PATH_ABANDON");
+            sent.retransmits
+                .get_or_create()
+                .path_abandon
+                .entry(path_id)
+                .or_insert(error_code);
         }
 
         // PATH_AVAILABLE & PATH_BACKUP
@@ -4678,11 +4721,11 @@ impl Connection {
         let delay = delay_micros >> ack_delay_exp.into_inner();
 
         if send_path_acks {
-            trace!("PATH_ACK {:?}, Delay = {}us", ranges, delay_micros);
+            trace!("PATH_ACK {path_id:?} {ranges:?}, Delay = {delay_micros}us");
             frame::PathAck::encode(path_id, delay as _, ranges, ecn, buf);
             stats.frame_tx.path_acks += 1;
         } else {
-            trace!("ACK {:?}, Delay = {}us", ranges, delay_micros);
+            trace!("ACK {ranges:?}, Delay = {delay_micros}us");
             frame::Ack::encode(delay as _, ranges, ecn, buf);
             stats.frame_tx.acks += 1;
         }

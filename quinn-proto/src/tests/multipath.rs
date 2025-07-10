@@ -378,3 +378,23 @@ fn open_path() {
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 }
+
+#[test]
+fn close_path() {
+    let _guard = subscribe();
+    let (mut pair, client_ch, server_ch) = multipath_pair();
+
+    let server_addr = pair.server.addr;
+    let path_id = pair
+        .client_conn_mut(client_ch)
+        .open_path(server_addr, PathStatus::Available, Instant::now())
+        .unwrap();
+    pair.drive();
+    assert_ne!(path_id, PathId::ZERO);
+
+    info!("closing path 0");
+    pair.client_conn_mut(client_ch)
+        .close_path(PathId::ZERO, 0u8.into())
+        .unwrap();
+    pair.drive();
+}
