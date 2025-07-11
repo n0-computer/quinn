@@ -606,6 +606,10 @@ impl Connection {
         // the ABANDON_PATH frame is sent, allowing us to still send it on the
         // to-be-abandoned path.  However it is recommended to send it on another path, and
         // we do not allow abandoning the last path anyway.
+        // We don't fully retire these CIDs.  We remove them so we can no longer send using
+        // them, but the reset tokens are still registered with the endpoint.  They will be
+        // removed when the connection is cleaned up, which is right because we might still
+        // receive stateless resets.
         self.rem_cids.remove(&path_id);
 
         // - Now set a timer for 3 * PTO to remove the rest of the state? and set the reset
@@ -872,7 +876,7 @@ impl Connection {
                         .path_cids_blocked
                         .push(path_id);
                 } else {
-                    trace!(?path_id, "CIDs retired for abandoned path");
+                    trace!(?path_id, "remote CIDs retired for abandoned path");
                 }
 
                 match self.paths.keys().find(|&&next| next > path_id) {
@@ -1736,6 +1740,21 @@ impl Connection {
                         .for_path(path_id)
                         .pending_acks
                         .on_max_ack_delay_timeout()
+                }
+                Timer::PathAbandoned(path_id) => {
+                    // The path was abandoned and 3*PTO has expired since.  Clean up all
+                    // remaining state and install stateless reset token.
+                    if let Some(loc_cid_state) = self.local_cid_state.remove(&path_id) {
+                        let (min_seq, max_seq) = loc_cid_state.active_seq();
+                        for seq in min_seq..=max_seq {
+                            self.endpoint_events
+                                .push_back(EndpointEventInner::RetireConnectionId(
+                                    now, path_id, seq, false,
+                                ));
+                        }
+                    }
+                    self.paths.remove(&path_id);
+                    self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
                 }
             }
         }

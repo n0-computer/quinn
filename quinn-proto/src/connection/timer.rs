@@ -30,6 +30,8 @@ pub(crate) enum Timer {
     PushNewCid,
     /// When to send an immediate ACK if there are unacked ack-eliciting packets of the peer
     MaxAckDelay(PathId),
+    /// When to clean up state for an abandoned path
+    PathAbandoned(PathId),
 }
 
 /// Keeps track of the nearest timeout for each `Timer`

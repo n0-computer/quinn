@@ -53,7 +53,10 @@ impl EndpointEvent {
 pub(crate) enum EndpointEventInner {
     /// The connection has been drained
     Drained,
-    /// The reset token and/or address eligible for generating resets has been updated
+    /// The connection has a new active reset token
+    ///
+    /// Whenever the connection switches CID it also switches reset tokens that can be used
+    /// to abort this connection. This event provides a new reset token for an active CID.
     ResetToken(PathId, SocketAddr, ResetToken),
     /// The connection needs connection identifiers
     NeedIdentifiers(PathId, Instant, u64),
