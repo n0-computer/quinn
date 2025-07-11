@@ -609,7 +609,8 @@ impl Connection {
         self.rem_cids.remove(&path_id);
 
         // - Now set a timer for 3 * PTO to remove the rest of the state? and set the reset
-        //   token.
+        //   token.  Or rather we need a timer here to handle the case where we don't
+        //   receive a PATH_ABANDON in response.
 
         self.abandoned_paths.insert(path_id);
         Ok(())
@@ -3365,7 +3366,7 @@ impl Connection {
                     if let Some(token) = params.stateless_reset_token {
                         let remote = self.path_data(path_id).remote;
                         self.endpoint_events
-                            .push_back(EndpointEventInner::ResetToken(remote, token));
+                            .push_back(EndpointEventInner::ResetToken(path_id, remote, token));
                     }
                     self.handle_peer_params(params, loc_cid, rem_cid)?;
                     self.issue_first_cids(now);
@@ -3757,7 +3758,7 @@ impl Connection {
                                 ));
                             }
                             pending_retired.extend(retired.map(|seq| (path_id, seq)));
-                            self.set_reset_token(remote, reset_token);
+                            self.set_reset_token(path_id, remote, reset_token);
                         }
                         Err(InsertError::ExceedsLimit) => {
                             return Err(TransportError::CONNECTION_ID_LIMIT_ERROR(""));
@@ -3900,6 +3901,8 @@ impl Connection {
                             trace!(?path_id, "peer abandoned already closed path");
                         }
                     }
+                    let delay = self.pto(SpaceId::Data, path_id) * 3;
+                    self.timers.set(Timer::PathAbandoned(path_id), now + delay);
                 }
                 Frame::PathAvailable(info) => {
                     if self.is_multipath_negotiated() {
@@ -4099,11 +4102,11 @@ impl Connection {
 
     /// Switch to a previously unused remote connection ID, if possible
     fn update_rem_cid(&mut self, path_id: PathId) {
-        let (reset_token, retired) =
-            match self.rem_cids.get_mut(&path_id).and_then(|cids| cids.next()) {
-                Some(x) => x,
-                None => return,
-            };
+        let Some((reset_token, retired)) =
+            self.rem_cids.get_mut(&path_id).and_then(|cids| cids.next())
+        else {
+            return;
+        };
 
         // Retire the current remote CID and any CIDs we had to skip.
         self.spaces[SpaceId::Data]
@@ -4111,7 +4114,7 @@ impl Connection {
             .retire_cids
             .extend(retired.map(|seq| (path_id, seq)));
         let remote = self.path_data(path_id).remote;
-        self.set_reset_token(remote, reset_token);
+        self.set_reset_token(path_id, remote, reset_token);
     }
 
     /// Sends this reset token to the endpoint.
@@ -4122,10 +4125,18 @@ impl Connection {
     ///
     /// Reset tokens are different for each path, the endpoint identifies paths by peer
     /// socket address however, not by path ID.
-    fn set_reset_token(&mut self, remote: SocketAddr, reset_token: ResetToken) {
+    fn set_reset_token(&mut self, path_id: PathId, remote: SocketAddr, reset_token: ResetToken) {
         self.endpoint_events
-            .push_back(EndpointEventInner::ResetToken(remote, reset_token));
-        self.peer_params.stateless_reset_token = Some(reset_token);
+            .push_back(EndpointEventInner::ResetToken(path_id, remote, reset_token));
+
+        // During the handshake the server sends a reset token in the transport
+        // parameters. When we are the client and we receive the reset token during the
+        // handshake we want this to affect our peer transport parameters.
+        // TODO(flub): Pretty sure this is pointless, the entire params is overwritten
+        //    shortly after this was called.  And then the params don't have this anymore.
+        if path_id == PathId::ZERO {
+            self.peer_params.stateless_reset_token = Some(reset_token);
+        }
     }
 
     /// Issue an initial set of connection IDs to the peer upon connection
@@ -4780,11 +4791,10 @@ impl Connection {
         self.idle_timeout =
             negotiate_max_idle_timeout(self.config.max_idle_timeout, Some(params.max_idle_timeout));
         trace!("negotiated max idle timeout {:?}", self.idle_timeout);
-        let path_id = PathId(0);
 
         if let Some(ref info) = params.preferred_address {
             // During the handshake PathId(0) exists.
-            self.rem_cids.get_mut(&path_id).expect("not yet abandoned").insert(frame::NewConnectionId {
+            self.rem_cids.get_mut(&PathId::ZERO).expect("not yet abandoned").insert(frame::NewConnectionId {
                 path_id: None,
                 sequence: 1,
                 id: info.connection_id,
@@ -4794,8 +4804,8 @@ impl Connection {
             .expect(
                 "preferred address CID is the first received, and hence is guaranteed to be legal",
             );
-            let remote = self.path_data(path_id).remote;
-            self.set_reset_token(remote, info.stateless_reset_token);
+            let remote = self.path_data(PathId::ZERO).remote;
+            self.set_reset_token(PathId::ZERO, remote, info.stateless_reset_token);
         }
         self.ack_frequency.peer_max_ack_delay = get_max_ack_delay(&params);
 
@@ -4812,7 +4822,7 @@ impl Connection {
         self.peer_params = params;
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
-        self.path_data_mut(path_id)
+        self.path_data_mut(PathId::ZERO)
             .mtud
             .on_peer_max_udp_payload_size_received(peer_max_udp_payload_size);
     }

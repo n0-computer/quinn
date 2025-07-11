@@ -105,8 +105,11 @@ impl Endpoint {
             NeedIdentifiers(path_id, now, n) => {
                 return Some(self.send_new_identifiers(path_id, now, ch, n));
             }
-            ResetToken(remote, token) => {
-                if let Some(old) = self.connections[ch].reset_token.replace((remote, token)) {
+            ResetToken(path_id, remote, token) => {
+                if let Some(old) = self.connections[ch]
+                    .reset_token
+                    .insert(path_id, (remote, token))
+                {
                     self.index.connection_reset_tokens.remove(old.0, old.1);
                 }
                 if self.index.connection_reset_tokens.insert(remote, token, ch) {
@@ -854,7 +857,7 @@ impl Endpoint {
             loc_cids: FxHashMap::from_iter([(PathId(0), path_cids)]),
             addresses,
             side,
-            reset_token: None,
+            reset_token: Default::default(),
         });
         debug_assert_eq!(id, ch.0, "connection handle allocation out of sync");
 
@@ -1085,8 +1088,8 @@ impl ConnectionIndex {
         self.incoming_connection_remotes.remove(&conn.addresses);
         self.outgoing_connection_remotes
             .remove(&conn.addresses.remote);
-        if let Some((remote, token)) = conn.reset_token {
-            self.connection_reset_tokens.remove(remote, token);
+        for (remote, token) in conn.reset_token.values() {
+            self.connection_reset_tokens.remove(*remote, *token);
         }
     }
 
@@ -1137,9 +1140,15 @@ pub(crate) struct ConnectionMeta {
     /// bother keeping it up to date.
     addresses: FourTuple,
     side: Side,
-    /// Reset token provided by the peer for the CID we're currently sending to, and the address
-    /// being sent to
-    reset_token: Option<(SocketAddr, ResetToken)>,
+    /// Reset tokens provided by the peer for CIDs we're currently sending to
+    ///
+    /// Since each reset token is for a CID, it is also for a fixed remote address which is
+    /// also stored. This allows us to look up which reset tokens we might expect from a
+    /// given remote address, see [`ResetTokenTable`].
+    ///
+    /// Each path has their own active CID, we use the [`PathId`] as a unique index, but the
+    /// value does not really matter.
+    reset_token: FxHashMap<PathId, (SocketAddr, ResetToken)>,
 }
 
 /// Local connection IDs for a single path
