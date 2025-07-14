@@ -592,7 +592,13 @@ impl Connection {
         if self.abandoned_paths.contains(&path_id) || Some(path_id) > self.max_path_id() {
             return Err(ClosePathError::ClosedPath);
         }
-        if self.paths.len() < 2 {
+        if self
+            .paths
+            .keys()
+            .filter(|&id| !self.abandoned_paths.contains(id))
+            .count()
+            < 2
+        {
             return Err(ClosePathError::LastOpenPath);
         }
 
@@ -1145,8 +1151,9 @@ impl Connection {
                     }
                 }
                 builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
-                if space_id == self.highest_space && path_id == *self.paths.keys().max().unwrap() {
-                    // Don't send another close packet
+                if space_id == self.highest_space {
+                    // Don't send another close packet. Even with multipath we only send
+                    // CONNECTION_CLOSE on a single path since we expect our paths to work.
                     self.close = false;
                     // `CONNECTION_CLOSE` is the final packet
                     break;

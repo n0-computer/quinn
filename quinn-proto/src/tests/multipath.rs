@@ -7,7 +7,7 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use tracing::info;
 
-use crate::Event;
+use crate::{ApplicationClose, ConnectionError, Event, VarInt};
 use crate::{
     ClientConfig, ClosePathError, ConnectionHandle, ConnectionId, ConnectionIdGenerator, Endpoint,
     EndpointConfig, Instant, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator,
@@ -392,13 +392,13 @@ fn close_path() {
     pair.drive();
     assert_ne!(path_id, PathId::ZERO);
 
-    info!("closing path 0");
     let stats0 = pair.client_conn_mut(client_ch).stats();
     assert_eq!(stats0.frame_tx.path_abandon, 0);
     assert_eq!(stats0.frame_rx.path_abandon, 0);
     assert_eq!(stats0.frame_tx.max_path_id, 0);
     assert_eq!(stats0.frame_rx.max_path_id, 0);
 
+    info!("closing path 0");
     pair.client_conn_mut(client_ch)
         .close_path(Instant::now(), PathId::ZERO, 0u8.into())
         .unwrap();
@@ -411,4 +411,33 @@ fn close_path() {
     assert_eq!(stats1.frame_rx.max_path_id, 1);
     assert!(stats1.frame_tx.path_new_connection_id > stats0.frame_tx.path_new_connection_id);
     assert!(stats1.frame_rx.path_new_connection_id > stats0.frame_rx.path_new_connection_id);
+}
+
+#[test]
+fn close_last_path() {
+    let _guard = subscribe();
+    let (mut pair, client_ch, server_ch) = multipath_pair();
+
+    let server_addr = pair.server.addr;
+    let path_id = pair
+        .client_conn_mut(client_ch)
+        .open_path(server_addr, PathStatus::Available, Instant::now())
+        .unwrap();
+    pair.drive();
+    assert_ne!(path_id, PathId::ZERO);
+
+    info!("client closes path 0");
+    pair.client_conn_mut(client_ch)
+        .close_path(Instant::now(), PathId::ZERO, 0u8.into())
+        .unwrap();
+
+    info!("server closes path 1");
+    pair.server_conn_mut(server_ch)
+        .close_path(Instant::now(), PathId(1), 0u8.into())
+        .unwrap();
+
+    pair.drive();
+
+    assert!(pair.server_conn_mut(server_ch).is_closed());
+    assert!(pair.client_conn_mut(client_ch).is_closed());
 }
