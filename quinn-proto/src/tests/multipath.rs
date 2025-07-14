@@ -382,7 +382,7 @@ fn open_path() {
 #[test]
 fn close_path() {
     let _guard = subscribe();
-    let (mut pair, client_ch, server_ch) = multipath_pair();
+    let (mut pair, client_ch, _server_ch) = multipath_pair();
 
     let server_addr = pair.server.addr;
     let path_id = pair
@@ -393,8 +393,22 @@ fn close_path() {
     assert_ne!(path_id, PathId::ZERO);
 
     info!("closing path 0");
+    let stats0 = pair.client_conn_mut(client_ch).stats();
+    assert_eq!(stats0.frame_tx.path_abandon, 0);
+    assert_eq!(stats0.frame_rx.path_abandon, 0);
+    assert_eq!(stats0.frame_tx.max_path_id, 0);
+    assert_eq!(stats0.frame_rx.max_path_id, 0);
+
     pair.client_conn_mut(client_ch)
         .close_path(Instant::now(), PathId::ZERO, 0u8.into())
         .unwrap();
     pair.drive();
+
+    let stats1 = pair.client_conn_mut(client_ch).stats();
+    assert_eq!(stats1.frame_tx.path_abandon, 1);
+    assert_eq!(stats1.frame_rx.path_abandon, 1);
+    assert_eq!(stats1.frame_tx.max_path_id, 1);
+    assert_eq!(stats1.frame_rx.max_path_id, 1);
+    assert!(stats1.frame_tx.path_new_connection_id > stats0.frame_tx.path_new_connection_id);
+    assert!(stats1.frame_rx.path_new_connection_id > stats0.frame_rx.path_new_connection_id);
 }
