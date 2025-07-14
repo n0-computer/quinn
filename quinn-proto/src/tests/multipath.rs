@@ -7,7 +7,7 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use tracing::info;
 
-use crate::{ApplicationClose, ConnectionError, Event, VarInt};
+use crate::Event;
 use crate::{
     ClientConfig, ClosePathError, ConnectionHandle, ConnectionId, ConnectionIdGenerator, Endpoint,
     EndpointConfig, Instant, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator,
