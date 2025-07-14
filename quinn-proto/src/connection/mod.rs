@@ -585,6 +585,7 @@ impl Connection {
     /// for a path that was never opened locally.
     pub fn close_path(
         &mut self,
+        now: Instant,
         path_id: PathId,
         error_code: VarInt,
     ) -> Result<(), ClosePathError> {
@@ -601,7 +602,7 @@ impl Connection {
             .path_abandon
             .insert(path_id, error_code.into());
 
-        // Retire CIDs.
+        // Consider remotely issued CIDs as retired.
         // Technically we don't have to do this just yet.  We only need to do this *after*
         // the ABANDON_PATH frame is sent, allowing us to still send it on the
         // to-be-abandoned path.  However it is recommended to send it on another path, and
@@ -617,6 +618,9 @@ impl Connection {
         //   receive a PATH_ABANDON in response.
 
         self.abandoned_paths.insert(path_id);
+
+        self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
+
         Ok(())
     }
 
@@ -869,7 +873,7 @@ impl Connection {
                     // Locally we should have refused to open this path, the remote should
                     // have given us CIDs for this path before opening it.  So we can always
                     // abandon this here.
-                    self.close_path(path_id, TransportErrorCode::NO_CID_AVAILABLE.into())
+                    self.close_path(now, path_id, TransportErrorCode::NO_CID_AVAILABLE.into())
                         .ok();
                     self.spaces[SpaceId::Data]
                         .pending
@@ -1676,7 +1680,7 @@ impl Connection {
                 Timer::PathIdle(path_id) => {
                     // TODO(flub): TransportErrorCode::NO_ERROR but where's the API to get
                     //    that into a VarInt?
-                    self.close_path(path_id, TransportErrorCode::NO_ERROR.into())
+                    self.close_path(now, path_id, TransportErrorCode::NO_ERROR.into())
                         .ok();
                 }
                 Timer::KeepAlive => {
@@ -3903,7 +3907,7 @@ impl Connection {
                     error_code,
                 }) => {
                     // TODO(flub): don't really know which error code to use here.
-                    match self.close_path(path_id, error_code.into()) {
+                    match self.close_path(now, path_id, error_code.into()) {
                         Ok(()) => {
                             trace!(?path_id, "peer abandoned path");
                         }

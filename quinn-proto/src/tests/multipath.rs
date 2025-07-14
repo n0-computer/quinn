@@ -147,7 +147,7 @@ fn path_close_last_path() {
 
     let client_conn = pair.client_conn_mut(client_ch);
     let err = client_conn
-        .close_path(PathId::ZERO, 0u8.into())
+        .close_path(Instant::now(), PathId::ZERO, 0u8.into())
         .err()
         .unwrap();
     assert!(matches!(err, ClosePathError::LastOpenPath));
@@ -394,7 +394,7 @@ fn close_path() {
 
     info!("closing path 0");
     pair.client_conn_mut(client_ch)
-        .close_path(PathId::ZERO, 0u8.into())
+        .close_path(Instant::now(), PathId::ZERO, 0u8.into())
         .unwrap();
     pair.drive();
 }
