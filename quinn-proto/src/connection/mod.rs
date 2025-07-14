@@ -619,13 +619,16 @@ impl Connection {
         // receive stateless resets.
         self.rem_cids.remove(&path_id);
 
-        // - Now set a timer for 3 * PTO to remove the rest of the state? and set the reset
-        //   token.  Or rather we need a timer here to handle the case where we don't
-        //   receive a PATH_ABANDON in response.
-
         self.abandoned_paths.insert(path_id);
 
         self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
+
+        // The peer MUST respond with a corresponding PATH_ABANDON frame. If not, this timer
+        // expires.
+        self.timers.set(
+            Timer::PathNotAbandoned(path_id),
+            now + self.pto_max_path(SpaceId::Data),
+        );
 
         Ok(())
     }
@@ -1766,6 +1769,13 @@ impl Connection {
                     }
                     self.paths.remove(&path_id);
                     self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
+                }
+                Timer::PathNotAbandoned(path_id) => {
+                    // The peer failed to respond with a PATH_ABANDON when we sent such a
+                    // frame.
+                    warn!(?path_id, "missing PATH_ABANDON from peer");
+                    // TODO(flub): What should the error code be?
+                    self.close(now, 0u8.into(), "peer ignored PATH_ABANDON frame".into());
                 }
             }
         }
@@ -3933,6 +3943,7 @@ impl Connection {
                     }
                     let delay = self.pto(SpaceId::Data, path_id) * 3;
                     self.timers.set(Timer::PathAbandoned(path_id), now + delay);
+                    self.timers.stop(Timer::PathNotAbandoned(path_id));
                 }
                 Frame::PathAvailable(info) => {
                     if self.is_multipath_negotiated() {

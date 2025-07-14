@@ -32,6 +32,8 @@ pub(crate) enum Timer {
     MaxAckDelay(PathId),
     /// When to clean up state for an abandoned path
     PathAbandoned(PathId),
+    /// When the peer fails to confirm abandoning the path
+    PathNotAbandoned(PathId),
 }
 
 /// Keeps track of the nearest timeout for each `Timer`
