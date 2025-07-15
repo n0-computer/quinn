@@ -1152,8 +1152,8 @@ pub(crate) struct ConnectionMeta {
     /// also stored. This allows us to look up which reset tokens we might expect from a
     /// given remote address, see [`ResetTokenTable`].
     ///
-    /// Each path has their own active CID, we use the [`PathId`] as a unique index, but the
-    /// value does not really matter.
+    /// Each path has its own active CID. We use the [`PathId`] as a unique index, allowing
+    /// us to retire the reset token when a path is abandoned.
     reset_token: FxHashMap<PathId, (SocketAddr, ResetToken)>,
 }
 
