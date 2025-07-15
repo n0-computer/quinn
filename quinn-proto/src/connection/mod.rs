@@ -618,6 +618,8 @@ impl Connection {
         // removed when the connection is cleaned up, which is right because we might still
         // receive stateless resets.
         self.rem_cids.remove(&path_id);
+        self.endpoint_events
+            .push_back(EndpointEventInner::RetireResetToken(path_id));
 
         self.abandoned_paths.insert(path_id);
 
@@ -3763,6 +3765,9 @@ impl Connection {
                         retire_prior_to = frame.retire_prior_to,
                     );
                     let path_id = frame.path_id.unwrap_or_default();
+                    // TODO(flub): We should only accept CIDs if path_id < self.max_path_id()
+                    //    because otherwise someone could attack us by sending us lots of
+                    //    CIDs.
                     let rem_cids = self
                         .rem_cids
                         .entry(path_id)
@@ -4158,11 +4163,11 @@ impl Connection {
         self.set_reset_token(path_id, remote, reset_token);
     }
 
-    /// Sends this reset token to the endpoint.
+    /// Sends this reset token to the endpoint
     ///
-    /// The endpoint needs to have reset-tokens for past connections so that it can still
-    /// use those for stateless resets when the connection state is dropped.  See RFC 9000
-    /// section 10.3. Stateless Reset.
+    /// The endpoint needs to know the reset tokens issued by the peer, so that if the peer
+    /// sends a reset token it knows to route it to this connection. See RFC 9000 section
+    /// 10.3. Stateless Reset.
     ///
     /// Reset tokens are different for each path, the endpoint identifies paths by peer
     /// socket address however, not by path ID.

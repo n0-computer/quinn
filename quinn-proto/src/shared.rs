@@ -55,11 +55,16 @@ pub(crate) enum EndpointEventInner {
     Drained,
     /// The connection has a new active reset token
     ///
-    /// Whenever the connection switches CID it also switches reset tokens that can be used
-    /// to abort this connection. This event provides a new reset token for an active CID.
+    /// Whenever the connection switches to a new remote CID issued by the peer, it also
+    /// switches the matching reset token that can be used to abort this connection. This
+    /// event provides a new reset token for the active remote CID.
     ResetToken(PathId, SocketAddr, ResetToken),
+    /// Retire the reset token for a path, without replacing it with a new one
+    RetireResetToken(PathId),
     /// The connection needs connection identifiers
     NeedIdentifiers(PathId, Instant, u64),
+    /// Retire a locally issued CID
+    ///
     /// Stop routing connection ID for this sequence number to the connection
     /// When `bool == true`, a new connection ID will be issued to peer
     RetireConnectionId(Instant, PathId, u64, bool),

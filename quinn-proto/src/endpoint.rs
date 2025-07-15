@@ -116,6 +116,11 @@ impl Endpoint {
                     warn!("duplicate reset token");
                 }
             }
+            RetireResetToken(path_id) => {
+                if let Some(old) = self.connections[ch].reset_token.remove(&path_id) {
+                    self.index.connection_reset_tokens.remove(old.0, old.1);
+                }
+            }
             RetireConnectionId(now, path_id, seq, allow_more_cids) => {
                 if let Some(cid) = self.connections[ch]
                     .loc_cids
@@ -269,6 +274,7 @@ impl Endpoint {
         }
     }
 
+    /// Builds a stateless reset packet to respond with
     fn stateless_reset(
         &mut self,
         now: Instant,
@@ -1125,7 +1131,7 @@ impl ConnectionIndex {
         self.connection_reset_tokens
             .get(addresses.remote, &data[data.len() - RESET_TOKEN_SIZE..])
             .cloned()
-            .map(|ch| RouteDatagramTo::Connection(ch, PathId(0)))
+            .map(|ch| RouteDatagramTo::Connection(ch, PathId::ZERO))
     }
 }
 
