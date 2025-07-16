@@ -4043,10 +4043,16 @@ impl Connection {
             .pending_acks
             .packet_received(now, number, ack_eliciting, &space.dedup)
         {
-            self.timers.set(
-                Timer::MaxAckDelay(path_id),
-                now + self.ack_frequency.max_ack_delay,
-            );
+            if self.abandoned_paths.contains(&path_id) {
+                // § 3.4.3 QUIC-MULTIPATH: promptly send ACKs for packets received from
+                // abandoned paths.
+                space.pending_acks.set_immediate_ack_required();
+            } else {
+                self.timers.set(
+                    Timer::MaxAckDelay(path_id),
+                    now + self.ack_frequency.max_ack_delay,
+                );
+            }
         }
 
         // Issue stream ID credit due to ACKs of outgoing finish/resets and incoming finish/resets
