@@ -899,11 +899,24 @@ impl PendingAcks {
             .map(|earliest_unacked| earliest_unacked + max_ack_delay)
     }
 
-    /// Whether any ACK frames can be sent
+    /// Whether any ACK frames SHOULD be sent
+    ///
+    /// This is used in the top-level [`Connection::space_can_send`], so determines if a
+    /// packet will be built.
+    ///
+    /// [`Connection::space_can_send`]: super::Connection::space_can_send
     pub(super) fn can_send(&self) -> bool {
-        // This always checks all the paths.  If any other path is present then multipath is
-        // assumed to be enabled.
         self.immediate_ack_required && !self.ranges.is_empty()
+    }
+
+    /// Whether any ACK frames MAY be sent
+    ///
+    /// As opposed to [`PendingAcks::can_send`] this merely indicates if it possible to
+    /// construct a new, unique ACK frame. This is used to determine whether to include any
+    /// ACK frames into a packet that is already being sent anyway.
+    pub(super) fn may_send(&self) -> bool {
+        !self.ranges.is_empty()
+            && (self.immediate_ack_required || self.ack_eliciting_since_last_ack_sent > 0)
     }
 
     /// Returns the delay since the packet with the largest packet number was received
