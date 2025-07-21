@@ -537,7 +537,7 @@ impl Connection {
             Some((path_id, _state)) => Ok((*path_id, true)),
             None => self
                 .open_path(remote, initial_status, now)
-                .and_then(|id| Ok((id, false))),
+                .map(|id| (id, false)),
         }
     }
 
