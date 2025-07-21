@@ -4308,7 +4308,7 @@ impl Connection {
             for path_id in space
                 .number_spaces
                 .iter_mut()
-                .filter(|(_, pns)| pns.pending_acks.may_send())
+                .filter(|(_, pns)| pns.pending_acks.can_send())
                 .map(|(&path_id, _)| path_id)
                 .collect::<Vec<_>>()
             {
