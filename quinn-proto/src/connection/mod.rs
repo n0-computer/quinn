@@ -519,7 +519,8 @@ impl Connection {
 
     /// Opens a new path only if no path to the remote address exists so far
     ///
-    /// See [`open_path`].
+    /// See [`open_path`]. Returns `(path_id, true)` if the path already existed. `(path_id,
+    /// false)` if was opened.
     ///
     /// [`open_path`]: Connection::open_path
     pub fn open_path_ensure(
@@ -527,14 +528,16 @@ impl Connection {
         remote: SocketAddr,
         initial_status: PathStatus,
         now: Instant,
-    ) -> Result<PathId, PathError> {
+    ) -> Result<(PathId, bool), PathError> {
         match self
             .paths
             .iter()
             .find(|(_id, path)| path.data.remote == remote)
         {
-            Some((path_id, _state)) => Ok(*path_id),
-            None => self.open_path(remote, initial_status, now),
+            Some((path_id, _state)) => Ok((*path_id, true)),
+            None => self
+                .open_path(remote, initial_status, now)
+                .and_then(|id| Ok((id, false))),
         }
     }
 
