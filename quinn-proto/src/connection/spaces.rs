@@ -227,6 +227,11 @@ pub(super) struct PacketNumberSpace {
     /// ACK already processed in another space.
     pub(super) ecn_feedback: frame::EcnCounts,
     /// Number of congestion control "in flight" bytes
+    ///
+    /// Note that this is only for this packet number space, while [`PathData::in_flight`]
+    /// tracks the in-flight bytes for all spaces.
+    ///
+    /// [`PathData::in_flight`]: super::paths::PathData::in_flight
     pub(super) in_flight: u64,
     /// Number of packets sent in the current key phase
     pub(super) sent_with_keys: u64,
