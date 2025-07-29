@@ -229,7 +229,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         conn.paths.get_mut(&path_id).unwrap().data.sent(
             exact_number,
             packet,
-            &mut conn.spaces[space_id].for_path(path_id),
+            conn.spaces[space_id].for_path(path_id),
         );
         conn.stats.paths.entry(path_id).or_default().sent_packets += 1;
         conn.reset_keep_alive(path_id, now);

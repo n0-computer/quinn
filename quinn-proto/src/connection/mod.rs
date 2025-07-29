@@ -2469,7 +2469,7 @@ impl Connection {
             })
             .collect();
 
-        if lost_pns.len() > 0 {
+        if !lost_pns.is_empty() {
             trace!(
                 ?path_id,
                 count = lost_pns.len(),
