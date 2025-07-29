@@ -37,11 +37,23 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc.js"></script>
     </head>
     <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
     <div id="body-container">
         <!-- Work around some values being stored in localStorage wrapped in quotes -->
         <script>
@@ -82,10 +94,13 @@
                 sidebar = sidebar || 'visible';
             } else {
                 sidebar = 'hidden';
+                sidebar_toggle.checked = false;
             }
-            sidebar_toggle.checked = sidebar === 'visible';
-            html.classList.remove('sidebar-visible');
-            html.classList.add("sidebar-" + sidebar);
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
         </script>
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
@@ -119,7 +134,7 @@
                             <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
                         </ul>
-                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
                             <i class="fa fa-search"></i>
                         </button>
                     </div>
@@ -136,7 +151,12 @@
 
                 <div id="search-wrapper" class="hidden">
                     <form id="searchbar-outer" class="searchbar-outer">
-                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
                     </form>
                     <div id="searchresults-outer" class="searchresults-outer hidden">
                         <div id="searchresults-header" class="searchresults-header"></div>
@@ -236,7 +256,7 @@ The project was founded by <a href="https://github.com/djc">Dirkjan Ochtman</a> 
 <a href="https://github.com/ctz/rustls">rustls</a> and <a href="https://github.com/briansmith/ring"><em>ring</em></a></li>
 <li>Application-layer datagrams for small, unreliable messages</li>
 <li>Future-based async API</li>
-<li>Minimum supported Rust version of 1.71</li>
+<li>Minimum supported Rust version of 1.74.1</li>
 </ul>
 <h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
 <ul>
@@ -403,7 +423,7 @@ This example uses <a href="https://github.com/est31/rcgen">rcgen</a> to generate
 -&gt; Result&lt;(CertificateDer&lt;'static&gt;, PrivatePkcs8KeyDer&lt;'static&gt;), Box&lt;dyn Error&gt;&gt; {
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])?;
     let cert_der = CertificateDer::from(cert.cert);
-    let key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+    let key = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
     Ok((cert_der, key))
 }
 <span class="boring">}</span></code></pre></pre>
@@ -443,7 +463,7 @@ After configuring plug the configuration into the <code>Endpoint</code>.</p>
 <p><strong>Configure Client</strong></p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>    let client_config = quinn::ClientConfig::with_platform_verifier();
+</span>    let client_config = quinn::ClientConfig::try_with_platform_verifier().unwrap();
 <span class="boring">}</span></code></pre></pre>
 <p>This is the only thing you need to do for your client to trust a server certificate signed by a conventional certificate authority.</p>
 <p><br><hr></p>
@@ -637,6 +657,7 @@ This could be useful if data arrival isn't essential or when high throughput is 
             window.setTimeout(window.print, 100);
         });
         </script>
+
 
     </div>
     </body>
