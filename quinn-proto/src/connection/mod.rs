@@ -4511,9 +4511,11 @@ impl Connection {
                 buf.write(frame::FrameType::PATH_CHALLENGE);
                 buf.write(token);
 
-                // TODO(@divma): this is a bit of a bandaid, revisit this once the validation story
-                // is clear
                 if is_multipath_negotiated && !path.validated {
+                    let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
+                    self.timers
+                        .set(Timer::PathValidation(path_id), now + 3 * pto);
+
                     // queue informing the path status along with the challenge
                     space.pending.path_status.insert(path_id);
                 }
