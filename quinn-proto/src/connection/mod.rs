@@ -576,7 +576,6 @@ impl Connection {
             return Err(PathError::RemoteCidsExhausted);
         }
 
-        debug!(%path_id, "ensuring path");
         let path = self.ensure_path(path_id, remote, now, None);
         path.status.local_update(initial_status);
 
@@ -735,6 +734,15 @@ impl Connection {
         &mut self.paths.get_mut(&path_id).expect("known path").data
     }
 
+    /// Check if the remote has been validated in any active path
+    fn is_remote_validated(&self, remote: SocketAddr) -> bool {
+        self.paths
+            .values()
+            .any(|path_state| path_state.data.remote == remote && path_state.data.validated)
+        // TODO(@divma): we might want to ensure the path has been recently active to consider the
+        // address validated
+    }
+
     fn ensure_path(
         &mut self,
         path_id: PathId,
@@ -742,13 +750,7 @@ impl Connection {
         now: Instant,
         pn: Option<u64>,
     ) -> &mut PathData {
-        let validated = self
-            .paths
-            .values()
-            .any(|path_state| path_state.data.remote == remote && path_state.data.validated);
-        // TODO(@divma): we might want to ensure the path has been recently active to consider the
-        // address validated
-
+        let validated = self.is_remote_validated(remote);
         let vacant_entry = match self.paths.entry(path_id) {
             btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
             btree_map::Entry::Occupied(occupied_entry) => {
@@ -767,10 +769,12 @@ impl Connection {
             &self.config,
         );
 
-        if !validated {
-            data.challenge = Some(self.rng.random());
-            data.challenge_pending = true;
-        }
+        data.validated = validated;
+
+        // for the path to be opened we need to send a package on the path. Sending a challenge
+        // guarantees this
+        data.challenge = Some(self.rng.random());
+        data.challenge_pending = true;
 
         let path = vacant_entry.insert(PathState { data, prev: None });
 
