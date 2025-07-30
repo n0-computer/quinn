@@ -3725,7 +3725,7 @@ impl Connection {
             let frame = result?;
             let span = match frame {
                 Frame::Padding => continue,
-                _ => trace_span!("frame", ty = %frame.ty(), %path_id),
+                _ => trace_span!("frame", ty = %frame.ty()),
             };
 
             self.stats.frame_rx.record(&frame);
