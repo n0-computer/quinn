@@ -576,24 +576,9 @@ impl Connection {
             return Err(PathError::RemoteCidsExhausted);
         }
 
-        // Create PathData, schedule PATH_CHALLENGE to be sent.
-        // TODO(flub): Not sure if we need to send a PATH_CHALLENGE in all situations?
-        let mut path = PathData::new(remote, self.allow_mtud, None, now, &self.config);
+        debug!(%path_id, "ensuring path");
+        let path = self.ensure_path(path_id, remote, now, None);
         path.status.local_update(initial_status);
-        path.challenge = Some(self.rng.random());
-        path.challenge_pending = true;
-        self.paths.insert(
-            path_id,
-            PathState {
-                data: path,
-                prev: None,
-            },
-        );
-
-        let pn_space = spaces::PacketNumberSpace::new(now, SpaceId::Data, &mut self.rng);
-        self.spaces[SpaceId::Data]
-            .number_spaces
-            .insert(path_id, pn_space);
 
         Ok(path_id)
     }
@@ -750,24 +735,44 @@ impl Connection {
         &mut self.paths.get_mut(&path_id).expect("known path").data
     }
 
-    fn ensure_path(&mut self, path_id: PathId, remote: SocketAddr, now: Instant, pn: Option<u64>) {
-        // TODO(@divma): consider adding here some validation params/logic, ej: if the remote is
-        // known, adding a challenge, etc
-        let btree_map::Entry::Vacant(vacant_entry) = self.paths.entry(path_id) else {
-            return;
+    fn ensure_path(
+        &mut self,
+        path_id: PathId,
+        remote: SocketAddr,
+        now: Instant,
+        pn: Option<u64>,
+    ) -> &mut PathData {
+        let validated = self
+            .paths
+            .values()
+            .any(|path_state| path_state.data.remote == remote && path_state.data.validated);
+        // TODO(@divma): we might want to ensure the path has been recently active to consider the
+        // address validated
+
+        let vacant_entry = match self.paths.entry(path_id) {
+            btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
+            btree_map::Entry::Occupied(occupied_entry) => {
+                return &mut occupied_entry.into_mut().data;
+            }
         };
 
-        debug!(%path_id, "path added");
+        debug!(%validated, %path_id, "path added");
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
-        let data = PathData::new(
+        let mut data = PathData::new(
             remote,
             self.allow_mtud,
             Some(peer_max_udp_payload_size),
             now,
             &self.config,
         );
-        vacant_entry.insert(PathState { data, prev: None });
+
+        if !validated {
+            data.challenge = Some(self.rng.random());
+            data.challenge_pending = true;
+        }
+
+        let path = vacant_entry.insert(PathState { data, prev: None });
 
         let mut pn_space = spaces::PacketNumberSpace::new(now, SpaceId::Data, &mut self.rng);
         if let Some(pn) = pn {
@@ -776,6 +781,7 @@ impl Connection {
         self.spaces[SpaceId::Data]
             .number_spaces
             .insert(path_id, pn_space);
+        &mut path.data
     }
     /// Returns packets to transmit
     ///
@@ -969,7 +975,7 @@ impl Connection {
 
             if !path_should_send && space_id < SpaceId::Data {
                 if self.spaces[space_id].crypto.is_some() {
-                    trace!(?space_id, ?path_id, "nothing to send in space");
+                    trace!(?space_id, %path_id, "nothing to send in space");
                 }
                 space_id = space_id.next();
                 continue;
@@ -982,7 +988,7 @@ impl Connection {
                 PathBlocked::No
             };
             if send_blocked != PathBlocked::No {
-                trace!(?space_id, ?path_id, ?send_blocked, "congestion blocked");
+                trace!(?space_id, %path_id, ?send_blocked, "congestion blocked");
                 congestion_blocked = true;
             }
             if send_blocked == PathBlocked::Congestion && space_id < SpaceId::Data {
