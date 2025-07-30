@@ -377,6 +377,12 @@ fn open_path() {
         client_conn.poll().unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
+
+    let server_conn = pair.server_conn_mut(client_ch);
+    assert_matches!(
+        server_conn.poll().unwrap(),
+        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+    );
 }
 
 #[test]

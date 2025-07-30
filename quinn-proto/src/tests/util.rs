@@ -536,7 +536,7 @@ impl ::std::ops::DerefMut for TestEndpoint {
 
 pub(super) fn subscribe() -> tracing::subscriber::DefaultGuard {
     let builder = tracing_subscriber::FmtSubscriber::builder()
-        .with_max_level(tracing::Level::TRACE)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_line_number(true)
         .with_writer(|| TestWriter);
     // tracing uses std::time to trace time, which panics in wasm.
