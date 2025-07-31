@@ -165,6 +165,7 @@ impl Pair {
         }
     }
 
+    /// Drive both endpoints optionally preventing them from receiving traffic
     pub(super) fn blackhole_step(
         &mut self,
         server_blackhole: bool,
