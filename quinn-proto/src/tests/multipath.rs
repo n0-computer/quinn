@@ -1,5 +1,6 @@
 //! Tests for multipath
 
+use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,12 +8,12 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use tracing::info;
 
-use crate::Event;
 use crate::{
     ClientConfig, ClosePathError, ConnectionHandle, ConnectionId, ConnectionIdGenerator, Endpoint,
     EndpointConfig, Instant, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator,
     ServerConfig, TransportConfig, cid_queue::CidQueue,
 };
+use crate::{Event, PathError};
 
 use super::util::{min_opt, subscribe};
 use super::{Pair, client_config, server_config};
@@ -382,6 +383,29 @@ fn open_path() {
     assert_matches!(
         server_conn.poll().unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+    );
+}
+
+/// Client starts opening a path but validation fails
+///
+/// The client should receive an event closing the path.
+#[test]
+fn open_path_validation_fails_server_side() {
+    let _guard = subscribe();
+    let (mut pair, client_ch, _server_ch) = multipath_pair();
+
+    let different_addr = SocketAddr::new([9, 8, 7, 6].into(), 4321);
+    let path_id = pair
+        .client_conn_mut(client_ch)
+        .open_path(different_addr, PathStatus::Available, Instant::now())
+        .unwrap();
+
+    // block the server from receiving anything
+    while pair.blackhole_step(true, false) {}
+    let client_conn = pair.client_conn_mut(client_ch);
+    assert_matches!(
+        client_conn.poll().unwrap(),
+        Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  }) if id == path_id
     );
 }
 

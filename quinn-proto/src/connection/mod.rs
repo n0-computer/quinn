@@ -1746,6 +1746,24 @@ impl Connection {
                     path.data.challenge = None;
                     path.data.challenge_pending = false;
                 }
+                Timer::PathOpen(path_id) => {
+                    let Some(path) = self.path_mut(path_id) else {
+                        continue;
+                    };
+                    path.challenge = None;
+                    path.challenge_pending = false;
+                    debug!("new path validation failed");
+                    if let Err(err) =
+                        self.close_path(now, path_id, TransportErrorCode::UNSTABLE_INTERFACE.into())
+                    {
+                        warn!(?err, "failed closing path");
+                    }
+
+                    self.events.push_back(Event::Path(PathEvent::LocallyClosed {
+                        id: path_id,
+                        error: PathError::ValidationFailed,
+                    }));
+                }
                 Timer::Pacing(path_id) => trace!(?path_id, "pacing timer expired"),
                 Timer::PushNewCid => {
                     while let Some((path_id, when)) = self.next_cid_retirement() {
@@ -4501,24 +4519,24 @@ impl Connection {
 
         // PATH_CHALLENGE
         if buf.remaining_mut() > 9 && space_id == SpaceId::Data {
-            // Transmit challenges with every outgoing frame on an unvalidated path
+            // Transmit challenges with every outgoing packet on an unvalidated path
             if let Some(token) = path.challenge {
-                // But only send a packet solely for that purpose at most once
-                path.challenge_pending = false;
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
                 trace!("PATH_CHALLENGE {:08x}", token);
                 buf.write(frame::FrameType::PATH_CHALLENGE);
                 buf.write(token);
 
-                if is_multipath_negotiated && !path.validated {
+                if is_multipath_negotiated && !path.validated && path.challenge_pending {
                     let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
-                    self.timers
-                        .set(Timer::PathValidation(path_id), now + 3 * pto);
+                    self.timers.set(Timer::PathOpen(path_id), now + 3 * pto);
 
                     // queue informing the path status along with the challenge
                     space.pending.path_status.insert(path_id);
                 }
+
+                // But only send a packet solely for that purpose at most once
+                path.challenge_pending = false;
 
                 // Always include an OBSERVED_ADDR frame with a PATH_CHALLENGE, regardless
                 // of whether one has already been sent on this path.
@@ -5560,6 +5578,8 @@ pub enum PathError {
     MaxPathIdReached,
     /// No remote CIDs avaiable to open a new path
     RemoteCidsExhausted,
+    /// Path could not be validated and was abandoned
+    ValidationFailed,
 }
 
 /// Errors triggered when abandoning a path
