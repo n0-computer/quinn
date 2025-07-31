@@ -771,7 +771,7 @@ impl Connection {
 
         data.validated = validated;
 
-        // for the path to be opened we need to send a package on the path. Sending a challenge
+        // for the path to be opened we need to send a packet on the path. Sending a challenge
         // guarantees this
         data.challenge = Some(self.rng.random());
         data.challenge_pending = true;
