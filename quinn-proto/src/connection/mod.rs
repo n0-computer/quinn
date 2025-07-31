@@ -5578,7 +5578,7 @@ pub enum PathError {
     MaxPathIdReached,
     /// No remote CIDs avaiable to open a new path
     RemoteCidsExhausted,
-    /// Path could not be validated and was abandoned
+    /// Path could not be validated and will be abandoned
     ValidationFailed,
 }
 
