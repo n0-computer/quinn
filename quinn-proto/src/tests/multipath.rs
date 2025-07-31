@@ -386,7 +386,7 @@ fn open_path() {
     );
 }
 
-/// Client starts opening a path but validation fails
+/// Client starts opening a path but the server fails to validate the path
 ///
 /// The client should receive an event closing the path.
 #[test]
@@ -407,6 +407,9 @@ fn open_path_validation_fails_server_side() {
         client_conn.poll().unwrap(),
         Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  }) if id == path_id
     );
+
+    let server_conn = pair.server_conn_mut(client_ch);
+    assert!(server_conn.poll().is_none());
 }
 
 #[test]
