@@ -3884,8 +3884,11 @@ impl Connection {
                         .get_mut(&path_id)
                         .expect("payload is processed only after the path becomes known");
                     if path.data.challenge == Some(token) && remote == path.data.remote {
-                        trace!("new path validated");
                         self.timers.stop(Timer::PathValidation(path_id));
+                        if !path.data.validated {
+                            trace!("new path validated");
+                        }
+                        self.timers.stop(Timer::PathOpen(path_id));
                         path.data.challenge = None;
                         path.data.validated = true;
                         self.events
