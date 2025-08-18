@@ -756,6 +756,22 @@ pub enum PathEvent {
         /// The new status set by the remote
         status: PathStatus,
     },
+    // TODO(@divma): remove after consideration
+    // The public API of quinn reports path events (this enum) and based on that it's convenient
+    // to include externally observed addresses here. This is maybe not the best in terms of
+    // separation of concerns, and a more appropriate aproach would be to create a new event type
+    // for the external API. Since this is the only "mixed topics" event so far, the alternative
+    // to having the event here is an overkill. We should consider both options depending on the
+    // number of non-strictly-multipath events that end up here and remove this note or make the
+    // change restoring the event to the higher level.
+    /// Received an observation of our external address from the peer.
+    ObservedAddr {
+        /// Path over which the observed address was reported, [`PathId::ZERO`] when multipath is
+        /// not negotiated
+        id: PathId,
+        /// The address observed by the remote over this path
+        addr: SocketAddr,
+    },
 }
 
 /// Error indicating that a path has not been opened or has already been abandoned
