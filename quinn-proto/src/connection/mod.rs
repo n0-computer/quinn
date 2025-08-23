@@ -1647,6 +1647,7 @@ impl Connection {
                 // permit NAT-rebinding-like migration.
                 if let Some(known_remote) = self.path(path_id).map(|path| path.remote) {
                     if remote != known_remote && !self.side.remote_may_migrate() {
+                        dbg!(self.side.side(), self.side.remote_may_migrate());
                         trace!("discarding packet from unrecognized peer {}", remote);
                         return;
                     }
@@ -3276,8 +3277,8 @@ impl Connection {
                 return;
             }
             if remote != self.path_data(path_id).remote {
-                debug!("discarding packet with unexpected remote during handshake");
-                return;
+                debug!("updating packet remote during handshake");
+                self.path_data_mut(path_id).remote = remote;
             }
         }
 
@@ -5485,7 +5486,7 @@ impl ConnectionSide {
     fn remote_may_migrate(&self) -> bool {
         match self {
             Self::Server { server_config } => server_config.migration,
-            Self::Client { .. } => false,
+            Self::Client { .. } => true, // false,
         }
     }
 
