@@ -4164,6 +4164,8 @@ impl Connection {
                     let path = self.path_data_mut(path_id);
                     if remote == path.remote {
                         if let Some(updated) = path.update_observed_addr_report(observed) {
+                            // TODO(@divma): this event is being received awkwardly out of order
+                            // with the open path event
                             self.events.push_back(Event::Path(PathEvent::ObservedAddr {
                                 id: path_id,
                                 addr: updated,
