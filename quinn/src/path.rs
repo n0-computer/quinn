@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
@@ -8,9 +9,9 @@ use proto::{
     ClosePathError, ClosedPath, ConnectionError, PathError, PathEvent, PathId, PathStatus, VarInt,
 };
 use tokio::sync::{oneshot, watch};
-use tokio::task::AbortHandle;
 use tokio_stream::{Stream, wrappers::WatchStream};
 
+use crate::Runtime;
 use crate::connection::ConnectionRef;
 
 /// Future produced by [`crate::Connection::open_path`]
@@ -163,9 +164,51 @@ impl Path {
     /// If the address-discovery extension is not negotiated, the stream will never return.
     pub fn observed_external_addr(&self) -> Result<AddressDiscovery, ClosedPath> {
         let state = self.conn.state.lock("per_path_observed_address");
-        let mut path_events = state.path_events.subscribe();
-        let path_id = self.id;
-        let initial_value = state.inner.path_observed_address(path_id)?;
+        let path_events = state.path_events.subscribe();
+        let initial_value = state.inner.path_observed_address(self.id)?;
+        Ok(AddressDiscovery::new(
+            self.id,
+            path_events,
+            initial_value,
+            state.runtime.clone(),
+        ))
+    }
+}
+
+/// Future produced by [`Path::close`]
+pub struct ClosePath {
+    closed: oneshot::Receiver<VarInt>,
+}
+
+impl Future for ClosePath {
+    type Output = Result<VarInt, ConnectionError>;
+    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
+        // TODO: thread through errors
+        let res = ready!(Pin::new(&mut self.closed).poll(ctx));
+        match res {
+            Ok(code) => Poll::Ready(Ok(code)),
+            Err(_err) => todo!(), // TODO: appropriate error
+        }
+    }
+}
+
+/// Stream produced by [`Path::observed_external_addr`]
+///
+/// This will always return the external address most recently reported by the remote over this
+/// path. If the extension is not negotiated, this stream will never return. If the path is
+/// abandoned, the stream will end.
+// TODO(@divma): provide a way to check if the extension is negotiated.
+pub struct AddressDiscovery {
+    watcher: WatchStream<SocketAddr>,
+}
+
+impl AddressDiscovery {
+    pub(super) fn new(
+        path_id: PathId,
+        mut path_events: tokio::sync::broadcast::Receiver<PathEvent>,
+        initial_value: Option<SocketAddr>,
+        runtime: Arc<dyn Runtime>,
+    ) -> Self {
         // if the dummy value is used, it will be ignored
         let (tx, rx) = watch::channel(
             initial_value.unwrap_or_else(|| SocketAddr::new([0, 0, 0, 0].into(), 0)),
@@ -202,55 +245,17 @@ impl Path {
             WatchStream::from_changes(rx)
         };
 
-        let filter_future = tokio::spawn(filter).abort_handle();
-        Ok(AddressDiscovery {
-            watcher,
-            filter_future,
-        })
+        runtime.spawn(Box::pin(filter));
+        // TODO(@divma): check if there's a way to ensure the future ends. AbortHandle is not an
+        // option
+        AddressDiscovery { watcher }
     }
-}
-
-/// Future produced by [`Path::close`]
-pub struct ClosePath {
-    closed: oneshot::Receiver<VarInt>,
-}
-
-impl Future for ClosePath {
-    type Output = Result<VarInt, ConnectionError>;
-    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
-        // TODO: thread through errors
-        let res = ready!(Pin::new(&mut self.closed).poll(ctx));
-        match res {
-            Ok(code) => Poll::Ready(Ok(code)),
-            Err(_err) => todo!(), // TODO: appropriate error
-        }
-    }
-}
-
-/// Stream produced by [`Path::observed_external_addr`]
-///
-/// This will always return the external address most recently reported by the remote over this
-/// path. If the extension is not negotiated, this stream will never return. If the path is
-/// abandoned, the stream will end.
-// TODO(@divma): provide a way to check if the extension is negotiated.
-pub struct AddressDiscovery {
-    watcher: WatchStream<SocketAddr>,
-    filter_future: AbortHandle,
 }
 
 impl Stream for AddressDiscovery {
     type Item = SocketAddr;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.filter_future.is_finished() {
-            return Poll::Ready(None);
-        }
         Pin::new(&mut self.watcher).poll_next(cx)
-    }
-}
-
-impl Drop for AddressDiscovery {
-    fn drop(&mut self) {
-        self.filter_future.abort();
     }
 }
