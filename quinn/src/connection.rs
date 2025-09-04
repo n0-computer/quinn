@@ -1256,7 +1256,7 @@ impl State {
                     wake_stream_notify(id, &mut self.stopped);
                     wake_stream(id, &mut self.blocked_writers);
                 }
-                Path(ref evt @ PathEvent::ObservedAddr { id, addr: observed }) => {
+                Path(ref evt @ PathEvent::ObservedAddr { addr: observed, .. }) => {
                     self.path_events.send(evt.clone()).ok();
                     self.observed_external_addr.send_if_modified(|addr| {
                         let old = addr.replace(observed);
