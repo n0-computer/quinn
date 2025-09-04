@@ -171,6 +171,13 @@ pub(super) struct PathData {
     /// [`TransportParameters`]: crate::transport_parameters::TransportParameters
     pub(super) keep_alive: Option<Duration>,
 
+    /// Whether the path has already been considered opened from an application perspective
+    ///
+    /// This means, for paths other than the original [`PathId::ZERO`], a first path challenge has
+    /// been responded to, regardless of the initial validation status of the path. This state is
+    /// irreversible, since it's not affected by the path being closed.
+    pub(super) open: bool,
+
     /// Snapshot of the qlog recovery metrics
     #[cfg(feature = "qlog")]
     recovery_metrics: RecoveryMetrics,
@@ -229,6 +236,7 @@ impl PathData {
             pto_count: 0,
             idle_timeout: None,
             keep_alive: None,
+            open: false,
             #[cfg(feature = "qlog")]
             recovery_metrics: RecoveryMetrics::default(),
         }
@@ -262,6 +270,7 @@ impl PathData {
             pto_count: 0,
             idle_timeout: prev.idle_timeout,
             keep_alive: prev.keep_alive,
+            open: false,
             #[cfg(feature = "qlog")]
             recovery_metrics: prev.recovery_metrics.clone(),
         }

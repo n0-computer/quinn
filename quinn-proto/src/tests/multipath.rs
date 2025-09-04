@@ -539,16 +539,12 @@ fn per_path_observed_address() {
     // check that the client received the correct address
     let expected_addr = pair.client.addr;
     let conn = pair.client_conn_mut(client_ch);
-    // assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
-    // assert_matches!(conn.poll(), Some(Event::Connected));
     assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
     assert_matches!(conn.poll(), None);
 
     // check that the server received the correct address
     let expected_addr = pair.server.addr;
     let conn = pair.server_conn_mut(server_ch);
-    // assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
-    // assert_matches!(conn.poll(), Some(Event::Connected));
     assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
     assert_matches!(conn.poll(), None);
 
@@ -557,16 +553,27 @@ fn per_path_observed_address() {
     pair.client
         .addr
         .set_port(pair.client.addr.port().overflowing_add(1).0);
+    let our_addr = pair.client.addr;
 
     // open a second path
     let remote = pair.server.addr;
     let conn = pair.client_conn_mut(client_ch);
-    conn.open_path(remote, PathStatus::Available, Instant::now());
+    let _new_path_id = conn
+        .open_path(remote, PathStatus::Available, Instant::now())
+        .unwrap();
 
     pair.drive();
     let conn = pair.client_conn_mut(client_ch);
-    while let Some(event) = conn.poll() {
-        tracing::info!(?event, "after rebind and open path")
+    // check the migration related event
+    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == our_addr);
+    // wait for the open event
+    let mut opened = false;
+    while let Some(ev) = conn.poll() {
+        if matches!(ev, Event::Path(PathEvent::Opened { id: PathId(1) })) {
+            opened = true;
+            break;
+        }
     }
-    // assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == pair.client.addr);
+    assert!(opened);
+    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId(1), addr})) if addr == our_addr);
 }

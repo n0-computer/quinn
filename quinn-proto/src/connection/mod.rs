@@ -348,7 +348,9 @@ impl Connection {
             ),
         )]);
 
-        let path = PathData::new(remote, allow_mtud, None, now, &config);
+        let mut path = PathData::new(remote, allow_mtud, None, now, &config);
+        // TODO(@divma): consider if we want to delay this until the path is validated
+        path.open = true;
         let mut this = Self {
             endpoint_config,
             crypto,
@@ -3925,6 +3927,16 @@ impl Connection {
                         path.data.validated = true;
                         self.events
                             .push_back(Event::Path(PathEvent::Opened { id: path_id }));
+                        // mark the path as open from the application perspective now that Opened
+                        // event has been queued
+                        if !std::mem::replace(&mut path.data.open, true) {
+                            if let Some(observed) = path.data.last_observed_addr_report.as_ref() {
+                                self.events.push_back(Event::Path(PathEvent::ObservedAddr {
+                                    id: path_id,
+                                    addr: observed.socket_addr(),
+                                }));
+                            }
+                        }
                         if let Some((_, ref mut prev)) = path.prev {
                             prev.challenge = None;
                             prev.challenge_pending = false;
@@ -4164,12 +4176,13 @@ impl Connection {
                     let path = self.path_data_mut(path_id);
                     if remote == path.remote {
                         if let Some(updated) = path.update_observed_addr_report(observed) {
-                            // TODO(@divma): this event is being received awkwardly out of order
-                            // with the open path event
-                            self.events.push_back(Event::Path(PathEvent::ObservedAddr {
-                                id: path_id,
-                                addr: updated,
-                            }));
+                            if path.open {
+                                self.events.push_back(Event::Path(PathEvent::ObservedAddr {
+                                    id: path_id,
+                                    addr: updated,
+                                }));
+                            }
+                            // otherwise the event is reported when the path is deemed open
                         }
                     } else {
                         // include in migration
@@ -4374,6 +4387,7 @@ impl Connection {
         new_path.last_observed_addr_report = path.last_observed_addr_report.clone();
         if let Some(report) = observed_addr {
             if let Some(updated) = new_path.update_observed_addr_report(report) {
+                tracing::info!("adding observed addr event from migration");
                 self.events.push_back(Event::Path(PathEvent::ObservedAddr {
                     id: path_id,
                     addr: updated,
