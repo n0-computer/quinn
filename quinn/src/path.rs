@@ -248,7 +248,7 @@ impl AddressDiscovery {
         runtime.spawn(Box::pin(filter));
         // TODO(@divma): check if there's a way to ensure the future ends. AbortHandle is not an
         // option
-        AddressDiscovery { watcher }
+        Self { watcher }
     }
 }
 
