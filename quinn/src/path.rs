@@ -209,10 +209,9 @@ impl AddressDiscovery {
         initial_value: Option<SocketAddr>,
         runtime: Arc<dyn Runtime>,
     ) -> Self {
-        // if the dummy value is used, it will be ignored
-        let (tx, rx) = watch::channel(
-            initial_value.unwrap_or_else(|| SocketAddr::new([0, 0, 0, 0].into(), 0)),
-        );
+        let (tx, rx) = watch::channel(initial_value.unwrap_or_else(||
+                // if the dummy value is used, it will be ignored
+                SocketAddr::new([0, 0, 0, 0].into(), 0)));
         let filter = async move {
             loop {
                 match path_events.recv().await {

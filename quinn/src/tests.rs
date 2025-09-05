@@ -4,6 +4,7 @@
 use rustls::crypto::aws_lc_rs::default_provider;
 #[cfg(feature = "rustls-ring")]
 use rustls::crypto::ring::default_provider;
+use tokio_stream::StreamExt;
 
 use std::{
     convert::TryInto,
@@ -965,6 +966,52 @@ async fn test_multipath_negotiated() {
             .await
             .unwrap();
         assert!(conn.is_multipath_enabled());
+    }
+    .instrument(info_span!("client"));
+
+    tokio::join!(server_task, client_task);
+}
+
+#[tokio::test]
+async fn test_multipath_observed_address() {
+    let _logging = subscribe();
+    let factory = EndpointFactory::new();
+
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_concurrent_multipath_paths(2);
+    transport_config.send_observed_address_reports(true);
+    transport_config.receive_observed_address_reports(true);
+    let server = factory.endpoint_with_config("server", transport_config);
+    let server_addr = server.local_addr().unwrap();
+
+    let server_task = async move {
+        let conn = server.accept().await.unwrap().await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        conn.closed().await;
+    }
+    .instrument(info_span!("server"));
+
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_concurrent_multipath_paths(2);
+    transport_config.send_observed_address_reports(true);
+    transport_config.receive_observed_address_reports(true);
+
+    let client = factory.endpoint_with_config("client", transport_config);
+
+    let client_task = async move {
+        let conn = client
+            .connect(server_addr, "localhost")
+            .unwrap()
+            .await
+            .unwrap();
+        let path = conn
+            .open_path(server_addr, proto::PathStatus::Available)
+            .await
+            .unwrap();
+        let mut reports = path.observed_external_addr().unwrap();
+        while let Some(addr) = reports.next().await {
+            tracing::info!(%addr, "client received report");
+        }
     }
     .instrument(info_span!("client"));
 
