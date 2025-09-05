@@ -997,7 +997,6 @@ async fn test_multipath_observed_address() {
 
     let client = factory.endpoint_with_config("client", transport_config);
 
-    let client_addr = client.local_addr().unwrap();
     let client_task = async move {
         let conn = client
             .connect(server_addr, "localhost")
