@@ -986,7 +986,6 @@ async fn test_multipath_observed_address() {
 
     let server_task = async move {
         let conn = server.accept().await.unwrap().await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         conn.closed().await;
     }
     .instrument(info_span!("server"));
@@ -998,20 +997,32 @@ async fn test_multipath_observed_address() {
 
     let client = factory.endpoint_with_config("client", transport_config);
 
+    let client_addr = client.local_addr().unwrap();
     let client_task = async move {
         let conn = client
             .connect(server_addr, "localhost")
             .unwrap()
             .await
             .unwrap();
+        // small synchronization step necessary to allow the server to set remote CIDs
+        // TODO(@divma): this is not fixed by removing the early check of remote CIDs, at least not
+        // right now. Removing the check makes poll_transmit panic somewhere. So, eval removing
+        // this sleep after the poll_transmit unwraps have been addressed
+        tracing::info!("starting sleep");
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        tracing::info!("starting open path");
         let path = conn
             .open_path(server_addr, proto::PathStatus::Available)
             .await
             .unwrap();
+        tracing::info!("path open, starting reports");
         let mut reports = path.observed_external_addr().unwrap();
-        while let Some(addr) = reports.next().await {
-            tracing::info!(%addr, "client received report");
-        }
+        let observed = reports.next().await.unwrap();
+        tracing::info!("report received");
+
+        // in this instance the test is local and the locally known and remotely observed addresses
+        // should coincide
+        assert_eq!(observed, client.local_addr().unwrap());
     }
     .instrument(info_span!("client"));
 
