@@ -195,8 +195,7 @@ impl Future for ClosePath {
 /// Stream produced by [`Path::observed_external_addr`]
 ///
 /// This will always return the external address most recently reported by the remote over this
-/// path. If the extension is not negotiated, this stream will never return. If the path is
-/// abandoned, the stream will end.
+/// path. If the extension is not negotiated, this stream will never return.
 // TODO(@divma): provide a way to check if the extension is negotiated.
 pub struct AddressDiscovery {
     watcher: WatchStream<SocketAddr>,
