@@ -174,7 +174,7 @@ jobs:
         run: |
           ! wasm-tools print --skeleton target/wasm32-unknown-unknown/debug/quinn.wasm | grep 'import "env"'
 
-      - run: cargo binstall wasm-bindgen-cli --locked --no-confirm
+      - run: cargo binstall wasm-bindgen-cli@0.2.100 --locked --no-confirm # keep version in sync with wasm-bindgen version in Cargo.lock
       - run: cargo test --locked -p quinn-proto --target wasm32-unknown-unknown
 
   msrv:
