@@ -68,18 +68,17 @@ impl Future for OpenPath {
                 ref mut opened,
                 path_id,
                 ref mut conn,
-            } => match Pin::new(opened).poll_next(ctx) {
-                Poll::Ready(Some(value)) => Poll::Ready(value.map(|_| Path {
+            } => match ready!(Pin::new(opened).poll_next(ctx)) {
+                Some(value) => Poll::Ready(value.map(|_| Path {
                     id: path_id,
                     conn: conn.clone(),
                 })),
-                Poll::Ready(None) => {
+                None => {
                     // This only happens if receiving a notification change failed, this means the
                     // sender was dropped. This generally should not happen so we use a transient
                     // error
                     Poll::Ready(Err(PathError::ValidationFailed))
                 }
-                Poll::Pending => Poll::Pending,
             },
             OpenPathInner::Ready {
                 path_id,
