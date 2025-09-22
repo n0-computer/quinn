@@ -3387,8 +3387,6 @@ impl Connection {
                                 spin,
                                 packet.header.is_1rtt(),
                             );
-                        } else {
-                            tracing::warn!("discarded packet");
                         }
                     }
 
@@ -3453,9 +3451,9 @@ impl Connection {
         packet: Packet,
     ) -> Result<(), ConnectionError> {
         if !self.paths.contains_key(&path_id) {
-            // There is a chance this is a server side, first (for this path) packet,
-            // which would be a protocol violation. It's more likely, however, that this is a
-            // packet of pruned path
+            // There is a chance this is a server side, first (for this path) packet, which would
+            // be a protocol violation. It's more likely, however, that this is a packet of a
+            // pruned path
             trace!(%path_id, ?number, "discarding packet for unknown path");
             return Ok(());
         }
