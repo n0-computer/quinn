@@ -104,8 +104,8 @@ async fn read_from_peer(mut stream: quinn::RecvStream) -> Result<(), quinn::Conn
             Ok(())
         }
         Err(e) => {
-            use quinn::ReadToEndError::*;
             use ReadError::*;
+            use quinn::ReadToEndError::*;
             match e {
                 TooLong | Read(ClosedStream) | Read(ZeroRttRejected) | Read(IllegalOrderedRead) => {
                     unreachable!()
@@ -158,7 +158,7 @@ fn gen_cert() -> (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>) {
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
     (
         cert.cert.into(),
-        PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der()),
+        PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der()),
     )
 }
 
@@ -186,6 +186,6 @@ fn hash_correct(data: &[u8], crc: &Crc<u32>) -> bool {
 
 fn random_vec(size: usize) -> Vec<u8> {
     let mut ret = vec![0; size];
-    rand::thread_rng().fill_bytes(&mut ret[..]);
+    rand::rng().fill_bytes(&mut ret[..]);
     ret
 }

@@ -1,3 +1,5 @@
+#[cfg(feature = "json-output")]
+use std::path::PathBuf;
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::Arc,
@@ -7,26 +9,31 @@ use std::{
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use clap::Parser;
-use quinn::{crypto::rustls::QuicClientConfig, TokioRuntime};
+use quinn::{TokioRuntime, crypto::rustls::QuicClientConfig};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info};
 
-use perf::stats::{OpenStreamStats, Stats};
-use perf::{bind_socket, noprotection::NoProtectionClientConfig};
-#[cfg(feature = "json-output")]
-use std::path::PathBuf;
+use crate::{
+    CommonOpt, PERF_CIPHER_SUITES,
+    noprotection::NoProtectionClientConfig,
+    parse_byte_size,
+    stats::{OpenStreamStats, Stats},
+};
 
 /// Connects to a QUIC perf server and maintains a specified pattern of requests until interrupted
 #[derive(Parser)]
 #[clap(name = "client")]
-struct Opt {
+pub struct Opt {
     /// Host to connect to
     #[clap(default_value = "localhost:4433")]
     host: String,
     /// Override DNS resolution for host
     #[clap(long)]
     ip: Option<IpAddr>,
+    /// Specify the local socket address
+    #[clap(long)]
+    local_addr: Option<SocketAddr>,
     /// Number of unidirectional requests to maintain concurrently
     #[clap(long, default_value = "0")]
     uni_requests: u64,
@@ -34,10 +41,16 @@ struct Opt {
     #[clap(long, default_value = "1")]
     bi_requests: u64,
     /// Number of bytes to request
-    #[clap(long, default_value = "1048576")]
+    ///
+    /// This can use SI suffixes for sizes. For example, 1M will transfer
+    /// 1MiB, 10G will transfer 10GiB.
+    #[clap(long, default_value = "1M", value_parser = parse_byte_size)]
     download_size: u64,
     /// Number of bytes to transmit, in addition to the request header
-    #[clap(long, default_value = "1048576")]
+    ///
+    /// This can use SI suffixes for sizes. For example, 1M will transfer
+    /// 1MiB, 10G will transfer 10GiB.
+    #[clap(long, default_value = "1M", value_parser = parse_byte_size)]
     upload_size: u64,
     /// The time to run in seconds
     #[clap(long, default_value = "60")]
@@ -45,45 +58,16 @@ struct Opt {
     /// The interval in seconds at which stats are reported
     #[clap(long, default_value = "1")]
     interval: u64,
-    /// Send buffer size in bytes
-    #[clap(long, default_value = "2097152")]
-    send_buffer_size: usize,
-    /// Receive buffer size in bytes
-    #[clap(long, default_value = "2097152")]
-    recv_buffer_size: usize,
-    /// Specify the local socket address
-    #[clap(long)]
-    local_addr: Option<SocketAddr>,
-    /// Whether to print connection statistics
-    #[clap(long)]
-    conn_stats: bool,
     /// File path to output JSON statistics to. If the file is '-', stdout will be used
     #[cfg(feature = "json-output")]
     #[clap(long)]
     json: Option<PathBuf>,
-    /// Perform NSS-compatible TLS key logging to the file specified in `SSLKEYLOGFILE`.
-    #[clap(long = "keylog")]
-    keylog: bool,
-    /// UDP payload size that the network must be capable of carrying
-    #[clap(long, default_value = "1200")]
-    initial_mtu: u16,
-    /// Disable packet encryption/decryption (for debugging purpose)
-    #[clap(long = "no-protection")]
-    no_protection: bool,
+    /// Common options
+    #[command(flatten)]
+    common: CommonOpt,
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-    let opt = Opt::parse();
-
-    tracing_subscriber::fmt::init();
-
-    if let Err(e) = run(opt).await {
-        error!("{:#}", e);
-    }
-}
-
-async fn run(opt: Opt) -> Result<()> {
+pub async fn run(opt: Opt) -> Result<()> {
     let mut host_parts = opt.host.split(':');
     let host_name = host_parts.next().unwrap();
     let host_port = host_parts
@@ -112,13 +96,16 @@ async fn run(opt: Opt) -> Result<()> {
 
     info!("local addr {:?}", bind_addr);
 
-    let socket = bind_socket(bind_addr, opt.send_buffer_size, opt.recv_buffer_size)?;
+    let socket = opt.common.bind_socket(bind_addr)?;
 
-    let endpoint = quinn::Endpoint::new(Default::default(), None, socket, Arc::new(TokioRuntime))?;
+    let mut endpoint_cfg = quinn::EndpointConfig::default();
+    endpoint_cfg.max_udp_payload_size(opt.common.max_udp_payload_size)?;
+
+    let endpoint = quinn::Endpoint::new(endpoint_cfg, None, socket, Arc::new(TokioRuntime))?;
 
     let default_provider = rustls::crypto::ring::default_provider();
     let provider = Arc::new(rustls::crypto::CryptoProvider {
-        cipher_suites: perf::PERF_CIPHER_SUITES.into(),
+        cipher_suites: PERF_CIPHER_SUITES.into(),
         ..default_provider
     });
 
@@ -130,15 +117,17 @@ async fn run(opt: Opt) -> Result<()> {
         .with_no_client_auth();
     crypto.alpn_protocols = vec![b"perf".to_vec()];
 
-    if opt.keylog {
+    if opt.common.keylog {
         crypto.key_log = Arc::new(rustls::KeyLogFile::new());
     }
 
-    let mut transport = quinn::TransportConfig::default();
-    transport.initial_mtu(opt.initial_mtu);
+    let transport = opt.common.build_transport_config(
+        #[cfg(feature = "qlog")]
+        "perf-client",
+    )?;
 
     let crypto = Arc::new(QuicClientConfig::try_from(crypto)?);
-    let mut config = quinn::ClientConfig::new(match opt.no_protection {
+    let mut config = quinn::ClientConfig::new(match opt.common.no_protection {
         true => Arc::new(NoProtectionClientConfig::new(crypto)),
         false => crypto,
     });
@@ -184,7 +173,7 @@ async fn run(opt: Opt) -> Result<()> {
                 stats.on_interval(start, &stream_stats);
 
                 stats.print();
-                if opt.conn_stats {
+                if opt.common.conn_stats {
                     println!("{:?}\n", connection.stats());
                 }
             }
@@ -220,6 +209,10 @@ async fn drain_stream(
     download: u64,
     stream_stats: OpenStreamStats,
 ) -> Result<()> {
+    if download == 0 {
+        return Ok(());
+    }
+
     #[rustfmt::skip]
     let mut bufs = [
         Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
@@ -261,6 +254,10 @@ async fn drive_uni(
     upload: u64,
     download: u64,
 ) -> Result<()> {
+    if concurrency == 0 {
+        return Ok(());
+    }
+
     let sem = Arc::new(Semaphore::new(concurrency as usize));
 
     loop {
@@ -333,6 +330,10 @@ async fn drive_bi(
     upload: u64,
     download: u64,
 ) -> Result<()> {
+    if concurrency == 0 {
+        return Ok(());
+    }
+
     let sem = Arc::new(Semaphore::new(concurrency as usize));
 
     loop {

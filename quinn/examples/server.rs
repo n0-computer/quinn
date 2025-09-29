@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use iroh_quinn as quinn;
 use proto::crypto::rustls::QuicServerConfig;
@@ -101,7 +101,7 @@ async fn run(options: Opt) -> Result<()> {
             Err(ref e) if e.kind() == io::ErrorKind::NotFound => {
                 info!("generating self-signed certificate");
                 let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-                let key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+                let key = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
                 let cert = cert.cert.into();
                 fs::create_dir_all(path).context("failed to create certificate directory")?;
                 fs::write(&cert_path, &cert).context("failed to write certificate")?;

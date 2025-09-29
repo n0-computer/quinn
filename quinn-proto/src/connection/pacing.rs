@@ -73,7 +73,7 @@ impl Pacer {
         }
 
         // we disable pacing for extremely large windows
-        if window > u32::MAX.into() {
+        if window > u64::from(u32::MAX) {
             return None;
         }
 
@@ -160,15 +160,21 @@ mod tests {
         let new_instant = old_instant + Duration::from_micros(15);
         let rtt = Duration::from_micros(400);
 
-        assert!(Pacer::new(rtt, 30000, 1500, new_instant)
-            .delay(Duration::from_micros(0), 0, 1500, 1, old_instant)
-            .is_none());
-        assert!(Pacer::new(rtt, 30000, 1500, new_instant)
-            .delay(Duration::from_micros(0), 1600, 1500, 1, old_instant)
-            .is_none());
-        assert!(Pacer::new(rtt, 30000, 1500, new_instant)
-            .delay(Duration::from_micros(0), 1500, 1500, 3000, old_instant)
-            .is_none());
+        assert!(
+            Pacer::new(rtt, 30000, 1500, new_instant)
+                .delay(Duration::from_micros(0), 0, 1500, 1, old_instant)
+                .is_none()
+        );
+        assert!(
+            Pacer::new(rtt, 30000, 1500, new_instant)
+                .delay(Duration::from_micros(0), 1600, 1500, 1, old_instant)
+                .is_none()
+        );
+        assert!(
+            Pacer::new(rtt, 30000, 1500, new_instant)
+                .delay(Duration::from_micros(0), 1500, 1500, 3000, old_instant)
+                .is_none()
+        );
     }
 
     #[test]

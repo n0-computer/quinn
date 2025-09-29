@@ -5,7 +5,7 @@ use std::{
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
-    task::{Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use udp::{RecvMeta, Transmit};
@@ -268,5 +268,5 @@ pub use self::tokio::TokioRuntime;
 #[cfg(feature = "async-io")]
 mod async_io;
 // Due to MSRV, we must specify `self::` where there's crate/module ambiguity
-#[cfg(feature = "async-io")]
+#[cfg(any(feature = "runtime-smol", feature = "runtime-async-std"))]
 pub use self::async_io::*;

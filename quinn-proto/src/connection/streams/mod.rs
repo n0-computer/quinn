@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map, BinaryHeap},
+    collections::{BinaryHeap, hash_map},
     io,
 };
 
@@ -9,8 +9,9 @@ use tracing::trace;
 
 use super::spaces::{Retransmits, ThinRetransmits};
 use crate::{
+    Dir, StreamId, VarInt,
     connection::streams::state::{get_or_insert_recv, get_or_insert_send},
-    frame, Dir, StreamId, VarInt,
+    frame,
 };
 
 mod recv;
@@ -19,8 +20,8 @@ pub use recv::{Chunks, ReadError, ReadableError};
 
 mod send;
 pub(crate) use send::{ByteSlice, BytesArray};
-pub use send::{BytesSource, FinishError, WriteError, Written};
-use send::{Send, SendState};
+use send::{BytesSource, Send, SendState};
+pub use send::{FinishError, WriteError, Written};
 
 mod state;
 #[allow(unreachable_pub)] // fuzzing only
@@ -124,7 +125,7 @@ impl RecvStream<'_> {
     /// control window is filled. On any given stream, you can switch from ordered to unordered
     /// reads, but ordered reads on streams that have seen previous unordered reads will return
     /// `ReadError::IllegalOrderedRead`.
-    pub fn read(&mut self, ordered: bool) -> Result<Chunks, ReadableError> {
+    pub fn read(&mut self, ordered: bool) -> Result<Chunks<'_>, ReadableError> {
         Chunks::new(self.id, ordered, self.state, self.pending)
     }
 

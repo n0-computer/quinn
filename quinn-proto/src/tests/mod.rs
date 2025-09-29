@@ -18,19 +18,19 @@ use rustls::crypto::aws_lc_rs::default_provider;
 #[cfg(feature = "rustls-ring")]
 use rustls::crypto::ring::default_provider;
 use rustls::{
+    AlertDescription, RootCertStore,
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     server::WebPkiClientVerifier,
-    AlertDescription, RootCertStore,
 };
 use tracing::info;
 
 use super::*;
 use crate::{
+    Duration, Instant,
     cid_generator::{ConnectionIdGenerator, RandomConnectionIdGenerator},
     crypto::rustls::QuicServerConfig,
     frame::FrameStruct,
     transport_parameters::TransportParameters,
-    Duration, Instant,
 };
 mod util;
 use util::*;
@@ -188,7 +188,7 @@ fn draft_version_compat() {
 fn server_stateless_reset() {
     let _guard = subscribe();
     let mut key_material = vec![0; 64];
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     rng.fill_bytes(&mut key_material);
     let reset_key = hmac::Key::new(hmac::HMAC_SHA256, &key_material);
     rng.fill_bytes(&mut key_material);
@@ -218,7 +218,7 @@ fn server_stateless_reset() {
 fn client_stateless_reset() {
     let _guard = subscribe();
     let mut key_material = vec![0; 64];
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     rng.fill_bytes(&mut key_material);
     let reset_key = hmac::Key::new(hmac::HMAC_SHA256, &key_material);
     rng.fill_bytes(&mut key_material);
@@ -451,7 +451,7 @@ fn reject_missing_client_cert() {
     // because it's convenient.
     store.add(CERTIFIED_KEY.cert.der().clone()).unwrap();
 
-    let key = PrivatePkcs8KeyDer::from(CERTIFIED_KEY.key_pair.serialize_der());
+    let key = PrivatePkcs8KeyDer::from(CERTIFIED_KEY.signing_key.serialize_der());
     let cert = CERTIFIED_KEY.cert.der().clone();
 
     let provider = Arc::new(default_provider());
@@ -596,7 +596,7 @@ fn zero_rtt_happypath() {
         Ok(Some(chunk)) if chunk.offset == 0 && chunk.bytes == MSG
     );
     let _ = chunks.finalize();
-    assert_eq!(pair.client_conn_mut(client_ch).lost_packets(), 0);
+    assert_eq!(pair.client_conn_mut(client_ch).stats().path.lost_packets, 0);
 }
 
 #[test]
@@ -671,7 +671,7 @@ fn zero_rtt_rejection() {
     let mut chunks = recv.read(false).unwrap();
     assert_eq!(chunks.next(usize::MAX), Err(ReadError::Blocked));
     let _ = chunks.finalize();
-    assert_eq!(pair.client_conn_mut(client_ch).lost_packets(), 0);
+    assert_eq!(pair.client_conn_mut(client_ch).stats().path.lost_packets, 0);
 }
 
 fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: F) {
@@ -762,7 +762,7 @@ fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: 
     assert_eq!(offset, CLIENT_WRITES);
     let _ = chunks.finalize();
     assert_eq!(
-        pair.client_conn_mut(client_ch).lost_packets(),
+        pair.client_conn_mut(client_ch).stats().path.lost_packets,
         EXPECTED_DROPPED
     );
 }
@@ -1011,8 +1011,8 @@ fn key_update_simple() {
     );
     let _ = chunks.finalize();
 
-    assert_eq!(pair.client_conn_mut(client_ch).lost_packets(), 0);
-    assert_eq!(pair.server_conn_mut(server_ch).lost_packets(), 0);
+    assert_eq!(pair.client_conn_mut(client_ch).stats().path.lost_packets, 0);
+    assert_eq!(pair.server_conn_mut(server_ch).stats().path.lost_packets, 0);
 }
 
 #[test]
@@ -1044,7 +1044,7 @@ fn key_update_reordered() {
     pair.client.finish_delay();
     pair.drive();
 
-    assert_eq!(pair.client_conn_mut(client_ch).lost_packets(), 0);
+    assert_eq!(pair.client_conn_mut(client_ch).stats().path.lost_packets, 0);
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Bi }))
@@ -1059,8 +1059,8 @@ fn key_update_reordered() {
     assert_eq!(buf2.bytes, MSG2);
     let _ = chunks.finalize();
 
-    assert_eq!(pair.client_conn_mut(client_ch).lost_packets(), 0);
-    assert_eq!(pair.server_conn_mut(server_ch).lost_packets(), 0);
+    assert_eq!(pair.client_conn_mut(client_ch).stats().path.lost_packets, 0);
+    assert_eq!(pair.server_conn_mut(server_ch).stats().path.lost_packets, 0);
 }
 
 #[test]
@@ -1077,7 +1077,7 @@ fn initial_retransmit() {
     );
     assert_matches!(
         pair.client_conn_mut(client_ch).poll(),
-        Some(Event::Connected { .. })
+        Some(Event::Connected)
     );
 }
 
@@ -1245,7 +1245,7 @@ fn server_hs_retransmit() {
     );
     assert_matches!(
         pair.client_conn_mut(client_ch).poll(),
-        Some(Event::Connected { .. })
+        Some(Event::Connected)
     );
 }
 
@@ -1558,8 +1558,8 @@ fn cid_rotation() {
     let mut stop = pair.time;
     let end = pair.time + 5 * CID_TIMEOUT;
 
-    use crate::cid_queue::CidQueue;
     use crate::LOC_CID_COUNT;
+    use crate::cid_queue::CidQueue;
     let mut active_cid_num = CidQueue::LEN as u64 + 1;
     active_cid_num = active_cid_num.min(LOC_CID_COUNT);
     let mut left_bound = 0;
@@ -1606,8 +1606,8 @@ fn cid_retirement() {
     assert!(!pair.server_conn_mut(server_ch).is_closed());
     assert_matches!(pair.client_conn_mut(client_ch).active_rem_cid_seq(), 1);
 
-    use crate::cid_queue::CidQueue;
     use crate::LOC_CID_COUNT;
+    use crate::cid_queue::CidQueue;
     let mut active_cid_num = CidQueue::LEN as u64;
     active_cid_num = active_cid_num.min(LOC_CID_COUNT);
 
@@ -1699,7 +1699,7 @@ fn handshake_1rtt_handling() {
 
     pair.drive();
 
-    assert!(pair.client_conn_mut(client_ch).lost_packets() != 0);
+    assert!(pair.client_conn_mut(client_ch).stats().path.lost_packets != 0);
     let mut recv = pair.server_recv(server_ch, s);
     let mut chunks = recv.read(false).unwrap();
     assert_matches!(
@@ -1778,6 +1778,100 @@ fn congested_tail_loss() {
     pair.drive();
     assert!(pair.client_conn_mut(client_ch).congestion_window() > TARGET);
     pair.client_send(client_ch, s).write(&[42; 1024]).unwrap();
+}
+
+// Send a tail-loss probe when GSO segment_size is less than INITIAL_MTU
+#[test]
+fn tail_loss_small_segment_size() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    let (client_ch, server_ch) = pair.connect();
+
+    // No datagrams frames received in the handshake.
+    let server_stats = pair.server_conn_mut(server_ch).stats();
+    assert_eq!(server_stats.frame_rx.datagram, 0);
+
+    const DGRAM_LEN: usize = 1000; // Below INITIAL_MTU after packet overhead.
+    const DGRAM_NUM: u64 = 5; // Enough to build a GSO batch.
+
+    info!("Sending an ack-eliciting datagram");
+    pair.client_conn_mut(client_ch).ping();
+    pair.drive_client();
+
+    // Drop these packets on the server side.
+    assert!(!pair.server.inbound.is_empty());
+    pair.server.inbound.clear();
+
+    // Doing one step makes the client advance time to the PTO fire time.
+    info!("stepping forward to PTO");
+    pair.step();
+
+    // Still no datagrams frames received by the server.
+    let server_stats = pair.server_conn_mut(server_ch).stats();
+    assert_eq!(server_stats.frame_rx.datagram, 0);
+
+    // Now we can send another batch of datagrams, so the PTO can send them instead of
+    // sending a ping.  These are small enough that the segment_size is less than the
+    // INITIAL_MTU.
+    info!("Sending datagram batch");
+    for _ in 0..DGRAM_NUM {
+        pair.client_datagrams(client_ch)
+            .send(vec![0; DGRAM_LEN].into(), false)
+            .unwrap();
+    }
+
+    // If this succeeds the datagrams are received by the server and the client did not
+    // crash.
+    pair.drive();
+
+    // Finally the server should have received some datagrams.
+    let server_stats = pair.server_conn_mut(server_ch).stats();
+    assert_eq!(server_stats.frame_rx.datagram, DGRAM_NUM);
+}
+
+// Respect max_datagrams when TLP happens
+#[test]
+fn tail_loss_respect_max_datagrams() {
+    let _guard = subscribe();
+    let client_config = {
+        let mut c_config = client_config();
+        let mut t_config = TransportConfig::default();
+        //Disabling GSO, so only a single segment should be sent per iops
+        t_config.enable_segmentation_offload(false);
+        c_config.transport_config(t_config.into());
+        c_config
+    };
+    let mut pair = Pair::default();
+    let (client_ch, _) = pair.connect_with(client_config);
+
+    const DGRAM_LEN: usize = 1000; // High enough so GSO batch could be built
+    const DGRAM_NUM: u64 = 5; // Enough to build a GSO batch.
+
+    info!("Sending an ack-eliciting datagram");
+    pair.client_conn_mut(client_ch).ping();
+    pair.drive_client();
+
+    // Drop these packets on the server side.
+    assert!(!pair.server.inbound.is_empty());
+    pair.server.inbound.clear();
+
+    // Doing one step makes the client advance time to the PTO fire time.
+    info!("stepping forward to PTO");
+    pair.step();
+
+    // start sending datagram batches but the first should be a TLP
+    info!("Sending datagram batch");
+    for _ in 0..DGRAM_NUM {
+        pair.client_datagrams(client_ch)
+            .send(vec![0; DGRAM_LEN].into(), false)
+            .unwrap();
+    }
+
+    pair.drive();
+
+    // Finally checking the number of sent udp datagrams match the number of iops
+    let client_stats = pair.client_conn_mut(client_ch).stats();
+    assert_eq!(client_stats.udp_tx.ios, client_stats.udp_tx.datagrams);
 }
 
 #[test]
@@ -1890,7 +1984,7 @@ fn large_initial() {
     );
     assert_matches!(
         pair.client_conn_mut(client_ch).poll(),
-        Some(Event::Connected { .. })
+        Some(Event::Connected)
     );
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
@@ -1898,7 +1992,7 @@ fn large_initial() {
     );
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
-        Some(Event::Connected { .. })
+        Some(Event::Connected)
     );
 }
 
@@ -2082,7 +2176,7 @@ fn handshake_anti_deadlock_probe() {
     );
     assert_matches!(
         pair.client_conn_mut(client_ch).poll(),
-        Some(Event::Connected { .. })
+        Some(Event::Connected)
     );
 }
 
@@ -2112,7 +2206,7 @@ fn server_can_send_3_inital_packets() {
     );
     assert_matches!(
         pair.client_conn_mut(client_ch).poll(),
-        Some(Event::Connected { .. })
+        Some(Event::Connected)
     );
 }
 
@@ -2128,7 +2222,7 @@ fn big_cert_and_key() -> (CertificateDer<'static>, PrivateKeyDer<'static>) {
 
     (
         cert.cert.into(),
-        PrivateKeyDer::Pkcs8(cert.key_pair.serialize_der().into()),
+        PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into()),
     )
 }
 
@@ -3123,6 +3217,72 @@ fn gso_truncation() {
     }
 }
 
+/// Verify that UDP datagrams are padded to MTU if specified in the transport config.
+#[test]
+fn pad_to_mtu() {
+    let _guard = subscribe();
+    const MTU: u16 = 1333;
+    let client_config = {
+        let mut c_config = client_config();
+        let t_config = TransportConfig {
+            initial_mtu: MTU,
+            mtu_discovery_config: None,
+            pad_to_mtu: true,
+            ..TransportConfig::default()
+        };
+        c_config.transport_config(t_config.into());
+        c_config
+    };
+    let mut pair = Pair::default();
+    let (client_ch, server_ch) = pair.connect_with(client_config);
+
+    let initial_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    pair.server.capture_inbound_packets = true;
+
+    info!("sending");
+    // Send two datagrams significantly smaller than MTU, but large enough to require two UDP datagrams.
+    const LEN_1: usize = 800;
+    const LEN_2: usize = 600;
+    pair.client_datagrams(client_ch)
+        .send(vec![0; LEN_1].into(), false)
+        .unwrap();
+    pair.client_datagrams(client_ch)
+        .send(vec![0; LEN_2].into(), false)
+        .unwrap();
+    pair.client.drive(pair.time, pair.server.addr);
+
+    // Check padding
+    assert_eq!(pair.client.outbound.len(), 2);
+    assert_eq!(pair.client.outbound[0].0.size, usize::from(MTU));
+    assert_eq!(pair.client.outbound[0].1.len(), usize::from(MTU));
+    assert_eq!(pair.client.outbound[1].0.size, usize::from(MTU));
+    assert_eq!(pair.client.outbound[1].1.len(), usize::from(MTU));
+    pair.drive_client();
+    assert_eq!(pair.server.inbound.len(), 2);
+    assert_eq!(pair.server.inbound[0].2.len(), usize::from(MTU));
+    assert_eq!(pair.server.inbound[1].2.len(), usize::from(MTU));
+    pair.drive();
+
+    // Check that both datagrams ended up in the same GSO batch
+    let final_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    assert_eq!(final_ios - initial_ios, 1);
+
+    assert_eq!(
+        pair.server_datagrams(server_ch)
+            .recv()
+            .expect("datagram lost")
+            .len(),
+        LEN_1
+    );
+    assert_eq!(
+        pair.server_datagrams(server_ch)
+            .recv()
+            .expect("datagram lost")
+            .len(),
+        LEN_2
+    );
+}
+
 /// Verify that a large application datagram is sent successfully when an ACK frame too large to fit
 /// alongside it is also queued, in exactly 2 UDP datagrams.
 #[test]
@@ -3303,7 +3463,7 @@ fn address_discovery_zero_rtt_accepted() {
         Ok(Some(chunk)) if chunk.offset == 0 && chunk.bytes == MSG
     );
     let _ = chunks.finalize();
-    assert_eq!(pair.client_conn_mut(client_ch).lost_packets(), 0);
+    assert_eq!(pair.client_conn_mut(client_ch).stats().path.lost_packets, 0);
 }
 
 /// Test that a different address discovery configuration on 0rtt used by the server is rejected by
@@ -3475,4 +3635,16 @@ fn reject_short_idcid() {
     let Some(DatagramEvent::Response(Transmit { .. })) = event else {
         panic!("expected an initial close");
     };
+}
+
+/// Ensure that a connection can be made when a preferred address is advertised by the server,
+/// regardless of whether the address is actually used.
+#[test]
+fn preferred_address() {
+    let _guard = subscribe();
+    let mut server_config = server_config();
+    server_config.preferred_address_v6(Some("[::1]:65535".parse().unwrap()));
+
+    let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
+    pair.connect();
 }
