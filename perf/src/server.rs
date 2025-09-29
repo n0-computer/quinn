@@ -3,15 +3,15 @@ use std::{fs, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use clap::Parser;
-use quinn::{crypto::rustls::QuicServerConfig, TokioRuntime};
+use quinn::{TokioRuntime, crypto::rustls::QuicServerConfig};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use tracing::{debug, error, info};
 
-use perf::{bind_socket, noprotection::NoProtectionServerConfig, PERF_CIPHER_SUITES};
+use crate::{CommonOpt, PERF_CIPHER_SUITES, noprotection::NoProtectionServerConfig};
 
 #[derive(Parser)]
 #[clap(name = "server")]
-struct Opt {
+pub struct Opt {
     /// Address to listen on
     #[clap(long = "listen", default_value = "[::]:4433")]
     listen: SocketAddr,
@@ -21,38 +21,12 @@ struct Opt {
     /// TLS certificate in PEM format
     #[clap(short = 'c', long = "cert", requires = "key")]
     cert: Option<PathBuf>,
-    /// Send buffer size in bytes
-    #[clap(long, default_value = "2097152")]
-    send_buffer_size: usize,
-    /// Receive buffer size in bytes
-    #[clap(long, default_value = "2097152")]
-    recv_buffer_size: usize,
-    /// Whether to print connection statistics
-    #[clap(long)]
-    conn_stats: bool,
-    /// Perform NSS-compatible TLS key logging to the file specified in `SSLKEYLOGFILE`.
-    #[clap(long = "keylog")]
-    keylog: bool,
-    /// UDP payload size that the network must be capable of carrying
-    #[clap(long, default_value = "1200")]
-    initial_mtu: u16,
-    /// Disable packet encryption/decryption (for debugging purpose)
-    #[clap(long = "no-protection")]
-    no_protection: bool,
+    /// Common options
+    #[command(flatten)]
+    common: CommonOpt,
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-    let opt = Opt::parse();
-
-    tracing_subscriber::fmt::init();
-
-    if let Err(e) = run(opt).await {
-        error!("{:#}", e);
-    }
-}
-
-async fn run(opt: Opt) -> Result<()> {
+pub async fn run(opt: Opt) -> Result<()> {
     let (key, cert) = match (&opt.key, &opt.cert) {
         (Some(key), Some(cert)) => {
             let key = fs::read(key).context("reading key")?;
@@ -67,7 +41,7 @@ async fn run(opt: Opt) -> Result<()> {
         _ => {
             let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
             (
-                PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der()),
+                PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der()),
                 vec![CertificateDer::from(cert.cert)],
             )
         }
@@ -87,29 +61,29 @@ async fn run(opt: Opt) -> Result<()> {
         .unwrap();
     crypto.alpn_protocols = vec![b"perf".to_vec()];
 
-    if opt.keylog {
+    if opt.common.keylog {
         crypto.key_log = Arc::new(rustls::KeyLogFile::new());
     }
 
-    let mut transport = quinn::TransportConfig::default();
-    transport.initial_mtu(opt.initial_mtu);
+    let transport = opt.common.build_transport_config(
+        #[cfg(feature = "qlog")]
+        "perf-server",
+    )?;
 
     let crypto = Arc::new(QuicServerConfig::try_from(crypto)?);
-    let mut config = quinn::ServerConfig::with_crypto(match opt.no_protection {
+    let mut config = quinn::ServerConfig::with_crypto(match opt.common.no_protection {
         true => Arc::new(NoProtectionServerConfig::new(crypto)),
         false => crypto,
     });
     config.transport_config(Arc::new(transport));
 
-    let socket = bind_socket(opt.listen, opt.send_buffer_size, opt.recv_buffer_size)?;
+    let socket = opt.common.bind_socket(opt.listen)?;
 
-    let endpoint = quinn::Endpoint::new(
-        Default::default(),
-        Some(config),
-        socket,
-        Arc::new(TokioRuntime),
-    )
-    .context("creating endpoint")?;
+    let mut endpoint_cfg = quinn::EndpointConfig::default();
+    endpoint_cfg.max_udp_payload_size(opt.common.max_udp_payload_size)?;
+
+    let endpoint = quinn::Endpoint::new(endpoint_cfg, Some(config), socket, Arc::new(TokioRuntime))
+        .context("creating endpoint")?;
 
     info!("listening on {}", endpoint.local_addr().unwrap());
 
@@ -129,6 +103,7 @@ async fn run(opt: Opt) -> Result<()> {
 
 async fn handle(handshake: quinn::Incoming, opt: Arc<Opt>) -> Result<()> {
     let connection = handshake.await.context("handshake failed")?;
+
     debug!("{} connected", connection.remote_address());
     tokio::try_join!(
         drive_uni(connection.clone()),
@@ -139,7 +114,7 @@ async fn handle(handshake: quinn::Incoming, opt: Arc<Opt>) -> Result<()> {
 }
 
 async fn conn_stats(connection: quinn::Connection, opt: Arc<Opt>) -> Result<()> {
-    if opt.conn_stats {
+    if opt.common.conn_stats {
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
             println!("{:?}\n", connection.stats());

@@ -1,13 +1,13 @@
 use bytes::Bytes;
 use rand::Rng;
-use tracing::{trace, trace_span};
+use tracing::{debug, trace, trace_span};
 
-use super::{spaces::SentPacket, Connection, SentFrames};
+use super::{Connection, SentFrames, spaces::SentPacket};
 use crate::{
+    ConnectionId, Instant, TransportError, TransportErrorCode,
     connection::ConnectionSide,
     frame::{self, Close},
-    packet::{Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId, FIXED_BIT},
-    ConnectionId, Instant, TransportError, TransportErrorCode,
+    packet::{FIXED_BIT, Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId},
 };
 
 pub(super) struct PacketBuilder {
@@ -47,6 +47,7 @@ impl PacketBuilder {
         let sent_with_keys = conn.spaces[space_id].sent_with_keys;
         if space_id == SpaceId::Data {
             if sent_with_keys >= conn.key_phase_size {
+                debug!("routine key update due to phase exhaustion");
                 conn.force_key_update();
             }
         } else {
@@ -93,7 +94,7 @@ impl PacketBuilder {
                 spin: if conn.spin_enabled {
                     conn.spin
                 } else {
-                    conn.rng.gen()
+                    conn.rng.random()
                 },
                 key_phase: conn.key_phase,
             },
@@ -123,7 +124,7 @@ impl PacketBuilder {
             }),
         };
         let partial_encode = header.encode(buffer);
-        if conn.peer_params.grease_quic_bit && conn.rng.gen() {
+        if conn.peer_params.grease_quic_bit && conn.rng.random() {
             buffer[partial_encode.start] ^= FIXED_BIT;
         }
 
@@ -190,7 +191,7 @@ impl PacketBuilder {
         let ack_eliciting = self.ack_eliciting;
         let exact_number = self.exact_number;
         let space_id = self.space;
-        let (size, padded) = self.finish(conn, buffer);
+        let (size, padded) = self.finish(conn, now, buffer);
         let sent = match sent {
             Some(sent) => sent,
             None => return,
@@ -202,6 +203,7 @@ impl PacketBuilder {
         };
 
         let packet = SentPacket {
+            path_generation: conn.path.generation(),
             largest_acked: sent.largest_acked,
             time_sent: now,
             size,
@@ -228,7 +230,12 @@ impl PacketBuilder {
     }
 
     /// Encrypt packet, returning the length of the packet and whether padding was added
-    pub(super) fn finish(self, conn: &mut Connection, buffer: &mut Vec<u8>) -> (usize, bool) {
+    pub(super) fn finish(
+        self,
+        conn: &mut Connection,
+        now: Instant,
+        buffer: &mut Vec<u8>,
+    ) -> (usize, bool) {
         let pad = buffer.len() < self.min_size;
         if pad {
             trace!("PADDING * {}", self.min_size - buffer.len());
@@ -260,6 +267,16 @@ impl PacketBuilder {
             Some((self.exact_number, packet_crypto)),
         );
 
-        (buffer.len() - encode_start, pad)
+        let len = buffer.len() - encode_start;
+        conn.config.qlog_sink.emit_packet_sent(
+            self.exact_number,
+            len,
+            self.space,
+            self.space == SpaceId::Data && conn.spaces[SpaceId::Data].crypto.is_none(),
+            now,
+            conn.orig_rem_cid,
+        );
+
+        (len, pad)
     }
 }

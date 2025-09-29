@@ -12,18 +12,17 @@ use std::{
 };
 
 use bytes::{Buf, BufMut};
-use rand::{seq::SliceRandom as _, Rng as _, RngCore};
+use rand::{Rng as _, RngCore, seq::SliceRandom as _};
 use thiserror::Error;
 
 use crate::{
-    address_discovery,
+    LOC_CID_COUNT, MAX_CID_SIZE, MAX_STREAM_COUNT, RESET_TOKEN_SIZE, ResetToken, Side,
+    TIMER_GRANULARITY, TransportError, VarInt, address_discovery,
     cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
     coding::{BufExt, BufMutExt, UnexpectedEnd},
     config::{EndpointConfig, ServerConfig, TransportConfig},
     shared::ConnectionId,
-    ResetToken, Side, TransportError, VarInt, LOC_CID_COUNT, MAX_CID_SIZE, MAX_STREAM_COUNT,
-    RESET_TOKEN_SIZE, TIMER_GRANULARITY,
 };
 
 // Apply a given macro to a list of all the transport parameters having integer types, along with
@@ -592,7 +591,7 @@ impl ReservedTransportParameter {
     fn random(rng: &mut impl RngCore) -> Self {
         let id = Self::generate_reserved_id(rng);
 
-        let payload_len = rng.gen_range(0..Self::MAX_PAYLOAD_LEN);
+        let payload_len = rng.random_range(0..Self::MAX_PAYLOAD_LEN);
 
         let payload = {
             let mut slice = [0u8; Self::MAX_PAYLOAD_LEN];
@@ -619,7 +618,7 @@ impl ReservedTransportParameter {
     /// See: <https://www.rfc-editor.org/rfc/rfc9000.html#section-18.1> and <https://www.rfc-editor.org/rfc/rfc9000.html#section-22.3>
     fn generate_reserved_id(rng: &mut impl RngCore) -> VarInt {
         let id = {
-            let rand = rng.gen_range(0u64..(1 << 62) - 27);
+            let rand = rng.random_range(0u64..(1 << 62) - 27);
             let n = rand / 31;
             31 * n + 27
         };
@@ -791,30 +790,29 @@ mod test {
 
     #[test]
     fn reserved_transport_parameter_generate_reserved_id() {
-        use rand::rngs::mock::StepRng;
         let mut rngs = [
-            StepRng::new(0, 1),
-            StepRng::new(1, 1),
-            StepRng::new(27, 1),
-            StepRng::new(31, 1),
-            StepRng::new(u32::MAX as u64, 1),
-            StepRng::new(u32::MAX as u64 - 1, 1),
-            StepRng::new(u32::MAX as u64 + 1, 1),
-            StepRng::new(u32::MAX as u64 - 27, 1),
-            StepRng::new(u32::MAX as u64 + 27, 1),
-            StepRng::new(u32::MAX as u64 - 31, 1),
-            StepRng::new(u32::MAX as u64 + 31, 1),
-            StepRng::new(u64::MAX, 1),
-            StepRng::new(u64::MAX - 1, 1),
-            StepRng::new(u64::MAX - 27, 1),
-            StepRng::new(u64::MAX - 31, 1),
-            StepRng::new(1 << 62, 1),
-            StepRng::new((1 << 62) - 1, 1),
-            StepRng::new((1 << 62) + 1, 1),
-            StepRng::new((1 << 62) - 27, 1),
-            StepRng::new((1 << 62) + 27, 1),
-            StepRng::new((1 << 62) - 31, 1),
-            StepRng::new((1 << 62) + 31, 1),
+            StepRng(0),
+            StepRng(1),
+            StepRng(27),
+            StepRng(31),
+            StepRng(u32::MAX as u64),
+            StepRng(u32::MAX as u64 - 1),
+            StepRng(u32::MAX as u64 + 1),
+            StepRng(u32::MAX as u64 - 27),
+            StepRng(u32::MAX as u64 + 27),
+            StepRng(u32::MAX as u64 - 31),
+            StepRng(u32::MAX as u64 + 31),
+            StepRng(u64::MAX),
+            StepRng(u64::MAX - 1),
+            StepRng(u64::MAX - 27),
+            StepRng(u64::MAX - 31),
+            StepRng(1 << 62),
+            StepRng((1 << 62) - 1),
+            StepRng((1 << 62) + 1),
+            StepRng((1 << 62) - 27),
+            StepRng((1 << 62) + 27),
+            StepRng((1 << 62) - 31),
+            StepRng((1 << 62) + 31),
         ];
         for rng in &mut rngs {
             let id = ReservedTransportParameter::generate_reserved_id(rng);
@@ -822,10 +820,40 @@ mod test {
         }
     }
 
+    struct StepRng(u64);
+
+    impl RngCore for StepRng {
+        #[inline]
+        fn next_u32(&mut self) -> u32 {
+            self.next_u64() as u32
+        }
+
+        #[inline]
+        fn next_u64(&mut self) -> u64 {
+            let res = self.0;
+            self.0 = self.0.wrapping_add(1);
+            res
+        }
+
+        #[inline]
+        fn fill_bytes(&mut self, dst: &mut [u8]) {
+            let mut left = dst;
+            while left.len() >= 8 {
+                let (l, r) = left.split_at_mut(8);
+                left = r;
+                l.copy_from_slice(&self.next_u64().to_le_bytes());
+            }
+            let n = left.len();
+            if n > 0 {
+                left.copy_from_slice(&self.next_u32().to_le_bytes()[..n]);
+            }
+        }
+    }
+
     #[test]
     fn reserved_transport_parameter_ignored_when_read() {
         let mut buf = Vec::new();
-        let reserved_parameter = ReservedTransportParameter::random(&mut rand::thread_rng());
+        let reserved_parameter = ReservedTransportParameter::random(&mut rand::rng());
         assert!(reserved_parameter.payload_len < ReservedTransportParameter::MAX_PAYLOAD_LEN);
         assert!(reserved_parameter.id.0 % 31 == 27);
 

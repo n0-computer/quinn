@@ -4,8 +4,9 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use thiserror::Error;
 
 use crate::{
+    ConnectionId,
     coding::{self, BufExt, BufMutExt},
-    crypto, ConnectionId,
+    crypto,
 };
 
 /// Decodes a QUIC packet's invariant header
@@ -484,7 +485,7 @@ impl PartialEncode {
             let len = buf.len() - header_len + pn_len;
             assert!(len < 2usize.pow(14)); // Fits in reserved space
             let mut slice = &mut buf[pn_pos - 2..pn_pos];
-            slice.put_u16(len as u16 | 0b01 << 14);
+            slice.put_u16(len as u16 | (0b01 << 14));
         }
 
         if let Some((number, crypto)) = crypto {
@@ -937,8 +938,8 @@ mod tests {
     #[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
     #[test]
     fn header_encoding() {
-        use crate::crypto::rustls::{initial_keys, initial_suite_from_provider};
         use crate::Side;
+        use crate::crypto::rustls::{initial_keys, initial_suite_from_provider};
         #[cfg(all(feature = "rustls-aws-lc-rs", not(feature = "rustls-ring")))]
         use rustls::crypto::aws_lc_rs::default_provider;
         #[cfg(feature = "rustls-ring")]

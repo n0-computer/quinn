@@ -11,8 +11,8 @@ use tracing::trace;
 
 use super::assembler::Assembler;
 use crate::{
-    connection::StreamsState, crypto::Keys, frame, packet::SpaceId, range_set::ArrayRangeSet,
-    shared::IssuedCid, Dir, Duration, Instant, SocketAddr, StreamId, TransportError, VarInt,
+    Dir, Duration, Instant, SocketAddr, StreamId, TransportError, VarInt, connection::StreamsState,
+    crypto::Keys, frame, packet::SpaceId, range_set::ArrayRangeSet, shared::IssuedCid,
 };
 
 pub(super) struct PacketSpace {
@@ -64,8 +64,6 @@ pub(super) struct PacketSpace {
     pub(super) loss_probes: u32,
     pub(super) ping_pending: bool,
     pub(super) immediate_ack_pending: bool,
-    /// Number of congestion control "in flight" bytes
-    pub(super) in_flight: u64,
     /// Number of packets sent in the current key phase
     pub(super) sent_with_keys: u64,
 }
@@ -97,7 +95,6 @@ impl PacketSpace {
             loss_probes: 0,
             ping_pending: false,
             immediate_ack_pending: false,
-            in_flight: 0,
             sent_with_keys: 0,
         }
     }
@@ -129,12 +126,12 @@ impl PacketSpace {
             self.immediate_ack_pending = true;
         }
 
-        // Retransmit the data of the oldest in-flight packet
         if !self.pending.is_empty(streams) {
             // There's real data to send here, no need to make something up
             return;
         }
 
+        // Retransmit the data of the oldest in-flight packet
         for packet in self.sent_packets.values_mut() {
             if !packet.retransmits.is_empty(streams) {
                 // Remove retransmitted data from the old packet so we don't end up retransmitting
@@ -147,7 +144,9 @@ impl PacketSpace {
         // Nothing new to send and nothing to retransmit, so fall back on a ping. This should only
         // happen in rare cases during the handshake when the server becomes blocked by
         // anti-amplification.
-        self.ping_pending = true;
+        if !self.immediate_ack_pending {
+            self.ping_pending = true;
+        }
     }
 
     /// Get the next outgoing packet number in this space
@@ -207,7 +206,6 @@ impl PacketSpace {
     /// Stop tracking sent packet `number`, and return what we knew about it
     pub(super) fn take(&mut self, number: u64) -> Option<SentPacket> {
         let packet = self.sent_packets.remove(&number)?;
-        self.in_flight -= u64::from(packet.size);
         if !packet.ack_eliciting && number > self.largest_ack_eliciting_sent {
             self.unacked_non_ack_eliciting_tail =
                 self.unacked_non_ack_eliciting_tail.checked_sub(1).unwrap();
@@ -215,8 +213,8 @@ impl PacketSpace {
         Some(packet)
     }
 
-    /// Returns the number of bytes to *remove* from the connection's in-flight count
-    pub(super) fn sent(&mut self, number: u64, packet: SentPacket) -> u64 {
+    /// May return a packet that should be forgotten
+    pub(super) fn sent(&mut self, number: u64, packet: SentPacket) -> Option<SentPacket> {
         // Retain state for at most this many non-ACK-eliciting packets sent after the most recently
         // sent ACK-eliciting packet. We're never guaranteed to receive an ACK for those, and we
         // can't judge them as lost without an ACK, so to limit memory in applications which receive
@@ -225,7 +223,7 @@ impl PacketSpace {
         // due to weird peer behavior.
         const MAX_UNACKED_NON_ACK_ELICTING_TAIL: u64 = 1_000;
 
-        let mut forgotten_bytes = 0;
+        let mut forgotten = None;
         if packet.ack_eliciting {
             self.unacked_non_ack_eliciting_tail = 0;
             self.largest_ack_eliciting_sent = number;
@@ -247,15 +245,22 @@ impl PacketSpace {
                 .sent_packets
                 .remove(&oldest_after_ack_eliciting)
                 .unwrap();
-            forgotten_bytes = u64::from(packet.size);
-            self.in_flight -= forgotten_bytes;
+            debug_assert!(!packet.ack_eliciting);
+            forgotten = Some(packet);
         } else {
             self.unacked_non_ack_eliciting_tail += 1;
         }
 
-        self.in_flight += u64::from(packet.size);
         self.sent_packets.insert(number, packet);
-        forgotten_bytes
+        forgotten
+    }
+
+    /// Whether any congestion-controlled packets in this space are not yet acknowledged or lost
+    pub(super) fn has_in_flight(&self) -> bool {
+        // The number of non-congestion-controlled (i.e. size == 0) packets in flight at a time
+        // should be small, since otherwise congestion control wouldn't be effective. Therefore,
+        // this shouldn't need to visit many packets before finishing one way or another.
+        self.sent_packets.values().any(|x| x.size != 0)
     }
 }
 
@@ -275,6 +280,8 @@ impl IndexMut<SpaceId> for [PacketSpace; 3] {
 /// Represents one or more packets subject to retransmission
 #[derive(Debug, Clone)]
 pub(super) struct SentPacket {
+    /// [`PathData::generation`](super::PathData::generation) of the path on which this packet was sent
+    pub(super) path_generation: u64,
     /// The time the packet was sent.
     pub(super) time_sent: Instant,
     /// The number of bytes sent in the packet, not including UDP or IP overhead, but including QUIC
@@ -467,7 +474,7 @@ impl Dedup {
     pub(super) fn insert(&mut self, packet: u64) -> bool {
         if let Some(diff) = packet.checked_sub(self.next) {
             // Right of window
-            self.window = (self.window << 1 | 1)
+            self.window = ((self.window << 1) | 1)
                 .checked_shl(cmp::min(diff, u64::from(u32::MAX)) as u32)
                 .unwrap_or(0);
             self.next = packet + 1;
@@ -823,7 +830,7 @@ impl PacketNumberFilter {
         // First skipped PN is in 0..64
         let exponent = 6;
         Self {
-            next_skipped_packet_number: rng.gen_range(0..2u64.saturating_pow(exponent)),
+            next_skipped_packet_number: rng.random_range(0..2u64.saturating_pow(exponent)),
             prev_skipped_packet_number: None,
             exponent,
         }
@@ -860,8 +867,8 @@ impl PacketNumberFilter {
         // Skip this packet number, and choose the next one to skip
         self.prev_skipped_packet_number = Some(self.next_skipped_packet_number);
         let next_exponent = self.exponent.saturating_add(1);
-        self.next_skipped_packet_number =
-            rng.gen_range(2u64.saturating_pow(self.exponent)..2u64.saturating_pow(next_exponent));
+        self.next_skipped_packet_number = rng
+            .random_range(2u64.saturating_pow(self.exponent)..2u64.saturating_pow(next_exponent));
         self.exponent = next_exponent;
 
         space.get_tx_number()

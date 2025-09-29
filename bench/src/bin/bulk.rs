@@ -11,10 +11,9 @@ use tokio::sync::Semaphore;
 use tracing::{info, trace};
 
 use bench::{
-    configure_tracing_subscriber, connect_client, drain_stream, rt, send_data_on_stream,
+    Opt, configure_tracing_subscriber, connect_client, drain_stream, rt, send_data_on_stream,
     server_endpoint,
     stats::{Stats, TransferResult},
-    Opt,
 };
 
 fn main() {
@@ -22,7 +21,7 @@ fn main() {
     configure_tracing_subscriber();
 
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-    let key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+    let key = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
     let cert = CertificateDer::from(cert.cert);
 
     let server_span = tracing::error_span!("server");

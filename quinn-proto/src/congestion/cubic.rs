@@ -2,7 +2,7 @@ use std::any::Any;
 use std::cmp;
 use std::sync::Arc;
 
-use super::{Controller, ControllerFactory, BASE_DATAGRAM_SIZE};
+use super::{BASE_DATAGRAM_SIZE, Controller, ControllerFactory};
 use crate::connection::RttEstimator;
 use crate::{Duration, Instant};
 
@@ -218,6 +218,14 @@ impl Controller for Cubic {
 
     fn window(&self) -> u64 {
         self.window
+    }
+
+    fn metrics(&self) -> super::ControllerMetrics {
+        super::ControllerMetrics {
+            congestion_window: self.window(),
+            ssthresh: Some(self.ssthresh),
+            pacing_rate: None,
+        }
     }
 
     fn clone_box(&self) -> Box<dyn Controller> {

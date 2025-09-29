@@ -9,11 +9,11 @@ use bytes::{Buf, BufMut, Bytes};
 use tinyvec::TinyVec;
 
 use crate::{
+    Dir, MAX_CID_SIZE, RESET_TOKEN_SIZE, ResetToken, StreamId, TransportError, TransportErrorCode,
+    VarInt,
     coding::{self, BufExt, BufMutExt, UnexpectedEnd},
     range_set::ArrayRangeSet,
     shared::{ConnectionId, EcnCodepoint},
-    Dir, ResetToken, StreamId, TransportError, TransportErrorCode, VarInt, MAX_CID_SIZE,
-    RESET_TOKEN_SIZE,
 };
 
 #[cfg(feature = "arbitrary")]
@@ -592,11 +592,7 @@ impl Iter {
                 error_code: self.bytes.get()?,
                 frame_type: {
                     let x = self.bytes.get_var()?;
-                    if x == 0 {
-                        None
-                    } else {
-                        Some(FrameType(x))
-                    }
+                    if x == 0 { None } else { Some(FrameType(x)) }
                 },
                 reason: self.take_len()?,
             })),
@@ -897,6 +893,10 @@ impl NewConnectionId {
         out.put_slice(&self.id);
         out.put_slice(&self.reset_token);
     }
+}
+
+impl FrameStruct for NewConnectionId {
+    const SIZE_BOUND: usize = 1 + 8 + 8 + 1 + MAX_CID_SIZE + RESET_TOKEN_SIZE;
 }
 
 /// Smallest number of bytes this type of frame is guaranteed to fit within.

@@ -1,6 +1,7 @@
 [package]
 name = "iroh-quinn-udp"
 version = "0.5.7"
+# TODO(@divma): quinn-udp is in 0.5.14
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -33,7 +34,7 @@ once_cell = { workspace = true }
 windows-sys = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.5", default-features = false, features = ["async_tokio"] }
+criterion = { version = "0.7", default-features = false, features = ["async_tokio"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net"] }
 
 [build-dependencies]
