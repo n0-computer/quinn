@@ -396,8 +396,10 @@ impl Connection {
     /// path opens.  The [`PathId`] for the events can be extracted from
     /// [`OpenPath::path_id`].
     ///
-    /// If opening fails either the future will be immediately ready, or another
-    /// [`PathEvent`] for the [`PathId`] will be emitted, indicating the failure.
+    /// Failure to open a path can either occur immediately, before polling the returned
+    /// future, or at a later time.  If the failure is immediate [`OpenPath::path_id`] will
+    /// return `None` and the future will be ready immediately.  If the failure happens
+    /// later, a [`PathEvent`] will be emitted.
     pub fn open_path(&self, addr: SocketAddr, initial_status: PathStatus) -> OpenPath {
         let mut state = self.0.state.lock("open_path");
         let (on_open_path_send, on_open_path_recv) = watch::channel(Ok(()));
