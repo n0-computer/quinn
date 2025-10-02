@@ -1063,7 +1063,20 @@ impl WeakConnectionHandle {
 
     /// Upgrade the handle to a full `Connection`
     pub fn upgrade(&self) -> Option<Connection> {
-        self.0.upgrade().map(|i| Connection(ConnectionRef(i)))
+        self.0.upgrade().map(|i| {
+            // ConnectionInner::inner has a State::ref_count.  We create a ConnectionRef
+            // here without increasing that ref_count.
+            let conn_ref_no_ref_count = ConnectionRef(i);
+
+            // ConnectionRef::clone() *does* increment the ref_count.  Use that instead of
+            // re-implementing manually changing the ref_count.
+            let conn_ref = conn_ref_no_ref_count.clone();
+
+            // Forget this ConnectionRef that has no accounted ref_count.
+            std::mem::forget(conn_ref_no_ref_count);
+
+            Connection(conn_ref)
+        })
     }
 
     /// Resets path-specific state.
