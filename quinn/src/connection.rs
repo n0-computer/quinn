@@ -1007,6 +1007,11 @@ impl ConnectionRef {
         }))
     }
 
+    fn from_arc(inner: Arc<ConnectionInner>) -> Self {
+        inner.state.lock("from_arc").ref_count += 1;
+        Self(inner)
+    }
+
     fn stable_id(&self) -> usize {
         &*self.0 as *const _ as usize
     }
@@ -1014,8 +1019,7 @@ impl ConnectionRef {
 
 impl Clone for ConnectionRef {
     fn clone(&self) -> Self {
-        self.state.lock("clone").ref_count += 1;
-        Self(self.0.clone())
+        Self::from_arc(Arc::clone(&self.0))
     }
 }
 
@@ -1063,20 +1067,9 @@ impl WeakConnectionHandle {
 
     /// Upgrade the handle to a full `Connection`
     pub fn upgrade(&self) -> Option<Connection> {
-        self.0.upgrade().map(|i| {
-            // ConnectionInner::inner has a State::ref_count.  We create a ConnectionRef
-            // here without increasing that ref_count.
-            let conn_ref_no_ref_count = ConnectionRef(i);
-
-            // ConnectionRef::clone() *does* increment the ref_count.  Use that instead of
-            // re-implementing manually changing the ref_count.
-            let conn_ref = conn_ref_no_ref_count.clone();
-
-            // Forget this ConnectionRef that has no accounted ref_count.
-            std::mem::forget(conn_ref_no_ref_count);
-
-            Connection(conn_ref)
-        })
+        self.0
+            .upgrade()
+            .map(|inner| Connection(ConnectionRef::from_arc(inner)))
     }
 
     /// Resets path-specific state.
