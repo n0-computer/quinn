@@ -167,25 +167,11 @@ pub(crate) enum Frame {
     NewToken(NewToken),
     Stream(Stream),
     MaxData(VarInt),
-    MaxStreamData {
-        id: StreamId,
-        offset: u64,
-    },
-    MaxStreams {
-        dir: Dir,
-        count: u64,
-    },
-    DataBlocked {
-        offset: u64,
-    },
-    StreamDataBlocked {
-        id: StreamId,
-        offset: u64,
-    },
-    StreamsBlocked {
-        dir: Dir,
-        limit: u64,
-    },
+    MaxStreamData { id: StreamId, offset: u64 },
+    MaxStreams { dir: Dir, count: u64 },
+    DataBlocked { offset: u64 },
+    StreamDataBlocked { id: StreamId, offset: u64 },
+    StreamsBlocked { dir: Dir, limit: u64 },
     NewConnectionId(NewConnectionId),
     RetireConnectionId(RetireConnectionId),
     PathChallenge(u64),
@@ -196,7 +182,6 @@ pub(crate) enum Frame {
     ImmediateAck,
     HandshakeDone,
     ObservedAddr(ObservedAddr),
-    #[allow(dead_code)] // TODO(flub)
     PathAbandon(PathAbandon),
     PathAvailable(PathAvailable),
     PathBackup(PathBackup),
