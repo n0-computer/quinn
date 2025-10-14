@@ -255,7 +255,7 @@ pub(crate) struct RetireConnectionId {
 }
 
 impl RetireConnectionId {
-    // TODO(@divma): docs
+    /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
         buf.write(self.get_type());
         if let Some(id) = self.path_id {
@@ -264,8 +264,8 @@ impl RetireConnectionId {
         buf.write_var(self.sequence);
     }
 
-    // TODO(@divma): docs
-    // should only be called after the frame type has been verified
+    /// Decode [`Self`] from the buffer, provided that the frame type has been verified (either
+    /// [`FrameType::PATH_RETIRE_CONNECTION_ID`], or [`FrameType::RETIRE_CONNECTION_ID`])
     pub(crate) fn decode<R: Buf>(bytes: &mut R, read_path: bool) -> coding::Result<Self> {
         Ok(Self {
             path_id: if read_path { Some(bytes.get()?) } else { None },
@@ -273,6 +273,7 @@ impl RetireConnectionId {
         })
     }
 
+    /// Get the [`FrameType`] for this [`RetireConnectionId`]
     pub(crate) fn get_type(&self) -> FrameType {
         if self.path_id.is_some() {
             FrameType::PATH_RETIRE_CONNECTION_ID
@@ -467,6 +468,10 @@ impl<'a> IntoIterator for &'a PathAck {
 }
 
 impl PathAck {
+    /// Encode [`Self`] into the given buffer
+    ///
+    /// The [`FrameType`] will be either [`FrameType::PATH_ACK_ECN`] or [`FrameType::PATH_ACK`]
+    /// depending on whether [`EcnCounts`] are provided.
     pub fn encode<W: BufMut>(
         path_id: PathId,
         delay: u64,
@@ -723,10 +728,12 @@ impl MaxPathId {
     pub(crate) const SIZE_BOUND: usize =
         VarInt(FrameType::MAX_PATH_ID.0).size() + VarInt(u32::MAX as u64).size();
 
+    /// Decode [`Self`] from the buffer, provided that the frame type has been verified
     pub(crate) fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
         Ok(Self(buf.get()?))
     }
 
+    /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.write(FrameType::MAX_PATH_ID);
         buf.write(self.0);
@@ -740,13 +747,15 @@ impl PathsBlocked {
     pub(crate) const SIZE_BOUND: usize =
         VarInt(FrameType::PATHS_BLOCKED.0).size() + VarInt(u32::MAX as u64).size();
 
-    pub(crate) fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
-        Ok(Self(buf.get()?))
-    }
-
+    /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.write(FrameType::PATHS_BLOCKED);
         buf.write(self.0);
+    }
+
+    /// Decode [`Self`] from the buffer, provided that the frame type has been verified
+    pub(crate) fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
+        Ok(Self(buf.get()?))
     }
 }
 
@@ -761,6 +770,7 @@ impl PathCidsBlocked {
         + VarInt(u32::MAX as u64).size()
         + VarInt::MAX.size();
 
+    /// Decode [`Self`] from the buffer, provided that the frame type has been verified
     pub(crate) fn decode<R: Buf>(buf: &mut R) -> coding::Result<Self> {
         Ok(Self {
             path_id: buf.get()?,
@@ -768,6 +778,7 @@ impl PathCidsBlocked {
         })
     }
 
+    // Encode [`Self`] into the given buffer
     pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
         buf.write(FrameType::PATH_CIDS_BLOCKED);
         buf.write(self.path_id);
@@ -1339,15 +1350,14 @@ pub(crate) struct PathAbandon {
 impl PathAbandon {
     pub(crate) const SIZE_BOUND: usize = VarInt(FrameType::PATH_ABANDON.0).size() + 8 + 8;
 
-    // TODO(@divma): docs
+    /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
         buf.write(FrameType::PATH_ABANDON);
         buf.write(self.path_id);
         buf.write(self.error_code);
     }
 
-    // TODO(@divma): docs
-    // should only be called after the frame type has been verified
+    /// Decode [`Self`] from the buffer, provided that the frame type has been verified
     pub(crate) fn decode<R: Buf>(bytes: &mut R) -> coding::Result<Self> {
         Ok(Self {
             path_id: bytes.get()?,
@@ -1366,15 +1376,14 @@ impl PathAvailable {
     const TYPE: FrameType = FrameType::PATH_AVAILABLE;
     pub(crate) const SIZE_BOUND: usize = VarInt(FrameType::PATH_AVAILABLE.0).size() + 8 + 8;
 
-    // TODO(@divma): docs
+    /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
         buf.write(Self::TYPE);
         buf.write(self.path_id);
         buf.write(self.status_seq_no);
     }
 
-    // TODO(@divma): docs
-    // should only be called after the frame type has been verified
+    /// Decode [`Self`] from the buffer, provided that the frame type has been verified
     pub(crate) fn decode<R: Buf>(bytes: &mut R) -> coding::Result<Self> {
         Ok(Self {
             path_id: bytes.get()?,
@@ -1392,15 +1401,14 @@ pub(crate) struct PathBackup {
 impl PathBackup {
     const TYPE: FrameType = FrameType::PATH_BACKUP;
 
-    // TODO(@divma): docs
+    /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
         buf.write(Self::TYPE);
         buf.write(self.path_id);
         buf.write(self.status_seq_no);
     }
 
-    // TODO(@divma): docs
-    // should only be called after the frame type has been verified
+    /// Decode [`Self`] from the buffer, provided that the frame type has been verified
     pub(crate) fn decode<R: Buf>(bytes: &mut R) -> coding::Result<Self> {
         Ok(Self {
             path_id: bytes.get()?,
