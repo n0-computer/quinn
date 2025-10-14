@@ -1338,7 +1338,7 @@ fn migration() {
     assert_eq!(
         pair.server_conn_mut(server_ch)
             .path_remote_address(PathId::ZERO),
-        pair.client.addr
+        Ok(pair.client.addr)
     );
 
     // Assert that the client's response to the PATH_CHALLENGE was an IMMEDIATE_ACK, instead of a
@@ -2445,7 +2445,7 @@ fn migrate_detects_new_mtu_and_respects_original_peer_max_udp_payload_size() {
     assert_eq!(
         pair.server_conn_mut(server_ch)
             .path_remote_address(PathId::ZERO),
-        pair.client.addr
+        Ok(pair.client.addr)
     );
 
     // MTU detection has successfully run after migrating
