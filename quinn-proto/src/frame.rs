@@ -1145,6 +1145,35 @@ pub(crate) struct NewConnectionId {
 }
 
 impl NewConnectionId {
+    /// Maximum size of this frame when the frame type is [`FrameType::NEW_CONNECTION_ID`],
+    pub(crate) const SIZE_BOUND: usize = {
+        let type_len = VarInt(FrameType::NEW_CONNECTION_ID.0).size();
+        let seq_max_len = 8usize;
+        let retire_prior_to_max_len = 8usize;
+        let cid_len_len = 1;
+        let cid_len = 160;
+        let reset_token_len = 16;
+        type_len + seq_max_len + retire_prior_to_max_len + cid_len_len + cid_len + reset_token_len
+    };
+
+    /// Maximum size of this frame when the frame type is [`FrameType::PATH_NEW_CONNECTION_ID`],
+    pub(crate) const SIZE_BOUND_MULTIPATH: usize = {
+        let type_len = VarInt(FrameType::PATH_NEW_CONNECTION_ID.0).size();
+        let path_id_len = VarInt::from_u32(u32::MAX).size();
+        let seq_max_len = 8usize;
+        let retire_prior_to_max_len = 8usize;
+        let cid_len_len = 1;
+        let cid_len = 160;
+        let reset_token_len = 16;
+        type_len
+            + path_id_len
+            + seq_max_len
+            + retire_prior_to_max_len
+            + cid_len_len
+            + cid_len
+            + reset_token_len
+    };
+
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
         out.write(self.get_type());
         if let Some(id) = self.path_id {
@@ -1168,22 +1197,13 @@ impl NewConnectionId {
     /// Returns the maximum encoded size on the wire.
     ///
     /// This is a rough upper estimate, does not squeeze every last byte out.
-    // TODO(flub): This might be overkill and maybe we should just use a const
-    pub(crate) fn size_bound(path_new_cid: bool, cid_len: usize) -> usize {
-        let type_id = match path_new_cid {
-            true => FrameType::PATH_NEW_CONNECTION_ID.0,
-            false => FrameType::NEW_CONNECTION_ID.0,
+    pub(crate) const fn size_bound(path_new_cid: bool, cid_len: usize) -> usize {
+        let upper_bound = match path_new_cid {
+            true => Self::SIZE_BOUND_MULTIPATH,
+            false => Self::SIZE_BOUND,
         };
-        let type_len = VarInt::try_from(type_id).unwrap().size();
-        let path_id_len = match path_new_cid {
-            true => VarInt::from(u32::MAX).size(),
-            false => 0,
-        };
-        let seq_max_len = 8usize;
-        let retire_prior_to_max_len = 8usize;
-        let cid_len = 1 + cid_len;
-        let reset_token_len = 16;
-        type_len + path_id_len + seq_max_len + retire_prior_to_max_len + cid_len + reset_token_len
+        // instead of using the maximum cid len, use the provided one
+        upper_bound - 160 + cid_len
     }
 
     fn read<R: Buf>(bytes: &mut R, read_path: bool) -> Result<Self, IterErr> {
