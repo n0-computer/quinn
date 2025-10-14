@@ -1336,7 +1336,8 @@ fn migration() {
     pair.drive();
     assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
     assert_eq!(
-        pair.server_conn_mut(server_ch).remote_address(),
+        pair.server_conn_mut(server_ch)
+            .path_remote_address(PathId::ZERO),
         pair.client.addr
     );
 
@@ -2442,7 +2443,8 @@ fn migrate_detects_new_mtu_and_respects_original_peer_max_udp_payload_size() {
 
     // Sanity check: the server saw that the client address was updated
     assert_eq!(
-        pair.server_conn_mut(server_ch).remote_address(),
+        pair.server_conn_mut(server_ch)
+            .path_remote_address(PathId::ZERO),
         pair.client.addr
     );
 
