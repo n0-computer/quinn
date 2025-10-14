@@ -255,6 +255,21 @@ pub(crate) struct RetireConnectionId {
 }
 
 impl RetireConnectionId {
+    /// Maximum size of this frame when the frame type is [`FrameType::RETIRE_CONNECTION_ID`]
+    pub(crate) const SIZE_BOUND: usize = {
+        let type_len = VarInt(FrameType::RETIRE_CONNECTION_ID.0).size();
+        let seq_max_len = 8usize;
+        type_len + seq_max_len
+    };
+
+    /// Maximum size of this frame when the frame type is [`FrameType::PATH_RETIRE_CONNECTION_ID`]
+    pub(crate) const SIZE_BOUND_MULTIPATH: usize = {
+        let type_len = VarInt(FrameType::PATH_RETIRE_CONNECTION_ID.0).size();
+        let path_id_len = VarInt::from_u32(u32::MAX).size();
+        let seq_max_len = 8usize;
+        type_len + path_id_len + seq_max_len
+    };
+
     /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
         buf.write(self.get_type());
@@ -282,22 +297,15 @@ impl RetireConnectionId {
         }
     }
 
-    /// Returns the maximum encoded size on the wire.
+    /// Returns the maximum encoded size on the wire
     ///
-    /// This is a rough upper estimate, does not squeeze every last byte out.
-    // TODO(flub): This might be overkill and maybe we should just use a const
-    pub(crate) fn size_bound(path_retire_cid: bool) -> usize {
-        let type_id = match path_retire_cid {
-            true => FrameType::PATH_RETIRE_CONNECTION_ID.0,
-            false => FrameType::RETIRE_CONNECTION_ID.0,
-        };
-        let type_len = VarInt::try_from(type_id).unwrap().size();
-        let path_id_len = match path_retire_cid {
-            true => VarInt::from(u32::MAX).size(),
-            false => 0,
-        };
-        let seq_max_len = 8usize;
-        type_len + path_id_len + seq_max_len
+    /// `path_retire_cid` determines whether this frame is a multipath frame. This is a rough upper
+    /// estimate, does not squeeze every last byte out.
+    pub(crate) const fn size_bound(path_retire_cid: bool) -> usize {
+        match path_retire_cid {
+            true => Self::SIZE_BOUND_MULTIPATH,
+            false => Self::SIZE_BOUND,
+        }
     }
 }
 
