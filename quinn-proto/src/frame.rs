@@ -451,7 +451,7 @@ impl fmt::Debug for PathAck {
             if !first {
                 ranges.push(',');
             }
-            write!(ranges, "{range:?}").unwrap();
+            write!(ranges, "{range:?}")?;
             first = false;
         }
         ranges.push(']');
@@ -480,6 +480,8 @@ impl PathAck {
     ///
     /// The [`FrameType`] will be either [`FrameType::PATH_ACK_ECN`] or [`FrameType::PATH_ACK`]
     /// depending on whether [`EcnCounts`] are provided.
+    ///
+    /// PANICS: if `ranges` is empty.
     pub fn encode<W: BufMut>(
         path_id: PathId,
         delay: u64,
@@ -488,7 +490,9 @@ impl PathAck {
         buf: &mut W,
     ) {
         let mut rest = ranges.iter().rev();
-        let first = rest.next().unwrap();
+        let first = rest
+            .next()
+            .expect("Caller has verified ranges is non empty");
         let largest = first.end - 1;
         let first_size = first.end - first.start;
         let kind = match ecn.is_some() {
