@@ -2099,8 +2099,11 @@ impl Connection {
         }
         self.max_concurrent_paths = count;
 
-        let in_use_count =
-            (self.local_max_path_id.0 + 1).saturating_sub(self.abandoned_paths.len() as u32);
+        let in_use_count = self
+            .local_max_path_id
+            .next()
+            .saturating_sub(self.abandoned_paths.len() as u32)
+            .as_u32();
         let extra_needed = count.get().saturating_sub(in_use_count);
         let new_max_path_id = self.local_max_path_id.saturating_add(extra_needed);
 
@@ -4532,17 +4535,18 @@ impl Connection {
     ///
     /// Later CIDs are issued when CIDs expire or are retired by the peer.
     fn issue_first_path_cids(&mut self, now: Instant) {
-        if let Some(PathId(max_path_id)) = self.max_path_id() {
-            let start_path_id = self.max_path_id_with_cids.0 + 1;
-            for n in start_path_id..=max_path_id {
+        if let Some(max_path_id) = self.max_path_id() {
+            let mut path_id = self.max_path_id_with_cids.next();
+            while path_id <= max_path_id {
                 self.endpoint_events
                     .push_back(EndpointEventInner::NeedIdentifiers(
-                        PathId(n),
+                        path_id,
                         now,
                         self.peer_params.issue_cids_limit(),
                     ));
+                path_id = path_id.next();
             }
-            self.max_path_id_with_cids = PathId(max_path_id);
+            self.max_path_id_with_cids = max_path_id;
         }
     }
 
