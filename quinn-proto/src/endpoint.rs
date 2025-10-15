@@ -1043,8 +1043,10 @@ impl ConnectionIndex {
         if dst_cid.is_empty() {
             return;
         }
-        self.connection_ids_initial
-            .insert(dst_cid, RouteDatagramTo::Connection(connection, PathId::ZERO));
+        self.connection_ids_initial.insert(
+            dst_cid,
+            RouteDatagramTo::Connection(connection, PathId::ZERO),
+        );
     }
 
     /// Associate a connection with its first locally-chosen destination CID if used, or otherwise
@@ -1068,7 +1070,8 @@ impl ConnectionIndex {
                 }
             },
             _ => {
-                self.connection_ids.insert(dst_cid, (connection, PathId::ZERO));
+                self.connection_ids
+                    .insert(dst_cid, (connection, PathId::ZERO));
             }
         }
     }

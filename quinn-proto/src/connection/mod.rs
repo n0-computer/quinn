@@ -3595,8 +3595,11 @@ impl Connection {
                 };
 
                 // Retransmit all 0-RTT data
-                let zero_rtt =
-                    mem::take(&mut self.spaces[SpaceId::Data].for_path(PathId::ZERO).sent_packets);
+                let zero_rtt = mem::take(
+                    &mut self.spaces[SpaceId::Data]
+                        .for_path(PathId::ZERO)
+                        .sent_packets,
+                );
                 for info in zero_rtt.into_values() {
                     self.paths
                         .get_mut(&PathId::ZERO)
@@ -5376,7 +5379,10 @@ impl Connection {
 
     #[cfg(test)]
     pub(crate) fn active_local_cid_seq(&self) -> (u64, u64) {
-        self.local_cid_state.get(&PathId::ZERO).unwrap().active_seq()
+        self.local_cid_state
+            .get(&PathId::ZERO)
+            .unwrap()
+            .active_seq()
     }
 
     #[cfg(test)]
