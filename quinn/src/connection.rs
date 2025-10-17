@@ -1233,6 +1233,7 @@ impl State {
                 Some(t) => t,
                 None => {
                     self.send_buffer.clear();
+                    // TODO(@divma): check if we should use the path's mtu or the "connection's mtu"
                     self.send_buffer.reserve(self.inner.current_mtu() as usize);
                     match self
                         .inner
