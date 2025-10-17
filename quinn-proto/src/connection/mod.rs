@@ -5480,9 +5480,8 @@ impl Connection {
     pub fn current_mtu(&self) -> u16 {
         self.paths
             .iter()
-            .filter_map(|(path_id, path_state)| {
-                (!self.abandoned_paths.contains(&path_id)).then(|| path_state.data.current_mtu())
-            })
+            .filter(|&(path_id, _path_state)| !self.abandoned_paths.contains(path_id))
+            .map(|(_path_id, path_state)| path_state.data.current_mtu())
             .min()
             .expect("There is always at least one available path")
     }
