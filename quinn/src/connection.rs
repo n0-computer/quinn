@@ -1235,7 +1235,7 @@ impl State {
                     self.send_buffer.clear();
                     // TODO(@divma): the path is not known here and in poll_transmit the path's mtu
                     // is used, should this call be removed/moved to poll_transmit?
-                    // Reserving less space is not wring but might be less performant
+                    // Reserving less space is not wrong but might be less performant
                     self.send_buffer.reserve(self.inner.current_mtu() as usize);
                     match self
                         .inner
