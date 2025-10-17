@@ -5476,7 +5476,7 @@ impl Connection {
     ///
     /// Buffers passed to [`Connection::poll_transmit`] should be at least this large.
     ///
-    /// When multipath is enabled, this value is the minimum MTU across all paths
+    /// When multipath is enabled, this value is the minimum MTU across all available paths.
     pub fn current_mtu(&self) -> u16 {
         self.paths
             .iter()
