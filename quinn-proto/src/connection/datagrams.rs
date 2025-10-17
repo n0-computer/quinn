@@ -57,7 +57,7 @@ impl Datagrams<'_> {
         Ok(())
     }
 
-    /// Compute the maximum size of datagrams that may passed to `send_datagram`
+    /// Compute the maximum size of datagrams that may be passed to `send_datagram`
     ///
     /// Returns `None` if datagrams are unsupported by the peer or disabled locally.
     ///
@@ -67,7 +67,7 @@ impl Datagrams<'_> {
     ///
     /// Not necessarily the maximum size of received datagrams.
     ///
-    /// When multipath is enabled, this is the calculated using the smallest MTU across all
+    /// When multipath is enabled, this is calculated using the smallest MTU across all
     /// available paths.
     pub fn max_size(&self) -> Option<usize> {
         // We use the conservative overhead bound for any packet number, reducing the budget by at

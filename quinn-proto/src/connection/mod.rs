@@ -5471,13 +5471,12 @@ impl Connection {
         self.endpoint_events.push_back(EndpointEventInner::Drained);
     }
 
-    /// Storage size required for the largest packet known to be supported across all available
-    /// paths
+    /// Storage size required for the largest packet that can be transmitted on all currently
+    /// available paths
     ///
     /// Buffers passed to [`Connection::poll_transmit`] should be at least this large.
     ///
-    /// Note that in order to support such size, when multipath is enabled this is calculated as
-    /// the minimum MTU over all paths.
+    /// When multipath is enabled, this value is the minimum MTU across all paths
     pub fn current_mtu(&self) -> u16 {
         self.paths
             .iter()
