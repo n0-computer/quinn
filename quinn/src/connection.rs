@@ -1233,7 +1233,9 @@ impl State {
                 Some(t) => t,
                 None => {
                     self.send_buffer.clear();
-                    // TODO(@divma): check if we should use the path's mtu or the "connection's mtu"
+                    // TODO(@divma): the path is not known here and in poll_transmit the path's mtu
+                    // is used, should this call be removed/moved to poll_transmit?
+                    // Reserving less space is not wring but might be less performant
                     self.send_buffer.reserve(self.inner.current_mtu() as usize);
                     match self
                         .inner
