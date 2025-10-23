@@ -1567,6 +1567,14 @@ impl Drop for State {
                 .endpoint_events
                 .send((self.handle, proto::EndpointEvent::drained()));
         }
+
+        if !self.on_closed.is_empty() {
+            let reason = self.error.as_ref().expect("closed without error reason");
+            let stats = self.inner.stats();
+            for tx in self.on_closed.drain(..) {
+                tx.send((reason.clone(), stats.clone())).ok();
+            }
+        }
     }
 }
 
