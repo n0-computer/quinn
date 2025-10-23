@@ -818,6 +818,49 @@ impl Connection {
         let conn = self.0.state.lock("is_multipath_enabled");
         conn.inner.is_multipath_negotiated()
     }
+
+    /* QUIC NAT TRAVERSAL API */
+
+    /// Sends an ADD_ADDRESS frame to the Client.
+    ///
+    /// Returns the addresses actually added, which can differ from the list
+    /// given if one was already previously in the set.  This seems preferable
+    /// over throwing an error for that case, given the API takes a list.
+    /// This is needed because addresses get sequence IDs which quinn needs to
+    /// remember.  Other solutions to the seqence ID probably possible.
+    /// Takes a Vec because otherwise we're too likely to send multiple packets
+    /// when it could be avoided.
+    fn add_addresses(&self, addrs: Vec<SocketAddr>) -> Result<Vec<SocketAddr>, IAmNotAServerError> {
+    }
+
+    /// Sends a REMOVE_ADDRESS frame to the Client.
+    ///
+    /// Retuns the addresses actually removed.
+    /// Silently ignores any addresses not currently in this set.
+    /// Otherwise similar considerations as to .add_addresses().
+    fn remove_addresses(
+        &self,
+        addrs: Vec<SocketAddr>,
+    ) -> Result<Vec<SocketAddr>, IAmNotAServerError> {
+    }
+
+    /// Receives events about addresses advertised by the server.
+    fn addr_events(&self) -> Result<impl Stream<Item = AddrCandidate>, IAmNotAClient> {}
+
+    /// Sends PATH_CHALLENGE frames followed by SEND_PATH_CHALLENGE frames.
+    ///
+    /// This first sends PATH_CHALLENGE frames to the `addrs`, assinging
+    /// Path IDs as needed, to start the holepunching.
+    /// Then it sends SEND_PATH_CHALLENGE frames for each address.  All in
+    /// one round, paired with some random sequence ID, because I don't think
+    /// we have much of a usecase yet for pairing and rounds but it allows
+    /// us to remain wire-level forward-compatible.  The API can evolve once
+    /// we actually figure out a use for pairing or rounds.
+    fn send_path_challenges(
+        &self,
+        addrs: Vec<SocketAddr>,
+    ) -> Result<Vec<SocketAddr>, IAmNotAClientError> {
+    }
 }
 
 pin_project! {
