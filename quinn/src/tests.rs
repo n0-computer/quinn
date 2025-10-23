@@ -17,7 +17,7 @@ use std::{
 use crate::runtime::TokioRuntime;
 use crate::{Duration, Instant};
 use bytes::Bytes;
-use proto::{RandomConnectionIdGenerator, crypto::rustls::QuicClientConfig};
+use proto::{ConnectionError, RandomConnectionIdGenerator, crypto::rustls::QuicClientConfig};
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use rustls::{
     RootCertStore,
@@ -1022,4 +1022,42 @@ async fn test_multipath_observed_address() {
     .instrument(info_span!("client"));
 
     tokio::join!(server_task, client_task);
+}
+
+#[tokio::test]
+async fn on_closed() {
+    let _guard = subscribe();
+    let endpoint = endpoint();
+    let endpoint2 = endpoint.clone();
+    let server_task = tokio::spawn(async move {
+        let conn = endpoint2
+            .accept()
+            .await
+            .expect("endpoint")
+            .await
+            .expect("connection");
+        let on_closed = conn.on_closed();
+        let cause = conn.closed().await;
+        let (cause1, _stats) = on_closed.await;
+        assert!(matches!(cause, ConnectionError::ApplicationClosed(_)));
+        assert!(matches!(cause1, ConnectionError::ApplicationClosed(_)));
+    });
+    let client_task = tokio::spawn(async move {
+        let conn = endpoint
+            .connect(endpoint.local_addr().unwrap(), "localhost")
+            .unwrap()
+            .await
+            .expect("connect");
+        let on_closed1 = conn.on_closed();
+        let on_closed2 = conn.on_closed();
+        drop(conn);
+
+        let (cause, _stats) = on_closed1.await;
+        assert_eq!(cause, ConnectionError::LocallyClosed);
+        let (cause, _stats) = on_closed2.await;
+        assert_eq!(cause, ConnectionError::LocallyClosed);
+    });
+    let (server_res, client_res) = tokio::join!(server_task, client_task);
+    server_res.expect("server task panicked");
+    client_res.expect("client task panicked");
 }

@@ -518,6 +518,25 @@ impl Connection {
             .clone()
     }
 
+    /// Wait for the connection to be closed without keeping a strong reference to the connection.
+    ///
+    /// Calling [`Self::closed`] keeps the connection alive until it is either closed locally via [`Connection::close`]
+    /// or closed by the remote peer. This function instead does not keep a reference to the connection itself,
+    /// so if all *other* clones of the connection are dropped, the connection will be closed implicitly even
+    /// if there are futures returned from this function still being awaited.
+    ///
+    /// Returns the reason why the connection was closed and the final [`ConnectionStats`].
+    pub fn on_closed(
+        &self,
+    ) -> impl Future<Output = (ConnectionError, ConnectionStats)> + Send + Sync + 'static {
+        let (tx, rx) = oneshot::channel();
+        self.0.state.lock("on_closed").on_closed.push(tx);
+        OnClosed {
+            conn: self.weak_handle(),
+            rx,
+        }
+    }
+
     /// If the connection is closed, the reason why.
     ///
     /// Returns `None` if the connection is still open.
@@ -1037,6 +1056,38 @@ impl Future for SendDatagram<'_> {
     }
 }
 
+struct OnClosed {
+    rx: oneshot::Receiver<(ConnectionError, ConnectionStats)>,
+    conn: WeakConnectionHandle,
+}
+
+impl Drop for OnClosed {
+    fn drop(&mut self) {
+        if self.rx.is_terminated() {
+            return;
+        };
+        if let Some(conn) = self.conn.upgrade() {
+            self.rx.close();
+            conn.0
+                .state
+                .lock("OnClosed::drop")
+                .on_closed
+                .retain(|tx| !tx.is_closed());
+        }
+    }
+}
+
+impl Future for OnClosed {
+    type Output = (ConnectionError, ConnectionStats);
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        Pin::new(&mut this.rx)
+            .poll(cx)
+            .map(|x| x.expect("sender is never dropped before sending"))
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct ConnectionRef(Arc<ConnectionInner>);
 
@@ -1077,6 +1128,7 @@ impl ConnectionRef {
                 send_buffer: Vec::new(),
                 buffered_transmit: None,
                 observed_external_addr: watch::Sender::new(None),
+                on_closed: Vec::new(),
             }),
             shared: Shared::default(),
         }))
@@ -1215,6 +1267,7 @@ pub(crate) struct State {
     /// Our last external address reported by the peer. When multipath is enabled, this will be the
     /// last report across all paths.
     pub(crate) observed_external_addr: watch::Sender<Option<SocketAddr>>,
+    on_closed: Vec<oneshot::Sender<(ConnectionError, ConnectionStats)>>,
 }
 
 impl State {
@@ -1475,6 +1528,12 @@ impl State {
         }
         wake_all_notify(&mut self.stopped);
         shared.closed.notify_waiters();
+
+        // Send to the registered on_closed futures.
+        let stats = self.inner.stats();
+        for tx in self.on_closed.drain(..) {
+            tx.send((reason.clone(), stats.clone())).ok();
+        }
     }
 
     fn close(&mut self, error_code: VarInt, reason: Bytes, shared: &Shared) {
