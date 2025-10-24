@@ -4362,8 +4362,10 @@ impl Connection {
                 Frame::AddAddress(_addr) => {
                     // TODO(@divma): handle
                 }
-
                 Frame::PunchMeNow(_frame) => {
+                    // TODO(@divma): handle
+                }
+                Frame::RemoveAddress(_frame) => {
                     // TODO(@divma): handle
                 }
             }
