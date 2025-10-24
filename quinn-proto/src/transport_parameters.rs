@@ -118,6 +118,9 @@ macro_rules! make_struct {
 
             // Multipath extension
             pub(crate) initial_max_path_id: Option<PathId>,
+
+            /// Nat traversal draft
+            pub(crate) nat_traversal: Option<VarInt>,
         }
 
         // We deliberately don't implement the `Default` trait, since that would be public, and
@@ -143,6 +146,7 @@ macro_rules! make_struct {
                     write_order: None,
                     address_discovery_role: address_discovery::Role::Disabled,
                     initial_max_path_id: None,
+                    nat_traversal: None,
                 }
             }
         }
