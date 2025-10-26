@@ -415,6 +415,13 @@ impl TransportParameters {
                         w.write(val);
                     }
                 }
+                TransportParameterId::NatTraversal => {
+                    if let Some(val) = self.nat_traversal {
+                        w.write_var(id as u64);
+                        w.write_var(val.size() as u64);
+                        w.write(val);
+                    }
+                }
                 id => {
                     macro_rules! write_params {
                         {$($(#[$doc:meta])* $name:ident ($id:ident) = $default:expr,)*} => {
@@ -539,6 +546,18 @@ impl TransportParameters {
                     }
 
                     params.initial_max_path_id = Some(value);
+                }
+                TransportParameterId::NatTraversal => {
+                    if params.nat_traversal.is_some() {
+                        return Err(Error::Malformed);
+                    }
+
+                    let value: VarInt = r.get()?;
+                    if len != value.size() {
+                        return Err(Error::Malformed);
+                    }
+
+                    params.nat_traversal = Some(value);
                 }
                 _ => {
                     macro_rules! parse {
@@ -708,11 +727,14 @@ pub(crate) enum TransportParameterId {
 
     // https://datatracker.ietf.org/doc/html/draft-ietf-quic-multipath
     InitialMaxPathId = 0x0f739bbc1b666d0c,
+
+    // https://www.ietf.org/archive/id/draft-seemann-quic-nat-traversal-02.html
+    NatTraversal = 0x3d7e9f0bca12fea6,
 }
 
 impl TransportParameterId {
     /// Array with all supported transport parameter IDs
-    const SUPPORTED: [Self; 23] = [
+    const SUPPORTED: [Self; 24] = [
         Self::MaxIdleTimeout,
         Self::MaxUdpPayloadSize,
         Self::InitialMaxData,
@@ -736,6 +758,7 @@ impl TransportParameterId {
         Self::MinAckDelayDraft07,
         Self::ObservedAddr,
         Self::InitialMaxPathId,
+        Self::NatTraversal,
     ];
 }
 
