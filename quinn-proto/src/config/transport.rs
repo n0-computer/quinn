@@ -74,8 +74,7 @@ pub struct TransportConfig {
     pub(crate) default_path_max_idle_timeout: Option<Duration>,
     pub(crate) default_path_keep_alive_interval: Option<Duration>,
 
-    // private since setting this affects other fields
-    nat_traversal_concurrency_limit: Option<NonZeroU32>,
+    pub(crate) nat_traversal_concurrency_limit: Option<NonZeroU32>,
 
     pub(crate) qlog_sink: QlogSink,
 }
