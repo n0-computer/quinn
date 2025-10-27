@@ -12,6 +12,18 @@ use crate::{
     congestion, connection::qlog::QlogSink,
 };
 
+/// When multipath is required and has not been explicitly enabled, this value will be used for
+/// [`TransportConfig::max_concurrent_multipath_paths`].
+const DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED_: NonZeroU32 =
+    NonZeroU32::new(4).expect("to enable multipath this must be positive, which clearly it is");
+
+/// When multipath is required and has not been explicitly enabled, this value will be used for
+///
+/// [`TransportConfig::max_concurrent_multipath_paths`].
+#[cfg(doc)]
+pub const DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED: NonZeroU32 =
+    DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED_;
+
 /// Parameters governing the core QUIC state machine
 ///
 /// Default values should be suitable for most internet applications. Applications protocols which
@@ -62,7 +74,8 @@ pub struct TransportConfig {
     pub(crate) default_path_max_idle_timeout: Option<Duration>,
     pub(crate) default_path_keep_alive_interval: Option<Duration>,
 
-    pub(crate) nat_traversal_concurrency_limit: Option<NonZeroU32>,
+    // private since setting this affects other fields
+    nat_traversal_concurrency_limit: Option<NonZeroU32>,
 
     pub(crate) qlog_sink: QlogSink,
 }
@@ -432,9 +445,26 @@ impl TransportConfig {
     ///
     /// Setting this to any nonzero value will enable the Nat Traversal Extension for QUIC,
     /// see <https://www.ietf.org/archive/id/draft-seemann-quic-nat-traversal-02.html>
+    ///
+    /// This implementation expects the multipath extension to be enabled as well. if not yet
+    /// enabled via [`Self::max_concurrent_multipath_paths`], a default value of
+    /// [`DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED`] will be used.
     pub fn set_max_nat_traversal_concurrent_attempts(&mut self, max_concurrent: u32) -> &mut Self {
         self.nat_traversal_concurrency_limit = NonZeroU32::new(max_concurrent);
+        if max_concurrent != 0 && self.max_concurrent_multipath_paths.is_none() {
+            self.max_concurrent_multipath_paths(
+                DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED_.get(),
+            );
+        }
         self
+    }
+
+    /// Gets the maximum number of concurrent attempts for nat traversal
+    ///
+    /// If this is `Some`, the value is guaranteed to be non zero.
+    pub fn get_nat_traversal_concurrency_limit(&self) -> Option<VarInt> {
+        self.nat_traversal_concurrency_limit
+            .map(|non_zero| VarInt::from_u32(non_zero.get()))
     }
 
     /// qlog capture configuration to use for a particular connection
