@@ -120,7 +120,7 @@ macro_rules! make_struct {
             pub(crate) initial_max_path_id: Option<PathId>,
 
             /// Nat traversal draft
-            pub(crate) nat_traversal: Option<VarInt>,
+            pub nat_traversal: Option<VarInt>,
         }
 
         // We deliberately don't implement the `Default` trait, since that would be public, and
@@ -555,6 +555,10 @@ impl TransportParameters {
                     let value: VarInt = r.get()?;
                     if len != value.size() {
                         return Err(Error::Malformed);
+                    }
+
+                    if value.into_inner() == 0 {
+                        return Err(Error::IllegalValue);
                     }
 
                     params.nat_traversal = Some(value);
