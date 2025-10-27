@@ -14,8 +14,12 @@ use crate::{
 
 /// When multipath is required and has not been explicitly enabled, this value will be used for
 /// [`TransportConfig::max_concurrent_multipath_paths`].
-const DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED_: NonZeroU32 =
-    NonZeroU32::new(4).expect("to enable multipath this must be positive, which clearly it is");
+const DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED_: NonZeroU32 = {
+    match NonZeroU32::new(4) {
+        Some(v) => v,
+        None => panic!("to enable multipath this must be positive, which clearly it is"),
+    }
+};
 
 /// When multipath is required and has not been explicitly enabled, this value will be used for
 ///
