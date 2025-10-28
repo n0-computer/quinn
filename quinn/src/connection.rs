@@ -520,15 +520,14 @@ impl Connection {
 
     /// Wait for the connection to be closed without keeping a strong reference to the connection
     ///
+    /// Returns a future that resolves, once the connection is closed, to a tuple of
+    /// ([`ConnectionError`], [`ConnectionStats`]).
+    ///
     /// Calling [`Self::closed`] keeps the connection alive until it is either closed locally via [`Connection::close`]
-    /// or closed by the remote peer. This function instead does not keep a reference to the connection itself,
+    /// or closed by the remote peer. This function instead does not keep the connection itself alive,
     /// so if all *other* clones of the connection are dropped, the connection will be closed implicitly even
     /// if there are futures returned from this function still being awaited.
-    ///
-    /// Returns the reason why the connection was closed and the final [`ConnectionStats`].
-    pub fn on_closed(
-        &self,
-    ) -> impl Future<Output = (ConnectionError, ConnectionStats)> + Send + Sync + 'static {
+    pub fn on_closed(&self) -> OnClosed {
         let (tx, rx) = oneshot::channel();
         self.0.state.lock("on_closed").on_closed.push(tx);
         OnClosed {
@@ -1056,12 +1055,14 @@ impl Future for SendDatagram<'_> {
     }
 }
 
-struct OnClosed {
+/// Future returned by [`Connection::on_closed`]
+///
+/// Resolves to a tuple of ([`ConnectionError`], [`ConnectionStats`]).
+pub struct OnClosed {
     rx: oneshot::Receiver<(ConnectionError, ConnectionStats)>,
     conn: WeakConnectionHandle,
 }
 
-/// Future returned by [`Connection::on_closed`]
 impl Drop for OnClosed {
     fn drop(&mut self) {
         if self.rx.is_terminated() {
