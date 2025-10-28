@@ -518,7 +518,7 @@ impl Connection {
             .clone()
     }
 
-    /// Wait for the connection to be closed without keeping a strong reference to the connection.
+    /// Wait for the connection to be closed without keeping a strong reference to the connection
     ///
     /// Calling [`Self::closed`] keeps the connection alive until it is either closed locally via [`Connection::close`]
     /// or closed by the remote peer. This function instead does not keep a reference to the connection itself,
@@ -1061,6 +1061,7 @@ struct OnClosed {
     conn: WeakConnectionHandle,
 }
 
+/// Future returned by [`Connection::on_closed`]
 impl Drop for OnClosed {
     fn drop(&mut self) {
         if self.rx.is_terminated() {
@@ -1082,9 +1083,11 @@ impl Future for OnClosed {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
+        // The `expect` is safe because `State::drop` ensures that all senders are triggered
+        // before being dropped.
         Pin::new(&mut this.rx)
             .poll(cx)
-            .map(|x| x.expect("sender is never dropped before sending"))
+            .map(|x| x.expect("on_clone sender is never dropped before sending"))
     }
 }
 
@@ -1569,6 +1572,7 @@ impl Drop for State {
         }
 
         if !self.on_closed.is_empty() {
+            // Ensure that all on_closed oneshot senders are triggered before dropping.
             let reason = self.error.as_ref().expect("closed without error reason");
             let stats = self.inner.stats();
             for tx in self.on_closed.drain(..) {

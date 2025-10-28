@@ -1061,3 +1061,52 @@ async fn on_closed() {
     server_res.expect("server task panicked");
     client_res.expect("client task panicked");
 }
+
+#[tokio::test]
+async fn on_closed_endpoint_drop() {
+    let _guard = subscribe();
+    let factory = EndpointFactory::new();
+    let client = factory.endpoint("client");
+    let server = factory.endpoint("server");
+    let server_addr = server.local_addr().unwrap();
+    let server_task = tokio::time::timeout(
+        Duration::from_millis(500),
+        tokio::spawn(async move {
+            let conn = server
+                .accept()
+                .await
+                .expect("endpoint")
+                .await
+                .expect("accept");
+            println!("accepted");
+            let on_closed = conn.on_closed();
+            drop(conn);
+            drop(server);
+            let (cause, _stats) = on_closed.await;
+            assert!(matches!(cause, ConnectionError::ApplicationClosed(_)));
+        }),
+    );
+    let client_task = tokio::time::timeout(
+        Duration::from_millis(500),
+        tokio::spawn(async move {
+            let conn = client
+                .connect(server_addr, "localhost")
+                .unwrap()
+                .await
+                .expect("connect");
+            println!("connected");
+            let on_closed = conn.on_closed();
+            drop(conn);
+            drop(client);
+            let (cause, _stats) = on_closed.await;
+            assert_eq!(cause, ConnectionError::LocallyClosed);
+        }),
+    );
+    let (server_res, client_res) = tokio::join!(server_task, client_task);
+    server_res
+        .expect("server timeout")
+        .expect("server task panicked");
+    client_res
+        .expect("client timeout")
+        .expect("client task panicked");
+}
