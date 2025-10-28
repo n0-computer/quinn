@@ -1083,7 +1083,11 @@ async fn on_closed_endpoint_drop() {
             drop(conn);
             drop(server);
             let (cause, _stats) = on_closed.await;
-            assert!(matches!(cause, ConnectionError::ApplicationClosed(_)));
+            // Depending on timing we might have received a close frame or not.
+            assert!(matches!(
+                cause,
+                ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed
+            ));
         }),
     );
     let client_task = tokio::time::timeout(
@@ -1099,7 +1103,11 @@ async fn on_closed_endpoint_drop() {
             drop(conn);
             drop(client);
             let (cause, _stats) = on_closed.await;
-            assert_eq!(cause, ConnectionError::LocallyClosed);
+            // Depending on timing we might have received a close frame or not.
+            assert!(matches!(
+                cause,
+                ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed
+            ));
         }),
     );
     let (server_res, client_res) = tokio::join!(server_task, client_task);
