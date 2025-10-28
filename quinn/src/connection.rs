@@ -39,6 +39,12 @@ pub struct Connecting {
     handshake_data_ready: Option<oneshot::Receiver<()>>,
 }
 
+/// TODO(@divma): to make clippy happy
+pub struct NotAServer;
+
+/// TODO(@divma): to make clippy happy
+pub struct NotAClient;
+
 impl Connecting {
     pub(crate) fn new(
         handle: ConnectionHandle,
@@ -821,45 +827,41 @@ impl Connection {
 
     /* QUIC NAT TRAVERSAL API */
 
-    /// Sends an ADD_ADDRESS frame to the Client.
+    /// Registers one or more addresses at which this endpoint is reachable
     ///
-    /// Returns the addresses actually added, which can differ from the list
-    /// given if one was already previously in the set.  This seems preferable
-    /// over throwing an error for that case, given the API takes a list.
-    /// This is needed because addresses get sequence IDs which quinn needs to
-    /// remember.  Other solutions to the seqence ID probably possible.
-    /// Takes a Vec because otherwise we're too likely to send multiple packets
-    /// when it could be avoided.
-    fn add_addresses(&self, addrs: Vec<SocketAddr>) -> Result<Vec<SocketAddr>, IAmNotAServerError> {
+    /// When the NAT traversal extension is negotiated, servers send these addresses to clients in
+    /// `ADD_ADDRESS` frames. This allows clients to obtain server address candidates to initiate
+    /// NAT traversal attempts.
+    pub fn add_nat_traversal_addresses(&self, _addrs: Vec<SocketAddr>) -> Result<(), NotAServer> {
+        Ok(())
     }
 
-    /// Sends a REMOVE_ADDRESS frame to the Client.
+    /// Removes one or more addresses from the set of addresses at which this endpoint is reachable
     ///
-    /// Retuns the addresses actually removed.
-    /// Silently ignores any addresses not currently in this set.
-    /// Otherwise similar considerations as to .add_addresses().
-    fn remove_addresses(
+    /// When the NAT traversal extension is negotiated, servers send address removals to
+    /// clients in `REMOVE_ADDRESS` frames. This allows clients to stop using outdated
+    /// server address candidates that are no longer valid for NAT traversal.
+    ///
+    /// Addresses not present in the set will be silently ignored.
+    pub fn remove_nat_traversal_addresses(
         &self,
-        addrs: Vec<SocketAddr>,
-    ) -> Result<Vec<SocketAddr>, IAmNotAServerError> {
+        _addrs: Vec<SocketAddr>,
+    ) -> Result<(), NotAServer> {
+        Ok(())
     }
 
     /// Receives events about addresses advertised by the server.
-    fn addr_events(&self) -> Result<impl Stream<Item = AddrCandidate>, IAmNotAClient> {}
+    pub fn addr_events(&self) -> Result<tokio_stream::Iter<SocketAddr>, NotAClient> {
+        Err(NotAClient)
+    }
 
-    /// Sends PATH_CHALLENGE frames followed by SEND_PATH_CHALLENGE frames.
+    /// Direct the remote server to initiate a nat traversal attempt at the given addresses.
     ///
-    /// This first sends PATH_CHALLENGE frames to the `addrs`, assinging
-    /// Path IDs as needed, to start the holepunching.
-    /// Then it sends SEND_PATH_CHALLENGE frames for each address.  All in
-    /// one round, paired with some random sequence ID, because I don't think
-    /// we have much of a usecase yet for pairing and rounds but it allows
-    /// us to remain wire-level forward-compatible.  The API can evolve once
-    /// we actually figure out a use for pairing or rounds.
-    fn send_path_challenges(
-        &self,
-        addrs: Vec<SocketAddr>,
-    ) -> Result<Vec<SocketAddr>, IAmNotAClientError> {
+    /// When the NAT traversal extension is negotiated, clients send PUNCH_ME_NOW frames to servers
+    /// to intiate nat traversal attempts. PATH_CHALLENGE frames are sent immediately after to
+    /// establish direct paths using these addresses.
+    pub fn initiate_nat_traversal(&self, _addrs: Vec<SocketAddr>) -> Result<(), NotAClient> {
+        Ok(())
     }
 }
 
