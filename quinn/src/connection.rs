@@ -1088,7 +1088,7 @@ impl Future for OnClosed {
         // before being dropped.
         Pin::new(&mut this.rx)
             .poll(cx)
-            .map(|x| x.expect("on_clone sender is never dropped before sending"))
+            .map(|x| x.expect("on_close sender is never dropped before sending"))
     }
 }
 
