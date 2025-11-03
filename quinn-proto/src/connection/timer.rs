@@ -1,5 +1,3 @@
-use std::collections::{BinaryHeap, binary_heap::PeekMut};
-
 use rustc_hash::FxHashMap;
 
 use crate::Instant;
@@ -8,34 +6,68 @@ use super::PathId;
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub(crate) enum Timer {
-    /// When to send an ack-eliciting probe packet or declare unacked packets lost
-    LossDetection(PathId),
+    Generic(GenericTimer),
+    PerPath(PathId, PerPathTimer),
+}
+
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub(crate) enum GenericTimer {
     /// When to close the connection after no activity
-    Idle,
-    /// When to abandon a path after no activity
-    PathIdle(PathId),
+    Idle = 0,
     /// When the close timer expires, the connection has been gracefully terminated.
-    Close,
+    Close = 1,
     /// When keys are discarded because they should not be needed anymore
-    KeyDiscard,
-    /// When to give up on validating a new path from RFC9000 migration
-    PathValidation(PathId),
-    /// When to give up on validating a new (multi)path
-    PathOpen(PathId),
+    KeyDiscard = 2,
     /// When to send a `PING` frame to keep the connection alive
-    KeepAlive,
-    /// When to send a `PING` frame to keep the path alive
-    PathKeepAlive(PathId),
-    /// When pacing will allow us to send a packet
-    Pacing(PathId),
+    KeepAlive = 3,
     /// When to invalidate old CID and proactively push new one via NEW_CONNECTION_ID frame
-    PushNewCid,
+    PushNewCid = 4,
+}
+
+impl GenericTimer {
+    const VALUES: [GenericTimer; 5] = [
+        Self::Idle,
+        Self::Close,
+        Self::KeyDiscard,
+        Self::KeepAlive,
+        Self::PushNewCid,
+    ];
+}
+
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub(crate) enum PerPathTimer {
+    /// When to send an ack-eliciting probe packet or declare unacked packets lost
+    LossDetection = 0,
+    /// When to abandon a path after no activity
+    PathIdle = 1,
+    /// When to give up on validating a new path from RFC9000 migration
+    PathValidation = 2,
+    /// When to give up on validating a new (multi)path
+    PathOpen = 3,
+    /// When to send a `PING` frame to keep the path alive
+    PathKeepAlive = 4,
+    /// When pacing will allow us to send a packet
+    Pacing = 5,
     /// When to send an immediate ACK if there are unacked ack-eliciting packets of the peer
-    MaxAckDelay(PathId),
+    MaxAckDelay = 6,
     /// When to clean up state for an abandoned path
-    PathAbandoned(PathId),
+    PathAbandoned = 7,
     /// When the peer fails to confirm abandoning the path
-    PathNotAbandoned(PathId),
+    PathNotAbandoned = 8,
+}
+
+impl PerPathTimer {
+    const VALUES: [Self; 9] = [
+        Self::LossDetection,
+        Self::PathIdle,
+        Self::PathValidation,
+        Self::PathOpen,
+        Self::PathKeepAlive,
+        Self::Pacing,
+        Self::MaxAckDelay,
+        Self::PathAbandoned,
+        Self::PathNotAbandoned,
+    ];
 }
 
 /// Keeps track of the nearest timeout for each `Timer`
@@ -43,81 +75,179 @@ pub(crate) enum Timer {
 /// The [`TimerTable`] is advanced with [`TimerTable::expire_before`].
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TimerTable {
-    most_recent_timeout: FxHashMap<Timer, Instant>,
-    timeout_queue: BinaryHeap<TimerEntry>,
+    generic: [Option<Instant>; GenericTimer::VALUES.len()],
+    path_0: PathTimerTable,
+    path_1: PathTimerTable,
+    path_n: FxHashMap<PathId, PathTimerTable>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct TimerEntry {
-    pub(super) time: Instant,
-    pub(super) timer: Timer,
+#[derive(Debug, Clone, Copy, Default)]
+struct PathTimerTable {
+    timers: [Option<Instant>; PerPathTimer::VALUES.len()],
 }
 
-impl Ord for TimerEntry {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // `timeout_queue` is a max heap so we need to reverse the order to efficiently pop the
-        // next timeout
-        self.time
-            .cmp(&other.time)
-            .then_with(|| self.timer.cmp(&other.timer))
-            .reverse()
+impl PathTimerTable {
+    fn set(&mut self, timer: PerPathTimer, time: Instant) {
+        self.timers[timer as usize] = Some(time);
     }
-}
 
-impl PartialOrd for TimerEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
+    fn stop(&mut self, timer: PerPathTimer) {
+        self.timers[timer as usize] = None;
+    }
+
+    fn reset(&mut self) {
+        for timer in PerPathTimer::VALUES {
+            self.timers[timer as usize] = None;
+        }
+    }
+
+    fn expire_before(&mut self, now: Instant) -> Option<(PerPathTimer, Instant)> {
+        for timer in PerPathTimer::VALUES {
+            if self.timers[timer as usize].is_some()
+                && self.timers[timer as usize].expect("checked") < now
+            {
+                return self.timers[timer as usize].take().map(|time| (timer, time));
+            }
+        }
+
+        None
     }
 }
 
 impl TimerTable {
     /// Sets the timer unconditionally
     pub(super) fn set(&mut self, timer: Timer, time: Instant) {
-        self.most_recent_timeout.insert(timer, time);
-        self.timeout_queue.push(TimerEntry { time, timer });
+        match timer {
+            Timer::Generic(timer) => {
+                self.generic[timer as usize] = Some(time);
+            }
+            Timer::PerPath(path_id, timer) => match path_id.0 {
+                0 => {
+                    self.path_0.set(timer, time);
+                }
+                1 => {
+                    self.path_1.set(timer, time);
+                }
+                _ => {
+                    self.path_n.entry(path_id).or_default().set(timer, time);
+                }
+            },
+        }
     }
 
     pub(super) fn stop(&mut self, timer: Timer) {
-        self.most_recent_timeout.remove(&timer);
+        match timer {
+            Timer::Generic(timer) => {
+                self.generic[timer as usize] = None;
+            }
+            Timer::PerPath(path_id, timer) => match path_id.0 {
+                0 => {
+                    self.path_0.stop(timer);
+                }
+                1 => {
+                    self.path_1.stop(timer);
+                }
+                _ => {
+                    if let Some(e) = self.path_n.get_mut(&path_id) {
+                        e.stop(timer);
+                    }
+                }
+            },
+        }
     }
 
     /// Get the next queued timeout
-    ///
-    /// Obsolete timers will be purged.
-    pub(super) fn peek(&mut self) -> Option<TimerEntry> {
-        while let Some(timer_entry) = self.timeout_queue.peek_mut() {
-            if self.most_recent_timeout.get(&timer_entry.timer) != Some(&timer_entry.time) {
-                // obsolete timeout
-                PeekMut::pop(timer_entry);
-                continue;
-            }
-            return Some(timer_entry.clone());
-        }
+    pub(super) fn peek(&mut self) -> Option<Instant> {
+        // TODO: this is currently linear in the number of paths
 
-        None
+        let min_generic = self.generic.iter().filter_map(|&x| x).min();
+        let a = self.path_0.timers.iter().filter_map(|&x| x);
+        let b = self.path_1.timers.iter().filter_map(|&x| x);
+        let c = self
+            .path_n
+            .values()
+            .flat_map(|p| p.timers.iter().filter_map(|&x| x));
+
+        let min_path = a.chain(b).chain(c).min();
+        match (min_generic, min_path) {
+            (None, None) => None,
+            (Some(val), None) => Some(val),
+            (None, Some(val)) => Some(val),
+            (Some(min_generic), Some(min_path)) => Some(min_generic.min(min_path)),
+        }
     }
 
     /// Remove the next timer up until `now`, including it
-    pub(super) fn expire_before(&mut self, now: Instant) -> Option<Timer> {
-        let TimerEntry { time, timer } = self.peek()?;
-        if time <= now {
-            self.most_recent_timeout.remove(&timer);
-            self.timeout_queue.pop();
-            return Some(timer);
+    pub(super) fn expire_before(&mut self, now: Instant) -> Option<(Timer, Instant)> {
+        // TODO: this is currently linear in the number of paths
+
+        for timer in GenericTimer::VALUES {
+            if self.generic[timer as usize].is_some()
+                && self.generic[timer as usize].expect("checked") < now
+            {
+                return self.generic[timer as usize]
+                    .take()
+                    .map(|time| (Timer::Generic(timer), time));
+            }
         }
 
-        None
+        if let Some((timer, time)) = self.path_0.expire_before(now) {
+            return Some((Timer::PerPath(PathId(0), timer), time));
+        }
+        if let Some((timer, time)) = self.path_1.expire_before(now) {
+            return Some((Timer::PerPath(PathId(1), timer), time));
+        }
+
+        let mut res = None;
+        for (path_id, timers) in &mut self.path_n {
+            if let Some((timer, time)) = timers.expire_before(now) {
+                res = Some((Timer::PerPath(*path_id, timer), time));
+                break;
+            }
+        }
+
+        // clear out old timers
+        self.path_n
+            .retain(|_path_id, timers| timers.timers.iter().any(|t| t.is_some()));
+        res
     }
 
     pub(super) fn reset(&mut self) {
-        self.most_recent_timeout.clear();
-        self.timeout_queue.clear();
+        self.path_0.reset();
+        self.path_1.reset();
+        self.path_n.clear();
     }
 
     #[cfg(test)]
-    pub(super) fn values(&self) -> Vec<TimerEntry> {
-        let mut values = self.timeout_queue.clone().into_sorted_vec();
-        values.retain(|entry| self.most_recent_timeout.get(&entry.timer) == Some(&entry.time));
+    pub(super) fn values(&self) -> Vec<(Timer, Instant)> {
+        let mut values = Vec::new();
+
+        for timer in GenericTimer::VALUES {
+            if let Some(time) = self.generic[timer as usize] {
+                values.push((Timer::Generic(timer), time));
+            }
+        }
+
+        for timer in PerPathTimer::VALUES {
+            if let Some(time) = self.path_0.timers[timer as usize] {
+                values.push((Timer::PerPath(PathId(0), timer), time));
+            }
+        }
+
+        for timer in PerPathTimer::VALUES {
+            if let Some(time) = self.path_1.timers[timer as usize] {
+                values.push((Timer::PerPath(PathId(1), timer), time));
+            }
+        }
+
+        for timer in PerPathTimer::VALUES {
+            for (path_id, timers) in &self.path_n {
+                if let Some(time) = timers.timers[timer as usize] {
+                    values.push((Timer::PerPath(*path_id, timer), time));
+                }
+            }
+        }
+
         values
     }
 }
@@ -133,19 +263,18 @@ mod tests {
         let mut timers = TimerTable::default();
         let sec = Duration::from_secs(1);
         let now = Instant::now() + Duration::from_secs(10);
-        timers.set(Timer::Idle, now - 3 * sec);
-        timers.set(Timer::Close, now - 2 * sec);
-        timers.set(Timer::Idle, now);
+        timers.set(Timer::Generic(GenericTimer::Idle), now - 3 * sec);
+        timers.set(Timer::Generic(GenericTimer::Close), now - 2 * sec);
 
+        assert_eq!(timers.peek(), Some(now - 3 * sec));
         assert_eq!(
-            timers.peek(),
-            Some(TimerEntry {
-                timer: Timer::Close,
-                time: now - 2 * sec
-            })
+            timers.expire_before(now),
+            Some((Timer::Generic(GenericTimer::Idle), now - 3 * sec))
         );
-        assert_eq!(timers.expire_before(now), Some(Timer::Close));
-        assert_eq!(timers.expire_before(now), Some(Timer::Idle));
+        assert_eq!(
+            timers.expire_before(now),
+            Some((Timer::Generic(GenericTimer::Close), now - 2 * sec))
+        );
         assert_eq!(timers.expire_before(now), None);
     }
 }
