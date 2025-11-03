@@ -25,7 +25,7 @@ pub(crate) enum GenericTimer {
 }
 
 impl GenericTimer {
-    const VALUES: [GenericTimer; 5] = [
+    const VALUES: [Self; 5] = [
         Self::Idle,
         Self::Close,
         Self::KeyDiscard,
@@ -162,19 +162,45 @@ impl TimerTable {
         // TODO: this is currently linear in the number of paths
 
         let min_generic = self.generic.iter().filter_map(|&x| x).min();
-        let a = self.path_0.timers.iter().filter_map(|&x| x);
-        let b = self.path_1.timers.iter().filter_map(|&x| x);
-        let c = self
+        let min_path_0 = self.path_0.timers.iter().filter_map(|&x| x).min();
+        let min_path_1 = self.path_1.timers.iter().filter_map(|&x| x).min();
+        let min_path_n = self
             .path_n
             .values()
-            .flat_map(|p| p.timers.iter().filter_map(|&x| x));
+            .flat_map(|p| p.timers.iter().filter_map(|&x| x))
+            .min();
 
-        let min_path = a.chain(b).chain(c).min();
-        match (min_generic, min_path) {
-            (None, None) => None,
-            (Some(val), None) => Some(val),
-            (None, Some(val)) => Some(val),
-            (Some(min_generic), Some(min_path)) => Some(min_generic.min(min_path)),
+        // TODO: can this be written better? using iterators makes this slower as this is very hot
+        match (min_generic, min_path_0, min_path_1, min_path_n) {
+            (None, None, None, None) => None,
+            (Some(val), None, None, None) => Some(val),
+            (None, Some(val), None, None) => Some(val),
+            (None, None, Some(val), None) => Some(val),
+            (None, None, None, Some(val)) => Some(val),
+
+            (Some(min_generic), Some(min_path), None, None) => Some(min_generic.min(min_path)),
+            (None, Some(min_path_0), Some(min_path_1), None) => Some(min_path_0.min(min_path_1)),
+            (None, None, Some(min_path_1), Some(min_path_n)) => Some(min_path_1.min(min_path_n)),
+            (Some(min_generic), None, Some(min_path_1), None) => Some(min_generic.min(min_path_1)),
+            (Some(min_generic), None, None, Some(min_path_n)) => Some(min_generic.min(min_path_n)),
+            (None, Some(min_path_0), None, Some(min_path_n)) => Some(min_path_0.min(min_path_n)),
+
+            (Some(min_generic), Some(min_path_0), Some(min_path_1), None) => {
+                Some(min_generic.min(min_path_0).min(min_path_1))
+            }
+            (Some(min_generic), Some(min_path_0), None, Some(min_path_n)) => {
+                Some(min_generic.min(min_path_0).min(min_path_n))
+            }
+            (Some(min_generic), None, Some(min_path_1), Some(min_path_n)) => {
+                Some(min_generic.min(min_path_1).min(min_path_n))
+            }
+            (None, Some(min_path_0), Some(min_path_1), Some(min_path_n)) => {
+                Some(min_path_0.min(min_path_1).min(min_path_n))
+            }
+
+            (Some(min_generic), Some(min_path_0), Some(min_path_1), Some(min_path_n)) => {
+                Some(min_generic.min(min_path_0).min(min_path_1).min(min_path_n))
+            }
         }
     }
 
