@@ -101,10 +101,11 @@ impl PathTimerTable {
         }
     }
 
+    /// Remove the next timer up until `now`, including it
     fn expire_before(&mut self, now: Instant) -> Option<(PerPathTimer, Instant)> {
         for timer in PerPathTimer::VALUES {
             if self.timers[timer as usize].is_some()
-                && self.timers[timer as usize].expect("checked") < now
+                && self.timers[timer as usize].expect("checked") <= now
             {
                 return self.timers[timer as usize].take().map(|time| (timer, time));
             }
@@ -183,7 +184,7 @@ impl TimerTable {
 
         for timer in GenericTimer::VALUES {
             if self.generic[timer as usize].is_some()
-                && self.generic[timer as usize].expect("checked") < now
+                && self.generic[timer as usize].expect("checked") <= now
             {
                 return self.generic[timer as usize]
                     .take()
