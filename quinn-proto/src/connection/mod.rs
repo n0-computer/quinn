@@ -2275,8 +2275,7 @@ impl Connection {
                     Duration::from_micros(ack.delay << self.peer_params.ack_delay_exponent.0),
                 )
             };
-            let rtt = instant_saturating_sub(
-                now,
+            let rtt = now.saturating_duration_since(
                 self.spaces[space].for_path(path).largest_acked_packet_sent,
             );
 
@@ -5913,10 +5912,6 @@ impl From<PathEvent> for Event {
     fn from(source: PathEvent) -> Self {
         Self::Path(source)
     }
-}
-
-fn instant_saturating_sub(x: Instant, y: Instant) -> Duration {
-    if x > y { x - y } else { Duration::ZERO }
 }
 
 fn get_max_ack_delay(params: &TransportParameters) -> Duration {
