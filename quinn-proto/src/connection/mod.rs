@@ -2418,7 +2418,7 @@ impl Connection {
         );
     }
 
-    /// Handle a [`Timer::LossDetection`] timeout.
+    /// Handle a [`PerPathTimer::LossDetection`] timeout.
     ///
     /// This timer expires for two reasons:
     /// - An ACK-eliciting packet we sent should be considered lost.
@@ -2475,7 +2475,7 @@ impl Connection {
     /// There are two cases in which we detects lost packets:
     ///
     /// - We received an ACK packet.
-    /// - The [`Timer::LossDetection`] timer expired. So there is an un-acknowledged packet
+    /// - The [`PerPathTimer::LossDetection`] timer expired. So there is an un-acknowledged packet
     ///   that was followed by an acknowleged packet. The loss timer for this
     ///   un-acknowledged packet expired and we need to detect that packet as lost.
     ///
@@ -2852,7 +2852,7 @@ impl Connection {
                 && self.spaces[SpaceId::Handshake].crypto.is_none())
     }
 
-    /// Resets the the [`Timer::LossDetection`] timer to the next instant it may be needed
+    /// Resets the the [`PerPathTimer::LossDetection`] timer to the next instant it may be needed
     ///
     /// The timer must fire if either:
     /// - An ack-eliciting packet we sent needs to be declared lost.
@@ -3016,7 +3016,7 @@ impl Connection {
         }
     }
 
-    /// Resets both the [`Timer::KeepAlive`] and [`Timer::PathKeepAlive`] timers
+    /// Resets both the [`GenericTimer::KeepAlive`] and [`PerPathTimer::PathKeepAlive`] timers
     fn reset_keep_alive(&mut self, path_id: PathId, now: Instant) {
         if !self.state.is_established() {
             return;
