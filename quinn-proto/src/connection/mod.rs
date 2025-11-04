@@ -2207,10 +2207,7 @@ impl Connection {
         }
         let new_largest = {
             let space = &mut self.spaces[space].for_path(path);
-            if space
-                .largest_acked_packet
-                .map_or(true, |pn| ack.largest > pn)
-            {
+            if space.largest_acked_packet.is_none_or(|pn| ack.largest > pn) {
                 space.largest_acked_packet = Some(ack.largest);
                 if let Some(info) = space.sent_packets.get(&ack.largest) {
                     // This should always succeed, but a misbehaving peer might ACK a packet we
@@ -2816,7 +2813,7 @@ impl Connection {
                 continue;
             };
             let pto = last_ack_eliciting + duration;
-            if result.map_or(true, |(earliest_pto, _)| pto < earliest_pto) {
+            if result.is_none_or(|(earliest_pto, _)| pto < earliest_pto) {
                 if path.anti_amplification_blocked(1) {
                     // Nothing would be able to be sent.
                     continue;
@@ -5428,7 +5425,7 @@ impl Connection {
                 )
             })
             .min_by_key(|(_, time)| *time)
-            .map_or(true, |(timer, _)| timer == Timer::Conn(ConnTimer::Idle))
+            .is_none_or(|(timer, _)| timer == Timer::Conn(ConnTimer::Idle))
     }
 
     /// Whether explicit congestion notification is in use on outgoing packets.
