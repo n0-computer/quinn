@@ -1,4 +1,4 @@
-use rustc_hash::FxHashMap;
+use identity_hash::{IdentityHashable, IntMap};
 
 use crate::Instant;
 
@@ -86,7 +86,7 @@ const STACK_TIMERS: usize = 4;
 #[derive(Debug, Clone)]
 struct SmallMap<K, V, const SIZE: usize> {
     stack: [Option<(K, V)>; SIZE],
-    heap: Option<FxHashMap<K, V>>,
+    heap: Option<IntMap<K, V>>,
 }
 
 impl<K, V, const SIZE: usize> Default for SmallMap<K, V, SIZE> {
@@ -100,7 +100,7 @@ impl<K, V, const SIZE: usize> Default for SmallMap<K, V, SIZE> {
 
 impl<K, V, const SIZE: usize> SmallMap<K, V, SIZE>
 where
-    K: std::cmp::Eq + std::hash::Hash,
+    K: std::cmp::Eq + std::hash::Hash + IdentityHashable,
 {
     fn insert(&mut self, key: K, value: V) -> Option<V> {
         // check stack for space
