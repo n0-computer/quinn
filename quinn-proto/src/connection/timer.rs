@@ -6,12 +6,14 @@ use super::PathId;
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub(crate) enum Timer {
-    Generic(GenericTimer),
-    PerPath(PathId, PerPathTimer),
+    /// Per connection timers.
+    Conn(ConnTimer),
+    /// Per path timers.
+    PerPath(PathId, PathTimer),
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub(crate) enum GenericTimer {
+pub(crate) enum ConnTimer {
     /// When to close the connection after no activity
     Idle = 0,
     /// When the close timer expires, the connection has been gracefully terminated.
@@ -24,7 +26,7 @@ pub(crate) enum GenericTimer {
     PushNewCid = 4,
 }
 
-impl GenericTimer {
+impl ConnTimer {
     const VALUES: [Self; 5] = [
         Self::Idle,
         Self::Close,
@@ -35,7 +37,7 @@ impl GenericTimer {
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub(crate) enum PerPathTimer {
+pub(crate) enum PathTimer {
     /// When to send an ack-eliciting probe packet or declare unacked packets lost
     LossDetection = 0,
     /// When to abandon a path after no activity
@@ -56,7 +58,7 @@ pub(crate) enum PerPathTimer {
     PathNotAbandoned = 8,
 }
 
-impl PerPathTimer {
+impl PathTimer {
     const VALUES: [Self; 9] = [
         Self::LossDetection,
         Self::PathIdle,
@@ -75,7 +77,7 @@ impl PerPathTimer {
 /// The [`TimerTable`] is advanced with [`TimerTable::expire_before`].
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TimerTable {
-    generic: [Option<Instant>; GenericTimer::VALUES.len()],
+    generic: [Option<Instant>; ConnTimer::VALUES.len()],
     path_timers: SmallMap<PathId, PathTimerTable, STACK_TIMERS>,
 }
 
@@ -123,10 +125,7 @@ where
         }
 
         // No space on the stack, use the heap
-        if self.heap.is_none() {
-            self.heap = Some(Default::default());
-        }
-        let heap = self.heap.as_mut().expect("inserted");
+        let heap = self.heap.get_or_insert_default();
         heap.insert(key, value)
     }
 
@@ -220,21 +219,21 @@ where
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PathTimerTable {
-    timers: [Option<Instant>; PerPathTimer::VALUES.len()],
+    timers: [Option<Instant>; PathTimer::VALUES.len()],
 }
 
 impl PathTimerTable {
-    fn set(&mut self, timer: PerPathTimer, time: Instant) {
+    fn set(&mut self, timer: PathTimer, time: Instant) {
         self.timers[timer as usize] = Some(time);
     }
 
-    fn stop(&mut self, timer: PerPathTimer) {
+    fn stop(&mut self, timer: PathTimer) {
         self.timers[timer as usize] = None;
     }
 
     /// Remove the next timer up until `now`, including it
-    fn expire_before(&mut self, now: Instant) -> Option<(PerPathTimer, Instant)> {
-        for timer in PerPathTimer::VALUES {
+    fn expire_before(&mut self, now: Instant) -> Option<(PathTimer, Instant)> {
+        for timer in PathTimer::VALUES {
             if self.timers[timer as usize].is_some()
                 && self.timers[timer as usize].expect("checked") <= now
             {
@@ -250,7 +249,7 @@ impl TimerTable {
     /// Sets the timer unconditionally
     pub(super) fn set(&mut self, timer: Timer, time: Instant) {
         match timer {
-            Timer::Generic(timer) => {
+            Timer::Conn(timer) => {
                 self.generic[timer as usize] = Some(time);
             }
             Timer::PerPath(path_id, timer) => match self.path_timers.get_mut(&path_id) {
@@ -268,7 +267,7 @@ impl TimerTable {
 
     pub(super) fn stop(&mut self, timer: Timer) {
         match timer {
-            Timer::Generic(timer) => {
+            Timer::Conn(timer) => {
                 self.generic[timer as usize] = None;
             }
             Timer::PerPath(path_id, timer) => {
@@ -302,13 +301,13 @@ impl TimerTable {
     pub(super) fn expire_before(&mut self, now: Instant) -> Option<(Timer, Instant)> {
         // TODO: this is currently linear in the number of paths
 
-        for timer in GenericTimer::VALUES {
+        for timer in ConnTimer::VALUES {
             if self.generic[timer as usize].is_some()
                 && self.generic[timer as usize].expect("checked") <= now
             {
                 return self.generic[timer as usize]
                     .take()
-                    .map(|time| (Timer::Generic(timer), time));
+                    .map(|time| (Timer::Conn(timer), time));
             }
         }
 
@@ -327,7 +326,7 @@ impl TimerTable {
     }
 
     pub(super) fn reset(&mut self) {
-        for timer in GenericTimer::VALUES {
+        for timer in ConnTimer::VALUES {
             self.generic[timer as usize] = None;
         }
         self.path_timers.clear();
@@ -337,13 +336,13 @@ impl TimerTable {
     pub(super) fn values(&self) -> Vec<(Timer, Instant)> {
         let mut values = Vec::new();
 
-        for timer in GenericTimer::VALUES {
+        for timer in ConnTimer::VALUES {
             if let Some(time) = self.generic[timer as usize] {
-                values.push((Timer::Generic(timer), time));
+                values.push((Timer::Conn(timer), time));
             }
         }
 
-        for timer in PerPathTimer::VALUES {
+        for timer in PathTimer::VALUES {
             for (path_id, timers) in self.path_timers.iter() {
                 if let Some(time) = timers.timers[timer as usize] {
                     values.push((Timer::PerPath(*path_id, timer), time));
@@ -366,17 +365,17 @@ mod tests {
         let mut timers = TimerTable::default();
         let sec = Duration::from_secs(1);
         let now = Instant::now() + Duration::from_secs(10);
-        timers.set(Timer::Generic(GenericTimer::Idle), now - 3 * sec);
-        timers.set(Timer::Generic(GenericTimer::Close), now - 2 * sec);
+        timers.set(Timer::Conn(ConnTimer::Idle), now - 3 * sec);
+        timers.set(Timer::Conn(ConnTimer::Close), now - 2 * sec);
 
         assert_eq!(timers.peek(), Some(now - 3 * sec));
         assert_eq!(
             timers.expire_before(now),
-            Some((Timer::Generic(GenericTimer::Idle), now - 3 * sec))
+            Some((Timer::Conn(ConnTimer::Idle), now - 3 * sec))
         );
         assert_eq!(
             timers.expire_before(now),
-            Some((Timer::Generic(GenericTimer::Close), now - 2 * sec))
+            Some((Timer::Conn(ConnTimer::Close), now - 2 * sec))
         );
         assert_eq!(timers.expire_before(now), None);
     }
