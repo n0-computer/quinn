@@ -76,9 +76,146 @@ impl PerPathTimer {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TimerTable {
     generic: [Option<Instant>; GenericTimer::VALUES.len()],
-    path_0: PathTimerTable,
-    path_1: PathTimerTable,
-    path_n: FxHashMap<PathId, PathTimerTable>,
+    path_timers: SmallMap<PathId, PathTimerTable, STACK_TIMERS>,
+}
+
+/// For how many paths we keep the timers on the stack, before spilling onto the heap.
+const STACK_TIMERS: usize = 4;
+
+/// Works like a `HashMap` but stores up to `SIZE` items on the stack.
+#[derive(Debug, Clone)]
+struct SmallMap<K, V, const SIZE: usize> {
+    stack: [Option<(K, V)>; SIZE],
+    heap: Option<FxHashMap<K, V>>,
+}
+
+impl<K, V, const SIZE: usize> Default for SmallMap<K, V, SIZE> {
+    fn default() -> Self {
+        Self {
+            stack: [const { None }; SIZE],
+            heap: None,
+        }
+    }
+}
+
+impl<K, V, const SIZE: usize> SmallMap<K, V, SIZE>
+where
+    K: std::cmp::Eq + std::hash::Hash,
+{
+    fn insert(&mut self, key: K, value: V) -> Option<V> {
+        // check stack for space
+        for el in self.stack.iter_mut() {
+            match el {
+                Some((k, v)) => {
+                    if *k == key {
+                        let old_value = std::mem::replace(v, value);
+                        return Some(old_value);
+                    }
+                }
+                None => {
+                    // make sure to remove a potentially old value from the heap
+                    let old_heap = self.heap.as_mut().and_then(|h| h.remove(&key));
+                    *el = Some((key, value));
+
+                    return old_heap;
+                }
+            }
+        }
+
+        // No space on the stack, use the heap
+        if self.heap.is_none() {
+            self.heap = Some(Default::default());
+        }
+        let heap = self.heap.as_mut().expect("inserted");
+        heap.insert(key, value)
+    }
+
+    #[cfg(test)]
+    fn remove(&mut self, key: &K) -> Option<V> {
+        for el in self.stack.iter_mut() {
+            if let Some((k, _)) = el {
+                if key == k {
+                    return el.take().map(|(_, v)| v);
+                }
+            }
+        }
+
+        self.heap.as_mut().and_then(|h| h.remove(key))
+    }
+
+    #[cfg(test)]
+    fn get(&self, key: &K) -> Option<&V> {
+        for (k, v) in self.stack.iter().filter_map(|v| v.as_ref()) {
+            if k == key {
+                return Some(v);
+            }
+        }
+
+        self.heap.as_ref().and_then(|h| h.get(key))
+    }
+
+    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        for (k, v) in self.stack.iter_mut().filter_map(|v| v.as_mut()) {
+            if k == key {
+                return Some(v);
+            }
+        }
+
+        self.heap.as_mut().and_then(|h| h.get_mut(key))
+    }
+
+    #[cfg(test)]
+    fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        let a = self
+            .stack
+            .iter()
+            .filter_map(|v| v.as_ref().map(|(k, v)| (k, v)));
+        let b = self.heap.iter().flat_map(|h| h.iter());
+        a.chain(b)
+    }
+
+    fn values(&self) -> impl Iterator<Item = &V> {
+        let a = self.stack.iter().filter_map(|v| v.as_ref().map(|(_, v)| v));
+        let b = self.heap.iter().flat_map(|h| h.values());
+        a.chain(b)
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
+        let a = self
+            .stack
+            .iter_mut()
+            .filter_map(|v| v.as_mut().map(|(k, v)| (&*k, v)));
+        let b = self.heap.iter_mut().flat_map(|h| h.iter_mut());
+        a.chain(b)
+    }
+
+    fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&K, &mut V) -> bool,
+    {
+        let mut to_remove = [false; SIZE];
+        for (i, el) in self.stack.iter_mut().enumerate() {
+            if let Some((ref key, ref mut value)) = el {
+                to_remove[i] = !f(key, value);
+            }
+        }
+        for (i, to_remove) in to_remove.into_iter().enumerate() {
+            if to_remove {
+                self.stack[i] = None;
+            }
+        }
+
+        if let Some(ref mut heap) = self.heap {
+            heap.retain(f);
+        }
+    }
+
+    fn clear(&mut self) {
+        for el in self.stack.iter_mut() {
+            *el = None;
+        }
+        self.heap = None;
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -93,12 +230,6 @@ impl PathTimerTable {
 
     fn stop(&mut self, timer: PerPathTimer) {
         self.timers[timer as usize] = None;
-    }
-
-    fn reset(&mut self) {
-        for timer in PerPathTimer::VALUES {
-            self.timers[timer as usize] = None;
-        }
     }
 
     /// Remove the next timer up until `now`, including it
@@ -122,15 +253,14 @@ impl TimerTable {
             Timer::Generic(timer) => {
                 self.generic[timer as usize] = Some(time);
             }
-            Timer::PerPath(path_id, timer) => match path_id.0 {
-                0 => {
-                    self.path_0.set(timer, time);
+            Timer::PerPath(path_id, timer) => match self.path_timers.get_mut(&path_id) {
+                None => {
+                    let mut table = PathTimerTable::default();
+                    table.set(timer, time);
+                    self.path_timers.insert(path_id, table);
                 }
-                1 => {
-                    self.path_1.set(timer, time);
-                }
-                _ => {
-                    self.path_n.entry(path_id).or_default().set(timer, time);
+                Some(table) => {
+                    table.set(timer, time);
                 }
             },
         }
@@ -141,19 +271,11 @@ impl TimerTable {
             Timer::Generic(timer) => {
                 self.generic[timer as usize] = None;
             }
-            Timer::PerPath(path_id, timer) => match path_id.0 {
-                0 => {
-                    self.path_0.stop(timer);
+            Timer::PerPath(path_id, timer) => {
+                if let Some(e) = self.path_timers.get_mut(&path_id) {
+                    e.stop(timer);
                 }
-                1 => {
-                    self.path_1.stop(timer);
-                }
-                _ => {
-                    if let Some(e) = self.path_n.get_mut(&path_id) {
-                        e.stop(timer);
-                    }
-                }
-            },
+            }
         }
     }
 
@@ -162,45 +284,17 @@ impl TimerTable {
         // TODO: this is currently linear in the number of paths
 
         let min_generic = self.generic.iter().filter_map(|&x| x).min();
-        let min_path_0 = self.path_0.timers.iter().filter_map(|&x| x).min();
-        let min_path_1 = self.path_1.timers.iter().filter_map(|&x| x).min();
-        let min_path_n = self
-            .path_n
+        let min_path = self
+            .path_timers
             .values()
             .flat_map(|p| p.timers.iter().filter_map(|&x| x))
             .min();
 
-        // TODO: can this be written better? using iterators makes this slower as this is very hot
-        match (min_generic, min_path_0, min_path_1, min_path_n) {
-            (None, None, None, None) => None,
-            (Some(val), None, None, None) => Some(val),
-            (None, Some(val), None, None) => Some(val),
-            (None, None, Some(val), None) => Some(val),
-            (None, None, None, Some(val)) => Some(val),
-
-            (Some(min_generic), Some(min_path), None, None) => Some(min_generic.min(min_path)),
-            (None, Some(min_path_0), Some(min_path_1), None) => Some(min_path_0.min(min_path_1)),
-            (None, None, Some(min_path_1), Some(min_path_n)) => Some(min_path_1.min(min_path_n)),
-            (Some(min_generic), None, Some(min_path_1), None) => Some(min_generic.min(min_path_1)),
-            (Some(min_generic), None, None, Some(min_path_n)) => Some(min_generic.min(min_path_n)),
-            (None, Some(min_path_0), None, Some(min_path_n)) => Some(min_path_0.min(min_path_n)),
-
-            (Some(min_generic), Some(min_path_0), Some(min_path_1), None) => {
-                Some(min_generic.min(min_path_0).min(min_path_1))
-            }
-            (Some(min_generic), Some(min_path_0), None, Some(min_path_n)) => {
-                Some(min_generic.min(min_path_0).min(min_path_n))
-            }
-            (Some(min_generic), None, Some(min_path_1), Some(min_path_n)) => {
-                Some(min_generic.min(min_path_1).min(min_path_n))
-            }
-            (None, Some(min_path_0), Some(min_path_1), Some(min_path_n)) => {
-                Some(min_path_0.min(min_path_1).min(min_path_n))
-            }
-
-            (Some(min_generic), Some(min_path_0), Some(min_path_1), Some(min_path_n)) => {
-                Some(min_generic.min(min_path_0).min(min_path_1).min(min_path_n))
-            }
+        match (min_generic, min_path) {
+            (None, None) => None,
+            (Some(val), None) => Some(val),
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (None, Some(val)) => Some(val),
         }
     }
 
@@ -218,15 +312,8 @@ impl TimerTable {
             }
         }
 
-        if let Some((timer, time)) = self.path_0.expire_before(now) {
-            return Some((Timer::PerPath(PathId(0), timer), time));
-        }
-        if let Some((timer, time)) = self.path_1.expire_before(now) {
-            return Some((Timer::PerPath(PathId(1), timer), time));
-        }
-
         let mut res = None;
-        for (path_id, timers) in &mut self.path_n {
+        for (path_id, timers) in self.path_timers.iter_mut() {
             if let Some((timer, time)) = timers.expire_before(now) {
                 res = Some((Timer::PerPath(*path_id, timer), time));
                 break;
@@ -234,15 +321,16 @@ impl TimerTable {
         }
 
         // clear out old timers
-        self.path_n
+        self.path_timers
             .retain(|_path_id, timers| timers.timers.iter().any(|t| t.is_some()));
         res
     }
 
     pub(super) fn reset(&mut self) {
-        self.path_0.reset();
-        self.path_1.reset();
-        self.path_n.clear();
+        for timer in GenericTimer::VALUES {
+            self.generic[timer as usize] = None;
+        }
+        self.path_timers.clear();
     }
 
     #[cfg(test)]
@@ -256,19 +344,7 @@ impl TimerTable {
         }
 
         for timer in PerPathTimer::VALUES {
-            if let Some(time) = self.path_0.timers[timer as usize] {
-                values.push((Timer::PerPath(PathId(0), timer), time));
-            }
-        }
-
-        for timer in PerPathTimer::VALUES {
-            if let Some(time) = self.path_1.timers[timer as usize] {
-                values.push((Timer::PerPath(PathId(1), timer), time));
-            }
-        }
-
-        for timer in PerPathTimer::VALUES {
-            for (path_id, timers) in &self.path_n {
+            for (path_id, timers) in self.path_timers.iter() {
                 if let Some(time) = timers.timers[timer as usize] {
                     values.push((Timer::PerPath(*path_id, timer), time));
                 }
@@ -303,5 +379,72 @@ mod tests {
             Some((Timer::Generic(GenericTimer::Close), now - 2 * sec))
         );
         assert_eq!(timers.expire_before(now), None);
+    }
+
+    #[test]
+    fn test_small_map() {
+        let mut map = SmallMap::<usize, usize, 2>::default();
+
+        // inserts only on the stack
+        assert_eq!(map.insert(1, 1), None);
+        assert!(map.heap.is_none());
+        assert_eq!(map.insert(2, 2), None);
+        assert!(map.heap.is_none());
+
+        // replace on the stack
+        assert_eq!(map.insert(1, 2), Some(1));
+
+        assert_eq!(map.remove(&1), Some(2));
+        assert_eq!(map.insert(3, 3), None);
+        assert!(map.heap.is_none());
+
+        // spill
+        assert_eq!(map.insert(4, 4), None);
+        assert!(map.heap.is_some());
+
+        assert_eq!(
+            map.iter()
+                .map(|(&a, &b)| (a, b))
+                .collect::<Vec<(usize, usize)>>(),
+            vec![(3, 3), (2, 2), (4, 4)]
+        );
+        assert_eq!(
+            map.iter()
+                .map(|(a, b)| (*a, *b))
+                .collect::<Vec<(usize, usize)>>(),
+            map.iter_mut()
+                .map(|(a, b)| (*a, *b))
+                .collect::<Vec<(usize, usize)>>(),
+        );
+
+        assert_eq!(map.heap.as_ref().unwrap().len(), 1);
+
+        for i in 0..10 {
+            map.insert(10 + i, 10 + i);
+        }
+        assert_eq!(map.heap.as_ref().unwrap().len(), 11);
+        map.retain(|k, _v| *k < 10);
+
+        assert_eq!(map.heap.as_ref().unwrap().len(), 1);
+
+        assert_eq!(
+            map.iter()
+                .map(|(&a, &b)| (a, b))
+                .collect::<Vec<(usize, usize)>>(),
+            vec![(3, 3), (2, 2), (4, 4)]
+        );
+
+        assert_eq!(
+            map.iter()
+                .map(|(a, b)| (*a, *b))
+                .collect::<Vec<(usize, usize)>>(),
+            map.iter_mut()
+                .map(|(a, b)| (*a, *b))
+                .collect::<Vec<(usize, usize)>>(),
+        );
+
+        map.clear();
+        assert_eq!(map.iter().collect::<Vec<_>>(), Vec::new());
+        assert!(map.heap.is_none());
     }
 }
