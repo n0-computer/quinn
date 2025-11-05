@@ -22,7 +22,7 @@ use tracing::{info_span, trace};
 
 use super::crypto::rustls::{QuicClientConfig, QuicServerConfig, configured_provider};
 use super::*;
-use crate::{Duration, Instant};
+use crate::{Duration, Instant, connection::Paths};
 
 pub(super) const DEFAULT_MTU: usize = 1452;
 
@@ -225,71 +225,75 @@ impl Pair {
     pub(super) fn begin_connect(&mut self, config: ClientConfig) -> ConnectionHandle {
         let span = info_span!("client");
         let _guard = span.enter();
-        let (client_ch, client_conn) = self
+        let (client_ch, client_conn, client_paths) = self
             .client
             .connect(self.time, config, self.server.addr, "localhost")
             .unwrap();
-        self.client.connections.insert(client_ch, client_conn);
+        self.client
+            .connections
+            .insert(client_ch, (client_conn, client_paths));
         client_ch
     }
 
     fn finish_connect(&mut self, client_ch: ConnectionHandle, server_ch: ConnectionHandle) {
         assert_matches!(
-            self.client_conn_mut(client_ch).poll(),
+            self.client_conn_mut(client_ch).0.poll(),
             Some(Event::HandshakeDataReady)
         );
         assert_matches!(
-            self.client_conn_mut(client_ch).poll(),
+            self.client_conn_mut(client_ch).0.poll(),
             Some(Event::Connected)
         );
         assert_matches!(
-            self.server_conn_mut(server_ch).poll(),
+            self.server_conn_mut(server_ch).0.poll(),
             Some(Event::HandshakeDataReady)
         );
         assert_matches!(
-            self.server_conn_mut(server_ch).poll(),
+            self.server_conn_mut(server_ch).0.poll(),
             Some(Event::Connected)
         );
     }
 
-    pub(super) fn client_conn_mut(&mut self, ch: ConnectionHandle) -> &mut Connection {
+    pub(super) fn client_conn_mut(&mut self, ch: ConnectionHandle) -> &mut (Connection, Paths) {
         self.client.connections.get_mut(&ch).unwrap()
     }
 
     pub(super) fn client_streams(&mut self, ch: ConnectionHandle) -> Streams<'_> {
-        self.client_conn_mut(ch).streams()
+        self.client_conn_mut(ch).0.streams()
     }
 
     pub(super) fn client_send(&mut self, ch: ConnectionHandle, s: StreamId) -> SendStream<'_> {
-        self.client_conn_mut(ch).send_stream(s)
+        self.client_conn_mut(ch).0.send_stream(s)
     }
 
     pub(super) fn client_recv(&mut self, ch: ConnectionHandle, s: StreamId) -> RecvStream<'_> {
-        self.client_conn_mut(ch).recv_stream(s)
+        self.client_conn_mut(ch).0.recv_stream(s)
     }
 
     pub(super) fn client_datagrams(&mut self, ch: ConnectionHandle) -> Datagrams<'_> {
-        self.client_conn_mut(ch).datagrams()
+        let (conn, paths) = self.client_conn_mut(ch);
+        conn.datagrams(paths)
     }
 
-    pub(super) fn server_conn_mut(&mut self, ch: ConnectionHandle) -> &mut Connection {
+    pub(super) fn server_conn_mut(&mut self, ch: ConnectionHandle) -> &mut (Connection, Paths) {
         self.server.connections.get_mut(&ch).unwrap()
     }
 
     pub(super) fn server_streams(&mut self, ch: ConnectionHandle) -> Streams<'_> {
-        self.server_conn_mut(ch).streams()
+        self.server_conn_mut(ch).0.streams()
     }
 
     pub(super) fn server_send(&mut self, ch: ConnectionHandle, s: StreamId) -> SendStream<'_> {
-        self.server_conn_mut(ch).send_stream(s)
+        self.server_conn_mut(ch).0.send_stream(s)
     }
 
     pub(super) fn server_recv(&mut self, ch: ConnectionHandle, s: StreamId) -> RecvStream<'_> {
-        self.server_conn_mut(ch).recv_stream(s)
+        self.server_conn_mut(ch).0.recv_stream(s)
     }
 
     pub(super) fn server_datagrams(&mut self, ch: ConnectionHandle) -> Datagrams<'_> {
-        self.server_conn_mut(ch).datagrams()
+        let (conn, paths) = self.server_conn_mut(ch);
+        conn.datagrams(paths)
     }
 }
 
@@ -308,7 +312,7 @@ pub(super) struct TestEndpoint {
     delayed: VecDeque<(Transmit, Bytes)>,
     pub(super) inbound: VecDeque<(Instant, Option<EcnCodepoint>, BytesMut)>,
     pub(super) accepted: Option<Result<ConnectionHandle, ConnectionError>>,
-    pub(super) connections: HashMap<ConnectionHandle, Connection>,
+    pub(super) connections: HashMap<ConnectionHandle, (Connection, Paths)>,
     conn_events: HashMap<ConnectionHandle, VecDeque<ConnectionEvent>>,
     pub(super) captured_packets: Vec<Vec<u8>>,
     pub(super) capture_inbound_packets: bool,
@@ -403,7 +407,7 @@ impl TestEndpoint {
                     }
                     DatagramEvent::ConnectionEvent(ch, event) => {
                         if self.capture_inbound_packets {
-                            let packet = self.connections[&ch].decode_packet(&event);
+                            let packet = self.connections[&ch].0.decode_packet(&event);
                             self.captured_packets.extend(packet);
                         }
 
@@ -425,22 +429,22 @@ impl TestEndpoint {
 
         loop {
             let mut endpoint_events: Vec<(ConnectionHandle, EndpointEvent)> = vec![];
-            for (ch, conn) in self.connections.iter_mut() {
+            for (ch, (conn, paths)) in self.connections.iter_mut() {
                 if self.timeout.is_some_and(|x| x <= now) {
                     self.timeout = None;
-                    conn.handle_timeout(now);
+                    conn.handle_timeout(paths, now);
                 }
 
                 for (_, mut events) in self.conn_events.drain() {
                     for event in events.drain(..) {
-                        conn.handle_event(event);
+                        conn.handle_event(paths, event);
                     }
                 }
 
                 while let Some(event) = conn.poll_endpoint_events() {
                     endpoint_events.push((*ch, event));
                 }
-                while let Some(transmit) = conn.poll_transmit(now, MAX_DATAGRAMS, &mut buf) {
+                while let Some(transmit) = conn.poll_transmit(paths, now, MAX_DATAGRAMS, &mut buf) {
                     let size = transmit.size;
                     self.outbound.extend(split_transmit(transmit, &buf[..size]));
                     buf.clear();
@@ -454,8 +458,8 @@ impl TestEndpoint {
 
             for (ch, event) in endpoint_events {
                 if let Some(event) = self.handle_event(ch, event) {
-                    if let Some(conn) = self.connections.get_mut(&ch) {
-                        conn.handle_event(event);
+                    if let Some((conn, paths)) = self.connections.get_mut(&ch) {
+                        conn.handle_event(paths, event);
                     }
                 }
             }
@@ -468,7 +472,7 @@ impl TestEndpoint {
     }
 
     fn is_idle(&self) -> bool {
-        self.connections.values().all(|x| x.is_idle())
+        self.connections.values().all(|x| x.0.is_idle())
     }
 
     pub(super) fn delay_outbound(&mut self) {
@@ -487,8 +491,8 @@ impl TestEndpoint {
     ) -> Result<ConnectionHandle, ConnectionError> {
         let mut buf = Vec::new();
         match self.endpoint.accept(incoming, now, &mut buf, None) {
-            Ok((ch, conn)) => {
-                self.connections.insert(ch, conn);
+            Ok((ch, conn, paths)) => {
+                self.connections.insert(ch, (conn, paths));
                 self.accepted = Some(Ok(ch));
                 Ok(ch)
             }

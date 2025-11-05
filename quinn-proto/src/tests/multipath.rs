@@ -104,9 +104,9 @@ fn path_acks() {
     let _guard = subscribe();
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
-    let client_conn = pair.client_conn_mut(client_ch);
-    assert!(client_conn.stats().frame_rx.path_acks > 0);
-    assert!(client_conn.stats().frame_tx.path_acks > 0);
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    assert!(conn.stats(paths).frame_rx.path_acks > 0);
+    assert!(conn.stats(paths).frame_tx.path_acks > 0);
 }
 
 #[test]
@@ -114,9 +114,9 @@ fn path_status() {
     let _guard = subscribe();
     let (mut pair, client_ch, server_ch) = multipath_pair();
 
-    let client_conn = pair.client_conn_mut(client_ch);
-    let prev_status = client_conn
-        .set_path_status(PathId::ZERO, PathStatus::Backup)
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let prev_status = conn
+        .set_path_status(paths, PathId::ZERO, PathStatus::Backup)
         .unwrap();
     assert_eq!(prev_status, PathStatus::Available);
 
@@ -125,17 +125,19 @@ fn path_status() {
 
     let server_conn = pair.server_conn_mut(server_ch);
     assert_eq!(
-        server_conn.remote_path_status(PathId::ZERO).unwrap(),
+        server_conn.1.remote_path_status(PathId::ZERO).unwrap(),
         PathStatus::Backup
     );
 
-    let client_stats = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_stats = conn.stats(paths);
     assert_eq!(client_stats.frame_tx.path_available, 0);
     assert_eq!(client_stats.frame_tx.path_backup, 1);
     assert_eq!(client_stats.frame_rx.path_available, 0);
     assert_eq!(client_stats.frame_rx.path_backup, 0);
 
-    let server_stats = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats = conn.stats(paths);
     assert_eq!(server_stats.frame_tx.path_available, 0);
     assert_eq!(server_stats.frame_tx.path_backup, 0);
     assert_eq!(server_stats.frame_rx.path_available, 0);
@@ -147,9 +149,9 @@ fn path_close_last_path() {
     let _guard = subscribe();
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
-    let client_conn = pair.client_conn_mut(client_ch);
-    let err = client_conn
-        .close_path(Instant::now(), PathId::ZERO, 0u8.into())
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let err = conn
+        .close_path(paths, Instant::now(), PathId::ZERO, 0u8.into())
         .err()
         .unwrap();
     assert!(matches!(err, ClosePathError::LastOpenPath));
@@ -161,7 +163,8 @@ fn cid_issued_multipath() {
     const ACTIVE_CID_LIMIT: u64 = crate::cid_queue::CidQueue::LEN as _;
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
-    let client_stats = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_stats = conn.stats(paths);
     dbg!(&client_stats);
 
     // The client does not send NEW_CONNECTION_ID frames when multipath is enabled as they
@@ -251,6 +254,7 @@ fn multipath_cid_rotation() {
         for path_id in 0..MAX_PATHS {
             assert_matches!(
                 pair.server_conn_mut(server_ch)
+                    .0
                     .active_local_path_cid_seq(path_id),
                 _bound
             );
@@ -261,7 +265,8 @@ fn multipath_cid_rotation() {
         pair.drive_server();
     }
 
-    let stats = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let stats = conn.stats(paths);
 
     // Server sends CIDs for PathId::ZERO before multipath is negotiated.
     assert_eq!(stats.frame_tx.new_connection_id, (CidQueue::LEN - 1) as u64);
@@ -333,7 +338,8 @@ fn issue_max_path_id() {
     // Server should only have sent NEW_CONNECTION_ID frames for now.
     let server_new_cids = CidQueue::LEN as u64 - 1;
     let mut server_path_new_cids = 0;
-    let stats = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let stats = conn.stats(paths);
     assert_eq!(stats.frame_tx.max_path_id, 0);
     assert_eq!(stats.frame_tx.new_connection_id, server_new_cids);
     assert_eq!(stats.frame_tx.path_new_connection_id, server_path_new_cids);
@@ -346,10 +352,12 @@ fn issue_max_path_id() {
 
     // Server increases MAX_PATH_ID.
     pair.server_conn_mut(server_ch)
+        .0
         .set_max_concurrent_paths(Instant::now(), NonZeroU32::new(MAX_PATHS).unwrap())
         .unwrap();
     pair.drive();
-    let stats = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let stats = conn.stats(paths);
 
     // Server should have sent MAX_PATH_ID and new CIDs
     server_path_new_cids += (MAX_PATHS as u64 - 1) * CidQueue::LEN as u64;
@@ -369,20 +377,20 @@ fn open_path() {
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
     let server_addr = pair.server.addr;
-    let path_id = pair
-        .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, Instant::now())
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let path_id = conn
+        .open_path(paths, server_addr, PathStatus::Available, Instant::now())
         .unwrap();
     pair.drive();
     let client_conn = pair.client_conn_mut(client_ch);
     assert_matches!(
-        client_conn.poll().unwrap(),
+        client_conn.0.poll().unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 
     let server_conn = pair.server_conn_mut(client_ch);
     assert_matches!(
-        server_conn.poll().unwrap(),
+        server_conn.0.poll().unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 }
@@ -393,24 +401,24 @@ fn open_path_key_update() {
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
     let server_addr = pair.server.addr;
-    let path_id = pair
-        .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, Instant::now())
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let path_id = conn
+        .open_path(paths, server_addr, PathStatus::Available, Instant::now())
         .unwrap();
 
     // Do a key-update at the same time as opening the new path.
-    pair.client_conn_mut(client_ch).force_key_update();
+    pair.client_conn_mut(client_ch).0.force_key_update();
 
     pair.drive();
     let client_conn = pair.client_conn_mut(client_ch);
     assert_matches!(
-        client_conn.poll().unwrap(),
+        client_conn.0.poll().unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 
     let server_conn = pair.server_conn_mut(client_ch);
     assert_matches!(
-        server_conn.poll().unwrap(),
+        server_conn.0.poll().unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 }
@@ -427,21 +435,21 @@ fn open_path_validation_fails_server_side() {
         [9, 8, 7, 6].into(),
         SERVER_PORTS.lock().unwrap().next().unwrap(),
     );
-    let path_id = pair
-        .client_conn_mut(client_ch)
-        .open_path(different_addr, PathStatus::Available, Instant::now())
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let path_id = conn
+        .open_path(paths, different_addr, PathStatus::Available, Instant::now())
         .unwrap();
 
     // block the server from receiving anything
     while pair.blackhole_step(true, false) {}
     let client_conn = pair.client_conn_mut(client_ch);
     assert_matches!(
-        client_conn.poll().unwrap(),
+        client_conn.0.poll().unwrap(),
         Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  }) if id == path_id
     );
 
     let server_conn = pair.server_conn_mut(client_ch);
-    assert!(server_conn.poll().is_none());
+    assert!(server_conn.0.poll().is_none());
 }
 
 /// Client starts opening a path but the client fails to validate the path
@@ -459,16 +467,16 @@ fn open_path_validation_fails_client_side() {
     );
 
     let addr = pair.server.addr;
-    let path_id = pair
-        .client_conn_mut(client_ch)
-        .open_path(addr, PathStatus::Available, Instant::now())
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let path_id = conn
+        .open_path(paths, addr, PathStatus::Available, Instant::now())
         .unwrap();
 
     // block the client from receiving anything
     while pair.blackhole_step(false, true) {}
 
     let server_conn = pair.server_conn_mut(client_ch);
-    assert_matches!(server_conn.poll().unwrap(),
+    assert_matches!(server_conn.0.poll().unwrap(),
         Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  }) if id == path_id
     );
 }
@@ -479,26 +487,28 @@ fn close_path() {
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
     let server_addr = pair.server.addr;
-    let path_id = pair
-        .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, Instant::now())
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let path_id = conn
+        .open_path(paths, server_addr, PathStatus::Available, Instant::now())
         .unwrap();
     pair.drive();
     assert_ne!(path_id, PathId::ZERO);
 
-    let stats0 = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let stats0 = conn.stats(paths);
     assert_eq!(stats0.frame_tx.path_abandon, 0);
     assert_eq!(stats0.frame_rx.path_abandon, 0);
     assert_eq!(stats0.frame_tx.max_path_id, 0);
     assert_eq!(stats0.frame_rx.max_path_id, 0);
 
     info!("closing path 0");
-    pair.client_conn_mut(client_ch)
-        .close_path(Instant::now(), PathId::ZERO, 0u8.into())
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close_path(paths, Instant::now(), PathId::ZERO, 0u8.into())
         .unwrap();
     pair.drive();
 
-    let stats1 = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let stats1 = conn.stats(paths);
     assert_eq!(stats1.frame_tx.path_abandon, 1);
     assert_eq!(stats1.frame_rx.path_abandon, 1);
     assert_eq!(stats1.frame_tx.max_path_id, 1);
@@ -513,27 +523,27 @@ fn close_last_path() {
     let (mut pair, client_ch, server_ch) = multipath_pair();
 
     let server_addr = pair.server.addr;
-    let path_id = pair
-        .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, Instant::now())
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let path_id = conn
+        .open_path(paths, server_addr, PathStatus::Available, Instant::now())
         .unwrap();
     pair.drive();
     assert_ne!(path_id, PathId::ZERO);
 
     info!("client closes path 0");
-    pair.client_conn_mut(client_ch)
-        .close_path(Instant::now(), PathId::ZERO, 0u8.into())
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close_path(paths, Instant::now(), PathId::ZERO, 0u8.into())
         .unwrap();
 
     info!("server closes path 1");
-    pair.server_conn_mut(server_ch)
-        .close_path(Instant::now(), PathId(1), 0u8.into())
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    conn.close_path(paths, Instant::now(), PathId(1), 0u8.into())
         .unwrap();
 
     pair.drive();
 
-    assert!(pair.server_conn_mut(server_ch).is_closed());
-    assert!(pair.client_conn_mut(client_ch).is_closed());
+    assert!(pair.server_conn_mut(server_ch).0.is_closed());
+    assert!(pair.client_conn_mut(client_ch).0.is_closed());
 }
 
 #[test]
@@ -567,17 +577,18 @@ fn per_path_observed_address() {
     // check that the client received the correct address
     let expected_addr = pair.client.addr;
     let conn = pair.client_conn_mut(client_ch);
-    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
-    assert_matches!(conn.poll(), None);
+    assert_matches!(conn.0.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
+    assert_matches!(conn.0.poll(), None);
 
     // check that the server received the correct address
     let expected_addr = pair.server.addr;
     let conn = pair.server_conn_mut(server_ch);
-    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
-    assert_matches!(conn.poll(), None);
+    assert_matches!(conn.0.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
+    assert_matches!(conn.0.poll(), None);
 
     // simulate a rebind on thte client
-    pair.client_conn_mut(client_ch).local_address_changed();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.local_address_changed(paths);
     pair.client
         .addr
         .set_port(pair.client.addr.port().overflowing_add(1).0);
@@ -585,23 +596,23 @@ fn per_path_observed_address() {
 
     // open a second path
     let remote = pair.server.addr;
-    let conn = pair.client_conn_mut(client_ch);
+    let (conn, paths) = pair.client_conn_mut(client_ch);
     let _new_path_id = conn
-        .open_path(remote, PathStatus::Available, Instant::now())
+        .open_path(paths, remote, PathStatus::Available, Instant::now())
         .unwrap();
 
     pair.drive();
     let conn = pair.client_conn_mut(client_ch);
     // check the migration related event
-    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == our_addr);
+    assert_matches!(conn.0.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == our_addr);
     // wait for the open event
     let mut opened = false;
-    while let Some(ev) = conn.poll() {
+    while let Some(ev) = conn.0.poll() {
         if matches!(ev, Event::Path(PathEvent::Opened { id: PathId(1) })) {
             opened = true;
             break;
         }
     }
     assert!(opened);
-    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId(1), addr})) if addr == our_addr);
+    assert_matches!(conn.0.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId(1), addr})) if addr == our_addr);
 }

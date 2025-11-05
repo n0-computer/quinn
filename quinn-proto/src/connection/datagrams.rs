@@ -7,12 +7,14 @@ use tracing::{debug, trace};
 use super::Connection;
 use crate::{
     TransportError,
+    connection::Paths,
     frame::{Datagram, FrameStruct},
 };
 
 /// API to control datagram traffic
 pub struct Datagrams<'a> {
     pub(super) conn: &'a mut Connection,
+    pub(super) paths: &'a mut Paths,
 }
 
 impl Datagrams<'_> {
@@ -73,7 +75,7 @@ impl Datagrams<'_> {
         // We use the conservative overhead bound for any packet number, reducing the budget by at
         // most 3 bytes, so that PN size fluctuations don't cause users sending maximum-size
         // datagrams to suffer avoidable packet loss.
-        let max_size = self.conn.current_mtu() as usize
+        let max_size = self.conn.current_mtu(&self.paths) as usize
             - self.conn.predict_1rtt_overhead_no_pn()
             - Datagram::SIZE_BOUND;
         let limit = self

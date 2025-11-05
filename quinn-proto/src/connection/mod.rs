@@ -148,12 +148,6 @@ pub struct Connection {
     /// The "real" local IP address which was was used to receive the initial packet.
     /// This is only populated for the server case, and if known
     local_ip: Option<IpAddr>,
-    /// The [`PathData`] for each path
-    ///
-    /// This needs to be ordered because [`Connection::poll_transmit`] needs to
-    /// deterministically select the next PathId to send on.
-    // TODO(flub): well does it really? But deterministic is nice for now.
-    paths: BTreeMap<PathId, PathState>,
     /// Incremented every time we see a new path
     ///
     /// Stored separately from `path.generation` to account for aborted migrations
@@ -302,6 +296,14 @@ pub struct Connection {
     abandoned_paths: FxHashSet<PathId>,
 }
 
+/// The [`PathData`] for each path
+pub struct Paths {
+    /// This needs to be ordered because [`Connection::poll_transmit`] needs to
+    /// deterministically select the next PathId to send on.
+    // TODO(flub): well does it really? But deterministic is nice for now.
+    paths: BTreeMap<PathId, PathState>,
+}
+
 impl Connection {
     pub(crate) fn new(
         endpoint_config: Arc<EndpointConfig>,
@@ -318,7 +320,7 @@ impl Connection {
         allow_mtud: bool,
         rng_seed: [u8; 32],
         side_args: SideArgs,
-    ) -> Self {
+    ) -> (Self, Paths) {
         let pref_addr_cid = side_args.pref_addr_cid();
         let path_validated = side_args.path_validated();
         let connection_side = ConnectionSide::from(side_args);
@@ -356,12 +358,7 @@ impl Connection {
         let mut path = PathData::new(remote, allow_mtud, None, 0, now, &config);
         // TODO(@divma): consider if we want to delay this until the path is validated
         path.open = true;
-        let mut this = Self {
-            endpoint_config,
-            crypto,
-            handshake_cid: loc_cid,
-            rem_handshake_cid: rem_cid,
-            local_cid_state,
+        let mut paths = Paths {
             paths: BTreeMap::from_iter([(
                 PathId::ZERO,
                 PathState {
@@ -369,6 +366,14 @@ impl Connection {
                     prev: None,
                 },
             )]),
+        };
+
+        let mut this = Self {
+            endpoint_config,
+            crypto,
+            handshake_cid: loc_cid,
+            rem_handshake_cid: rem_cid,
+            local_cid_state,
             path_counter: 0,
             allow_mtud,
             local_ip,
@@ -440,14 +445,14 @@ impl Connection {
             abandoned_paths: Default::default(),
         };
         if path_validated {
-            this.on_path_validated(PathId::ZERO);
+            this.on_path_validated(&mut paths, PathId::ZERO);
         }
         if side.is_client() {
             // Kick off the connection
             this.write_crypto();
-            this.init_0rtt();
+            this.init_0rtt(&mut paths);
         }
-        this
+        (this, paths)
     }
 
     /// Returns the next time at which `handle_timeout` should be called
@@ -530,18 +535,19 @@ impl Connection {
     /// [`open_path`]: Connection::open_path
     pub fn open_path_ensure(
         &mut self,
+        paths: &mut Paths,
         remote: SocketAddr,
         initial_status: PathStatus,
         now: Instant,
     ) -> Result<(PathId, bool), PathError> {
-        match self
+        match paths
             .paths
             .iter()
             .find(|(_id, path)| path.data.remote == remote)
         {
             Some((path_id, _state)) => Ok((*path_id, true)),
             None => self
-                .open_path(remote, initial_status, now)
+                .open_path(paths, remote, initial_status, now)
                 .map(|id| (id, false)),
         }
     }
@@ -552,6 +558,7 @@ impl Connection {
     /// When the path is opened it will be reported as an [`PathEvent::Opened`].
     pub fn open_path(
         &mut self,
+        paths: &mut Paths,
         remote: SocketAddr,
         initial_status: PathStatus,
         now: Instant,
@@ -564,7 +571,7 @@ impl Connection {
         }
 
         let max_abandoned = self.abandoned_paths.iter().max().copied();
-        let max_used = self.paths.keys().last().copied();
+        let max_used = paths.paths.keys().last().copied();
         let path_id = max_abandoned
             .max(max_used)
             .unwrap_or(PathId::ZERO)
@@ -585,7 +592,7 @@ impl Connection {
             return Err(PathError::RemoteCidsExhausted);
         }
 
-        let path = self.ensure_path(path_id, remote, now, None);
+        let path = self.ensure_path(paths, path_id, remote, now, None);
         path.status.local_update(initial_status);
 
         Ok(path_id)
@@ -598,6 +605,7 @@ impl Connection {
     /// for a path that was never opened locally.
     pub fn close_path(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         path_id: PathId,
         error_code: VarInt,
@@ -605,7 +613,7 @@ impl Connection {
         if self.abandoned_paths.contains(&path_id) || Some(path_id) > self.max_path_id() {
             return Err(ClosePathError::ClosedPath);
         }
-        if self
+        if paths
             .paths
             .keys()
             .filter(|&id| !self.abandoned_paths.contains(id))
@@ -638,51 +646,10 @@ impl Connection {
         // expires.
         self.timers.set(
             Timer::PerPath(path_id, PerPathTimer::PathNotAbandoned),
-            now + self.pto_max_path(SpaceId::Data),
+            now + self.pto_max_path(paths, SpaceId::Data),
         );
 
         Ok(())
-    }
-
-    /// Gets the [`PathData`] for a known [`PathId`].
-    ///
-    /// Will panic if the path_id does not reference any known path.
-    #[track_caller]
-    fn path_data(&self, path_id: PathId) -> &PathData {
-        &self.paths.get(&path_id).expect("known path").data
-    }
-
-    /// Gets a reference to the [`PathData`] for a [`PathId`]
-    fn path(&self, path_id: PathId) -> Option<&PathData> {
-        self.paths.get(&path_id).map(|path_state| &path_state.data)
-    }
-
-    /// Gets a mutable reference to the [`PathData`] for a [`PathId`]
-    fn path_mut(&mut self, path_id: PathId) -> Option<&mut PathData> {
-        self.paths
-            .get_mut(&path_id)
-            .map(|path_state| &mut path_state.data)
-    }
-
-    /// Returns all known paths.
-    ///
-    /// There is no guarantee any of these paths are open or usable.
-    pub fn paths(&self) -> Vec<PathId> {
-        self.paths.keys().copied().collect()
-    }
-
-    /// Gets the local [`PathStatus`] for a known [`PathId`]
-    pub fn path_status(&self, path_id: PathId) -> Result<PathStatus, ClosedPath> {
-        self.path(path_id)
-            .map(PathData::local_status)
-            .ok_or(ClosedPath { _private: () })
-    }
-
-    /// Returns the path's remote socket address
-    pub fn path_remote_address(&self, path_id: PathId) -> Result<SocketAddr, ClosedPath> {
-        self.path(path_id)
-            .map(|path| path.remote)
-            .ok_or(ClosedPath { _private: () })
     }
 
     /// Sets the [`PathStatus`] for a known [`PathId`]
@@ -690,10 +657,11 @@ impl Connection {
     /// Returns the previous path status on success.
     pub fn set_path_status(
         &mut self,
+        paths: &mut Paths,
         path_id: PathId,
         status: PathStatus,
     ) -> Result<PathStatus, ClosedPath> {
-        let path = self.path_mut(path_id).ok_or(ClosedPath { _private: () })?;
+        let path = paths.path_mut(path_id).ok_or(ClosedPath { _private: () })?;
         let prev = match path.status.local_update(status) {
             Some(prev) => {
                 self.spaces[SpaceId::Data]
@@ -707,74 +675,16 @@ impl Connection {
         Ok(prev)
     }
 
-    /// Returns the remote path status
-    // TODO(flub): Probably should also be some kind of path event?  Not even sure if I like
-    //    this as an API, but for now it allows me to write a test easily.
-    // TODO(flub): Technically this should be a Result<Option<PathSTatus>>?
-    pub fn remote_path_status(&self, path_id: PathId) -> Option<PathStatus> {
-        self.path(path_id).and_then(|path| path.remote_status())
-    }
-
-    /// Sets the max_idle_timeout for a specific path
-    ///
-    /// See [`TransportConfig::default_path_max_idle_timeout`] for details.
-    ///
-    /// Returns the previous value of the setting.
-    pub fn set_path_max_idle_timeout(
-        &mut self,
-        path_id: PathId,
-        timeout: Option<Duration>,
-    ) -> Result<Option<Duration>, ClosedPath> {
-        let path = self
-            .paths
-            .get_mut(&path_id)
-            .ok_or(ClosedPath { _private: () })?;
-        Ok(std::mem::replace(&mut path.data.idle_timeout, timeout))
-    }
-
-    /// Sets the keep_alive_interval for a specific path
-    ///
-    /// See [`TransportConfig::default_path_keep_alive_interval`] for details.
-    ///
-    /// Returns the previous value of the setting.
-    pub fn set_path_keep_alive_interval(
-        &mut self,
-        path_id: PathId,
-        interval: Option<Duration>,
-    ) -> Result<Option<Duration>, ClosedPath> {
-        let path = self
-            .paths
-            .get_mut(&path_id)
-            .ok_or(ClosedPath { _private: () })?;
-        Ok(std::mem::replace(&mut path.data.keep_alive, interval))
-    }
-
-    /// Gets the [`PathData`] for a known [`PathId`].
-    ///
-    /// Will panic if the path_id does not reference any known path.
-    #[track_caller]
-    fn path_data_mut(&mut self, path_id: PathId) -> &mut PathData {
-        &mut self.paths.get_mut(&path_id).expect("known path").data
-    }
-
-    /// Check if the remote has been validated in any active path
-    fn is_remote_validated(&self, remote: SocketAddr) -> bool {
-        self.paths
-            .values()
-            .any(|path_state| path_state.data.remote == remote && path_state.data.validated)
-        // TODO(@divma): we might want to ensure the path has been recently active to consider the
-        // address validated
-    }
-
-    fn ensure_path(
-        &mut self,
+    fn ensure_path<'a>(
+        &'a mut self,
+        paths: &'a mut Paths,
         path_id: PathId,
         remote: SocketAddr,
         now: Instant,
         pn: Option<u64>,
-    ) -> &mut PathData {
-        let validated = self.is_remote_validated(remote);
-        let vacant_entry = match self.paths.entry(path_id) {
+    ) -> &'a mut PathData {
+        let validated = paths.is_remote_validated(remote);
+        let vacant_entry = match paths.paths.entry(path_id) {
             btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
             btree_map::Entry::Occupied(occupied_entry) => {
                 return &mut occupied_entry.into_mut().data;
@@ -831,6 +741,7 @@ impl Connection {
     #[must_use]
     pub fn poll_transmit(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         max_datagrams: usize,
         buf: &mut Vec<u8>,
@@ -878,7 +789,7 @@ impl Connection {
 
         // Check whether we need to send an ACK_FREQUENCY frame
         if let Some(config) = &self.config.ack_frequency_config {
-            let rtt = self
+            let rtt = paths
                 .paths
                 .values()
                 .map(|p| p.data.rtt.get())
@@ -906,11 +817,15 @@ impl Connection {
         // The packet number of the last built packet.
         let mut last_packet_number = None;
 
-        let mut path_id = *self.paths.first_key_value().expect("one path must exist").0;
+        let mut path_id = *paths
+            .paths
+            .first_key_value()
+            .expect("one path must exist")
+            .0;
 
         // If there is any available path we only want to send frames to any backup path
         // that must be sent on that backup path exclusively.
-        let have_available_path = self
+        let have_available_path = paths
             .paths
             .values()
             .any(|path| path.data.local_status() == PathStatus::Available);
@@ -919,9 +834,9 @@ impl Connection {
         let mut transmit = TransmitBuf::new(
             buf,
             max_datagrams,
-            self.path_data(path_id).current_mtu().into(),
+            paths.path_data(path_id).current_mtu().into(),
         );
-        if let Some(challenge) = self.send_prev_path_challenge(now, &mut transmit, path_id) {
+        if let Some(challenge) = self.send_prev_path_challenge(paths, now, &mut transmit, path_id) {
             return Some(challenge);
         }
         let mut space_id = match path_id {
@@ -942,8 +857,13 @@ impl Connection {
                     // Locally we should have refused to open this path, the remote should
                     // have given us CIDs for this path before opening it.  So we can always
                     // abandon this here.
-                    self.close_path(now, path_id, TransportErrorCode::NO_CID_AVAILABLE.into())
-                        .ok();
+                    self.close_path(
+                        paths,
+                        now,
+                        path_id,
+                        TransportErrorCode::NO_CID_AVAILABLE.into(),
+                    )
+                    .ok();
                     self.spaces[SpaceId::Data]
                         .pending
                         .path_cids_blocked
@@ -952,16 +872,16 @@ impl Connection {
                     trace!(?path_id, "remote CIDs retired for abandoned path");
                 }
 
-                match self.paths.keys().find(|&&next| next > path_id) {
+                match paths.paths.keys().find(|&&next| next > path_id) {
                     Some(next_path_id) => {
                         // See if this next path can send anything.
                         path_id = *next_path_id;
                         space_id = SpaceId::Data;
 
                         // update per path state
-                        transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
+                        transmit.set_segment_size(paths.path_data(path_id).current_mtu().into());
                         if let Some(challenge) =
-                            self.send_prev_path_challenge(now, &mut transmit, path_id)
+                            self.send_prev_path_challenge(paths, now, &mut transmit, path_id)
                         {
                             return Some(challenge);
                         }
@@ -989,11 +909,11 @@ impl Connection {
                 // A new datagram needs to be started.
                 transmit.segment_size()
             };
-            let can_send = self.space_can_send(space_id, path_id, max_packet_size, close);
+            let can_send = self.space_can_send(paths, space_id, path_id, max_packet_size, close);
             let path_should_send = {
                 let path_exclusive_only = space_id == SpaceId::Data
                     && have_available_path
-                    && self.path_data(path_id).local_status() == PathStatus::Backup;
+                    && paths.path_data(path_id).local_status() == PathStatus::Backup;
                 let path_should_send = if path_exclusive_only {
                     can_send.path_exclusive
                 } else {
@@ -1013,7 +933,7 @@ impl Connection {
 
             let send_blocked = if path_should_send && transmit.datagram_remaining_mut() == 0 {
                 // Only check congestion control if a new datagram is needed.
-                self.path_congestion_check(space_id, path_id, &transmit, &can_send, now)
+                self.path_congestion_check(paths, space_id, path_id, &transmit, &can_send, now)
             } else {
                 PathBlocked::No
             };
@@ -1036,7 +956,7 @@ impl Connection {
                     break;
                 }
 
-                match self.paths.keys().find(|&&next| next > path_id) {
+                match paths.paths.keys().find(|&&next| next > path_id) {
                     Some(next_path_id) => {
                         // See if this next path can send anything.
                         trace!(
@@ -1049,9 +969,9 @@ impl Connection {
                         space_id = SpaceId::Data;
 
                         // update per path state
-                        transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
+                        transmit.set_segment_size(paths.path_data(path_id).current_mtu().into());
                         if let Some(challenge) =
-                            self.send_prev_path_challenge(now, &mut transmit, path_id)
+                            self.send_prev_path_challenge(paths, now, &mut transmit, path_id)
                         {
                             return Some(challenge);
                         }
@@ -1121,7 +1041,7 @@ impl Connection {
             {
                 // A client stops both sending and processing Initial packets when it
                 // sends its first Handshake packet.
-                self.discard_space(now, SpaceId::Initial);
+                self.discard_space(paths, now, SpaceId::Initial);
             }
             if let Some(ref mut prev) = self.prev_crypto {
                 prev.update_unacked = false;
@@ -1135,6 +1055,7 @@ impl Connection {
                 &mut transmit,
                 can_send.other,
                 self,
+                paths,
             )?;
             last_packet_number = Some(builder.exact_number);
             coalesce = coalesce && !builder.short_header;
@@ -1211,7 +1132,7 @@ impl Connection {
                         ),
                     }
                 }
-                builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
+                builder.finish_and_track(now, self, paths, path_id, sent_frames, pad_datagram);
                 if space_id == self.highest_space {
                     // Don't send another close packet. Even with multipath we only send
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
@@ -1230,7 +1151,7 @@ impl Connection {
             // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
             // path validation can occur while the link is saturated.
             if space_id == SpaceId::Data && builder.buf.num_datagrams() == 1 {
-                let path = self.path_data_mut(path_id);
+                let path = paths.path_data_mut(path_id);
                 if let Some((token, remote)) = path.path_responses.pop_off_path(path.remote) {
                     // TODO(flub): We need to use the right CID!  We shouldn't use the same
                     //    CID as the current active one for the path.  Though see also
@@ -1244,6 +1165,7 @@ impl Connection {
                     builder.finish_and_track(
                         now,
                         self,
+                        paths,
                         path_id,
                         SentFrames {
                             non_retransmits: true,
@@ -1264,9 +1186,10 @@ impl Connection {
 
             let sent_frames = {
                 let path_exclusive_only = have_available_path
-                    && self.path_data(path_id).local_status() == PathStatus::Backup;
+                    && paths.path_data(path_id).local_status() == PathStatus::Backup;
                 let pn = builder.exact_number;
                 self.populate_packet(
+                    paths,
                     now,
                     space_id,
                     path_id,
@@ -1287,7 +1210,7 @@ impl Connection {
                     && !can_send.acks
                     && can_send.other
                     && builder.buf.segment_size()
-                        == self.path_data(path_id).current_mtu() as usize
+                        == paths.path_data(path_id).current_mtu() as usize
                     && self.datagrams.outgoing.is_empty()),
                 "SendableFrames was {can_send:?}, but only ACKs have been written"
             );
@@ -1318,12 +1241,12 @@ impl Connection {
                     .saturating_sub(builder.predict_packet_end())
                     > MIN_PACKET_SPACE
                 && self
-                    .next_send_space(space_id, path_id, builder.buf, close)
+                    .next_send_space(paths, space_id, path_id, builder.buf, close)
                     .is_some()
             {
                 // We can append/coalesce the next packet into the current
                 // datagram. Finish the current packet without adding extra padding.
-                builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No);
+                builder.finish_and_track(now, self, paths, path_id, sent_frames, PadDatagram::No);
             } else {
                 // We need a new datagram for the next packet.  Finish the current
                 // packet with padding.
@@ -1343,7 +1266,14 @@ impl Connection {
                             "GSO truncated by demand for {} padding bytes",
                             builder.buf.datagram_remaining_mut() - builder.predict_packet_end()
                         );
-                        builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No);
+                        builder.finish_and_track(
+                            now,
+                            self,
+                            paths,
+                            path_id,
+                            sent_frames,
+                            PadDatagram::No,
+                        );
                         break;
                     }
 
@@ -1352,12 +1282,13 @@ impl Connection {
                     builder.finish_and_track(
                         now,
                         self,
+                        paths,
                         path_id,
                         sent_frames,
                         PadDatagram::ToSegmentSize,
                     );
                 } else {
-                    builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
+                    builder.finish_and_track(now, self, paths, path_id, sent_frames, pad_datagram);
                 }
                 if transmit.num_datagrams() == 1 {
                     transmit.clip_datagram_size();
@@ -1368,7 +1299,7 @@ impl Connection {
         if let Some(last_packet_number) = last_packet_number {
             // Note that when sending in multiple packet spaces the last packet number will
             // be the one from the highest packet space.
-            self.path_data_mut(path_id).congestion.on_sent(
+            paths.path_data_mut(path_id).congestion.on_sent(
                 now,
                 transmit.len() as u64,
                 last_packet_number,
@@ -1376,8 +1307,8 @@ impl Connection {
         }
 
         self.config.qlog_sink.emit_recovery_metrics(
-            self.path_data(path_id).pto_count,
-            &mut self.paths.get_mut(&path_id).unwrap().data,
+            paths.path_data(path_id).pto_count,
+            &mut paths.paths.get_mut(&path_id).unwrap().data,
             now,
             self.orig_rem_cid,
         );
@@ -1391,7 +1322,7 @@ impl Connection {
             if let Some(active_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) {
                 let space_id = SpaceId::Data;
                 let next_pn = self.spaces[space_id].for_path(path_id).peek_tx_number();
-                let probe_size = self
+                let probe_size = paths
                     .path_data_mut(path_id)
                     .mtud
                     .poll_transmit(now, next_pn)?;
@@ -1408,6 +1339,7 @@ impl Connection {
                     &mut transmit,
                     true,
                     self,
+                    paths,
                 )?;
 
                 // We implement MTU probes as ping packets padded up to the probe size
@@ -1432,6 +1364,7 @@ impl Connection {
                 builder.finish_and_track(
                     now,
                     self,
+                    paths,
                     path_id,
                     sent_frames,
                     PadDatagram::ToSize(probe_size),
@@ -1456,7 +1389,8 @@ impl Connection {
             transmit.len(),
             transmit.num_datagrams()
         );
-        self.path_data_mut(path_id)
+        paths
+            .path_data_mut(path_id)
             .inc_total_sent(transmit.len() as u64);
 
         self.stats
@@ -1464,9 +1398,9 @@ impl Connection {
             .on_sent(transmit.num_datagrams() as u64, transmit.len());
 
         Some(Transmit {
-            destination: self.path_data(path_id).remote,
+            destination: paths.path_data(path_id).remote,
             size: transmit.len(),
-            ecn: if self.path_data(path_id).sending_ecn {
+            ecn: if paths.path_data(path_id).sending_ecn {
                 Some(EcnCodepoint::Ect0)
             } else {
                 None
@@ -1479,12 +1413,18 @@ impl Connection {
         })
     }
 
+    /// TODO(matheus23): Docs. Added this so one can use `Paths::path_changed` from outside quinn-proto
+    pub fn config(&self) -> &TransportConfig {
+        &self.config
+    }
+
     /// Returns the [`SpaceId`] of the next packet space which has data to send
     ///
     /// This takes into account the space available to frames in the next datagram.
     // TODO(flub): This duplication is not nice.
     fn next_send_space(
         &mut self,
+        paths: &Paths,
         current_space_id: SpaceId,
         path_id: PathId,
         buf: &TransmitBuf<'_>,
@@ -1498,7 +1438,7 @@ impl Connection {
         // because frames can always spill into the next datagram.
         let mut space_id = current_space_id;
         loop {
-            let can_send = self.space_can_send(space_id, path_id, buf.segment_size(), close);
+            let can_send = self.space_can_send(paths, space_id, path_id, buf.segment_size(), close);
             if !can_send.is_empty() || (close && self.spaces[space_id].crypto.is_some()) {
                 return Some(space_id);
             }
@@ -1514,6 +1454,7 @@ impl Connection {
     /// Checks if creating a new datagram would be blocked by congestion control
     fn path_congestion_check(
         &mut self,
+        paths: &mut Paths,
         space_id: SpaceId,
         path_id: PathId,
         transmit: &TransmitBuf<'_>,
@@ -1526,7 +1467,7 @@ impl Connection {
         // there is any anti-amplification budget left, we always allow a full MTU to be
         // sent (see https://github.com/quinn-rs/quinn/issues/1082).
         if self.side().is_server()
-            && self
+            && paths
                 .path_data(path_id)
                 .anti_amplification_blocked(transmit.len() as u64 + 1)
         {
@@ -1540,7 +1481,7 @@ impl Connection {
         let need_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
 
         if can_send.other && !need_loss_probe && !can_send.close {
-            let path = self.path_data(path_id);
+            let path = paths.path_data(path_id);
             if path.in_flight.bytes + bytes_to_send >= path.congestion.window() {
                 trace!(?space_id, %path_id, "blocked by congestion control");
                 return PathBlocked::Congestion;
@@ -1548,7 +1489,10 @@ impl Connection {
         }
 
         // Pacing check.
-        if let Some(delay) = self.path_data_mut(path_id).pacing_delay(bytes_to_send, now) {
+        if let Some(delay) = paths
+            .path_data_mut(path_id)
+            .pacing_delay(bytes_to_send, now)
+        {
             self.timers
                 .set(Timer::PerPath(path_id, PerPathTimer::Pacing), delay);
             // Loss probes and CONNECTION_CLOSE should be subject to pacing, even though
@@ -1566,11 +1510,12 @@ impl Connection {
     /// <https://www.rfc-editor.org/rfc/rfc9000.html#name-off-path-packet-forwarding>
     fn send_prev_path_challenge(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         buf: &mut TransmitBuf<'_>,
         path_id: PathId,
     ) -> Option<Transmit> {
-        let (prev_cid, prev_path) = self.paths.get_mut(&path_id)?.prev.as_mut()?;
+        let (prev_cid, prev_path) = paths.paths.get_mut(&path_id)?.prev.as_mut()?;
         if !prev_path.challenge_pending {
             return None;
         }
@@ -1592,8 +1537,16 @@ impl Connection {
         // if a post-migration packet caused the CID to be retired, it's fair to pretend
         // this is sent first.
         debug_assert_eq!(buf.datagram_start_offset(), 0);
-        let mut builder =
-            PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
+        let mut builder = PacketBuilder::new(
+            now,
+            SpaceId::Data,
+            path_id,
+            *prev_cid,
+            buf,
+            false,
+            self,
+            paths,
+        )?;
         trace!("validating previous path with PATH_CHALLENGE {:08x}", token);
         builder
             .frame_space_mut()
@@ -1625,6 +1578,7 @@ impl Connection {
     /// *indicates whether a CONNECTION_CLOSE frame needs to be sent.
     fn space_can_send(
         &mut self,
+        paths: &Paths,
         space_id: SpaceId,
         path_id: PathId,
         packet_size: usize,
@@ -1644,7 +1598,7 @@ impl Connection {
         }
         let mut can_send = self.spaces[space_id].can_send(path_id, &self.streams);
         if space_id == SpaceId::Data {
-            can_send |= self.can_send_1rtt(path_id, frame_space_1rtt);
+            can_send |= self.can_send_1rtt(paths, path_id, frame_space_1rtt);
         }
 
         can_send.close = close && self.spaces[space_id].crypto.is_some();
@@ -1657,7 +1611,7 @@ impl Connection {
     /// Will execute protocol logic upon receipt of a connection event, in turn preparing signals
     /// (including application `Event`s, `EndpointEvent`s and outgoing datagrams) that should be
     /// extracted through the relevant methods.
-    pub fn handle_event(&mut self, event: ConnectionEvent) {
+    pub fn handle_event(&mut self, paths: &mut Paths, event: ConnectionEvent) {
         use ConnectionEventInner::*;
         match event.0 {
             Datagram(DatagramConnectionEvent {
@@ -1671,19 +1625,19 @@ impl Connection {
                 // If this packet could initiate a migration and we're a client or a server that
                 // forbids migration, drop the datagram. This could be relaxed to heuristically
                 // permit NAT-rebinding-like migration.
-                if let Some(known_remote) = self.path(path_id).map(|path| path.remote) {
+                if let Some(known_remote) = paths.path(path_id).map(|path| path.remote) {
                     if remote != known_remote && !self.side.remote_may_migrate(&self.state) {
                         trace!(
                             ?path_id,
                             ?remote,
-                            path_remote = ?self.path(path_id).map(|p| p.remote),
+                            path_remote = ?paths.path(path_id).map(|p| p.remote),
                             "discarding packet from unrecognized peer"
                         );
                         return;
                     }
                 }
 
-                let was_anti_amplification_blocked = self
+                let was_anti_amplification_blocked = paths
                     .path(path_id)
                     .map(|path| path.anti_amplification_blocked(1))
                     .unwrap_or(true); // if we don't know about this path it's eagerly considered as unvalidated
@@ -1693,23 +1647,23 @@ impl Connection {
                 self.stats.udp_rx.bytes += first_decode.len() as u64;
                 let data_len = first_decode.len();
 
-                self.handle_decode(now, remote, path_id, ecn, first_decode);
+                self.handle_decode(paths, now, remote, path_id, ecn, first_decode);
                 // The current `path` might have changed inside `handle_decode` since the packet
                 // could have triggered a migration. The packet might also belong to an unknown
                 // path and have been rejected. Make sure the data received is accounted for the
                 // most recent path by accessing `path` after `handle_decode`.
-                if let Some(path) = self.path_mut(path_id) {
+                if let Some(path) = paths.path_mut(path_id) {
                     path.inc_total_recvd(data_len as u64);
                 }
 
                 if let Some(data) = remaining {
                     self.stats.udp_rx.bytes += data.len() as u64;
-                    self.handle_coalesced(now, remote, path_id, ecn, data);
+                    self.handle_coalesced(paths, now, remote, path_id, ecn, data);
                 }
 
                 self.config.qlog_sink.emit_recovery_metrics(
-                    self.path_data(path_id).pto_count,
-                    &mut self.paths.get_mut(&path_id).unwrap().data,
+                    paths.path_data(path_id).pto_count,
+                    &mut paths.paths.get_mut(&path_id).unwrap().data,
                     now,
                     self.orig_rem_cid,
                 );
@@ -1718,7 +1672,7 @@ impl Connection {
                     // A prior attempt to set the loss detection timer may have failed due to
                     // anti-amplification, so ensure it's set now. Prevents a handshake deadlock if
                     // the server's first flight is lost.
-                    self.set_loss_detection_timer(now, path_id);
+                    self.set_loss_detection_timer(paths, now, path_id);
                 }
             }
             NewIdentifiers(ids, now, cid_len, cid_lifetime) => {
@@ -1748,7 +1702,7 @@ impl Connection {
     /// It is most efficient to call this immediately after the system clock reaches the latest
     /// `Instant` that was output by `poll_timeout`; however spurious extra calls will simply
     /// no-op and therefore are safe.
-    pub fn handle_timeout(&mut self, now: Instant) {
+    pub fn handle_timeout(&mut self, paths: &mut Paths, now: Instant) {
         while let Some((timer, _time)) = self.timers.expire_before(now) {
             // TODO(@divma): remove `at` when the unicorn is born
             trace!(?timer, at=?now, "timeout");
@@ -1801,7 +1755,7 @@ impl Connection {
                     PerPathTimer::PathIdle => {
                         // TODO(flub): TransportErrorCode::NO_ERROR but where's the API to get
                         //    that into a VarInt?
-                        self.close_path(now, path_id, TransportErrorCode::NO_ERROR.into())
+                        self.close_path(paths, now, path_id, TransportErrorCode::NO_ERROR.into())
                             .ok();
                     }
 
@@ -1810,16 +1764,16 @@ impl Connection {
                         self.ping_path(path_id).ok();
                     }
                     PerPathTimer::LossDetection => {
-                        self.on_loss_detection_timeout(now, path_id);
+                        self.on_loss_detection_timeout(paths, now, path_id);
                         self.config.qlog_sink.emit_recovery_metrics(
-                            self.path_data(path_id).pto_count,
-                            &mut self.paths.get_mut(&path_id).unwrap().data,
+                            paths.path_data(path_id).pto_count,
+                            &mut paths.paths.get_mut(&path_id).unwrap().data,
                             now,
                             self.orig_rem_cid,
                         );
                     }
                     PerPathTimer::PathValidation => {
-                        let Some(path) = self.paths.get_mut(&path_id) else {
+                        let Some(path) = paths.paths.get_mut(&path_id) else {
                             continue;
                         };
                         debug!("path validation failed");
@@ -1830,13 +1784,14 @@ impl Connection {
                         path.data.challenge_pending = false;
                     }
                     PerPathTimer::PathOpen => {
-                        let Some(path) = self.path_mut(path_id) else {
+                        let Some(path) = paths.path_mut(path_id) else {
                             continue;
                         };
                         path.challenge = None;
                         path.challenge_pending = false;
                         debug!("new path validation failed");
                         if let Err(err) = self.close_path(
+                            paths,
                             now,
                             path_id,
                             TransportErrorCode::UNSTABLE_INTERFACE.into(),
@@ -1871,14 +1826,19 @@ impl Connection {
                                 );
                             }
                         }
-                        self.drop_path_state(path_id, now);
+                        self.drop_path_state(paths, path_id, now);
                     }
                     PerPathTimer::PathNotAbandoned => {
                         // The peer failed to respond with a PATH_ABANDON when we sent such a
                         // frame.
                         warn!(?path_id, "missing PATH_ABANDON from peer");
                         // TODO(flub): What should the error code be?
-                        self.close(now, 0u8.into(), "peer ignored PATH_ABANDON frame".into());
+                        self.close(
+                            paths,
+                            now,
+                            0u8.into(),
+                            "peer ignored PATH_ABANDON frame".into(),
+                        );
                     }
                 },
             }
@@ -1896,31 +1856,32 @@ impl Connection {
     /// delivered. There may still be data from the peer that has not been received.
     ///
     /// [`StreamEvent::Finished`]: crate::StreamEvent::Finished
-    pub fn close(&mut self, now: Instant, error_code: VarInt, reason: Bytes) {
+    pub fn close(&mut self, paths: &mut Paths, now: Instant, error_code: VarInt, reason: Bytes) {
         self.close_inner(
+            paths,
             now,
             Close::Application(frame::ApplicationClose { error_code, reason }),
         )
     }
 
-    fn close_inner(&mut self, now: Instant, reason: Close) {
+    fn close_inner(&mut self, paths: &mut Paths, now: Instant, reason: Close) {
         let was_closed = self.state.is_closed();
         if !was_closed {
             self.close_common();
-            self.set_close_timer(now);
+            self.set_close_timer(paths, now);
             self.close = true;
             self.state = State::Closed(state::Closed { reason });
         }
     }
 
     /// Control datagrams
-    pub fn datagrams(&mut self) -> Datagrams<'_> {
-        Datagrams { conn: self }
+    pub fn datagrams<'a>(&'a mut self, paths: &'a mut Paths) -> Datagrams<'a> {
+        Datagrams { conn: self, paths }
     }
 
     /// Returns connection statistics
-    pub fn stats(&mut self) -> ConnectionStats {
-        for (path_id, path) in self.paths.iter() {
+    pub fn stats(&mut self, paths: &mut Paths) -> ConnectionStats {
+        for (path_id, path) in paths.paths.iter() {
             let stats = self.stats.paths.entry(*path_id).or_default();
             stats.rtt = path.data.rtt.get();
             stats.cwnd = path.data.congestion.window();
@@ -2030,18 +1991,6 @@ impl Connection {
         self.side.side()
     }
 
-    /// Get the address observed by the remote over the given path
-    pub fn path_observed_address(&self, path_id: PathId) -> Result<Option<SocketAddr>, ClosedPath> {
-        self.path(path_id)
-            .map(|path_data| {
-                path_data
-                    .last_observed_addr_report
-                    .as_ref()
-                    .map(|observed| observed.socket_addr())
-            })
-            .ok_or(ClosedPath { _private: () })
-    }
-
     /// The local IP address which was used when the peer established
     /// the connection
     ///
@@ -2053,39 +2002,6 @@ impl Connection {
     /// connection.
     pub fn local_ip(&self) -> Option<IpAddr> {
         self.local_ip
-    }
-
-    /// Current best estimate of this connection's latency (round-trip-time)
-    pub fn rtt(&self) -> Duration {
-        // this should return at worst the same that the poll_transmit logic would use
-        // TODO(@divma): wrong
-        self.path_data(PathId::ZERO).rtt.get()
-    }
-
-    /// Current state of this connection's congestion controller, for debugging purposes
-    pub fn congestion_state(&self) -> &dyn Controller {
-        // TODO(@divma): same as everything, wrong
-        self.path_data(PathId::ZERO).congestion.as_ref()
-    }
-
-    /// Resets path-specific settings.
-    ///
-    /// This will force-reset several subsystems related to a specific network path.
-    /// Currently this is the congestion controller, round-trip estimator, and the MTU
-    /// discovery.
-    ///
-    /// This is useful when it is known the underlying network path has changed and the old
-    /// state of these subsystems is no longer valid or optimal. In this case it might be
-    /// faster or reduce loss to settle on optimal values by restarting from the initial
-    /// configuration in the [`TransportConfig`].
-    pub fn path_changed(&mut self, now: Instant) {
-        // TODO(@divma): evaluate how this is used
-        // wrong call in the multipath case anyhow
-        self.paths
-            .get_mut(&PathId::ZERO)
-            .expect("this might fail")
-            .data
-            .reset(now, &self.config);
     }
 
     /// Modify the number of remotely initiated streams that may be concurrently open
@@ -2177,28 +2093,31 @@ impl Connection {
 
     fn on_ack_received(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         space: SpaceId,
         ack: frame::Ack,
     ) -> Result<(), TransportError> {
         // All ACKs are referencing path 0
         let path = PathId::ZERO;
-        self.inner_on_ack_received(now, space, path, ack)
+        self.inner_on_ack_received(paths, now, space, path, ack)
     }
 
     fn on_path_ack_received(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         space: SpaceId,
         path_ack: frame::PathAck,
     ) -> Result<(), TransportError> {
         let (ack, path) = path_ack.into_ack();
-        self.inner_on_ack_received(now, space, path, ack)
+        self.inner_on_ack_received(paths, now, space, path, ack)
     }
 
     /// Handles an ACK frame acknowledging packets sent on *path*.
     fn inner_on_ack_received(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         space: SpaceId,
         path: PathId,
@@ -2256,7 +2175,7 @@ impl Connection {
                 ack_eliciting_acked |= info.ack_eliciting;
 
                 // Notify MTU discovery that a packet was acked, because it might be an MTU probe
-                let path_data = self.path_data_mut(path);
+                let path_data = paths.path_data_mut(path);
                 let mtu_updated = path_data.mtud.on_acked(space, packet, info.size);
                 if mtu_updated {
                     path_data
@@ -2267,13 +2186,13 @@ impl Connection {
                 // Notify ack frequency that a packet was acked, because it might contain an ACK_FREQUENCY frame
                 self.ack_frequency.on_acked(path, packet);
 
-                self.on_packet_acked(now, path, info);
+                self.on_packet_acked(paths, now, path, info);
             }
         }
 
         let largest_ackd = self.spaces[space].for_path(path).largest_acked_packet;
         let app_limited = self.app_limited;
-        let path_data = self.path_data_mut(path);
+        let path_data = paths.path_data_mut(path);
         let in_flight = path_data.in_flight.bytes;
 
         path_data
@@ -2294,7 +2213,7 @@ impl Connection {
             );
 
             let next_pn = self.spaces[space].for_path(path).next_packet_number;
-            let path_data = self.path_data_mut(path);
+            let path_data = paths.path_data_mut(path);
             // TODO(@divma): should be a method of path, should be contained in a single place
             path_data.rtt.update(ack_delay, rtt);
             if path_data.first_packet_after_rtt_sample.is_none() {
@@ -2303,17 +2222,17 @@ impl Connection {
         }
 
         // Must be called before crypto/pto_count are clobbered
-        self.detect_lost_packets(now, space, path, true);
+        self.detect_lost_packets(paths, now, space, path, true);
 
         if self.peer_completed_address_validation(path) {
-            self.path_data_mut(path).pto_count = 0;
+            paths.path_data_mut(path).pto_count = 0;
         }
 
         // Explicit congestion notification
         // TODO(@divma): this code is a good example of logic that should be contained in a single
         // place but it's split between the path data and the packet number space data, we should
         // find a way to make this work without two lookups
-        if self.path_data(path).sending_ecn {
+        if paths.path_data(path).sending_ecn {
             if let Some(ecn) = ack.ecn {
                 // We only examine ECN counters from ACKs that we are certain we received in transmit
                 // order, allowing us to compute an increase in ECN counts to compare against the number
@@ -2321,22 +2240,23 @@ impl Connection {
                 // reordering.
                 if new_largest {
                     let sent = self.spaces[space].for_path(path).largest_acked_packet_sent;
-                    self.process_ecn(now, space, path, newly_acked.len() as u64, ecn, sent);
+                    self.process_ecn(paths, now, space, path, newly_acked.len() as u64, ecn, sent);
                 }
             } else {
                 // We always start out sending ECN, so any ack that doesn't acknowledge it disables it.
                 debug!("ECN not acknowledged by peer");
-                self.path_data_mut(path).sending_ecn = false;
+                paths.path_data_mut(path).sending_ecn = false;
             }
         }
 
-        self.set_loss_detection_timer(now, path);
+        self.set_loss_detection_timer(paths, now, path);
         Ok(())
     }
 
     /// Process a new ECN block from an in-order ACK
     fn process_ecn(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         space: SpaceId,
         path: PathId,
@@ -2351,7 +2271,7 @@ impl Connection {
             Err(e) => {
                 debug!("halting ECN due to verification failure: {}", e);
 
-                self.path_data_mut(path).sending_ecn = false;
+                paths.path_data_mut(path).sending_ecn = false;
                 // Wipe out the existing value because it might be garbage and could interfere with
                 // future attempts to use ECN on new paths.
                 self.spaces[space].for_path(path).ecn_feedback = frame::EcnCounts::ZERO;
@@ -2359,7 +2279,7 @@ impl Connection {
             Ok(false) => {}
             Ok(true) => {
                 self.stats.paths.entry(path).or_default().congestion_events += 1;
-                self.path_data_mut(path).congestion.on_congestion_event(
+                paths.path_data_mut(path).congestion.on_congestion_event(
                     now,
                     largest_sent_time,
                     false,
@@ -2371,13 +2291,20 @@ impl Connection {
 
     // Not timing-aware, so it's safe to call this for inferred acks, such as arise from
     // high-latency handshakes
-    fn on_packet_acked(&mut self, now: Instant, path_id: PathId, info: SentPacket) {
-        self.paths
+    fn on_packet_acked(
+        &mut self,
+        paths: &mut Paths,
+        now: Instant,
+        path_id: PathId,
+        info: SentPacket,
+    ) {
+        paths
+            .paths
             .get_mut(&path_id)
             .expect("known path")
             .remove_in_flight(&info);
         let app_limited = self.app_limited;
-        let path = self.path_data_mut(path_id);
+        let path = paths.path_data_mut(path_id);
         if info.ack_eliciting && path.challenge.is_none() {
             // Only pass ACKs to the congestion controller if we are not validating the current
             // path, so as to ignore any ACKs from older paths still coming in.
@@ -2398,7 +2325,7 @@ impl Connection {
         }
     }
 
-    fn set_key_discard_timer(&mut self, now: Instant, space: SpaceId) {
+    fn set_key_discard_timer(&mut self, paths: &Paths, now: Instant, space: SpaceId) {
         let start = if self.zero_rtt_crypto.is_some() {
             now
         } else {
@@ -2414,7 +2341,7 @@ impl Connection {
         // QUIC-MULTIPATH § 2.5 Key Phase Update Process: use largest PTO off all paths.
         self.timers.set(
             Timer::Generic(GenericTimer::KeyDiscard),
-            start + self.pto_max_path(space) * 3,
+            start + self.pto_max_path(paths, space) * 3,
         );
     }
 
@@ -2430,15 +2357,15 @@ impl Connection {
     /// within the PTO time-window. We need to schedule a tail-loss probe, an ack-eliciting
     /// packet, to try and elicit new acknowledgements. These new acknowledgements will
     /// indicate whether the previously sent packets were lost or not.
-    fn on_loss_detection_timeout(&mut self, now: Instant, path_id: PathId) {
+    fn on_loss_detection_timeout(&mut self, paths: &mut Paths, now: Instant, path_id: PathId) {
         if let Some((_, pn_space)) = self.loss_time_and_space(path_id) {
             // Time threshold loss Detection
-            self.detect_lost_packets(now, pn_space, path_id, false);
-            self.set_loss_detection_timer(now, path_id);
+            self.detect_lost_packets(paths, now, pn_space, path_id, false);
+            self.set_loss_detection_timer(paths, now, path_id);
             return;
         }
 
-        let (_, space) = match self.pto_time_and_space(now, path_id) {
+        let (_, space) = match self.pto_time_and_space(paths, now, path_id) {
             Some(x) => x,
             None => {
                 error!("PTO expired while unset");
@@ -2446,14 +2373,14 @@ impl Connection {
             }
         };
         trace!(
-            in_flight = self.path_data(path_id).in_flight.bytes,
-            count = self.path_data(path_id).pto_count,
+            in_flight = paths.path_data(path_id).in_flight.bytes,
+            count = paths.path_data(path_id).pto_count,
             ?space,
             ?path_id,
             "PTO fired"
         );
 
-        let count = match self.path_data(path_id).in_flight.ack_eliciting {
+        let count = match paths.path_data(path_id).in_flight.ack_eliciting {
             // A PTO when we're not expecting any ACKs must be due to handshake anti-amplification
             // deadlock preventions
             0 => {
@@ -2465,9 +2392,9 @@ impl Connection {
         };
         let pns = self.spaces[space].for_path(path_id);
         pns.loss_probes = pns.loss_probes.saturating_add(count);
-        let path_data = self.path_data_mut(path_id);
+        let path_data = paths.path_data_mut(path_id);
         path_data.pto_count = path_data.pto_count.saturating_add(1);
-        self.set_loss_detection_timer(now, path_id);
+        self.set_loss_detection_timer(paths, now, path_id);
     }
 
     /// Detect any lost packets
@@ -2488,6 +2415,7 @@ impl Connection {
     ///   - Being sent [`TransportConfig::time_threshold`] * RTT in the past.
     fn detect_lost_packets(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         pn_space: SpaceId,
         path_id: PathId,
@@ -2501,7 +2429,7 @@ impl Connection {
 
         // Find all the lost packets, populating all variables initialised above.
 
-        let path = self.path_data(path_id);
+        let path = paths.path_data(path_id);
         let in_flight_mtu_probe = path.mtud.in_flight_mtu_probe();
         let loss_delay = path
             .rtt
@@ -2520,7 +2448,7 @@ impl Connection {
         // lost packet, including the edges, are marked lost. PTO computation must always
         // include max ACK delay, i.e. operate as if in Data space (see RFC9001 §7.6.1).
         let congestion_period =
-            self.pto(SpaceId::Data, path_id) * self.config.persistent_congestion_threshold;
+            self.pto(paths, SpaceId::Data, path_id) * self.config.persistent_congestion_threshold;
         let mut persistent_congestion_start: Option<Instant> = None;
         let mut prev_packet = None;
         let space = self.spaces[pn_space].for_path(path_id);
@@ -2575,6 +2503,7 @@ impl Connection {
         }
 
         self.handle_lost_packets(
+            paths,
             pn_space,
             path_id,
             now,
@@ -2587,8 +2516,8 @@ impl Connection {
     }
 
     /// Drops the path state, declaring any remaining in-flight packets as lost
-    fn drop_path_state(&mut self, path_id: PathId, now: Instant) {
-        let path = self.path_data(path_id);
+    fn drop_path_state(&mut self, paths: &mut Paths, path_id: PathId, now: Instant) {
+        let path = paths.path_data(path_id);
         let in_flight_mtu_probe = path.mtud.in_flight_mtu_probe();
 
         let mut size_of_lost_packets = 0u64; // add to path_stats.lost_bytes;
@@ -2611,6 +2540,7 @@ impl Connection {
                 "packets lost on path abandon"
             );
             self.handle_lost_packets(
+                paths,
                 SpaceId::Data,
                 path_id,
                 now,
@@ -2621,7 +2551,7 @@ impl Connection {
                 size_of_lost_packets,
             );
         }
-        self.paths.remove(&path_id);
+        paths.paths.remove(&path_id);
         self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
 
         let path_stats = self.stats.paths.remove(&path_id).unwrap_or_default();
@@ -2636,6 +2566,7 @@ impl Connection {
 
     fn handle_lost_packets(
         &mut self,
+        paths: &mut Paths,
         pn_space: SpaceId,
         path_id: PathId,
         now: Instant,
@@ -2655,7 +2586,7 @@ impl Connection {
         );
         // OnPacketsLost
         if let Some(largest_lost) = lost_packets.last().cloned() {
-            let old_bytes_in_flight = self.path_data_mut(path_id).in_flight.bytes;
+            let old_bytes_in_flight = paths.path_data_mut(path_id).in_flight.bytes;
             let largest_lost_sent =
                 self.spaces[pn_space].for_path(path_id).sent_packets[&largest_lost].time_sent;
             let path_stats = self.stats.paths.entry(path_id).or_default();
@@ -2691,7 +2622,8 @@ impl Connection {
                     now,
                     self.orig_rem_cid,
                 );
-                self.paths
+                paths
+                    .paths
                     .get_mut(&path_id)
                     .unwrap()
                     .remove_in_flight(&info);
@@ -2699,15 +2631,16 @@ impl Connection {
                     self.streams.retransmit(frame);
                 }
                 self.spaces[pn_space].pending |= info.retransmits;
-                self.path_data_mut(path_id)
+                paths
+                    .path_data_mut(path_id)
                     .mtud
                     .on_non_probe_lost(packet, info.size);
             }
 
-            let path = self.path_data_mut(path_id);
+            let path = paths.path_data_mut(path_id);
             if path.mtud.black_hole_detected(now) {
                 path.congestion.on_mtu_update(path.mtud.current_mtu());
-                if let Some(max_datagram_size) = self.datagrams().max_size() {
+                if let Some(max_datagram_size) = self.datagrams(paths).max_size() {
                     self.datagrams.drop_oversized(max_datagram_size);
                 }
                 self.stats
@@ -2719,7 +2652,7 @@ impl Connection {
 
             // Don't apply congestion penalty for lost ack-only packets
             let lost_ack_eliciting =
-                old_bytes_in_flight != self.path_data_mut(path_id).in_flight.bytes;
+                old_bytes_in_flight != paths.path_data_mut(path_id).in_flight.bytes;
 
             if lost_ack_eliciting {
                 self.stats
@@ -2727,7 +2660,7 @@ impl Connection {
                     .entry(path_id)
                     .or_default()
                     .congestion_events += 1;
-                self.path_data_mut(path_id).congestion.on_congestion_event(
+                paths.path_data_mut(path_id).congestion.on_congestion_event(
                     now,
                     largest_lost_sent,
                     in_persistent_congestion,
@@ -2743,11 +2676,12 @@ impl Connection {
                 .take(packet)
                 .unwrap(); // safe: lost_mtu_probe is omitted from lost_packets, and
             // therefore must not have been removed yet
-            self.paths
+            paths
+                .paths
                 .get_mut(&path_id)
                 .unwrap()
                 .remove_in_flight(&info);
-            self.path_data_mut(path_id).mtud.on_probe_lost();
+            paths.path_data_mut(path_id).mtud.on_probe_lost();
             self.stats
                 .paths
                 .entry(path_id)
@@ -2774,8 +2708,13 @@ impl Connection {
     }
 
     /// Returns the earliest next PTO should fire for all spaces on a path.
-    fn pto_time_and_space(&mut self, now: Instant, path_id: PathId) -> Option<(Instant, SpaceId)> {
-        let path = self.path(path_id)?;
+    fn pto_time_and_space(
+        &mut self,
+        paths: &Paths,
+        now: Instant,
+        path_id: PathId,
+    ) -> Option<(Instant, SpaceId)> {
+        let path = paths.path(path_id)?;
         let pto_count = path.pto_count;
         let backoff = 2u32.pow(pto_count.min(MAX_BACKOFF_EXPONENT));
         let mut duration = path.rtt.pto_base() * backoff;
@@ -2859,7 +2798,7 @@ impl Connection {
     /// - A tail-loss probe needs to be sent.
     ///
     /// See [`Connection::on_loss_detection_timeout`] for details.
-    fn set_loss_detection_timer(&mut self, now: Instant, path_id: PathId) {
+    fn set_loss_detection_timer(&mut self, paths: &mut Paths, now: Instant, path_id: PathId) {
         if self.state.is_closed() {
             // No loss detection takes place on closed connections, and `close_common` already
             // stopped time timer. Ensure we don't restart it inadvertently, e.g. in response to a
@@ -2878,7 +2817,7 @@ impl Connection {
 
         // Determine which PN space to arm PTO for.
         // Calculate PTO duration
-        if let Some((timeout, _)) = self.pto_time_and_space(now, path_id) {
+        if let Some((timeout, _)) = self.pto_time_and_space(paths, now, path_id) {
             self.timers.set(
                 Timer::PerPath(path_id, PerPathTimer::LossDetection),
                 timeout,
@@ -2892,13 +2831,13 @@ impl Connection {
     /// The maximum probe timeout across all paths
     ///
     /// See [`Connection::pto`]
-    fn pto_max_path(&self, space: SpaceId) -> Duration {
+    fn pto_max_path(&self, paths: &Paths, space: SpaceId) -> Duration {
         match space {
-            SpaceId::Initial | SpaceId::Handshake => self.pto(space, PathId::ZERO),
-            SpaceId::Data => self
+            SpaceId::Initial | SpaceId::Handshake => self.pto(paths, space, PathId::ZERO),
+            SpaceId::Data => paths
                 .paths
                 .keys()
-                .map(|path_id| self.pto(space, *path_id))
+                .map(|path_id| self.pto(paths, space, *path_id))
                 .max()
                 .expect("there should be one at least path"),
         }
@@ -2908,16 +2847,17 @@ impl Connection {
     ///
     /// The PTO is logically the time in which you'd expect to receive an acknowledgement
     /// for a packet. So approximately RTT + max_ack_delay.
-    fn pto(&self, space: SpaceId, path_id: PathId) -> Duration {
+    fn pto(&self, paths: &Paths, space: SpaceId, path_id: PathId) -> Duration {
         let max_ack_delay = match space {
             SpaceId::Initial | SpaceId::Handshake => Duration::ZERO,
             SpaceId::Data => self.ack_frequency.max_ack_delay_for_pto(),
         };
-        self.path_data(path_id).rtt.pto_base() + max_ack_delay
+        paths.path_data(path_id).rtt.pto_base() + max_ack_delay
     }
 
     fn on_packet_authenticated(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         space_id: SpaceId,
         path_id: PathId,
@@ -2927,8 +2867,8 @@ impl Connection {
         is_1rtt: bool,
     ) {
         self.total_authed_packets += 1;
-        self.reset_keep_alive(path_id, now);
-        self.reset_idle_timeout(now, space_id, path_id);
+        self.reset_keep_alive(paths, path_id, now);
+        self.reset_idle_timeout(paths, now, space_id, path_id);
         self.permit_idle_reset = true;
         self.receiving_ecn |= ecn.is_some();
         if let Some(x) = ecn {
@@ -2962,11 +2902,11 @@ impl Connection {
                 if self.spaces[SpaceId::Initial].crypto.is_some() && space_id == SpaceId::Handshake
                 {
                     // A server stops sending and processing Initial packets when it receives its first Handshake packet.
-                    self.discard_space(now, SpaceId::Initial);
+                    self.discard_space(paths, now, SpaceId::Initial);
                 }
                 if self.zero_rtt_crypto.is_some() && is_1rtt {
                     // Discard 0-RTT keys soon after receiving a 1-RTT packet
-                    self.set_key_discard_timer(now, space_id)
+                    self.set_key_discard_timer(paths, now, space_id)
                 }
             }
         }
@@ -2991,25 +2931,31 @@ impl Connection {
     ///
     /// Without multipath there is only the connection-wide idle timeout. When multipath is
     /// enabled there is an additional per-path idle timeout.
-    fn reset_idle_timeout(&mut self, now: Instant, space: SpaceId, path_id: PathId) {
+    fn reset_idle_timeout(
+        &mut self,
+        paths: &mut Paths,
+        now: Instant,
+        space: SpaceId,
+        path_id: PathId,
+    ) {
         // First reset the global idle timeout.
         if let Some(timeout) = self.idle_timeout {
             if self.state.is_closed() {
                 self.timers.stop(Timer::Generic(GenericTimer::Idle));
             } else {
-                let dt = cmp::max(timeout, 3 * self.pto_max_path(space));
+                let dt = cmp::max(timeout, 3 * self.pto_max_path(paths, space));
                 self.timers
                     .set(Timer::Generic(GenericTimer::Idle), now + dt);
             }
         }
 
         // Now handle the per-path state
-        if let Some(timeout) = self.path_data(path_id).idle_timeout {
+        if let Some(timeout) = paths.path_data(path_id).idle_timeout {
             if self.state.is_closed() {
                 self.timers
                     .stop(Timer::PerPath(path_id, PerPathTimer::PathIdle));
             } else {
-                let dt = cmp::max(timeout, 3 * self.pto(space, path_id));
+                let dt = cmp::max(timeout, 3 * self.pto(paths, space, path_id));
                 self.timers
                     .set(Timer::PerPath(path_id, PerPathTimer::PathIdle), now + dt);
             }
@@ -3017,7 +2963,7 @@ impl Connection {
     }
 
     /// Resets both the [`GenericTimer::KeepAlive`] and [`PerPathTimer::PathKeepAlive`] timers
-    fn reset_keep_alive(&mut self, path_id: PathId, now: Instant) {
+    fn reset_keep_alive(&mut self, paths: &Paths, path_id: PathId, now: Instant) {
         if !self.state.is_established() {
             return;
         }
@@ -3027,7 +2973,7 @@ impl Connection {
                 .set(Timer::Generic(GenericTimer::KeepAlive), now + interval);
         }
 
-        if let Some(interval) = self.path_data(path_id).keep_alive {
+        if let Some(interval) = paths.path_data(path_id).keep_alive {
             self.timers.set(
                 Timer::PerPath(path_id, PerPathTimer::PathKeepAlive),
                 now + interval,
@@ -3056,6 +3002,7 @@ impl Connection {
     /// efficient.
     pub(crate) fn handle_first_packet(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         remote: SocketAddr,
         ecn: Option<EcnCodepoint>,
@@ -3068,7 +3015,7 @@ impl Connection {
         debug_assert!(self.side.is_server());
         let len = packet.header_data.len() + packet.payload.len();
         let path_id = PathId::ZERO;
-        self.path_data_mut(path_id).total_recvd = len as u64;
+        paths.path_data_mut(path_id).total_recvd = len as u64;
 
         match self.state {
             State::Handshake(ref mut state) => {
@@ -3079,6 +3026,7 @@ impl Connection {
 
         // The first packet is always on PathId::ZERO
         self.on_packet_authenticated(
+            paths,
             now,
             SpaceId::Initial,
             path_id,
@@ -3088,14 +3036,21 @@ impl Connection {
             false,
         );
 
-        self.process_decrypted_packet(now, remote, path_id, Some(packet_number), packet.into())?;
+        self.process_decrypted_packet(
+            paths,
+            now,
+            remote,
+            path_id,
+            Some(packet_number),
+            packet.into(),
+        )?;
         if let Some(data) = remaining {
-            self.handle_coalesced(now, remote, path_id, ecn, data);
+            self.handle_coalesced(paths, now, remote, path_id, ecn, data);
         }
 
         self.config.qlog_sink.emit_recovery_metrics(
-            self.path_data(path_id).pto_count,
-            &mut self.paths.get_mut(&path_id).unwrap().data,
+            paths.path_data(path_id).pto_count,
+            &mut paths.paths.get_mut(&path_id).unwrap().data,
             now,
             self.orig_rem_cid,
         );
@@ -3103,7 +3058,7 @@ impl Connection {
         Ok(())
     }
 
-    fn init_0rtt(&mut self) {
+    fn init_0rtt(&mut self, paths: &mut Paths) {
         let (header, packet) = match self.crypto.early_crypto() {
             Some(x) => x,
             None => return,
@@ -3125,7 +3080,7 @@ impl Connection {
                         max_ack_delay: TransportParameters::default().max_ack_delay,
                         ..params
                     };
-                    self.set_peer_params(params);
+                    self.set_peer_params(paths, params);
                 }
                 Err(e) => {
                     error!("session ticket has malformed transport parameters: {}", e);
@@ -3252,7 +3207,7 @@ impl Connection {
         }
     }
 
-    fn discard_space(&mut self, now: Instant, space_id: SpaceId) {
+    fn discard_space(&mut self, paths: &mut Paths, now: Instant, space_id: SpaceId) {
         debug_assert!(space_id != SpaceId::Data);
         trace!("discarding {:?} keys", space_id);
         if space_id == SpaceId::Initial {
@@ -3268,24 +3223,27 @@ impl Connection {
         pns.loss_time = None;
         let sent_packets = mem::take(&mut pns.sent_packets);
         for packet in sent_packets.into_values() {
-            self.paths
+            paths
+                .paths
                 .get_mut(&PathId::ZERO)
                 .unwrap()
                 .remove_in_flight(&packet);
         }
 
-        self.set_loss_detection_timer(now, PathId::ZERO)
+        self.set_loss_detection_timer(paths, now, PathId::ZERO)
     }
 
     fn handle_coalesced(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         remote: SocketAddr,
         path_id: PathId,
         ecn: Option<EcnCodepoint>,
         data: BytesMut,
     ) {
-        self.path_data_mut(path_id)
+        paths
+            .path_data_mut(path_id)
             .inc_total_recvd(data.len() as u64);
         let mut remaining = Some(data);
         let cid_len = self
@@ -3303,7 +3261,7 @@ impl Connection {
             ) {
                 Ok((partial_decode, rest)) => {
                     remaining = rest;
-                    self.handle_decode(now, remote, path_id, ecn, partial_decode);
+                    self.handle_decode(paths, now, remote, path_id, ecn, partial_decode);
                 }
                 Err(e) => {
                     trace!("malformed header: {}", e);
@@ -3315,6 +3273,7 @@ impl Connection {
 
     fn handle_decode(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         remote: SocketAddr,
         path_id: PathId,
@@ -3328,6 +3287,7 @@ impl Connection {
             self.peer_params.stateless_reset_token,
         ) {
             self.handle_packet(
+                paths,
                 now,
                 remote,
                 path_id,
@@ -3340,6 +3300,7 @@ impl Connection {
 
     fn handle_packet(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         remote: SocketAddr,
         path_id: PathId,
@@ -3363,11 +3324,11 @@ impl Connection {
                 debug!(%remote, %path_id, "discarding multipath packet during handshake");
                 return;
             }
-            if remote != self.path_data_mut(path_id).remote {
+            if remote != paths.path_data_mut(path_id).remote {
                 match self.state {
                     State::Handshake(ref hs) if hs.allow_server_migration => {
-                        trace!(?remote, prev = ?self.path_data(path_id).remote, "server migrated to new remote");
-                        self.path_data_mut(path_id).remote = remote;
+                        trace!(?remote, prev = ?paths.path_data(path_id).remote, "server migrated to new remote");
+                        paths.path_data_mut(path_id).remote = remote;
                     }
                     _ => {
                         debug!("discarding packet with unexpected remote during handshake");
@@ -3383,7 +3344,7 @@ impl Connection {
         let decrypted = match packet {
             None => Err(None),
             Some(mut packet) => self
-                .decrypt_packet(now, path_id, &mut packet)
+                .decrypt_packet(paths, now, path_id, &mut packet)
                 .map(move |number| (packet, number)),
         };
         let result = match decrypted {
@@ -3449,10 +3410,11 @@ impl Connection {
 
                         if self.side().is_server() && !self.abandoned_paths.contains(&path_id) {
                             // Only the client is allowed to open paths
-                            self.ensure_path(path_id, remote, now, number);
+                            self.ensure_path(paths, path_id, remote, now, number);
                         }
-                        if self.paths.contains_key(&path_id) {
+                        if paths.paths.contains_key(&path_id) {
                             self.on_packet_authenticated(
+                                paths,
                                 now,
                                 packet.header.space(),
                                 path_id,
@@ -3464,7 +3426,7 @@ impl Connection {
                         }
                     }
 
-                    self.process_decrypted_packet(now, remote, path_id, number, packet)
+                    self.process_decrypted_packet(paths, now, remote, path_id, number, packet)
                 }
             }
         };
@@ -3500,7 +3462,7 @@ impl Connection {
         if !was_closed && self.state.is_closed() {
             self.close_common();
             if !self.state.is_drained() {
-                self.set_close_timer(now);
+                self.set_close_timer(paths, now);
             }
         }
         if !was_drained && self.state.is_drained() {
@@ -3512,19 +3474,20 @@ impl Connection {
 
         // Transmit CONNECTION_CLOSE if necessary
         if let State::Closed(_) = self.state {
-            self.close = remote == self.path_data(path_id).remote;
+            self.close = remote == paths.path_data(path_id).remote;
         }
     }
 
     fn process_decrypted_packet(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         remote: SocketAddr,
         path_id: PathId,
         number: Option<u64>,
         packet: Packet,
     ) -> Result<(), ConnectionError> {
-        if !self.paths.contains_key(&path_id) {
+        if !paths.paths.contains_key(&path_id) {
             // There is a chance this is a server side, first (for this path) packet, which would
             // be a protocol violation. It's more likely, however, that this is a packet of a
             // pruned path
@@ -3535,10 +3498,10 @@ impl Connection {
             State::Established => {
                 match packet.header.space() {
                     SpaceId::Data => {
-                        self.process_payload(now, remote, path_id, number.unwrap(), packet)?
+                        self.process_payload(paths, now, remote, path_id, number.unwrap(), packet)?
                     }
                     _ if packet.header.has_frames() => {
-                        self.process_early_payload(now, path_id, packet)?
+                        self.process_early_payload(paths, now, path_id, packet)?
                     }
                     _ => {
                         trace!("discarding unexpected pre-handshake packet");
@@ -3621,10 +3584,10 @@ impl Connection {
 
                 let space = &mut self.spaces[SpaceId::Initial];
                 if let Some(info) = space.for_path(PathId::ZERO).take(0) {
-                    self.on_packet_acked(now, PathId::ZERO, info);
+                    self.on_packet_acked(paths, now, PathId::ZERO, info);
                 };
 
-                self.discard_space(now, SpaceId::Initial); // Make sure we clean up after
+                self.discard_space(paths, now, SpaceId::Initial); // Make sure we clean up after
                 // any retransmitted Initials
                 self.spaces[SpaceId::Initial] = {
                     let mut space = PacketSpace::new(now, SpaceId::Initial, &mut self.rng);
@@ -3647,7 +3610,8 @@ impl Connection {
                         .sent_packets,
                 );
                 for info in zero_rtt.into_values() {
-                    self.paths
+                    paths
+                        .paths
                         .get_mut(&PathId::ZERO)
                         .unwrap()
                         .remove_in_flight(&info);
@@ -3683,9 +3647,9 @@ impl Connection {
                     );
                     return Ok(());
                 }
-                self.on_path_validated(path_id);
+                self.on_path_validated(paths, path_id);
 
-                self.process_early_payload(now, path_id, packet)?;
+                self.process_early_payload(paths, now, path_id, packet)?;
                 if self.state.is_closed() {
                     return Ok(());
                 }
@@ -3721,7 +3685,8 @@ impl Connection {
                                 &mut self.spaces[SpaceId::Data].for_path(path_id).sent_packets,
                             );
                             for packet in sent_packets.into_values() {
-                                self.paths
+                                paths
+                                    .paths
                                     .get_mut(&path_id)
                                     .unwrap()
                                     .remove_in_flight(&packet);
@@ -3732,16 +3697,16 @@ impl Connection {
                         }
                     }
                     if let Some(token) = params.stateless_reset_token {
-                        let remote = self.path_data(path_id).remote;
+                        let remote = paths.path_data(path_id).remote;
                         self.endpoint_events
                             .push_back(EndpointEventInner::ResetToken(path_id, remote, token));
                     }
-                    self.handle_peer_params(params, loc_cid, rem_cid)?;
+                    self.handle_peer_params(paths, params, loc_cid, rem_cid)?;
                     self.issue_first_cids(now);
                 } else {
                     // Server-only
                     self.spaces[SpaceId::Data].pending.handshake_done = true;
-                    self.discard_space(now, SpaceId::Handshake);
+                    self.discard_space(paths, now, SpaceId::Handshake);
                 }
 
                 self.events.push_back(Event::Connected);
@@ -3779,7 +3744,7 @@ impl Connection {
                 }
 
                 let starting_space = self.highest_space;
-                self.process_early_payload(now, path_id, packet)?;
+                self.process_early_payload(paths, now, path_id, packet)?;
 
                 if self.side.is_server()
                     && starting_space == SpaceId::Initial
@@ -3793,9 +3758,9 @@ impl Connection {
                                 frame: None,
                                 reason: "transport parameters missing".into(),
                             })?;
-                    self.handle_peer_params(params, loc_cid, rem_cid)?;
+                    self.handle_peer_params(paths, params, loc_cid, rem_cid)?;
                     self.issue_first_cids(now);
-                    self.init_0rtt();
+                    self.init_0rtt(paths);
                 }
                 Ok(())
             }
@@ -3803,7 +3768,7 @@ impl Connection {
                 ty: LongType::ZeroRtt,
                 ..
             } => {
-                self.process_payload(now, remote, path_id, number.unwrap(), packet)?;
+                self.process_payload(paths, now, remote, path_id, number.unwrap(), packet)?;
                 Ok(())
             }
             Header::VersionNegotiate { .. } => {
@@ -3832,6 +3797,7 @@ impl Connection {
     /// Process an Initial or Handshake packet payload
     fn process_early_payload(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         path_id: PathId,
         packet: Packet,
@@ -3859,12 +3825,12 @@ impl Connection {
                     self.read_crypto(packet.header.space(), &frame, payload_len)?;
                 }
                 Frame::Ack(ack) => {
-                    self.on_ack_received(now, packet.header.space(), ack)?;
+                    self.on_ack_received(paths, now, packet.header.space(), ack)?;
                 }
                 Frame::PathAck(ack) => {
                     span.as_ref()
                         .map(|span| span.record("path", tracing::field::debug(&ack.path_id)));
-                    self.on_path_ack_received(now, packet.header.space(), ack)?;
+                    self.on_path_ack_received(paths, now, packet.header.space(), ack)?;
                 }
                 Frame::Close(reason) => {
                     self.error = Some(reason.into());
@@ -3896,6 +3862,7 @@ impl Connection {
     /// Processes the packet payload, always in the data space.
     fn process_payload(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         remote: SocketAddr,
         path_id: PathId,
@@ -3969,18 +3936,18 @@ impl Connection {
                     }
                 }
                 Frame::Ack(ack) => {
-                    self.on_ack_received(now, SpaceId::Data, ack)?;
+                    self.on_ack_received(paths, now, SpaceId::Data, ack)?;
                 }
                 Frame::PathAck(ack) => {
                     span.record("path", tracing::field::debug(&ack.path_id));
-                    self.on_path_ack_received(now, SpaceId::Data, ack)?;
+                    self.on_path_ack_received(paths, now, SpaceId::Data, ack)?;
                 }
                 Frame::Padding | Frame::Ping => {}
                 Frame::Close(reason) => {
                     close = Some(reason);
                 }
                 Frame::PathChallenge(token) => {
-                    let path = &mut self
+                    let path = &mut paths
                         .path_mut(path_id)
                         .expect("payload is processed only after the path becomes known");
                     path.path_responses.push(number, token, remote);
@@ -3996,7 +3963,7 @@ impl Connection {
                     }
                 }
                 Frame::PathResponse(token) => {
-                    let path = self
+                    let path = paths
                         .paths
                         .get_mut(&path_id)
                         .expect("payload is processed only after the path becomes known");
@@ -4192,7 +4159,7 @@ impl Connection {
                     {
                         // We're a server still using the initial remote CID for the client, so
                         // let's switch immediately to enable clientside stateless resets.
-                        self.update_rem_cid(PathId::ZERO);
+                        self.update_rem_cid(paths, PathId::ZERO);
                     }
                 }
                 Frame::NewToken(NewToken { token }) => {
@@ -4255,7 +4222,7 @@ impl Connection {
                         ));
                     }
                     if self.spaces[SpaceId::Handshake].crypto.is_some() {
-                        self.discard_space(now, SpaceId::Handshake);
+                        self.discard_space(paths, now, SpaceId::Handshake);
                     }
                 }
                 Frame::ObservedAddr(observed) => {
@@ -4277,7 +4244,7 @@ impl Connection {
                         ));
                     }
 
-                    let path = self.path_data_mut(path_id);
+                    let path = paths.path_data_mut(path_id);
                     if remote == path.remote {
                         if let Some(updated) = path.update_observed_addr_report(observed) {
                             if path.open {
@@ -4299,7 +4266,7 @@ impl Connection {
                 }) => {
                     span.record("path", tracing::field::debug(&path_id));
                     // TODO(flub): don't really know which error code to use here.
-                    match self.close_path(now, path_id, error_code.into()) {
+                    match self.close_path(paths, now, path_id, error_code.into()) {
                         Ok(()) => {
                             trace!("peer abandoned path");
                         }
@@ -4307,6 +4274,7 @@ impl Connection {
                             trace!("peer abandoned last path, closing connection");
                             // TODO(flub): which error code?
                             self.close(
+                                paths,
                                 now,
                                 0u8.into(),
                                 Bytes::from_static(b"last path abandoned by peer"),
@@ -4316,7 +4284,7 @@ impl Connection {
                             trace!("peer abandoned already closed path");
                         }
                     }
-                    let delay = self.pto(SpaceId::Data, path_id) * 3;
+                    let delay = self.pto(paths, SpaceId::Data, path_id) * 3;
                     self.timers.set(
                         Timer::PerPath(path_id, PerPathTimer::PathAbandoned),
                         now + delay,
@@ -4328,6 +4296,7 @@ impl Connection {
                     span.record("path", tracing::field::debug(&info.path_id));
                     if self.is_multipath_negotiated() {
                         self.on_path_status(
+                            paths,
                             info.path_id,
                             PathStatus::Available,
                             info.status_seq_no,
@@ -4341,7 +4310,12 @@ impl Connection {
                 Frame::PathBackup(info) => {
                     span.record("path", tracing::field::debug(&info.path_id));
                     if self.is_multipath_negotiated() {
-                        self.on_path_status(info.path_id, PathStatus::Backup, info.status_seq_no);
+                        self.on_path_status(
+                            paths,
+                            info.path_id,
+                            PathStatus::Backup,
+                            info.status_seq_no,
+                        );
                     } else {
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "received PATH_BACKUP frame when multipath was not negotiated",
@@ -4456,7 +4430,7 @@ impl Connection {
 
         if number == self.spaces[SpaceId::Data].for_path(path_id).rx_packet
             && !is_probing_packet
-            && remote != self.path_data(path_id).remote
+            && remote != paths.path_data(path_id).remote
         {
             let ConnectionSide::Server { ref server_config } = self.side else {
                 panic!("packets from unknown remote should be dropped by clients");
@@ -4465,9 +4439,9 @@ impl Connection {
                 server_config.migration,
                 "migration-initiating packets should have been dropped immediately"
             );
-            self.migrate(path_id, now, remote, migration_observed_addr);
+            self.migrate(paths, path_id, now, remote, migration_observed_addr);
             // Break linkability, if possible
-            self.update_rem_cid(path_id);
+            self.update_rem_cid(paths, path_id);
             self.spin = false;
         }
 
@@ -4476,6 +4450,7 @@ impl Connection {
 
     fn migrate(
         &mut self,
+        paths: &mut Paths,
         path_id: PathId,
         now: Instant,
         remote: SocketAddr,
@@ -4489,8 +4464,8 @@ impl Connection {
         // Reset rtt/congestion state for new path unless it looks like a NAT rebinding.
         // Note that the congestion window will not grow until validation terminates. Helps mitigate
         // amplification attacks performed by spoofing source addresses.
-        let prev_pto = self.pto(SpaceId::Data, path_id);
-        let known_path = self.paths.get_mut(&path_id).expect("known path");
+        let prev_pto = self.pto(paths, SpaceId::Data, path_id);
+        let known_path = paths.paths.get_mut(&path_id).expect("known path");
         let path = &mut known_path.data;
         let mut new_path = if remote.is_ipv4() && remote.ip() == path.remote.ip() {
             PathData::from_previous(remote, path, self.path_counter, now)
@@ -4533,19 +4508,19 @@ impl Connection {
 
         self.timers.set(
             Timer::PerPath(path_id, PerPathTimer::PathValidation),
-            now + 3 * cmp::max(self.pto(SpaceId::Data, path_id), prev_pto),
+            now + 3 * cmp::max(self.pto(paths, SpaceId::Data, path_id), prev_pto),
         );
     }
 
     /// Handle a change in the local address, i.e. an active migration
-    pub fn local_address_changed(&mut self) {
+    pub fn local_address_changed(&mut self, paths: &mut Paths) {
         // TODO(flub): if multipath is enabled this needs to create a new path entirely.
-        self.update_rem_cid(PathId::ZERO);
+        self.update_rem_cid(paths, PathId::ZERO);
         self.ping();
     }
 
     /// Switch to a previously unused remote connection ID, if possible
-    fn update_rem_cid(&mut self, path_id: PathId) {
+    fn update_rem_cid(&mut self, paths: &mut Paths, path_id: PathId) {
         let Some((reset_token, retired)) =
             self.rem_cids.get_mut(&path_id).and_then(|cids| cids.next())
         else {
@@ -4557,7 +4532,7 @@ impl Connection {
             .pending
             .retire_cids
             .extend(retired.map(|seq| (path_id, seq)));
-        let remote = self.path_data(path_id).remote;
+        let remote = paths.path_data(path_id).remote;
         self.set_reset_token(path_id, remote, reset_token);
     }
 
@@ -4635,6 +4610,7 @@ impl Connection {
     /// *path.
     fn populate_packet(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         space_id: SpaceId,
         path_id: PathId,
@@ -4645,7 +4621,7 @@ impl Connection {
         let mut sent = SentFrames::default();
         let is_multipath_negotiated = self.is_multipath_negotiated();
         let space = &mut self.spaces[space_id];
-        let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
+        let path = &mut paths.paths.get_mut(&path_id).expect("known path").data;
         let is_0rtt = space_id == SpaceId::Data && space.crypto.is_none();
         space
             .for_path(path_id)
@@ -4910,7 +4886,7 @@ impl Connection {
             let Some(path_id) = space.pending.path_status.pop_first() else {
                 break;
             };
-            let Some(path) = self.paths.get(&path_id).map(|path_state| &path_state.data) else {
+            let Some(path) = paths.paths.get(&path_id).map(|path_state| &path_state.data) else {
                 trace!(%path_id, "discarding queued path status for unknown path");
                 continue;
             };
@@ -5094,7 +5070,7 @@ impl Connection {
             self.datagrams.send_blocked = false;
         }
 
-        let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
+        let path = &mut paths.paths.get_mut(&path_id).expect("known path").data;
 
         // NEW_TOKEN
         while let Some(remote_addr) = space.pending.new_tokens.pop() {
@@ -5199,12 +5175,12 @@ impl Connection {
         self.timers.reset();
     }
 
-    fn set_close_timer(&mut self, now: Instant) {
+    fn set_close_timer(&mut self, paths: &mut Paths, now: Instant) {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO with PTO the max of
         // the PTO for all paths.
         self.timers.set(
             Timer::Generic(GenericTimer::Close),
-            now + 3 * self.pto_max_path(self.highest_space),
+            now + 3 * self.pto_max_path(paths, self.highest_space),
         );
     }
 
@@ -5214,6 +5190,7 @@ impl Connection {
     /// *packet into which the transport parameters arrived.
     fn handle_peer_params(
         &mut self,
+        paths: &mut Paths,
         params: TransportParameters,
         loc_cid: ConnectionId,
         rem_cid: ConnectionId,
@@ -5233,12 +5210,12 @@ impl Connection {
             ));
         }
 
-        self.set_peer_params(params);
+        self.set_peer_params(paths, params);
 
         Ok(())
     }
 
-    fn set_peer_params(&mut self, params: TransportParameters) {
+    fn set_peer_params(&mut self, paths: &mut Paths, params: TransportParameters) {
         self.streams.set_params(&params);
         self.idle_timeout =
             negotiate_max_idle_timeout(self.config.max_idle_timeout, Some(params.max_idle_timeout));
@@ -5256,7 +5233,7 @@ impl Connection {
             .expect(
                 "preferred address CID is the first received, and hence is guaranteed to be legal",
             );
-            let remote = self.path_data(PathId::ZERO).remote;
+            let remote = paths.path_data(PathId::ZERO).remote;
             self.set_reset_token(PathId::ZERO, remote, info.stateless_reset_token);
         }
         self.ack_frequency.peer_max_ack_delay = get_max_ack_delay(&params);
@@ -5274,7 +5251,8 @@ impl Connection {
         self.peer_params = params;
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
-        self.path_data_mut(PathId::ZERO)
+        paths
+            .path_data_mut(PathId::ZERO)
             .mtud
             .on_peer_max_udp_payload_size_received(peer_max_udp_payload_size);
     }
@@ -5282,6 +5260,7 @@ impl Connection {
     /// Decrypts a packet, returning the packet number on success
     fn decrypt_packet(
         &mut self,
+        paths: &mut Paths,
         now: Instant,
         path_id: PathId,
         packet: &mut Packet,
@@ -5304,14 +5283,14 @@ impl Connection {
         if result.outgoing_key_update_acked {
             if let Some(prev) = self.prev_crypto.as_mut() {
                 prev.end_packet = Some((result.number, now));
-                self.set_key_discard_timer(now, packet.header.space());
+                self.set_key_discard_timer(paths, now, packet.header.space());
             }
         }
 
         if result.incoming_key_update {
             trace!("key update authenticated");
             self.update_keys(Some((result.number, now)), true);
-            self.set_key_discard_timer(now, packet.header.space());
+            self.set_key_discard_timer(paths, now, packet.header.space());
         }
 
         Ok(Some(result.number))
@@ -5402,23 +5381,6 @@ impl Connection {
         Some(packet.payload.to_vec())
     }
 
-    /// The number of bytes of packets containing retransmittable frames that have not been
-    /// acknowledged or declared lost.
-    #[cfg(test)]
-    pub(crate) fn bytes_in_flight(&self) -> u64 {
-        // TODO(@divma): consider including for multipath?
-        self.path_data(PathId::ZERO).in_flight.bytes
-    }
-
-    /// Number of bytes worth of non-ack-only packets that may be sent
-    #[cfg(test)]
-    pub(crate) fn congestion_window(&self) -> u64 {
-        let path = self.path_data(PathId::ZERO);
-        path.congestion
-            .window()
-            .saturating_sub(path.in_flight.bytes)
-    }
-
     /// Whether no timers but keepalive, idle, rtt, pushnewcid, and key discard are running
     #[cfg(test)]
     pub(crate) fn is_idle(&self) -> bool {
@@ -5438,18 +5400,6 @@ impl Connection {
             .map_or(true, |(timer, _)| {
                 timer == Timer::Generic(GenericTimer::Idle)
             })
-    }
-
-    /// Whether explicit congestion notification is in use on outgoing packets.
-    #[cfg(test)]
-    pub(crate) fn using_ecn(&self) -> bool {
-        self.path_data(PathId::ZERO).sending_ecn
-    }
-
-    /// The number of received bytes in the current path
-    #[cfg(test)]
-    pub(crate) fn total_recvd(&self) -> u64 {
-        self.path_data(PathId::ZERO).total_recvd
     }
 
     #[cfg(test)]
@@ -5488,12 +5438,6 @@ impl Connection {
         self.rem_cids.get(&PathId::ZERO).unwrap().active_seq()
     }
 
-    /// Returns the detected maximum udp payload size for the current path
-    #[cfg(test)]
-    pub(crate) fn path_mtu(&self) -> u16 {
-        self.path_data(PathId::ZERO).current_mtu()
-    }
-
     /// Whether we have 1-RTT data to send
     ///
     /// This checks for frames that can only be sent in the data space (1-RTT):
@@ -5504,8 +5448,8 @@ impl Connection {
     ///
     /// See also [`PacketSpace::can_send`] which keeps track of all other frame types that
     /// may need to be sent.
-    fn can_send_1rtt(&self, path_id: PathId, max_size: usize) -> SendableFrames {
-        let path_exclusive = self.paths.get(&path_id).is_some_and(|path| {
+    fn can_send_1rtt(&self, paths: &Paths, path_id: PathId, max_size: usize) -> SendableFrames {
+        let path_exclusive = paths.paths.get(&path_id).is_some_and(|path| {
             path.data.challenge_pending
                 || path
                     .prev
@@ -5541,8 +5485,9 @@ impl Connection {
     /// Buffers passed to [`Connection::poll_transmit`] should be at least this large.
     ///
     /// When multipath is enabled, this value is the minimum MTU across all available paths.
-    pub fn current_mtu(&self) -> u16 {
-        self.paths
+    pub fn current_mtu(&self, paths: &Paths) -> u16 {
+        paths
+            .paths
             .iter()
             .filter(|&(path_id, _path_state)| !self.abandoned_paths.contains(path_id))
             .map(|(_path_id, path_state)| path_state.data.current_mtu())
@@ -5602,12 +5547,12 @@ impl Connection {
     }
 
     /// Mark the path as validated, and enqueue NEW_TOKEN frames to be sent as appropriate
-    fn on_path_validated(&mut self, path_id: PathId) {
-        self.path_data_mut(path_id).validated = true;
+    fn on_path_validated(&mut self, paths: &mut Paths, path_id: PathId) {
+        paths.path_data_mut(path_id).validated = true;
         let ConnectionSide::Server { server_config } = &self.side else {
             return;
         };
-        let remote_addr = self.path_data(path_id).remote;
+        let remote_addr = paths.path_data(path_id).remote;
         let new_tokens = &mut self.spaces[SpaceId::Data as usize].pending.new_tokens;
         new_tokens.clear();
         for _ in 0..server_config.validation_token.sent {
@@ -5616,8 +5561,14 @@ impl Connection {
     }
 
     /// Handle new path status information: PATH_AVAILABLE, PATH_BACKUP
-    fn on_path_status(&mut self, path_id: PathId, status: PathStatus, status_seq_no: VarInt) {
-        if let Some(path) = self.paths.get_mut(&path_id) {
+    fn on_path_status(
+        &mut self,
+        paths: &mut Paths,
+        path_id: PathId,
+        status: PathStatus,
+        status_seq_no: VarInt,
+    ) {
+        if let Some(path) = paths.paths.get_mut(&path_id) {
             path.data.status.remote_update(status, status_seq_no);
         } else {
             debug!("PATH_AVAILABLE received unknown path {:?}", path_id);
@@ -5641,6 +5592,188 @@ impl Connection {
         } else {
             None
         }
+    }
+}
+
+impl Paths {
+    /// Gets the [`PathData`] for a known [`PathId`].
+    ///
+    /// Will panic if the path_id does not reference any known path.
+    #[track_caller]
+    fn path_data(&self, path_id: PathId) -> &PathData {
+        &self.paths.get(&path_id).expect("known path").data
+    }
+
+    /// Gets a reference to the [`PathData`] for a [`PathId`]
+    fn path(&self, path_id: PathId) -> Option<&PathData> {
+        self.paths.get(&path_id).map(|path_state| &path_state.data)
+    }
+
+    /// Gets a mutable reference to the [`PathData`] for a [`PathId`]
+    fn path_mut(&mut self, path_id: PathId) -> Option<&mut PathData> {
+        self.paths
+            .get_mut(&path_id)
+            .map(|path_state| &mut path_state.data)
+    }
+
+    /// Returns all known paths.
+    ///
+    /// There is no guarantee any of these paths are open or usable.
+    pub fn paths(&self) -> Vec<PathId> {
+        self.paths.keys().copied().collect()
+    }
+
+    /// Gets the local [`PathStatus`] for a known [`PathId`]
+    pub fn path_status(&self, path_id: PathId) -> Result<PathStatus, ClosedPath> {
+        self.path(path_id)
+            .map(PathData::local_status)
+            .ok_or(ClosedPath { _private: () })
+    }
+
+    /// Returns the path's remote socket address
+    pub fn path_remote_address(&self, path_id: PathId) -> Result<SocketAddr, ClosedPath> {
+        self.path(path_id)
+            .map(|path| path.remote)
+            .ok_or(ClosedPath { _private: () })
+    }
+
+    /// Returns the remote path status
+    // TODO(flub): Probably should also be some kind of path event?  Not even sure if I like
+    //    this as an API, but for now it allows me to write a test easily.
+    // TODO(flub): Technically this should be a Result<Option<PathSTatus>>?
+    pub fn remote_path_status(&self, path_id: PathId) -> Option<PathStatus> {
+        self.path(path_id).and_then(|path| path.remote_status())
+    }
+
+    /// Sets the max_idle_timeout for a specific path
+    ///
+    /// See [`TransportConfig::default_path_max_idle_timeout`] for details.
+    ///
+    /// Returns the previous value of the setting.
+    pub fn set_path_max_idle_timeout(
+        &mut self,
+        path_id: PathId,
+        timeout: Option<Duration>,
+    ) -> Result<Option<Duration>, ClosedPath> {
+        let path = self
+            .paths
+            .get_mut(&path_id)
+            .ok_or(ClosedPath { _private: () })?;
+        Ok(std::mem::replace(&mut path.data.idle_timeout, timeout))
+    }
+
+    /// Sets the keep_alive_interval for a specific path
+    ///
+    /// See [`TransportConfig::default_path_keep_alive_interval`] for details.
+    ///
+    /// Returns the previous value of the setting.
+    pub fn set_path_keep_alive_interval(
+        &mut self,
+        path_id: PathId,
+        interval: Option<Duration>,
+    ) -> Result<Option<Duration>, ClosedPath> {
+        let path = self
+            .paths
+            .get_mut(&path_id)
+            .ok_or(ClosedPath { _private: () })?;
+        Ok(std::mem::replace(&mut path.data.keep_alive, interval))
+    }
+
+    /// Get the address observed by the remote over the given path
+    pub fn path_observed_address(&self, path_id: PathId) -> Result<Option<SocketAddr>, ClosedPath> {
+        self.path(path_id)
+            .map(|path_data| {
+                path_data
+                    .last_observed_addr_report
+                    .as_ref()
+                    .map(|observed| observed.socket_addr())
+            })
+            .ok_or(ClosedPath { _private: () })
+    }
+
+    /// Current best estimate of this connection's latency (round-trip-time)
+    pub fn rtt(&self) -> Duration {
+        // this should return at worst the same that the poll_transmit logic would use
+        // TODO(@divma): wrong
+        self.path_data(PathId::ZERO).rtt.get()
+    }
+
+    /// Current state of this connection's congestion controller, for debugging purposes
+    pub fn congestion_state(&self) -> &dyn Controller {
+        // TODO(@divma): same as everything, wrong
+        self.path_data(PathId::ZERO).congestion.as_ref()
+    }
+
+    /// Resets path-specific settings.
+    ///
+    /// This will force-reset several subsystems related to a specific network path.
+    /// Currently this is the congestion controller, round-trip estimator, and the MTU
+    /// discovery.
+    ///
+    /// This is useful when it is known the underlying network path has changed and the old
+    /// state of these subsystems is no longer valid or optimal. In this case it might be
+    /// faster or reduce loss to settle on optimal values by restarting from the initial
+    /// configuration in the [`TransportConfig`].
+    pub fn path_changed(&mut self, now: Instant, config: &TransportConfig) {
+        // TODO(@divma): evaluate how this is used
+        // wrong call in the multipath case anyhow
+        self.paths
+            .get_mut(&PathId::ZERO)
+            .expect("this might fail")
+            .data
+            .reset(now, &config);
+    }
+
+    /// The number of bytes of packets containing retransmittable frames that have not been
+    /// acknowledged or declared lost.
+    #[cfg(test)]
+    pub(crate) fn bytes_in_flight(&self) -> u64 {
+        // TODO(@divma): consider including for multipath?
+        self.path_data(PathId::ZERO).in_flight.bytes
+    }
+
+    /// Number of bytes worth of non-ack-only packets that may be sent
+    #[cfg(test)]
+    pub(crate) fn congestion_window(&self) -> u64 {
+        let path = self.path_data(PathId::ZERO);
+        path.congestion
+            .window()
+            .saturating_sub(path.in_flight.bytes)
+    }
+
+    /// Whether explicit congestion notification is in use on outgoing packets.
+    #[cfg(test)]
+    pub(crate) fn using_ecn(&self) -> bool {
+        self.path_data(PathId::ZERO).sending_ecn
+    }
+
+    /// The number of received bytes in the current path
+    #[cfg(test)]
+    pub(crate) fn total_recvd(&self) -> u64 {
+        self.path_data(PathId::ZERO).total_recvd
+    }
+
+    /// Returns the detected maximum udp payload size for the current path
+    #[cfg(test)]
+    pub(crate) fn path_mtu(&self) -> u16 {
+        self.path_data(PathId::ZERO).current_mtu()
+    }
+
+    /// Gets the [`PathData`] for a known [`PathId`].
+    ///
+    /// Will panic if the path_id does not reference any known path.
+    #[track_caller]
+    fn path_data_mut(&mut self, path_id: PathId) -> &mut PathData {
+        &mut self.paths.get_mut(&path_id).expect("known path").data
+    }
+
+    /// Check if the remote has been validated in any active path
+    fn is_remote_validated(&self, remote: SocketAddr) -> bool {
+        self.paths
+            .values()
+            .any(|path_state| path_state.data.remote == remote && path_state.data.validated)
+        // TODO(@divma): we might want to ensure the path has been recently active to consider the
+        // address validated
     }
 }
 

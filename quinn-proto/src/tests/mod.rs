@@ -95,7 +95,7 @@ fn version_negotiate_client() {
         true,
         None,
     );
-    let (_, mut client_ch) = client
+    let (_, mut client_ch, mut paths) = client
         .connect(Instant::now(), client_config(), server_addr, "localhost")
         .unwrap();
     let now = Instant::now();
@@ -114,7 +114,7 @@ fn version_negotiate_client() {
         &mut buf,
     );
     if let Some(DatagramEvent::ConnectionEvent(_, event)) = opt_event {
-        client_ch.handle_event(event);
+        client_ch.handle_event(&mut paths, event);
     }
     assert_matches!(
         client_ch.poll(),
@@ -129,23 +129,21 @@ fn lifecycle() {
     let _guard = subscribe();
     let mut pair = Pair::default();
     let (client_ch, server_ch) = pair.connect();
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
-    assert!(pair.client_conn_mut(client_ch).using_ecn());
-    assert!(pair.server_conn_mut(server_ch).using_ecn());
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
+    assert!(pair.client_conn_mut(client_ch).1.using_ecn());
+    assert!(pair.server_conn_mut(server_ch).1.using_ecn());
 
     const REASON: &[u8] = b"whee";
     info!("closing");
-    pair.client.connections.get_mut(&client_ch).unwrap().close(
-        pair.time,
-        VarInt(42),
-        REASON.into(),
-    );
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(42), REASON.into());
     pair.drive();
-    assert_matches!(pair.server_conn_mut(server_ch).poll(),
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(),
                     Some(Event::ConnectionLost { reason: ConnectionError::ApplicationClosed(
                         ApplicationClose { error_code: VarInt(42), ref reason }
                     )}) if reason == REASON);
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
     assert_eq!(pair.server.known_connections(), 0);
@@ -162,23 +160,21 @@ fn draft_version_compat() {
     let mut pair = Pair::default();
     let (client_ch, server_ch) = pair.connect_with(client_config);
 
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
-    assert!(pair.client_conn_mut(client_ch).using_ecn());
-    assert!(pair.server_conn_mut(server_ch).using_ecn());
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
+    assert!(pair.client_conn_mut(client_ch).1.using_ecn());
+    assert!(pair.server_conn_mut(server_ch).1.using_ecn());
 
     const REASON: &[u8] = b"whee";
     info!("closing");
-    pair.client.connections.get_mut(&client_ch).unwrap().close(
-        pair.time,
-        VarInt(42),
-        REASON.into(),
-    );
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(42), REASON.into());
     pair.drive();
-    assert_matches!(pair.server_conn_mut(server_ch).poll(),
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(),
                     Some(Event::ConnectionLost { reason: ConnectionError::ApplicationClosed(
                         ApplicationClose { error_code: VarInt(42), ref reason }
                     )}) if reason == REASON);
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
     assert_eq!(pair.server.known_connections(), 0);
@@ -204,11 +200,16 @@ fn server_stateless_reset() {
     pair.server.endpoint =
         Endpoint::new(endpoint_config, Some(Arc::new(server_config())), true, None);
     // Force the server to generate the smallest possible stateless reset
-    pair.client.connections.get_mut(&client_ch).unwrap().ping();
+    pair.client
+        .connections
+        .get_mut(&client_ch)
+        .unwrap()
+        .0
+        .ping();
     info!("resetting");
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::ConnectionLost {
             reason: ConnectionError::Reset
         })
@@ -233,15 +234,13 @@ fn client_stateless_reset() {
     pair.client.endpoint =
         Endpoint::new(endpoint_config, Some(Arc::new(server_config())), true, None);
     // Send something big enough to allow room for a smaller stateless reset.
-    pair.server.connections.get_mut(&server_ch).unwrap().close(
-        pair.time,
-        VarInt(42),
-        (&[0xab; 128][..]).into(),
-    );
+    let now = pair.time;
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    conn.close(paths, now, VarInt(42), (&[0xab; 128][..]).into());
     info!("resetting");
     pair.drive();
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::ConnectionLost {
             reason: ConnectionError::Reset
         })
@@ -300,6 +299,7 @@ fn export_keying_material() {
     // client keying material
     let mut client_buf = [0u8; 64];
     pair.client_conn_mut(client_ch)
+        .0
         .crypto_session()
         .export_keying_material(&mut client_buf, LABEL, CONTEXT)
         .unwrap();
@@ -307,6 +307,7 @@ fn export_keying_material() {
     // server keying material
     let mut server_buf = [0u8; 64];
     pair.server_conn_mut(server_ch)
+        .0
         .crypto_session()
         .export_keying_material(&mut server_buf, LABEL, CONTEXT)
         .unwrap();
@@ -329,20 +330,26 @@ fn finish_stream_simple() {
     pair.drive();
 
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Finished { id })) if id == s
     );
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
     assert_eq!(pair.client_streams(client_ch).send_streams(), 0);
-    assert_eq!(pair.server_conn_mut(client_ch).streams().send_streams(), 0);
+    assert_eq!(
+        pair.server_conn_mut(client_ch).0.streams().send_streams(),
+        0
+    );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
     // Receive-only streams do not get `StreamFinished` events
-    assert_eq!(pair.server_conn_mut(client_ch).streams().send_streams(), 0);
+    assert_eq!(
+        pair.server_conn_mut(client_ch).0.streams().send_streams(),
+        0
+    );
     assert_matches!(pair.server_streams(server_ch).accept(Dir::Uni), Some(stream) if stream == s);
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
 
     let mut recv = pair.server_recv(server_ch, s);
     let mut chunks = recv.read(false).unwrap();
@@ -372,7 +379,7 @@ fn reset_stream() {
     pair.drive();
 
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
     assert_matches!(pair.server_streams(server_ch).accept(Dir::Uni), Some(stream) if stream == s);
@@ -380,7 +387,7 @@ fn reset_stream() {
     let mut chunks = recv.read(false).unwrap();
     assert_matches!(chunks.next(usize::MAX), Err(ReadError::Reset(ERROR)));
     let _ = chunks.finalize();
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
 }
 
 #[test]
@@ -400,7 +407,7 @@ fn stop_stream() {
     pair.drive();
 
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
     assert_matches!(pair.server_streams(server_ch).accept(Dir::Uni), Some(stream) if stream == s);
@@ -438,7 +445,7 @@ fn reject_self_signed_server_cert() {
 
     pair.drive();
 
-    assert_matches!(pair.client_conn_mut(client_ch).poll(),
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(),
                     Some(Event::ConnectionLost { reason: ConnectionError::TransportError(ref error)})
                     if error.code == TransportErrorCode::crypto(AlertDescription::UnknownCA.into()));
 }
@@ -479,24 +486,24 @@ fn reject_missing_client_cert() {
 
     // The client completes the connection, but finds it immediately closed
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Connected)
     );
-    assert_matches!(pair.client_conn_mut(client_ch).poll(),
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(),
                     Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(ref close)})
                     if close.error_code == TransportErrorCode::crypto(AlertDescription::CertificateRequired.into()));
 
     // The server never completes the connection
     let server_ch = pair.server.assert_accept();
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
-    assert_matches!(pair.server_conn_mut(server_ch).poll(),
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(),
                     Some(Event::ConnectionLost { reason: ConnectionError::TransportError(ref error)})
                     if error.code == TransportErrorCode::crypto(AlertDescription::CertificateRequired.into()));
 }
@@ -508,17 +515,17 @@ fn congestion() {
     let (client_ch, _) = pair.connect();
 
     const TARGET: u64 = 2048;
-    assert!(pair.client_conn_mut(client_ch).congestion_window() > TARGET);
+    assert!(pair.client_conn_mut(client_ch).1.congestion_window() > TARGET);
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
     // Send data without receiving ACKs until the congestion state falls below target
-    while pair.client_conn_mut(client_ch).congestion_window() > TARGET {
+    while pair.client_conn_mut(client_ch).1.congestion_window() > TARGET {
         let n = pair.client_send(client_ch, s).write(&[42; 1024]).unwrap();
         assert_eq!(n, 1024);
         pair.drive_client();
     }
     // Ensure that the congestion state recovers after receiving the ACKs
     pair.drive();
-    assert!(pair.client_conn_mut(client_ch).congestion_window() >= TARGET);
+    assert!(pair.client_conn_mut(client_ch).1.congestion_window() >= TARGET);
     pair.client_send(client_ch, s).write(&[42; 1024]).unwrap();
 }
 
@@ -528,10 +535,10 @@ fn high_latency_handshake() {
     let mut pair = Pair::default();
     pair.latency = Duration::from_micros(200 * 1000);
     let (client_ch, server_ch) = pair.connect();
-    assert_eq!(pair.client_conn_mut(client_ch).bytes_in_flight(), 0);
-    assert_eq!(pair.server_conn_mut(server_ch).bytes_in_flight(), 0);
-    assert!(pair.client_conn_mut(client_ch).using_ecn());
-    assert!(pair.server_conn_mut(server_ch).using_ecn());
+    assert_eq!(pair.client_conn_mut(client_ch).1.bytes_in_flight(), 0);
+    assert_eq!(pair.server_conn_mut(server_ch).1.bytes_in_flight(), 0);
+    assert!(pair.client_conn_mut(client_ch).1.using_ecn());
+    assert!(pair.server_conn_mut(server_ch).1.using_ecn());
 }
 
 #[test]
@@ -545,11 +552,9 @@ fn zero_rtt_happypath() {
     let client_ch = pair.begin_connect(config.clone());
     pair.drive();
     pair.server.assert_accept();
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(0), [][..].into());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(0), [][..].into());
     pair.drive();
 
     pair.client.addr = SocketAddr::new(
@@ -558,35 +563,35 @@ fn zero_rtt_happypath() {
     );
     info!("resuming session");
     let client_ch = pair.begin_connect(config);
-    assert!(pair.client_conn_mut(client_ch).has_0rtt());
+    assert!(pair.client_conn_mut(client_ch).0.has_0rtt());
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
     const MSG: &[u8] = b"Hello, 0-RTT!";
     pair.client_send(client_ch, s).write(MSG).unwrap();
     pair.drive();
 
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Connected)
     );
 
-    assert!(pair.client_conn_mut(client_ch).accepted_0rtt());
+    assert!(pair.client_conn_mut(client_ch).0.accepted_0rtt());
     let server_ch = pair.server.assert_accept();
 
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     // We don't currently preserve stream event order wrt. connection events
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Connected)
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
 
@@ -597,9 +602,9 @@ fn zero_rtt_happypath() {
         Ok(Some(chunk)) if chunk.offset == 0 && chunk.bytes == MSG
     );
     let _ = chunks.finalize();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
     assert_eq!(
-        pair.client_conn_mut(client_ch)
-            .stats()
+        conn.stats(paths)
             .paths
             .get(&PathId::ZERO)
             .unwrap()
@@ -624,25 +629,23 @@ fn zero_rtt_rejection() {
     pair.drive();
     let server_ch = pair.server.assert_accept();
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Connected)
     );
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(0), [][..].into());
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(0), [][..].into());
     pair.drive();
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::ConnectionLost { .. })
     );
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
     pair.client.connections.clear();
     pair.server.connections.clear();
 
@@ -657,22 +660,22 @@ fn zero_rtt_rejection() {
     let client_config = ClientConfig::new(client_crypto);
     info!("resuming session");
     let client_ch = pair.begin_connect(client_config);
-    assert!(pair.client_conn_mut(client_ch).has_0rtt());
+    assert!(pair.client_conn_mut(client_ch).0.has_0rtt());
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
     const MSG: &[u8] = b"Hello, 0-RTT!";
     pair.client_send(client_ch, s).write(MSG).unwrap();
     pair.drive();
-    assert!(!pair.client_conn_mut(client_ch).accepted_0rtt());
+    assert!(!pair.client_conn_mut(client_ch).0.accepted_0rtt());
     let server_ch = pair.server.assert_accept();
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Connected)
     );
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
     let s2 = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
     assert_eq!(s, s2);
 
@@ -680,9 +683,9 @@ fn zero_rtt_rejection() {
     let mut chunks = recv.read(false).unwrap();
     assert_eq!(chunks.next(usize::MAX), Err(ReadError::Blocked));
     let _ = chunks.finalize();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
     assert_eq!(
-        pair.client_conn_mut(client_ch)
-            .stats()
+        conn.stats(paths)
             .paths
             .get(&PathId::ZERO)
             .unwrap()
@@ -711,11 +714,9 @@ fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: 
     let client_ch = pair.begin_connect(config.clone());
     pair.drive();
     pair.server.assert_accept();
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(0), [][..].into());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(0), [][..].into());
     pair.drive();
 
     pair.client.addr = SocketAddr::new(
@@ -725,7 +726,7 @@ fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: 
     info!("resuming session");
     pair.server.handle_incoming = Box::new(|_| IncomingConnectionBehavior::Wait);
     let client_ch = pair.begin_connect(config);
-    assert!(pair.client_conn_mut(client_ch).has_0rtt());
+    assert!(pair.client_conn_mut(client_ch).0.has_0rtt());
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
     pair.client_send(client_ch, s)
         .write(&vec![0; CLIENT_WRITES])
@@ -737,28 +738,28 @@ fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: 
     pair.drive();
 
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Connected)
     );
 
-    assert!(pair.client_conn_mut(client_ch).accepted_0rtt());
+    assert!(pair.client_conn_mut(client_ch).0.accepted_0rtt());
     let server_ch = pair.server.assert_accept();
 
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     // We don't currently preserve stream event order wrt. connection events
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Connected)
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
 
@@ -778,9 +779,9 @@ fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: 
     }
     assert_eq!(offset, CLIENT_WRITES);
     let _ = chunks.finalize();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
     assert_eq!(
-        pair.client_conn_mut(client_ch)
-            .stats()
+        conn.stats(paths)
             .paths
             .get(&PathId::ZERO)
             .unwrap()
@@ -824,16 +825,17 @@ fn alpn_success() {
     pair.drive();
     let server_ch = pair.server.assert_accept();
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Connected)
     );
 
     let hd = pair
         .client_conn_mut(client_ch)
+        .0
         .crypto_session()
         .handshake_data()
         .unwrap()
@@ -851,7 +853,7 @@ fn server_alpn_unset() {
     let client_ch = pair.begin_connect(client_config);
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(err) }) if err.error_code == TransportErrorCode::crypto(0x78)
     );
 }
@@ -869,7 +871,7 @@ fn client_alpn_unset() {
     let client_ch = pair.begin_connect(client_config());
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(err) }) if err.error_code == TransportErrorCode::crypto(0x78)
     );
 }
@@ -891,7 +893,7 @@ fn alpn_mismatch() {
 
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(err) }) if err.error_code == TransportErrorCode::crypto(0x78)
     );
 }
@@ -910,10 +912,8 @@ fn stream_id_limit() {
     let (client_ch, server_ch) = pair.connect();
 
     let s = pair
-        .client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
+        .client_conn_mut(client_ch)
+        .0
         .streams()
         .open(Dir::Uni)
         .expect("couldn't open first stream");
@@ -928,7 +928,7 @@ fn stream_id_limit() {
     pair.client_send(client_ch, s).finish().unwrap();
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Finished { id })) if id == s
     );
     assert_eq!(
@@ -937,7 +937,7 @@ fn stream_id_limit() {
         "server does not immediately grant additional credit"
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
     assert_matches!(pair.server_streams(server_ch).accept(Dir::Uni), Some(stream) if stream == s);
@@ -954,17 +954,15 @@ fn stream_id_limit() {
     // Server will only send MAX_STREAM_ID now that the application's been notified
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Available { dir: Dir::Uni }))
     );
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
 
     // Try opening the second stream again, now that we've made room
     let s = pair
-        .client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
+        .client_conn_mut(client_ch)
+        .0
         .streams()
         .open(Dir::Uni)
         .expect("didn't get stream id budget");
@@ -972,11 +970,11 @@ fn stream_id_limit() {
     pair.drive();
     // Make sure the server actually processes data on the newly-available stream
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
     assert_matches!(pair.server_streams(server_ch).accept(Dir::Uni), Some(stream) if stream == s);
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
 
     let mut recv = pair.server_recv(server_ch, s);
     let mut chunks = recv.read(false).unwrap();
@@ -990,10 +988,8 @@ fn key_update_simple() {
     let mut pair = Pair::default();
     let (client_ch, server_ch) = pair.connect();
     let s = pair
-        .client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
+        .client_conn_mut(client_ch)
+        .0
         .streams()
         .open(Dir::Bi)
         .expect("couldn't open first stream");
@@ -1003,11 +999,11 @@ fn key_update_simple() {
     pair.drive();
 
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Bi }))
     );
     assert_matches!(pair.server_streams(server_ch).accept(Dir::Bi), Some(stream) if stream == s);
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
     let mut recv = pair.server_recv(server_ch, s);
     let mut chunks = recv.read(false).unwrap();
     assert_matches!(
@@ -1017,14 +1013,14 @@ fn key_update_simple() {
     let _ = chunks.finalize();
 
     info!("initiating key update");
-    pair.client_conn_mut(client_ch).force_key_update();
+    pair.client_conn_mut(client_ch).0.force_key_update();
 
     const MSG2: &[u8] = b"hello2";
     pair.client_send(client_ch, s).write(MSG2).unwrap();
     pair.drive();
 
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), Some(Event::Stream(StreamEvent::Readable { id })) if id == s);
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), Some(Event::Stream(StreamEvent::Readable { id })) if id == s);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
     let mut recv = pair.server_recv(server_ch, s);
     let mut chunks = recv.read(false).unwrap();
     assert_matches!(
@@ -1033,18 +1029,18 @@ fn key_update_simple() {
     );
     let _ = chunks.finalize();
 
+    let (conn, paths) = pair.client_conn_mut(client_ch);
     assert_eq!(
-        pair.client_conn_mut(client_ch)
-            .stats()
+        conn.stats(paths)
             .paths
             .get(&PathId::ZERO)
             .unwrap()
             .lost_packets,
         0
     );
+    let (conn, paths) = pair.server_conn_mut(server_ch);
     assert_eq!(
-        pair.server_conn_mut(server_ch)
-            .stats()
+        conn.stats(paths)
             .paths
             .get(&PathId::ZERO)
             .unwrap()
@@ -1059,10 +1055,8 @@ fn key_update_reordered() {
     let mut pair = Pair::default();
     let (client_ch, server_ch) = pair.connect();
     let s = pair
-        .client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
+        .client_conn_mut(client_ch)
+        .0
         .streams()
         .open(Dir::Bi)
         .expect("couldn't open first stream");
@@ -1073,7 +1067,7 @@ fn key_update_reordered() {
     assert!(!pair.client.outbound.is_empty());
     pair.client.delay_outbound();
 
-    pair.client_conn_mut(client_ch).force_key_update();
+    pair.client_conn_mut(client_ch).0.force_key_update();
     info!("updated keys");
 
     const MSG2: &[u8] = b"two";
@@ -1082,9 +1076,9 @@ fn key_update_reordered() {
     pair.client.finish_delay();
     pair.drive();
 
+    let (conn, paths) = pair.client_conn_mut(client_ch);
     assert_eq!(
-        pair.client_conn_mut(client_ch)
-            .stats()
+        conn.stats(paths)
             .paths
             .get(&PathId::ZERO)
             .unwrap()
@@ -1092,7 +1086,7 @@ fn key_update_reordered() {
         0
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Bi }))
     );
     assert_matches!(pair.server_streams(server_ch).accept(Dir::Bi), Some(stream) if stream == s);
@@ -1105,18 +1099,18 @@ fn key_update_reordered() {
     assert_eq!(buf2.bytes, MSG2);
     let _ = chunks.finalize();
 
+    let (conn, paths) = pair.client_conn_mut(client_ch);
     assert_eq!(
-        pair.client_conn_mut(client_ch)
-            .stats()
+        conn.stats(paths)
             .paths
             .get(&PathId::ZERO)
             .unwrap()
             .lost_packets,
         0
     );
+    let (conn, paths) = pair.server_conn_mut(server_ch);
     assert_eq!(
-        pair.server_conn_mut(server_ch)
-            .stats()
+        conn.stats(paths)
             .paths
             .get(&PathId::ZERO)
             .unwrap()
@@ -1134,11 +1128,11 @@ fn initial_retransmit() {
     pair.client.outbound.clear(); // Drop initial
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Connected)
     );
 }
@@ -1149,16 +1143,14 @@ fn instant_close_1() {
     let mut pair = Pair::default();
     info!("connecting");
     let client_ch = pair.begin_connect(client_config());
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(0), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(0), Bytes::new());
     pair.drive();
     let server_ch = pair.server.assert_accept();
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::ConnectionLost {
             reason: ConnectionError::ConnectionClosed(ConnectionClose {
                 error_code: TransportErrorCode::APPLICATION_ERROR,
@@ -1176,20 +1168,18 @@ fn instant_close_2() {
     let client_ch = pair.begin_connect(client_config());
     // Unlike `instant_close`, the server sees a valid Initial packet first.
     pair.drive_client();
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
     let server_ch = pair.server.assert_accept();
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::ConnectionLost {
             reason: ConnectionError::ConnectionClosed(ConnectionClose {
                 error_code: TransportErrorCode::APPLICATION_ERROR,
@@ -1209,14 +1199,12 @@ fn instant_server_close() {
     pair.server.drive_incoming(pair.time, pair.client.addr);
     let server_ch = pair.server.assert_accept();
     info!("closing");
-    pair.server
-        .connections
-        .get_mut(&server_ch)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(server_ch).poll(),
+        pair.client_conn_mut(server_ch).0.poll(),
         Some(Event::ConnectionLost {
             reason: ConnectionError::ConnectionClosed(ConnectionClose {
                 error_code: TransportErrorCode::APPLICATION_ERROR,
@@ -1239,11 +1227,11 @@ fn idle_timeout() {
     };
     let mut pair = Pair::new(Default::default(), server);
     let (client_ch, server_ch) = pair.connect();
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     let start = pair.time;
 
-    while !pair.client_conn_mut(client_ch).is_closed()
-        || !pair.server_conn_mut(server_ch).is_closed()
+    while !pair.client_conn_mut(client_ch).0.is_closed()
+        || !pair.server_conn_mut(server_ch).0.is_closed()
     {
         if !pair.step() {
             if let Some(t) = min_opt(pair.client.next_wakeup(), pair.server.next_wakeup()) {
@@ -1255,13 +1243,13 @@ fn idle_timeout() {
 
     assert!(pair.time - start < Duration::from_millis(2 * IDLE_TIMEOUT));
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::ConnectionLost {
             reason: ConnectionError::TimedOut,
         })
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::ConnectionLost {
             reason: ConnectionError::TimedOut,
         })
@@ -1274,18 +1262,20 @@ fn connection_close_sends_acks() {
     let mut pair = Pair::default();
     let (client_ch, _server_ch) = pair.connect();
 
-    let client_acks = pair.client_conn_mut(client_ch).stats().frame_rx.acks;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_acks = conn.stats(paths).frame_rx.acks;
 
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     let time = pair.time;
-    pair.server_conn_mut(client_ch)
-        .close(time, VarInt(42), Bytes::new());
+    let (conn, paths) = pair.server_conn_mut(client_ch);
+    conn.close(paths, time, VarInt(42), Bytes::new());
 
     pair.drive();
 
-    let client_acks_2 = pair.client_conn_mut(client_ch).stats().frame_rx.acks;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_acks_2 = conn.stats(paths).frame_rx.acks;
     assert!(
         client_acks_2 > client_acks,
         "Connection close should send pending ACKs"
@@ -1303,11 +1293,11 @@ fn server_hs_retransmit() {
     info!("client inbound queue cleared");
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Connected)
     );
 }
@@ -1319,31 +1309,34 @@ fn migration() {
     let (client_ch, server_ch) = pair.connect();
     pair.drive();
 
-    let client_stats_after_connect = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_stats_after_connect = conn.stats(paths);
 
     pair.client.addr = SocketAddr::new(
         Ipv4Addr::new(127, 0, 0, 1).into(),
         CLIENT_PORTS.lock().unwrap().next().unwrap(),
     );
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
 
     // Assert that just receiving the ping message is accounted into the servers
     // anti-amplification budget
     pair.drive_client();
     pair.drive_server();
-    assert_ne!(pair.server_conn_mut(server_ch).total_recvd(), 0);
+    assert_ne!(pair.server_conn_mut(server_ch).1.total_recvd(), 0);
 
     pair.drive();
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
     assert_eq!(
         pair.server_conn_mut(server_ch)
+            .1
             .path_remote_address(PathId::ZERO),
         Ok(pair.client.addr)
     );
 
     // Assert that the client's response to the PATH_CHALLENGE was an IMMEDIATE_ACK, instead of a
     // second ping
-    let client_stats_after_migrate = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_stats_after_migrate = conn.stats(paths);
     assert_eq!(
         client_stats_after_migrate.frame_tx.ping - client_stats_after_connect.frame_tx.ping,
         1
@@ -1489,18 +1482,25 @@ fn stop_opens_bidi() {
         .connections
         .get_mut(&server_ch)
         .unwrap()
+        .0
         .recv_stream(s)
         .stop(ERROR)
         .unwrap();
     pair.drive();
 
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Bi }))
     );
-    assert_eq!(pair.server_conn_mut(client_ch).streams().send_streams(), 0);
+    assert_eq!(
+        pair.server_conn_mut(client_ch).0.streams().send_streams(),
+        0
+    );
     assert_matches!(pair.server_streams(server_ch).accept(Dir::Bi), Some(stream) if stream == s);
-    assert_eq!(pair.server_conn_mut(client_ch).streams().send_streams(), 1);
+    assert_eq!(
+        pair.server_conn_mut(client_ch).0.streams().send_streams(),
+        1
+    );
 
     let mut recv = pair.server_recv(server_ch, s);
     let mut chunks = recv.read(false).unwrap();
@@ -1512,13 +1512,13 @@ fn stop_opens_bidi() {
         Err(WriteError::Stopped(ERROR))
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Stopped {
             id: _,
             error_code: ERROR
         }))
     );
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
 }
 
 #[test]
@@ -1531,7 +1531,7 @@ fn implicit_open() {
     pair.client_send(client_ch, s2).write(b"hello").unwrap();
     pair.drive();
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
     assert_eq!(pair.server_streams(server_ch).accept(Dir::Uni), Some(s1));
@@ -1554,17 +1554,13 @@ fn zero_length_cid() {
     let (client_ch, server_ch) = pair.connect();
     // Ensure we can reconnect after a previous connection is cleaned up
     info!("closing");
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
-    pair.server
-        .connections
-        .get_mut(&server_ch)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.connect();
 }
 
@@ -1590,8 +1586,8 @@ fn keep_alive() {
                 pair.time = time;
             }
         }
-        assert!(!pair.client_conn_mut(client_ch).is_closed());
-        assert!(!pair.server_conn_mut(server_ch).is_closed());
+        assert!(!pair.client_conn_mut(client_ch).0.is_closed());
+        assert!(!pair.server_conn_mut(server_ch).0.is_closed());
     }
 }
 
@@ -1645,7 +1641,7 @@ fn cid_rotation() {
         );
         let _bound = (left_bound, right_bound);
         assert_matches!(
-            pair.server_conn_mut(server_ch).active_local_cid_seq(),
+            pair.server_conn_mut(server_ch).0.active_local_cid_seq(),
             _bound
         );
         round += 1;
@@ -1663,12 +1659,13 @@ fn cid_retirement() {
 
     // Server retires current active remote CIDs
     pair.server_conn_mut(server_ch)
+        .0
         .rotate_local_cid(1, Instant::now());
     pair.drive();
     // Any unexpected behavior may trigger TransportError::CONNECTION_ID_LIMIT_ERROR
-    assert!(!pair.client_conn_mut(client_ch).is_closed());
-    assert!(!pair.server_conn_mut(server_ch).is_closed());
-    assert_matches!(pair.client_conn_mut(client_ch).active_rem_cid_seq(), 1);
+    assert!(!pair.client_conn_mut(client_ch).0.is_closed());
+    assert!(!pair.server_conn_mut(server_ch).0.is_closed());
+    assert_matches!(pair.client_conn_mut(client_ch).0.active_rem_cid_seq(), 1);
 
     use crate::LOC_CID_COUNT;
     use crate::cid_queue::CidQueue;
@@ -1676,16 +1673,17 @@ fn cid_retirement() {
     active_cid_num = active_cid_num.min(LOC_CID_COUNT);
 
     let next_retire_prior_to = active_cid_num + 1;
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     // Server retires all valid remote CIDs
     pair.server_conn_mut(server_ch)
+        .0
         .rotate_local_cid(next_retire_prior_to, Instant::now());
     pair.drive();
-    assert!(!pair.client_conn_mut(client_ch).is_closed());
-    assert!(!pair.server_conn_mut(server_ch).is_closed());
+    assert!(!pair.client_conn_mut(client_ch).0.is_closed());
+    assert!(!pair.server_conn_mut(server_ch).0.is_closed());
 
     assert_eq!(
-        pair.client_conn_mut(client_ch).active_rem_cid_seq(),
+        pair.client_conn_mut(client_ch).0.active_rem_cid_seq(),
         next_retire_prior_to,
     );
 }
@@ -1722,12 +1720,12 @@ fn finish_stream_flow_control_reordered() {
     pair.drive();
 
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Finished { id })) if id == s
     );
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
     assert_matches!(pair.server_streams(server_ch).accept(Dir::Uni), Some(stream) if stream == s);
@@ -1763,9 +1761,9 @@ fn handshake_1rtt_handling() {
 
     pair.drive();
 
+    let (conn, paths) = pair.client_conn_mut(client_ch);
     assert!(
-        pair.client_conn_mut(client_ch)
-            .stats()
+        conn.stats(paths)
             .paths
             .get(&PathId::ZERO)
             .unwrap()
@@ -1822,7 +1820,7 @@ fn stop_during_finish() {
     pair.client_send(client_ch, s).finish().unwrap();
     pair.drive_client();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Stopped { id, error_code: ERROR })) if id == s
     );
 }
@@ -1835,10 +1833,10 @@ fn congested_tail_loss() {
     let (client_ch, _) = pair.connect();
 
     const TARGET: u64 = 2048;
-    assert!(pair.client_conn_mut(client_ch).congestion_window() > TARGET);
+    assert!(pair.client_conn_mut(client_ch).1.congestion_window() > TARGET);
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
     // Send data without receiving ACKs until the congestion state falls below target
-    while pair.client_conn_mut(client_ch).congestion_window() > TARGET {
+    while pair.client_conn_mut(client_ch).1.congestion_window() > TARGET {
         let n = pair.client_send(client_ch, s).write(&[42; 1024]).unwrap();
         assert_eq!(n, 1024);
         pair.drive_client();
@@ -1848,7 +1846,7 @@ fn congested_tail_loss() {
     // Ensure that the congestion state recovers after retransmits occur and are ACKed
     info!("recovering");
     pair.drive();
-    assert!(pair.client_conn_mut(client_ch).congestion_window() > TARGET);
+    assert!(pair.client_conn_mut(client_ch).1.congestion_window() > TARGET);
     pair.client_send(client_ch, s).write(&[42; 1024]).unwrap();
 }
 
@@ -1860,14 +1858,15 @@ fn tail_loss_small_segment_size() {
     let (client_ch, server_ch) = pair.connect();
 
     // No datagrams frames received in the handshake.
-    let server_stats = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats = conn.stats(paths);
     assert_eq!(server_stats.frame_rx.datagram, 0);
 
     const DGRAM_LEN: usize = 1000; // Below INITIAL_MTU after packet overhead.
     const DGRAM_NUM: u64 = 5; // Enough to build a GSO batch.
 
     info!("Sending an ack-eliciting datagram");
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     // Drop these packets on the server side.
@@ -1879,7 +1878,8 @@ fn tail_loss_small_segment_size() {
     pair.step();
 
     // Still no datagrams frames received by the server.
-    let server_stats = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats = conn.stats(paths);
     assert_eq!(server_stats.frame_rx.datagram, 0);
 
     // Now we can send another batch of datagrams, so the PTO can send them instead of
@@ -1897,7 +1897,8 @@ fn tail_loss_small_segment_size() {
     pair.drive();
 
     // Finally the server should have received some datagrams.
-    let server_stats = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats = conn.stats(paths);
     assert_eq!(server_stats.frame_rx.datagram, DGRAM_NUM);
 }
 
@@ -1920,7 +1921,7 @@ fn tail_loss_respect_max_datagrams() {
     const DGRAM_NUM: u64 = 5; // Enough to build a GSO batch.
 
     info!("Sending an ack-eliciting datagram");
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     // Drop these packets on the server side.
@@ -1942,7 +1943,8 @@ fn tail_loss_respect_max_datagrams() {
     pair.drive();
 
     // Finally checking the number of sent udp datagrams match the number of iops
-    let client_stats = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_stats = conn.stats(paths);
     assert_eq!(client_stats.udp_tx.ios, client_stats.udp_tx.datagrams);
 }
 
@@ -1951,7 +1953,7 @@ fn datagram_send_recv() {
     let _guard = subscribe();
     let mut pair = Pair::default();
     let (client_ch, server_ch) = pair.connect();
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
     assert_matches!(pair.client_datagrams(client_ch).max_size(), Some(x) if x > 0);
 
     const DATA: &[u8] = b"whee";
@@ -1960,7 +1962,7 @@ fn datagram_send_recv() {
         .unwrap();
     pair.drive();
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::DatagramReceived)
     );
     assert_eq!(pair.server_datagrams(server_ch).recv().unwrap(), DATA);
@@ -1980,9 +1982,10 @@ fn datagram_recv_buffer_overflow() {
     };
     let mut pair = Pair::new(Default::default(), server);
     let (client_ch, server_ch) = pair.connect();
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
+    let (conn, paths) = pair.client_conn_mut(client_ch);
     assert_eq!(
-        pair.client_conn_mut(client_ch).datagrams().max_size(),
+        conn.datagrams(paths).max_size(),
         Some(WINDOW - Datagram::SIZE_BOUND)
     );
 
@@ -2000,7 +2003,7 @@ fn datagram_recv_buffer_overflow() {
         .unwrap();
     pair.drive();
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::DatagramReceived)
     );
     assert_eq!(pair.server_datagrams(server_ch).recv().unwrap(), DATA2);
@@ -2027,7 +2030,7 @@ fn datagram_unsupported() {
     };
     let mut pair = Pair::new(Default::default(), server);
     let (client_ch, server_ch) = pair.connect();
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
     assert_matches!(pair.client_datagrams(client_ch).max_size(), None);
 
     match pair.client_datagrams(client_ch).send(Bytes::new(), true) {
@@ -2051,19 +2054,19 @@ fn large_initial() {
     pair.drive();
     let server_ch = pair.server.assert_accept();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Connected)
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Connected)
     );
 }
@@ -2087,10 +2090,10 @@ fn finish_acked() {
 
     // Receive data
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
 
     assert_matches!(pair.server_streams(server_ch).accept(Dir::Uni), Some(stream) if stream == s);
 
@@ -2109,12 +2112,12 @@ fn finish_acked() {
     info!("client receives ACK, sends FIN");
     pair.drive_client();
     // Check for premature finish from data ack
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
     // Process FIN ack
     info!("server ACKs FIN");
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Finished { id })) if id == s
     );
 
@@ -2146,16 +2149,16 @@ fn finish_retransmit() {
     // Receive FIN ack, but no data ack
     pair.drive_client();
     // Check for premature finish from FIN ack
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
     // Recover
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Finished { id })) if id == s
     );
 
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
 
@@ -2243,11 +2246,11 @@ fn handshake_anti_deadlock_probe() {
     // Client sends an anti-deadlock probe, and the handshake completes as usual.
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Connected)
     );
 }
@@ -2273,11 +2276,11 @@ fn server_can_send_3_inital_packets() {
 
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::Connected)
     );
 }
@@ -2326,11 +2329,12 @@ fn loss_probe_requests_immediate_ack() {
     let (client_ch, _) = pair.connect();
     pair.drive();
 
-    let stats_after_connect = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let stats_after_connect = conn.stats(paths);
 
     // Lose a ping
     let default_mtu = mem::replace(&mut pair.mtu, 0);
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
     pair.mtu = default_mtu;
 
@@ -2338,7 +2342,8 @@ fn loss_probe_requests_immediate_ack() {
     pair.drive();
 
     // Assert that two IMMEDIATE_ACKs were sent (two loss probes)
-    let stats_after_recovery = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let stats_after_recovery = conn.stats(paths);
     assert_eq!(
         stats_after_recovery.frame_tx.immediate_ack - stats_after_connect.frame_tx.immediate_ack,
         2
@@ -2369,8 +2374,10 @@ fn connect_lost_mtu_probes_do_not_trigger_congestion_control() {
     let (client_ch, server_ch) = pair.connect();
     pair.drive();
 
-    let client_stats = pair.client_conn_mut(client_ch).stats();
-    let server_stats = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_stats = conn.stats(paths);
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats = conn.stats(paths);
 
     // Sanity check (all MTU probes should have been lost)
     let client_path_stats = client_stats.paths.get(&PathId::ZERO).unwrap();
@@ -2396,8 +2403,8 @@ fn connect_detects_mtu() {
         let (client_ch, server_ch) = pair.connect();
         pair.drive();
 
-        assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), expected_mtu);
-        assert_eq!(pair.server_conn_mut(server_ch).path_mtu(), expected_mtu);
+        assert_eq!(pair.client_conn_mut(client_ch).1.path_mtu(), expected_mtu);
+        assert_eq!(pair.server_conn_mut(server_ch).1.path_mtu(), expected_mtu);
     }
 }
 
@@ -2429,8 +2436,8 @@ fn migrate_detects_new_mtu_and_respects_original_peer_max_udp_payload_size() {
 
     // Sanity check: MTUD ran to completion (the numbers differ because binary search stops when
     // changes are smaller than 20, otherwise both endpoints would converge at the same MTU of 1300)
-    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), 1293);
-    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(), 1300);
+    assert_eq!(pair.client_conn_mut(client_ch).1.path_mtu(), 1293);
+    assert_eq!(pair.server_conn_mut(server_ch).1.path_mtu(), 1300);
 
     // Migrate client to a different port (and simulate a higher path MTU)
     pair.mtu = 1500;
@@ -2438,25 +2445,26 @@ fn migrate_detects_new_mtu_and_respects_original_peer_max_udp_payload_size() {
         Ipv4Addr::new(127, 0, 0, 1).into(),
         CLIENT_PORTS.lock().unwrap().next().unwrap(),
     );
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive();
 
     // Sanity check: the server saw that the client address was updated
     assert_eq!(
         pair.server_conn_mut(server_ch)
+            .1
             .path_remote_address(PathId::ZERO),
         Ok(pair.client.addr)
     );
 
     // MTU detection has successfully run after migrating
     assert_eq!(
-        pair.server_conn_mut(server_ch).path_mtu(),
+        pair.server_conn_mut(server_ch).1.path_mtu(),
         client_max_udp_payload_size
     );
 
     // Sanity check: the client keeps the old MTU, because migration is triggered by incoming
     // packets from a different address
-    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), 1293);
+    assert_eq!(pair.client_conn_mut(client_ch).1.path_mtu(), 1293);
 }
 
 #[test]
@@ -2480,16 +2488,16 @@ fn connect_runs_mtud_again_after_600_seconds() {
     pair.drive();
 
     // Sanity check: the mtu has been discovered
-    let client_conn = pair.client_conn_mut(client_ch);
-    let client_stats = client_conn.stats();
+    let (client_conn, client_paths) = pair.client_conn_mut(client_ch);
+    let client_stats = client_conn.stats(client_paths);
     let client_path_stats = client_stats.paths.get(&PathId::ZERO).unwrap();
-    assert_eq!(client_conn.path_mtu(), 1389);
+    assert_eq!(client_paths.path_mtu(), 1389);
     assert_eq!(client_path_stats.sent_plpmtud_probes, 5);
     assert_eq!(client_path_stats.lost_plpmtud_probes, 3);
-    let server_conn = pair.server_conn_mut(server_ch);
-    let server_stats = server_conn.stats();
+    let (server_conn, server_paths) = pair.server_conn_mut(server_ch);
+    let server_stats = server_conn.stats(server_paths);
     let server_path_stats = server_stats.paths.get(&PathId::ZERO).unwrap();
-    assert_eq!(server_conn.path_mtu(), 1389);
+    assert_eq!(server_paths.path_mtu(), 1389);
     assert_eq!(server_path_stats.sent_plpmtud_probes, 5);
     assert_eq!(server_path_stats.lost_plpmtud_probes, 3);
 
@@ -2497,16 +2505,16 @@ fn connect_runs_mtud_again_after_600_seconds() {
     // higher udp payload size
     pair.mtu = 1500;
     pair.drive();
-    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), 1389);
-    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(), 1389);
+    assert_eq!(pair.client_conn_mut(client_ch).1.path_mtu(), 1389);
+    assert_eq!(pair.server_conn_mut(server_ch).1.path_mtu(), 1389);
 
     // The MTU changes after 600 seconds, because now MTUD runs for the second time
     pair.time += Duration::from_secs(600);
     pair.drive();
-    assert!(!pair.client_conn_mut(client_ch).is_closed());
-    assert!(!pair.server_conn_mut(client_ch).is_closed());
-    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), 1452);
-    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(), 1452);
+    assert!(!pair.client_conn_mut(client_ch).0.is_closed());
+    assert!(!pair.server_conn_mut(client_ch).0.is_closed());
+    assert_eq!(pair.client_conn_mut(client_ch).1.path_mtu(), 1452);
+    assert_eq!(pair.server_conn_mut(server_ch).1.path_mtu(), 1452);
 }
 
 #[test]
@@ -2518,8 +2526,8 @@ fn blackhole_after_mtu_change_repairs_itself() {
     pair.drive();
 
     // Sanity check
-    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), 1452);
-    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(), 1452);
+    assert_eq!(pair.client_conn_mut(client_ch).1.path_mtu(), 1452);
+    assert_eq!(pair.server_conn_mut(server_ch).1.path_mtu(), 1452);
 
     // Back to the base MTU
     pair.mtu = 1200;
@@ -2542,7 +2550,8 @@ fn blackhole_after_mtu_change_repairs_itself() {
     assert_eq!(buf.len(), 1300);
 
     // Sanity checks (black hole detected after 3 lost packets)
-    let client_stats = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_stats = conn.stats(paths);
     let client_path_stats = client_stats.paths.get(&PathId::ZERO).unwrap();
     assert!(client_path_stats.lost_packets >= 3);
     assert!(client_path_stats.congestion_events >= 3);
@@ -2556,7 +2565,8 @@ fn mtud_probes_include_immediate_ack() {
     let (client_ch, _) = pair.connect();
     pair.drive();
 
-    let stats = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let stats = conn.stats(paths);
     let path_stats = stats.paths.get(&PathId::ZERO).unwrap();
     assert_eq!(path_stats.sent_plpmtud_probes, 4);
 
@@ -2615,10 +2625,11 @@ fn single_ack_eliciting_packet_triggers_ack_after_delay() {
     let (client_ch, _) = pair.connect_with(client_config_with_deterministic_pns());
     pair.drive();
 
-    let stats_after_connect = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let stats_after_connect = conn.stats(paths);
 
     let start = pair.time;
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client(); // Send ping
     pair.drive_server(); // Process ping
     pair.drive_client(); // Give the client a chance to process an ack, so our assertion can fail
@@ -2626,7 +2637,8 @@ fn single_ack_eliciting_packet_triggers_ack_after_delay() {
     // Sanity check: the time hasn't advanced in the meantime)
     assert_eq!(pair.time, start);
 
-    let stats_after_ping = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let stats_after_ping = conn.stats(paths);
     assert_eq!(
         stats_after_ping.frame_tx.ping - stats_after_connect.frame_tx.ping,
         1
@@ -2638,7 +2650,8 @@ fn single_ack_eliciting_packet_triggers_ack_after_delay() {
 
     pair.client.capture_inbound_packets = true;
     pair.drive();
-    let stats_after_drive = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let stats_after_drive = conn.stats(paths);
     assert_eq!(
         stats_after_drive.frame_rx.acks - stats_after_ping.frame_rx.acks,
         1
@@ -2680,14 +2693,18 @@ fn immediate_ack_triggers_ack() {
     let (client_ch, _) = pair.connect_with(client_config_with_deterministic_pns());
     pair.drive();
 
-    let acks_after_connect = pair.client_conn_mut(client_ch).stats().frame_rx.acks;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let acks_after_connect = conn.stats(paths).frame_rx.acks;
 
-    pair.client_conn_mut(client_ch).immediate_ack(PathId::ZERO);
+    pair.client_conn_mut(client_ch)
+        .0
+        .immediate_ack(PathId::ZERO);
     pair.drive_client(); // Send immediate ack
     pair.drive_server(); // Process immediate ack
     pair.drive_client(); // Give the client a chance to process the ack
 
-    let acks_after_ping = pair.client_conn_mut(client_ch).stats().frame_rx.acks;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let acks_after_ping = conn.stats(paths).frame_rx.acks;
 
     assert_eq!(acks_after_ping - acks_after_connect, 1);
 }
@@ -2701,16 +2718,19 @@ fn out_of_order_ack_eliciting_packet_triggers_ack() {
 
     let default_mtu = pair.mtu;
 
-    let client_stats_after_connect = pair.client_conn_mut(client_ch).stats();
-    let server_stats_after_connect = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_stats_after_connect = conn.stats(paths);
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after_connect = conn.stats(paths);
 
     // Send a packet that won't arrive right away (it will be dropped and be re-sent later)
     pair.mtu = 0;
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     // Sanity check (ping sent, no ACK received)
-    let client_stats_after_first_ping = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_stats_after_first_ping = conn.stats(paths);
     assert_eq!(
         client_stats_after_first_ping.frame_tx.ping - client_stats_after_connect.frame_tx.ping,
         1
@@ -2722,13 +2742,14 @@ fn out_of_order_ack_eliciting_packet_triggers_ack() {
 
     // Restore the default MTU and send another ping, which will arrive earlier than the dropped one
     pair.mtu = default_mtu;
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
     pair.drive_server();
     pair.drive_client();
 
     // Client sanity check (ping sent, one ACK received)
-    let client_stats_after_second_ping = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let client_stats_after_second_ping = conn.stats(paths);
     assert_eq!(
         client_stats_after_second_ping.frame_tx.ping - client_stats_after_connect.frame_tx.ping,
         2
@@ -2739,7 +2760,8 @@ fn out_of_order_ack_eliciting_packet_triggers_ack() {
     );
 
     // Server checks (single ping received, ACK sent)
-    let server_stats_after_second_ping = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after_second_ping = conn.stats(paths);
     assert_eq!(
         server_stats_after_second_ping.frame_rx.ping - server_stats_after_connect.frame_rx.ping,
         1
@@ -2757,11 +2779,12 @@ fn single_ack_eliciting_packet_with_ce_bit_triggers_immediate_ack() {
     let (client_ch, _) = pair.connect_with(client_config_with_deterministic_pns());
     pair.drive();
 
-    let stats_after_connect = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let stats_after_connect = conn.stats(paths);
 
     let start = pair.time;
 
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
 
     pair.congestion_experienced = true;
     pair.drive_client(); // Send ping
@@ -2773,7 +2796,8 @@ fn single_ack_eliciting_packet_with_ce_bit_triggers_immediate_ack() {
     // Sanity check: the time hasn't advanced in the meantime)
     assert_eq!(pair.time, start);
 
-    let stats_after_ping = pair.client_conn_mut(client_ch).stats();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let stats_after_ping = conn.stats(paths);
     assert_eq!(
         stats_after_ping.frame_tx.ping - stats_after_connect.frame_tx.ping,
         1
@@ -2806,14 +2830,10 @@ fn setup_ack_frequency_test(max_ack_delay: Duration) -> (Pair, ConnectionHandle,
     let (client_ch, server_ch) = pair.connect_with(client_config);
     pair.drive();
 
-    assert_eq!(
-        pair.client_conn_mut(client_ch)
-            .stats()
-            .frame_tx
-            .ack_frequency,
-        1
-    );
-    assert_eq!(pair.client_conn_mut(client_ch).stats().frame_tx.ping, 0);
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    assert_eq!(conn.stats(paths).frame_tx.ack_frequency, 1);
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    assert_eq!(conn.stats(paths).frame_tx.ping, 0);
     (pair, client_ch, server_ch)
 }
 
@@ -2827,20 +2847,22 @@ fn ack_frequency_ack_delayed_from_first_of_flight() {
     //
     // * 0 ms: ping
     // * 5 ms: ping x2
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     pair.time += Duration::from_millis(5);
     for _ in 0..2 {
-        pair.client_conn_mut(client_ch).ping();
+        pair.client_conn_mut(client_ch).0.ping();
         pair.drive_client();
     }
 
     pair.time += Duration::from_millis(5);
     // Server: receive the first ping and send no ACK
-    let server_stats_before = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_before = conn.stats(paths);
     pair.drive_server();
-    let server_stats_after = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after = conn.stats(paths);
     assert_eq!(
         server_stats_after.frame_rx.ping - server_stats_before.frame_rx.ping,
         1
@@ -2852,9 +2874,11 @@ fn ack_frequency_ack_delayed_from_first_of_flight() {
 
     // Server: receive the second and third pings and send no ACK
     pair.time += Duration::from_millis(10);
-    let server_stats_before = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_before = conn.stats(paths);
     pair.drive_server();
-    let server_stats_after = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after = conn.stats(paths);
     assert_eq!(
         server_stats_after.frame_rx.ping - server_stats_before.frame_rx.ping,
         2
@@ -2866,9 +2890,11 @@ fn ack_frequency_ack_delayed_from_first_of_flight() {
 
     // Server: Send an ACK after ACK delay expires
     pair.time += Duration::from_millis(20);
-    let server_stats_before = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_before = conn.stats(paths);
     pair.drive_server();
-    let server_stats_after = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after = conn.stats(paths);
     assert_eq!(
         server_stats_after.frame_tx.acks - server_stats_before.frame_tx.acks,
         1
@@ -2882,14 +2908,16 @@ fn ack_frequency_ack_sent_after_max_ack_delay() {
     let (mut pair, client_ch, server_ch) = setup_ack_frequency_test(max_ack_delay);
 
     // Client sends a ping
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     // Server: receive the ping, send no ACK
     pair.time += pair.latency;
-    let server_stats_before = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_before = conn.stats(paths);
     pair.drive_server();
-    let server_stats_after = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after = conn.stats(paths);
     assert_eq!(
         server_stats_after.frame_rx.ping - server_stats_before.frame_rx.ping,
         1
@@ -2901,9 +2929,11 @@ fn ack_frequency_ack_sent_after_max_ack_delay() {
 
     // Server: send an ack after max_ack_delay has elapsed
     pair.time += max_ack_delay;
-    let server_stats_before = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_before = conn.stats(paths);
     pair.drive_server();
-    let server_stats_after = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after = conn.stats(paths);
     assert_eq!(
         server_stats_after.frame_rx.ping - server_stats_before.frame_rx.ping,
         0
@@ -2924,20 +2954,22 @@ fn ack_frequency_ack_sent_after_packets_above_threshold() {
     //
     // * 0 ms: ping
     // * 5 ms: ping (11x)
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     pair.time += Duration::from_millis(5);
     for _ in 0..11 {
-        pair.client_conn_mut(client_ch).ping();
+        pair.client_conn_mut(client_ch).0.ping();
         pair.drive_client();
     }
 
     // Server: receive the first ping, send no ACK
     pair.time += Duration::from_millis(5);
-    let server_stats_before = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_before = conn.stats(paths);
     pair.drive_server();
-    let server_stats_after = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after = conn.stats(paths);
     assert_eq!(
         server_stats_after.frame_rx.ping - server_stats_before.frame_rx.ping,
         1
@@ -2949,9 +2981,11 @@ fn ack_frequency_ack_sent_after_packets_above_threshold() {
 
     // Server: receive the remaining pings, send ACK
     pair.time += Duration::from_millis(5);
-    let server_stats_before = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_before = conn.stats(paths);
     pair.drive_server();
-    let server_stats_after = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after = conn.stats(paths);
     assert_eq!(
         server_stats_after.frame_rx.ping - server_stats_before.frame_rx.ping,
         11
@@ -2973,26 +3007,28 @@ fn ack_frequency_ack_sent_after_reordered_packets_below_threshold() {
     // * 0 ms: ping
     // * 5 ms: ping (lost)
     // * 5 ms: ping
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     pair.time += Duration::from_millis(5);
 
     // Send and lose an ack-eliciting packet
     pair.mtu = 0;
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     // Restore the default MTU and send another ping, which will arrive earlier than the dropped one
     pair.mtu = DEFAULT_MTU;
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     // Server: receive first ping, send no ACK
     pair.time += Duration::from_millis(5);
-    let server_stats_before = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_before = conn.stats(paths);
     pair.drive_server();
-    let server_stats_after = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after = conn.stats(paths);
     assert_eq!(
         server_stats_after.frame_rx.ping - server_stats_before.frame_rx.ping,
         1
@@ -3004,9 +3040,11 @@ fn ack_frequency_ack_sent_after_reordered_packets_below_threshold() {
 
     // Server: receive second ping, send no ACK
     pair.time += Duration::from_millis(5);
-    let server_stats_before = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_before = conn.stats(paths);
     pair.drive_server();
-    let server_stats_after = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after = conn.stats(paths);
     assert_eq!(
         server_stats_after.frame_rx.ping - server_stats_before.frame_rx.ping,
         1
@@ -3024,27 +3062,29 @@ fn ack_frequency_ack_sent_after_reordered_packets_above_threshold() {
     let (mut pair, client_ch, server_ch) = setup_ack_frequency_test(max_ack_delay);
 
     // Send a ping
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     // Send and lose two ack-eliciting packets
     pair.time += Duration::from_millis(5);
     pair.mtu = 0;
     for _ in 0..2 {
-        pair.client_conn_mut(client_ch).ping();
+        pair.client_conn_mut(client_ch).0.ping();
         pair.drive_client();
     }
 
     // Restore the default MTU and send another ping, which will arrive earlier than the dropped ones
     pair.mtu = DEFAULT_MTU;
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
     // Server: receive first ping, send no ACK
     pair.time += Duration::from_millis(5);
-    let server_stats_before = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_before = conn.stats(paths);
     pair.drive_server();
-    let server_stats_after = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after = conn.stats(paths);
     assert_eq!(
         server_stats_after.frame_rx.ping - server_stats_before.frame_rx.ping,
         1
@@ -3056,9 +3096,11 @@ fn ack_frequency_ack_sent_after_reordered_packets_above_threshold() {
 
     // Server: receive remaining ping, send ACK
     pair.time += Duration::from_millis(5);
-    let server_stats_before = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_before = conn.stats(paths);
     pair.drive_server();
-    let server_stats_after = pair.server_conn_mut(server_ch).stats();
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let server_stats_after = conn.stats(paths);
     assert_eq!(
         server_stats_after.frame_rx.ping - server_stats_before.frame_rx.ping,
         1
@@ -3075,42 +3117,27 @@ fn ack_frequency_update_max_delay() {
     let (mut pair, client_ch, server_ch) = setup_ack_frequency_test(Duration::from_millis(200));
 
     // Ack frequency was sent initially
-    assert_eq!(
-        pair.server_conn_mut(server_ch)
-            .stats()
-            .frame_rx
-            .ack_frequency,
-        1
-    );
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    assert_eq!(conn.stats(paths).frame_rx.ack_frequency, 1);
 
     // Client sends a PING
     info!("first ping");
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive();
 
     // No change in ACK frequency
-    assert_eq!(
-        pair.server_conn_mut(server_ch)
-            .stats()
-            .frame_rx
-            .ack_frequency,
-        1
-    );
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    assert_eq!(conn.stats(paths).frame_rx.ack_frequency, 1);
 
     // RTT jumps, client sends another ping
     info!("delayed ping");
     pair.latency *= 10;
-    pair.client_conn_mut(client_ch).ping();
+    pair.client_conn_mut(client_ch).0.ping();
     pair.drive();
 
     // ACK frequency updated
-    assert!(
-        pair.server_conn_mut(server_ch)
-            .stats()
-            .frame_rx
-            .ack_frequency
-            >= 2
-    );
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    assert!(conn.stats(paths).frame_rx.ack_frequency >= 2);
 }
 
 fn stream_chunks(mut recv: RecvStream) -> Vec<u8> {
@@ -3135,7 +3162,8 @@ fn pure_sender_voluntarily_acks() {
     let mut pair = Pair::default();
     let (client_ch, server_ch) = pair.connect();
 
-    let receiver_acks_initial = pair.server_conn_mut(server_ch).stats().frame_rx.acks;
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let receiver_acks_initial = conn.stats(paths).frame_rx.acks;
 
     for _ in 0..100 {
         const MSG: &[u8] = b"hello";
@@ -3146,7 +3174,8 @@ fn pure_sender_voluntarily_acks() {
         assert_eq!(pair.server_datagrams(server_ch).recv().unwrap(), MSG);
     }
 
-    let receiver_acks_final = pair.server_conn_mut(server_ch).stats().frame_rx.acks;
+    let (conn, paths) = pair.server_conn_mut(server_ch);
+    let receiver_acks_final = conn.stats(paths).frame_rx.acks;
     assert!(receiver_acks_final > receiver_acks_initial);
 }
 
@@ -3161,9 +3190,9 @@ fn reject_manually() {
     pair.drive();
     pair.server.assert_no_accept();
     let client = pair.client.connections.get_mut(&client_ch).unwrap();
-    assert!(client.is_closed());
+    assert!(client.0.is_closed());
     assert!(matches!(
-        client.poll(),
+        client.0.poll(),
         Some(Event::ConnectionLost {
             reason: ConnectionError::ConnectionClosed(close)
         }) if close.error_code == TransportErrorCode::CONNECTION_REFUSED
@@ -3194,15 +3223,15 @@ fn validate_then_reject_manually() {
     pair.drive();
     pair.server.assert_no_accept();
     let client = pair.client.connections.get_mut(&client_ch).unwrap();
-    assert!(client.is_closed());
+    assert!(client.0.is_closed());
     assert!(matches!(
-        client.poll(),
+        client.0.poll(),
         Some(Event::ConnectionLost {
             reason: ConnectionError::ConnectionClosed(close)
         }) if close.error_code == TransportErrorCode::CONNECTION_REFUSED
     ));
     pair.drive();
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
     assert_eq!(pair.server.known_connections(), 0);
@@ -3224,7 +3253,8 @@ fn stream_gso() {
 
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
 
-    let initial_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let initial_ios = conn.stats(paths).udp_tx.ios;
 
     // Send 20KiB of stream data, which comfortably fits inside two `tests::util::MAX_DATAGRAMS`
     // datagram batches
@@ -3234,7 +3264,8 @@ fn stream_gso() {
     }
     pair.client_send(client_ch, s).finish().unwrap();
     pair.drive();
-    let final_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let final_ios = conn.stats(paths).udp_tx.ios;
     assert_eq!(final_ios - initial_ios, 2);
 }
 
@@ -3244,8 +3275,10 @@ fn datagram_gso() {
     let mut pair = Pair::default();
     let (client_ch, _) = pair.connect();
 
-    let initial_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
-    let initial_bytes = pair.client_conn_mut(client_ch).stats().udp_tx.bytes;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let initial_ios = conn.stats(paths).udp_tx.ios;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let initial_bytes = conn.stats(paths).udp_tx.bytes;
 
     // Send 10 datagrams above half the MTU, which fits inside a `tests::util::MAX_DATAGRAMS`
     // datagram batch
@@ -3258,8 +3291,10 @@ fn datagram_gso() {
             .unwrap();
     }
     pair.drive();
-    let final_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
-    let final_bytes = pair.client_conn_mut(client_ch).stats().udp_tx.bytes;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let final_ios = conn.stats(paths).udp_tx.ios;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let final_bytes = conn.stats(paths).udp_tx.bytes;
     assert_eq!(final_ios - initial_ios, 1);
     // Expected overhead: flags + CID + PN + tag + frame type + frame length = 1 + 8 + 1 + 16 + 1 + 2 = 29
     assert_eq!(
@@ -3274,7 +3309,8 @@ fn gso_truncation() {
     let mut pair = Pair::default();
     let (client_ch, server_ch) = pair.connect();
 
-    let initial_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let initial_ios = conn.stats(paths).udp_tx.ios;
 
     // Send three application datagrams such that each is large to be combined with another in a
     // single MTU, and the second datagram would require an unreasonably large amount of padding to
@@ -3287,7 +3323,8 @@ fn gso_truncation() {
             .unwrap();
     }
     pair.drive();
-    let final_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let final_ios = conn.stats(paths).udp_tx.ios;
     assert_eq!(final_ios - initial_ios, 2);
     for len in SIZES {
         assert_eq!(
@@ -3319,7 +3356,8 @@ fn pad_to_mtu() {
     let mut pair = Pair::default();
     let (client_ch, server_ch) = pair.connect_with(client_config);
 
-    let initial_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let initial_ios = conn.stats(paths).udp_tx.ios;
     pair.server.capture_inbound_packets = true;
 
     info!("sending");
@@ -3347,7 +3385,8 @@ fn pad_to_mtu() {
     pair.drive();
 
     // Check that both datagrams ended up in the same GSO batch
-    let final_ios = pair.client_conn_mut(client_ch).stats().udp_tx.ios;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let final_ios = conn.stats(paths).udp_tx.ios;
     assert_eq!(final_ios - initial_ios, 1);
 
     assert_eq!(
@@ -3376,10 +3415,10 @@ fn large_datagram_with_acks() {
 
     // Force the client to generate a large ACK frame by dropping several packets
     for _ in 0..10 {
-        pair.server_conn_mut(server_ch).ping();
+        pair.server_conn_mut(server_ch).0.ping();
         pair.drive_server();
         pair.client.inbound.pop_back();
-        pair.server_conn_mut(server_ch).ping();
+        pair.server_conn_mut(server_ch).0.ping();
         pair.drive_server();
     }
 
@@ -3388,9 +3427,11 @@ fn large_datagram_with_acks() {
     pair.client_datagrams(client_ch)
         .send(msg.clone(), true)
         .unwrap();
-    let initial_datagrams = pair.client_conn_mut(client_ch).stats().udp_tx.datagrams;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let initial_datagrams = conn.stats(paths).udp_tx.datagrams;
     pair.drive();
-    let final_datagrams = pair.client_conn_mut(client_ch).stats().udp_tx.datagrams;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let final_datagrams = conn.stats(paths).udp_tx.datagrams;
     assert_eq!(pair.server_datagrams(server_ch).recv().unwrap(), msg);
     assert_eq!(final_datagrams - initial_datagrams, 2);
 }
@@ -3404,7 +3445,8 @@ fn voluntary_ack_with_large_datagrams() {
     let (client_ch, _) = pair.connect();
 
     // Prompt many large ACKs from the server
-    let initial_datagrams = pair.client_conn_mut(client_ch).stats().udp_tx.datagrams;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let initial_datagrams = conn.stats(paths).udp_tx.datagrams;
     // Send enough packets that we're confident some packet numbers will be skipped, ensuring that
     // larger ACKs occur
     const COUNT: usize = 256;
@@ -3415,7 +3457,8 @@ fn voluntary_ack_with_large_datagrams() {
             .unwrap();
         pair.drive();
     }
-    let final_datagrams = pair.client_conn_mut(client_ch).stats().udp_tx.datagrams;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    let final_datagrams = conn.stats(paths).udp_tx.datagrams;
     // Failure may indicate `max_size` is too small and ACKs are reliably being packed into the same
     // datagram, which is reasonable behavior but makes this test ineffective.
     assert_ne!(
@@ -3453,19 +3496,19 @@ fn address_discovery() {
     // check that the client received the correct address
     let expected_addr = pair.client.addr;
     let conn = pair.client_conn_mut(conn_handle);
-    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
-    assert_matches!(conn.poll(), Some(Event::Connected));
-    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
-    assert_matches!(conn.poll(), None);
+    assert_matches!(conn.0.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.0.poll(), Some(Event::Connected));
+    assert_matches!(conn.0.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
+    assert_matches!(conn.0.poll(), None);
 
     // check that the server received the correct address
     let conn_handle = pair.server.assert_accept();
     let expected_addr = pair.server.addr;
     let conn = pair.server_conn_mut(conn_handle);
-    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
-    assert_matches!(conn.poll(), Some(Event::Connected));
-    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
-    assert_matches!(conn.poll(), None);
+    assert_matches!(conn.0.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.0.poll(), Some(Event::Connected));
+    assert_matches!(conn.0.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
+    assert_matches!(conn.0.poll(), None);
 }
 
 /// Test that a different address discovery configuration on 0rtt used by the client is accepted by
@@ -3504,11 +3547,9 @@ fn address_discovery_zero_rtt_accepted() {
     let client_ch = pair.begin_connect(client_cfg);
     pair.drive();
     pair.server.assert_accept();
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(0), [][..].into());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(0), [][..].into());
     pair.drive();
 
     pair.client.addr = SocketAddr::new(
@@ -3517,25 +3558,25 @@ fn address_discovery_zero_rtt_accepted() {
     );
     info!("resuming session");
     let client_ch = pair.begin_connect(alt_client_cfg);
-    assert!(pair.client_conn_mut(client_ch).has_0rtt());
+    assert!(pair.client_conn_mut(client_ch).0.has_0rtt());
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
     const MSG: &[u8] = b"Hello, 0-RTT!";
     pair.client_send(client_ch, s).write(MSG).unwrap();
     pair.drive();
 
     let conn = pair.client_conn_mut(client_ch);
-    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
-    assert_matches!(conn.poll(), Some(Event::Connected));
+    assert_matches!(conn.0.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.0.poll(), Some(Event::Connected));
 
-    assert!(pair.client_conn_mut(client_ch).accepted_0rtt());
+    assert!(pair.client_conn_mut(client_ch).0.accepted_0rtt());
     let server_ch = pair.server.assert_accept();
 
     let conn = pair.server_conn_mut(server_ch);
-    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.0.poll(), Some(Event::HandshakeDataReady));
     // We don't currently preserve stream event order wrt. connection events
-    assert_matches!(conn.poll(), Some(Event::Connected));
+    assert_matches!(conn.0.poll(), Some(Event::Connected));
     assert_matches!(
-        conn.poll(),
+        conn.0.poll(),
         Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
     );
 
@@ -3546,9 +3587,9 @@ fn address_discovery_zero_rtt_accepted() {
         Ok(Some(chunk)) if chunk.offset == 0 && chunk.bytes == MSG
     );
     let _ = chunks.finalize();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
     assert_eq!(
-        pair.client_conn_mut(client_ch)
-            .stats()
+        conn.stats(paths)
             .paths
             .get(&PathId::ZERO)
             .unwrap()
@@ -3593,20 +3634,18 @@ fn address_discovery_zero_rtt_rejection() {
     pair.drive();
     let server_ch = pair.server.assert_accept();
     let conn = pair.server_conn_mut(server_ch);
-    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
-    assert_matches!(conn.poll(), Some(Event::Connected));
-    assert_matches!(conn.poll(), None);
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(0), [][..].into());
+    assert_matches!(conn.0.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.0.poll(), Some(Event::Connected));
+    assert_matches!(conn.0.poll(), None);
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(0), [][..].into());
     pair.drive();
     assert_matches!(
-        pair.server_conn_mut(server_ch).poll(),
+        pair.server_conn_mut(server_ch).0.poll(),
         Some(Event::ConnectionLost { .. })
     );
-    assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
+    assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
     pair.client.connections.clear();
     pair.server.connections.clear();
 
@@ -3615,15 +3654,15 @@ fn address_discovery_zero_rtt_rejection() {
         .set_server_config(Some(Arc::new(alt_server_cfg)));
     info!("resuming session");
     let client_ch = pair.begin_connect(client_cfg);
-    assert!(pair.client_conn_mut(client_ch).has_0rtt());
+    assert!(pair.client_conn_mut(client_ch).0.has_0rtt());
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
     const MSG: &[u8] = b"Hello, 0-RTT!";
     pair.client_send(client_ch, s).write(MSG).unwrap();
     pair.drive();
     let conn = pair.client_conn_mut(server_ch);
-    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.0.poll(), Some(Event::HandshakeDataReady));
     assert_matches!(
-        conn.poll(),
+        conn.0.poll(),
         Some(Event::ConnectionLost { reason }) if matches!(reason, ConnectionError::TransportError(_) )
     );
 }
@@ -3654,13 +3693,13 @@ fn address_discovery_retransmission() {
     pair.client.inbound.pop_back().unwrap();
     pair.step();
     let conn = pair.client_conn_mut(client_ch);
-    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
-    assert_matches!(conn.poll(), Some(Event::Connected));
-    assert_matches!(conn.poll(), None);
+    assert_matches!(conn.0.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.0.poll(), Some(Event::Connected));
+    assert_matches!(conn.0.poll(), None);
 
     pair.drive();
     let conn = pair.client_conn_mut(client_ch);
-    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == pair.client.addr);
+    assert_matches!(conn.0.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == pair.client.addr);
 }
 
 #[test]
@@ -3689,20 +3728,21 @@ fn address_discovery_rebind_retransmission() {
     pair.client.inbound.pop_back().unwrap();
     pair.step();
     let conn = pair.client_conn_mut(client_ch);
-    assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
-    assert_matches!(conn.poll(), Some(Event::Connected));
-    assert_matches!(conn.poll(), None);
+    assert_matches!(conn.0.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.0.poll(), Some(Event::Connected));
+    assert_matches!(conn.0.poll(), None);
 
     // simulate a rebind to ensure we will get an updated address instead of retransmitting
     // outdated info
-    pair.client_conn_mut(client_ch).local_address_changed();
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.local_address_changed(paths);
     pair.client
         .addr
         .set_port(pair.client.addr.port().overflowing_add(1).0);
 
     pair.drive();
     let conn = pair.client_conn_mut(client_ch);
-    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == pair.client.addr);
+    assert_matches!(conn.0.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == pair.client.addr);
 }
 
 #[test]

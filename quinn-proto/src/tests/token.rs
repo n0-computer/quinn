@@ -11,11 +11,9 @@ fn stateless_retry() {
     let mut pair = Pair::default();
     pair.server.handle_incoming = Box::new(validate_incoming);
     let (client_ch, _server_ch) = pair.connect();
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -49,7 +47,7 @@ fn retry_token_expired() {
 
     pair.drive();
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        pair.client_conn_mut(client_ch).0.poll(),
         Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(err) })
         if err.error_code == TransportErrorCode::INVALID_TOKEN
     );
@@ -66,11 +64,9 @@ fn use_token() {
     let mut pair = Pair::default();
     let client_config = client_config();
     let (client_ch, _server_ch) = pair.connect_with(client_config.clone());
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -83,11 +79,9 @@ fn use_token() {
         IncomingConnectionBehavior::Accept
     });
     let (client_ch_2, _server_ch_2) = pair.connect_with(client_config);
-    pair.client
-        .connections
-        .get_mut(&client_ch_2)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch_2);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -102,11 +96,9 @@ fn retry_then_use_token() {
     let client_config = client_config();
     pair.server.handle_incoming = Box::new(validate_incoming);
     let (client_ch, _server_ch) = pair.connect_with(client_config.clone());
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -119,11 +111,9 @@ fn retry_then_use_token() {
         IncomingConnectionBehavior::Accept
     });
     let (client_ch_2, _server_ch_2) = pair.connect_with(client_config);
-    pair.client
-        .connections
-        .get_mut(&client_ch_2)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch_2);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -137,11 +127,9 @@ fn use_token_then_retry() {
     let mut pair = Pair::default();
     let client_config = client_config();
     let (client_ch, _server_ch) = pair.connect_with(client_config.clone());
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -167,11 +155,9 @@ fn use_token_then_retry() {
         }
     });
     let (client_ch_2, _server_ch_2) = pair.connect_with(client_config);
-    pair.client
-        .connections
-        .get_mut(&client_ch_2)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch_2);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -207,11 +193,9 @@ fn use_same_token_twice() {
     let mut client_config = client_config();
     client_config.token_store(Arc::new(EvilTokenStore::default()));
     let (client_ch, _server_ch) = pair.connect_with(client_config.clone());
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -224,11 +208,9 @@ fn use_same_token_twice() {
         IncomingConnectionBehavior::Accept
     });
     let (client_ch_2, _server_ch_2) = pair.connect_with(client_config.clone());
-    pair.client
-        .connections
-        .get_mut(&client_ch_2)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch_2);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -241,11 +223,9 @@ fn use_same_token_twice() {
         IncomingConnectionBehavior::Accept
     });
     let (client_ch_3, _server_ch_3) = pair.connect_with(client_config);
-    pair.client
-        .connections
-        .get_mut(&client_ch_3)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch_3);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -266,11 +246,9 @@ fn use_token_expired() {
     let mut pair = Pair::new(Default::default(), server_config);
     let client_config = client_config();
     let (client_ch, _server_ch) = pair.connect_with(client_config.clone());
-    pair.client
-        .connections
-        .get_mut(&client_ch)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -283,11 +261,9 @@ fn use_token_expired() {
         IncomingConnectionBehavior::Accept
     });
     let (client_ch_2, _server_ch_2) = pair.connect_with(client_config.clone());
-    pair.client
-        .connections
-        .get_mut(&client_ch_2)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch_2);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -302,11 +278,9 @@ fn use_token_expired() {
         IncomingConnectionBehavior::Accept
     });
     let (client_ch_3, _server_ch_3) = pair.connect_with(client_config);
-    pair.client
-        .connections
-        .get_mut(&client_ch_3)
-        .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+    let now = pair.time;
+    let (conn, paths) = pair.client_conn_mut(client_ch_3);
+    conn.close(paths, now, VarInt(42), Bytes::new());
     pair.drive();
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);

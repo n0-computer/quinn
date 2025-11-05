@@ -20,7 +20,7 @@ use crate::{
     cid_generator::ConnectionIdGenerator,
     coding::BufMutExt,
     config::{ClientConfig, EndpointConfig, ServerConfig},
-    connection::{Connection, ConnectionError, SideArgs},
+    connection::{Connection, ConnectionError, Paths, SideArgs},
     crypto::{self, Keys, UnsupportedVersion},
     frame,
     packet::{
@@ -343,7 +343,7 @@ impl Endpoint {
         config: ClientConfig,
         remote: SocketAddr,
         server_name: &str,
-    ) -> Result<(ConnectionHandle, Connection), ConnectError> {
+    ) -> Result<(ConnectionHandle, Connection, Paths), ConnectError> {
         if self.cids_exhausted() {
             return Err(ConnectError::CidsExhausted);
         }
@@ -371,7 +371,7 @@ impl Endpoint {
             .crypto
             .start_session(config.version, server_name, &params)?;
 
-        let conn = self.add_connection(
+        let (conn, paths) = self.add_connection(
             ch,
             config.version,
             remote_id,
@@ -389,7 +389,7 @@ impl Endpoint {
                 server_name: server_name.into(),
             },
         );
-        Ok((ch, conn))
+        Ok((ch, conn, paths))
     }
 
     /// Generates new CIDs and creates message to send to the connection state
@@ -548,7 +548,7 @@ impl Endpoint {
         now: Instant,
         buf: &mut Vec<u8>,
         server_config: Option<Arc<ServerConfig>>,
-    ) -> Result<(ConnectionHandle, Connection), AcceptError> {
+    ) -> Result<(ConnectionHandle, Connection, Paths), AcceptError> {
         let remote_address_validated = incoming.remote_address_validated();
         incoming.improper_drop_warner.dismiss();
         let incoming_buffer = self.incoming_buffers.remove(incoming.incoming_idx);
@@ -642,7 +642,7 @@ impl Endpoint {
 
         let tls = server_config.crypto.clone().start_session(version, &params);
         let transport_config = server_config.transport.clone();
-        let mut conn = self.add_connection(
+        let (mut conn, mut paths) = self.add_connection(
             ch,
             version,
             dst_cid,
@@ -661,6 +661,7 @@ impl Endpoint {
         self.index.insert_initial(dst_cid, ch);
 
         match conn.handle_first_packet(
+            &mut paths,
             incoming.received_at,
             incoming.addresses.remote,
             incoming.ecn,
@@ -672,10 +673,13 @@ impl Endpoint {
                 trace!(id = ch.0, icid = %dst_cid, "new connection");
 
                 for event in incoming_buffer.datagrams {
-                    conn.handle_event(ConnectionEvent(ConnectionEventInner::Datagram(event)))
+                    conn.handle_event(
+                        &mut paths,
+                        ConnectionEvent(ConnectionEventInner::Datagram(event)),
+                    )
                 }
 
-                Ok((ch, conn))
+                Ok((ch, conn, paths))
             }
             Err(e) => {
                 debug!("handshake failed: {}", e);
@@ -821,12 +825,12 @@ impl Endpoint {
         tls: Box<dyn crypto::Session>,
         transport_config: Arc<TransportConfig>,
         side_args: SideArgs,
-    ) -> Connection {
+    ) -> (Connection, Paths) {
         let mut rng_seed = [0; 32];
         self.rng.fill_bytes(&mut rng_seed);
         let side = side_args.side();
         let pref_addr_cid = side_args.pref_addr_cid();
-        let conn = Connection::new(
+        let (conn, paths) = Connection::new(
             self.config.clone(),
             transport_config,
             init_cid,
@@ -864,7 +868,7 @@ impl Endpoint {
 
         self.index.insert_conn(addresses, loc_cid, ch, side);
 
-        conn
+        (conn, paths)
     }
 
     fn initial_close(

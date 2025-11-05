@@ -5,7 +5,7 @@ use tracing::{debug, trace, trace_span};
 use super::{Connection, PathId, SentFrames, TransmitBuf, spaces::SentPacket};
 use crate::{
     ConnectionId, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
-    connection::ConnectionSide,
+    connection::{ConnectionSide, Paths},
     frame::{self, Close},
     packet::{FIXED_BIT, Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId},
 };
@@ -46,6 +46,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         buffer: &'a mut TransmitBuf<'b>,
         ack_eliciting: bool,
         conn: &mut Connection,
+        paths: &mut Paths,
     ) -> Option<Self>
     where
         'b: 'a,
@@ -70,6 +71,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             if sent_with_keys.saturating_add(1) == confidentiality_limit {
                 // We still have time to attempt a graceful close
                 conn.close_inner(
+                    paths,
                     now,
                     Close::Connection(frame::ConnectionClose {
                         error_code: TransportErrorCode::AEAD_LIMIT_REACHED,
@@ -201,6 +203,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         mut self,
         now: Instant,
         conn: &mut Connection,
+        paths: &mut Paths,
         path_id: PathId,
         sent: SentFrames,
         pad_datagram: PadDatagram,
@@ -222,7 +225,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         };
 
         let packet = SentPacket {
-            path_generation: conn.paths.get_mut(&path_id).unwrap().data.generation(),
+            path_generation: paths.paths.get_mut(&path_id).unwrap().data.generation(),
             largest_acked: sent.largest_acked,
             time_sent: now,
             size,
@@ -231,25 +234,25 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             stream_frames: sent.stream_frames,
         };
 
-        conn.paths.get_mut(&path_id).unwrap().data.sent(
+        paths.paths.get_mut(&path_id).unwrap().data.sent(
             exact_number,
             packet,
             conn.spaces[space_id].for_path(path_id),
         );
         conn.stats.paths.entry(path_id).or_default().sent_packets += 1;
-        conn.reset_keep_alive(path_id, now);
+        conn.reset_keep_alive(paths, path_id, now);
         if size != 0 {
             if ack_eliciting {
                 conn.spaces[space_id]
                     .for_path(path_id)
                     .time_of_last_ack_eliciting_packet = Some(now);
                 if conn.permit_idle_reset {
-                    conn.reset_idle_timeout(now, space_id, path_id);
+                    conn.reset_idle_timeout(paths, now, space_id, path_id);
                 }
                 conn.permit_idle_reset = false;
             }
-            conn.set_loss_detection_timer(now, path_id);
-            conn.path_data_mut(path_id).pacing.on_transmit(size);
+            conn.set_loss_detection_timer(paths, now, path_id);
+            paths.path_data_mut(path_id).pacing.on_transmit(size);
         }
     }
 

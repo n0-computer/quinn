@@ -220,16 +220,17 @@ impl Endpoint {
             addr
         };
 
-        let (ch, conn) = endpoint
-            .inner
-            .connect(self.runtime.now(), config, addr, server_name)?;
+        let (ch, conn, paths) =
+            endpoint
+                .inner
+                .connect(self.runtime.now(), config, addr, server_name)?;
 
         let sender = endpoint.socket.create_sender();
         endpoint.stats.outgoing_handshakes += 1;
         Ok(endpoint
             .recv_state
             .connections
-            .insert(ch, conn, sender, self.runtime.clone()))
+            .insert(ch, conn, paths, sender, self.runtime.clone()))
     }
 
     /// Switch to a new UDP socket
@@ -422,14 +423,14 @@ impl EndpointInner {
             .inner
             .accept(incoming, now, &mut response_buffer, server_config)
         {
-            Ok((handle, conn)) => {
+            Ok((handle, conn, paths)) => {
                 state.stats.accepted_handshakes += 1;
                 let sender = state.socket.create_sender();
                 let runtime = state.runtime.clone();
                 Ok(state
                     .recv_state
                     .connections
-                    .insert(handle, conn, sender, runtime))
+                    .insert(handle, conn, paths, sender, runtime))
             }
             Err(error) => {
                 if let Some(transmit) = error.response {
@@ -639,6 +640,7 @@ impl ConnectionSet {
         &mut self,
         handle: ConnectionHandle,
         conn: proto::Connection,
+        paths: proto::Paths,
         sender: Pin<Box<dyn UdpSender>>,
         runtime: Arc<dyn Runtime>,
     ) -> Connecting {
@@ -651,7 +653,15 @@ impl ConnectionSet {
             .unwrap();
         }
         self.senders.insert(handle, send);
-        Connecting::new(handle, conn, self.sender.clone(), recv, sender, runtime)
+        Connecting::new(
+            handle,
+            conn,
+            paths,
+            self.sender.clone(),
+            recv,
+            sender,
+            runtime,
+        )
     }
 
     fn is_empty(&self) -> bool {

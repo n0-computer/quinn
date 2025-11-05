@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::net::SocketAddr;
+use std::ops::DerefMut;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, ready};
@@ -124,17 +125,17 @@ impl Path {
         self.conn
             .state
             .lock("path status")
-            .inner
+            .paths
             .path_status(self.id)
     }
 
     /// Sets the [`PathStatus`] of this path.
     pub fn set_status(&self, status: PathStatus) -> Result<(), ClosedPath> {
-        self.conn
-            .state
-            .lock("set path status")
+        let mut lock = self.conn.state.lock("set path status");
+        let state = lock.deref_mut();
+        state
             .inner
-            .set_path_status(self.id, status)?;
+            .set_path_status(&mut state.paths, self.id, status)?;
         Ok(())
     }
 
@@ -149,10 +150,11 @@ impl Path {
     pub fn close(&self, error_code: VarInt) -> Result<ClosePath, ClosePathError> {
         let (on_path_close_send, on_path_close_recv) = oneshot::channel();
         {
-            let mut state = self.conn.state.lock("close_path");
+            let mut lock = self.conn.state.lock("close_path");
+            let state = lock.deref_mut();
             state
                 .inner
-                .close_path(crate::Instant::now(), self.id, error_code)?;
+                .close_path(&mut state.paths, crate::Instant::now(), self.id, error_code)?;
             state.close_path.insert(self.id, on_path_close_send);
         }
 
@@ -173,7 +175,7 @@ impl Path {
         timeout: Option<Duration>,
     ) -> Result<Option<Duration>, ClosedPath> {
         let mut state = self.conn.state.lock("path_set_max_idle_timeout");
-        state.inner.set_path_max_idle_timeout(self.id, timeout)
+        state.paths.set_path_max_idle_timeout(self.id, timeout)
     }
 
     /// Sets the keep_alive_interval for a specific path
@@ -188,7 +190,7 @@ impl Path {
         interval: Option<Duration>,
     ) -> Result<Option<Duration>, ClosedPath> {
         let mut state = self.conn.state.lock("path_set_keep_alive_interval");
-        state.inner.set_path_keep_alive_interval(self.id, interval)
+        state.paths.set_path_keep_alive_interval(self.id, interval)
     }
 
     /// Track changes on our external address as reported by the peer.
@@ -197,7 +199,7 @@ impl Path {
     pub fn observed_external_addr(&self) -> Result<AddressDiscovery, ClosedPath> {
         let state = self.conn.state.lock("per_path_observed_address");
         let path_events = state.path_events.subscribe();
-        let initial_value = state.inner.path_observed_address(self.id)?;
+        let initial_value = state.paths.path_observed_address(self.id)?;
         Ok(AddressDiscovery::new(
             self.id,
             path_events,
@@ -209,7 +211,7 @@ impl Path {
     /// The peer's UDP address for this path.
     pub fn remote_address(&self) -> Result<SocketAddr, ClosedPath> {
         let state = self.conn.state.lock("per_path_remote_address");
-        state.inner.path_remote_address(self.id)
+        state.paths.path_remote_address(self.id)
     }
 }
 

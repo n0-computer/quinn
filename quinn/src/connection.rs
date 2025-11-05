@@ -4,6 +4,7 @@ use std::{
     future::Future,
     io,
     net::{IpAddr, SocketAddr},
+    ops::DerefMut,
     pin::Pin,
     sync::{Arc, Weak},
     task::{Context, Poll, Waker, ready},
@@ -43,6 +44,7 @@ impl Connecting {
     pub(crate) fn new(
         handle: ConnectionHandle,
         conn: proto::Connection,
+        paths: proto::Paths,
         endpoint_events: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>,
         conn_events: mpsc::UnboundedReceiver<ConnectionEvent>,
         sender: Pin<Box<dyn UdpSender>>,
@@ -53,6 +55,7 @@ impl Connecting {
         let conn = ConnectionRef::new(
             handle,
             conn,
+            paths,
             endpoint_events,
             conn_events,
             on_handshake_data_send,
@@ -192,7 +195,7 @@ impl Connecting {
         conn_ref
             .state
             .lock("remote_address")
-            .inner
+            .paths
             .path_remote_address(PathId::ZERO)
             .expect("path exists when connecting")
     }
@@ -372,19 +375,20 @@ impl Connection {
     ///
     /// [`open_path`]: Self::open_path
     pub fn open_path_ensure(&self, addr: SocketAddr, initial_status: PathStatus) -> OpenPath {
-        let mut state = self.0.state.lock("open_path");
+        let mut lock = self.0.state.lock("open_path");
+        let state = lock.deref_mut();
 
         // If endpoint::State::ipv6 is true we want to keep all our IP addresses as IPv6.
         // If not, we do not support IPv6.  We can not access endpoint::State from here
         // however, but either all our paths use an IPv6 address, or all our paths use an
         // IPv4 address.  So we can use that information.
         let ipv6 = state
-            .inner
+            .paths
             .paths()
             .iter()
             .filter_map(|id| {
                 state
-                    .inner
+                    .paths
                     .path_remote_address(*id)
                     .map(|ip| ip.is_ipv6())
                     .ok()
@@ -401,7 +405,9 @@ impl Connection {
         };
 
         let now = state.runtime.now();
-        let open_res = state.inner.open_path_ensure(addr, initial_status, now);
+        let open_res = state
+            .inner
+            .open_path_ensure(&mut state.paths, addr, initial_status, now);
         state.wake();
         match open_res {
             Ok((path_id, existed)) if existed => {
@@ -413,7 +419,7 @@ impl Connection {
             Ok((path_id, _)) => {
                 let (tx, rx) = watch::channel(Ok(()));
                 state.open_path.insert(path_id, tx);
-                drop(state);
+                drop(lock);
                 OpenPath::new(path_id, rx, self.0.clone())
             }
             Err(err) => OpenPath::rejected(err),
@@ -435,19 +441,20 @@ impl Connection {
     /// return `None` and the future will be ready immediately.  If the failure happens
     /// later, a [`PathEvent`] will be emitted.
     pub fn open_path(&self, addr: SocketAddr, initial_status: PathStatus) -> OpenPath {
-        let mut state = self.0.state.lock("open_path");
+        let mut lock = self.0.state.lock("open_path");
+        let state = lock.deref_mut();
 
         // If endpoint::State::ipv6 is true we want to keep all our IP addresses as IPv6.
         // If not, we do not support IPv6.  We can not access endpoint::State from here
         // however, but either all our paths use an IPv6 address, or all our paths use an
         // IPv4 address.  So we can use that information.
         let ipv6 = state
-            .inner
+            .paths
             .paths()
             .iter()
             .filter_map(|id| {
                 state
-                    .inner
+                    .paths
                     .path_remote_address(*id)
                     .map(|ip| ip.is_ipv6())
                     .ok()
@@ -465,12 +472,14 @@ impl Connection {
 
         let (on_open_path_send, on_open_path_recv) = watch::channel(Ok(()));
         let now = state.runtime.now();
-        let open_res = state.inner.open_path(addr, initial_status, now);
+        let open_res = state
+            .inner
+            .open_path(&mut state.paths, addr, initial_status, now);
         state.wake();
         match open_res {
             Ok(path_id) => {
                 state.open_path.insert(path_id, on_open_path_send);
-                drop(state);
+                drop(lock);
                 OpenPath::new(path_id, on_open_path_recv, self.0.clone())
             }
             Err(err) => OpenPath::rejected(err),
@@ -480,7 +489,7 @@ impl Connection {
     /// Returns the [`Path`] structure of an open path
     pub fn path(&self, id: PathId) -> Option<Path> {
         // TODO(flub): Using this to know if the path still exists is... hacky.
-        self.0.state.lock("path").inner.path_status(id).ok()?;
+        self.0.state.lock("path").paths.path_status(id).ok()?;
         Some(Path {
             id,
             conn: self.0.clone(),
@@ -575,7 +584,7 @@ impl Connection {
             return Err(SendDatagramError::ConnectionLost(x.clone()));
         }
         use proto::SendDatagramError::*;
-        match conn.inner.datagrams().send(data, true) {
+        match conn.inner.datagrams(&mut conn.paths).send(data, true) {
             Ok(()) => {
                 conn.wake();
                 Ok(())
@@ -617,12 +626,9 @@ impl Connection {
     ///
     /// [`send_datagram()`]: Connection::send_datagram
     pub fn max_datagram_size(&self) -> Option<usize> {
-        self.0
-            .state
-            .lock("max_datagram_size")
-            .inner
-            .datagrams()
-            .max_size()
+        let mut state = self.0.state.lock("max_datagram_size");
+        let state = state.deref_mut();
+        state.inner.datagrams(&mut state.paths).max_size()
     }
 
     /// Bytes available in the outgoing datagram buffer
@@ -630,12 +636,9 @@ impl Connection {
     /// When greater than zero, calling [`send_datagram()`](Self::send_datagram) with a datagram of
     /// at most this size is guaranteed not to cause older datagrams to be dropped.
     pub fn datagram_send_buffer_space(&self) -> usize {
-        self.0
-            .state
-            .lock("datagram_send_buffer_space")
-            .inner
-            .datagrams()
-            .send_buffer_space()
+        let mut state = self.0.state.lock("datagram_send_buffer_space");
+        let state = state.deref_mut();
+        state.inner.datagrams(&mut state.paths).send_buffer_space()
     }
 
     /// The side of the connection (client or server)
@@ -657,10 +660,10 @@ impl Connection {
         // TODO: an unwrap again
         let state = self.0.state.lock("remote_address");
         state
-            .inner
+            .paths
             .paths()
             .iter()
-            .filter_map(|id| state.inner.path_remote_address(*id).ok())
+            .filter_map(|id| state.paths.path_remote_address(*id).ok())
             .next()
             .unwrap()
     }
@@ -680,12 +683,14 @@ impl Connection {
 
     /// Current best estimate of this connection's latency (round-trip-time)
     pub fn rtt(&self) -> Duration {
-        self.0.state.lock("rtt").inner.rtt()
+        self.0.state.lock("rtt").paths.rtt()
     }
 
     /// Returns connection statistics
     pub fn stats(&self) -> ConnectionStats {
-        self.0.state.lock("stats").inner.stats()
+        let mut state = self.0.state.lock("stats");
+        let state = state.deref_mut();
+        state.inner.stats(&mut state.paths)
     }
 
     /// Current state of the congestion control algorithm, for debugging purposes
@@ -693,7 +698,7 @@ impl Connection {
         self.0
             .state
             .lock("congestion_state")
-            .inner
+            .paths
             .congestion_state()
             .clone_box()
     }
@@ -968,9 +973,10 @@ impl Future for ReadDatagram<'_> {
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
         let mut state = this.conn.state.lock("ReadDatagram::poll");
+        let state = state.deref_mut();
         // Check for buffered datagrams before checking `state.error` so that already-received
         // datagrams, which are necessarily finite, can be drained from a closed connection.
-        if let Some(x) = state.inner.datagrams().recv() {
+        if let Some(x) = state.inner.datagrams(&mut state.paths).recv() {
             return Poll::Ready(Ok(x));
         } else if let Some(ref e) = state.error {
             return Poll::Ready(Err(e.clone()));
@@ -1007,9 +1013,10 @@ impl Future for SendDatagram<'_> {
             return Poll::Ready(Err(SendDatagramError::ConnectionLost(e.clone())));
         }
         use proto::SendDatagramError::*;
+        let state = state.deref_mut();
         match state
             .inner
-            .datagrams()
+            .datagrams(&mut state.paths)
             .send(this.data.take().unwrap(), false)
         {
             Ok(()) => {
@@ -1045,6 +1052,7 @@ impl ConnectionRef {
     fn new(
         handle: ConnectionHandle,
         conn: proto::Connection,
+        paths: proto::Paths,
         endpoint_events: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>,
         conn_events: mpsc::UnboundedReceiver<ConnectionEvent>,
         on_handshake_data: oneshot::Sender<()>,
@@ -1055,6 +1063,7 @@ impl ConnectionRef {
         Self(Arc::new(ConnectionInner {
             state: Mutex::new(State {
                 inner: conn,
+                paths: paths,
                 driver: None,
                 handle,
                 on_handshake_data: Some(on_handshake_data),
@@ -1163,8 +1172,11 @@ impl WeakConnectionHandle {
     /// reset.  `false` otherwise.
     pub fn network_path_changed(&self) -> bool {
         if let Some(inner) = self.0.upgrade() {
-            let mut inner_state = inner.state.lock("reset-congestion-state");
-            inner_state.inner.path_changed(Instant::now());
+            let mut lock = inner.state.lock("reset-congestion-state");
+            let state = lock.deref_mut();
+            state
+                .paths
+                .path_changed(Instant::now(), &state.inner.config());
             true
         } else {
             false
@@ -1186,6 +1198,7 @@ pub(crate) struct Shared {
 
 pub(crate) struct State {
     pub(crate) inner: proto::Connection,
+    pub(crate) paths: proto::Paths,
     driver: Option<Waker>,
     handle: ConnectionHandle,
     on_handshake_data: Option<oneshot::Sender<()>>,
@@ -1233,10 +1246,12 @@ impl State {
                 Some(t) => t,
                 None => {
                     self.send_buffer.clear();
-                    match self
-                        .inner
-                        .poll_transmit(now, max_datagrams, &mut self.send_buffer)
-                    {
+                    match self.inner.poll_transmit(
+                        &mut self.paths,
+                        now,
+                        max_datagrams,
+                        &mut self.send_buffer,
+                    ) {
                         Some(t) => {
                             transmits += match t.segment_size {
                                 None => 1,
@@ -1292,10 +1307,10 @@ impl State {
             match self.conn_events.poll_recv(cx) {
                 Poll::Ready(Some(ConnectionEvent::Rebind(sender))) => {
                     self.sender = sender;
-                    self.inner.local_address_changed();
+                    self.inner.local_address_changed(&mut self.paths);
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
-                    self.inner.handle_event(event);
+                    self.inner.handle_event(&mut self.paths, event);
                 }
                 Poll::Ready(Some(ConnectionEvent::Close { reason, error_code })) => {
                     self.close(error_code, reason, shared);
@@ -1444,7 +1459,8 @@ impl State {
 
         // A timer expired, so the caller needs to check for
         // new transmits, which might cause new timers to be set.
-        self.inner.handle_timeout(self.runtime.now());
+        self.inner
+            .handle_timeout(&mut self.paths, self.runtime.now());
         self.timer_deadline = None;
         true
     }
@@ -1478,7 +1494,8 @@ impl State {
     }
 
     fn close(&mut self, error_code: VarInt, reason: Bytes, shared: &Shared) {
-        self.inner.close(self.runtime.now(), error_code, reason);
+        self.inner
+            .close(&mut self.paths, self.runtime.now(), error_code, reason);
         self.terminate(ConnectionError::LocallyClosed, shared);
         self.wake();
     }
