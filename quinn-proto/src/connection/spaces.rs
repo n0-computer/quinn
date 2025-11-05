@@ -2,7 +2,7 @@ use std::{
     cmp,
     collections::{BTreeMap, BTreeSet, VecDeque},
     mem,
-    ops::{Bound, Index, IndexMut},
+    ops::{Bound, Index, IndexMut, RangeBounds},
 };
 
 use rand::Rng;
@@ -216,7 +216,7 @@ pub(super) struct PacketNumberSpace {
     pub(super) unacked_non_ack_eliciting_tail: u64,
     /// Transmitted but not acked
     // We use a BTreeMap here so we can efficiently query by range on ACK and for loss detection
-    pub(super) sent_packets: BTreeMap<u64, SentPacket>,
+    pub(super) sent_packets: SentPacketsMap,
     /// Number of explicit congestion notification codepoints seen on incoming packets
     pub(super) ecn_counters: frame::EcnCounts,
     /// Recent ECN counters sent by the peer in ACK frames
@@ -255,6 +255,183 @@ pub(super) struct PacketNumberSpace {
     pn_filter: Option<PacketNumberFilter>,
 }
 
+/// Sorted list
+#[derive(Debug, Default, Clone)]
+pub(super) struct SentPacketsMap {
+    // data: BTreeMap<u64, SentPacket>,
+    data: Vec<Option<(u64, SentPacket)>>,
+}
+
+impl SentPacketsMap {
+    #[inline]
+    pub(super) fn values_mut(&mut self) -> impl Iterator<Item = &mut SentPacket> {
+        // self.data.values_mut()
+        self.data
+            .iter_mut()
+            .filter_map(|v| v.as_mut().map(|(_, v)| v))
+    }
+
+    #[inline]
+    pub(super) fn values(&self) -> impl Iterator<Item = &SentPacket> {
+        // self.data.values()
+        self.data.iter().filter_map(|v| v.as_ref().map(|(_, v)| v))
+    }
+
+    #[inline]
+    pub(super) fn into_values(self) -> impl Iterator<Item = SentPacket> {
+        // self.data.into_values()
+        self.data.into_iter().filter_map(|v| v.map(|(_, v)| v))
+    }
+
+    #[inline]
+    pub(super) fn iter(&self) -> impl Iterator<Item = (&u64, &SentPacket)> {
+        // self.data.iter()
+        self.data
+            .iter()
+            .filter_map(|v| v.as_ref().map(|(k, v)| (k, v)))
+    }
+
+    #[inline]
+    pub(super) fn get(&mut self, n: &u64) -> Option<&SentPacket> {
+        // self.data.get(n)
+        self.data.iter().find_map(|v| match v {
+            Some((k, v)) => {
+                if k == n {
+                    Some(v)
+                } else {
+                    None
+                }
+            }
+            None => None,
+        })
+    }
+
+    #[inline]
+    pub(super) fn insert(&mut self, n: u64, space: SentPacket) -> Option<SentPacket> {
+        // self.data.insert(n, space)
+        match self
+            .data
+            .binary_search_by_key(&Some(n), |v| v.as_ref().map(|(k, _)| *k))
+        {
+            Ok(i) => self.data.remove(i).map(|(_, v)| v),
+            Err(i) => {
+                self.data.insert(i, Some((n, space)));
+                None
+            }
+        }
+    }
+
+    #[inline]
+    pub(super) fn remove(&mut self, n: &u64) -> Option<SentPacket> {
+        match self
+            .data
+            .binary_search_by_key(&Some(*n), |v| v.as_ref().map(|(k, _)| *k))
+        {
+            Ok(i) => self.data.remove(i).map(|(_, v)| v),
+            Err(_i) => None,
+        }
+    }
+
+    pub(super) fn remove_many(
+        &mut self,
+        ns: ArrayRangeSet,
+    ) -> impl Iterator<Item = (u64, SentPacket)> + '_ {
+        SentPacketsExtractor {
+            data: &mut self.data,
+            ranges: ns,
+            i: 0,
+            current_range: None,
+            cleanup_done: false,
+        }
+    }
+
+    // pub(super) fn remove_many<'a, 'b: 'a>(
+    //     &'b mut self,
+    //     ns: impl Iterator<Item = u64> + 'a,
+    // ) -> impl Iterator<Item = (u64, SentPacket)> + 'a {
+    //     ns.filter_map(|i| self.data.remove(&i).map(|v| (i, v)))
+    // }
+
+    #[inline]
+    pub(super) fn range<R>(&self, range: R) -> impl Iterator<Item = (&u64, &SentPacket)>
+    where
+        R: RangeBounds<u64>,
+    {
+        self.data.iter().filter_map(move |v| match v {
+            Some((k, v)) => {
+                if range.contains(k) {
+                    Some((k, v))
+                } else {
+                    None
+                }
+            }
+            None => None,
+        })
+        // self.data.range(range)
+    }
+}
+
+pub(super) struct SentPacketsExtractor<'a> {
+    data: &'a mut Vec<Option<(u64, SentPacket)>>,
+    ranges: ArrayRangeSet,
+    i: usize,
+    current_range: Option<(u64, u64)>,
+    cleanup_done: bool,
+}
+
+impl Drop for SentPacketsExtractor<'_> {
+    fn drop(&mut self) {
+        self.cleanup();
+    }
+}
+
+impl Iterator for SentPacketsExtractor<'_> {
+    type Item = (u64, SentPacket);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.next_i() {
+            Some(i) => match self
+                .data
+                .binary_search_by_key(&Some(i), |v| v.as_ref().map(|(k, _)| *k))
+            {
+                Ok(i) => self.data[i].take(),
+                Err(_i) => None,
+            },
+            None => {
+                self.cleanup();
+                None
+            }
+        }
+    }
+}
+
+impl SentPacketsExtractor<'_> {
+    fn cleanup(&mut self) {
+        if !self.cleanup_done {
+            self.cleanup_done = true;
+            self.data.retain(|el| el.is_some());
+        }
+    }
+
+    fn next_i(&mut self) -> Option<u64> {
+        loop {
+            if let Some((start, end)) = &mut self.current_range {
+                if start == end {
+                    self.current_range = None;
+                } else {
+                    let out = *start;
+                    *start += 1;
+                    return Some(out);
+                }
+            }
+
+            let range = self.ranges.get(self.i)?;
+            self.current_range = Some((range.start, range.end));
+            self.i += 1;
+        }
+    }
+}
+
 impl PacketNumberSpace {
     pub(super) fn new(now: Instant, space: SpaceId, rng: &mut (impl Rng + ?Sized)) -> Self {
         let pn_filter = match space {
@@ -268,7 +445,7 @@ impl PacketNumberSpace {
             largest_acked_packet_sent: now,
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
-            sent_packets: BTreeMap::new(),
+            sent_packets: Default::default(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -296,7 +473,7 @@ impl PacketNumberSpace {
             largest_acked_packet_sent: now,
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
-            sent_packets: BTreeMap::new(),
+            sent_packets: Default::default(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -325,7 +502,7 @@ impl PacketNumberSpace {
             largest_acked_packet_sent: Instant::now(),
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
-            sent_packets: BTreeMap::new(),
+            sent_packets: Default::default(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -430,6 +607,21 @@ impl PacketNumberSpace {
         }
         Some(packet)
     }
+
+    /// Stop tracking sent packet `number`s, and return what we knew about it
+    pub(super) fn take_many(
+        &mut self,
+        numbers: ArrayRangeSet,
+    ) -> impl Iterator<Item = (u64, SentPacket)> + '_ {
+        self.sent_packets.remove_many(numbers)
+    }
+
+    // pub(super) fn take_many<'a, 'b: 'a>(
+    //     &'b mut self,
+    //     numbers: impl Iterator<Item = u64> + 'a,
+    // ) -> impl Iterator<Item = (u64, SentPacket)> + 'a {
+    //     self.sent_packets.remove_many(numbers)
+    // }
 
     /// May return a packet that should be forgotten
     pub(super) fn sent(&mut self, number: u64, packet: SentPacket) -> Option<SentPacket> {

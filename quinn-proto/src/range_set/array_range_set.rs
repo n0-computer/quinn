@@ -48,6 +48,10 @@ impl ArrayRangeSet {
         self.0.iter().cloned()
     }
 
+    pub fn get(&self, n: usize) -> Option<&Range<u64>> {
+        self.0.get(n)
+    }
+
     pub fn elts(&self) -> impl Iterator<Item = u64> + '_ {
         self.iter().flatten()
     }

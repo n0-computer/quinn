@@ -2159,35 +2159,40 @@ impl Connection {
         }
 
         let mut ack_eliciting_acked = false;
-        for packet in newly_acked.elts() {
-            if let Some(info) = self.spaces[space].for_path(path).take(packet) {
-                for (acked_path_id, acked_pn) in info.largest_acked.iter() {
-                    // Assume ACKs for all packets below the largest acknowledged in
-                    // `packet` have been received. This can cause the peer to spuriously
-                    // retransmit if some of our earlier ACKs were lost, but allows for
-                    // simpler state tracking. See discussion at
-                    // https://www.rfc-editor.org/rfc/rfc9000.html#name-limiting-ranges-by-tracking
-                    self.spaces[space]
-                        .for_path(*acked_path_id)
-                        .pending_acks
-                        .subtract_below(*acked_pn);
-                }
-                ack_eliciting_acked |= info.ack_eliciting;
 
-                // Notify MTU discovery that a packet was acked, because it might be an MTU probe
-                let path_data = paths.path_data_mut(path);
-                let mtu_updated = path_data.mtud.on_acked(space, packet, info.size);
-                if mtu_updated {
-                    path_data
-                        .congestion
-                        .on_mtu_update(path_data.mtud.current_mtu());
-                }
+        let mut largest_acks = Vec::new();
+        let packet_space = &mut self.spaces[space];
+        for (packet, info) in packet_space.for_path(path).take_many(newly_acked.clone()) {
+            largest_acks.extend(info.largest_acked.iter().map(|(&a, &b)| (a, b)));
 
-                // Notify ack frequency that a packet was acked, because it might contain an ACK_FREQUENCY frame
-                self.ack_frequency.on_acked(path, packet);
+            ack_eliciting_acked |= info.ack_eliciting;
 
-                self.on_packet_acked(paths, now, path, info);
+            // Notify MTU discovery that a packet was acked, because it might be an MTU probe
+            let path_state = paths.paths.get_mut(&path).expect("known path");
+            let mtu_updated = path_state.data.mtud.on_acked(space, packet, info.size);
+            if mtu_updated {
+                path_state
+                    .data
+                    .congestion
+                    .on_mtu_update(path_state.data.mtud.current_mtu());
             }
+
+            // Notify ack frequency that a packet was acked, because it might contain an ACK_FREQUENCY frame
+            self.ack_frequency.on_acked(path, packet);
+
+            on_packet_acked(now, path_state, &mut self.streams, info, self.app_limited);
+        }
+
+        for (acked_path_id, acked_pn) in largest_acks {
+            // Assume ACKs for all packets below the largest acknowledged in
+            // `packet` have been received. This can cause the peer to spuriously
+            // retransmit if some of our earlier ACKs were lost, but allows for
+            // simpler state tracking. See discussion at
+            // https://www.rfc-editor.org/rfc/rfc9000.html#name-limiting-ranges-by-tracking
+            packet_space
+                .for_path(acked_path_id)
+                .pending_acks
+                .subtract_below(acked_pn);
         }
 
         let largest_ackd = self.spaces[space].for_path(path).largest_acked_packet;
@@ -2286,42 +2291,6 @@ impl Connection {
                     0,
                 );
             }
-        }
-    }
-
-    // Not timing-aware, so it's safe to call this for inferred acks, such as arise from
-    // high-latency handshakes
-    fn on_packet_acked(
-        &mut self,
-        paths: &mut Paths,
-        now: Instant,
-        path_id: PathId,
-        info: SentPacket,
-    ) {
-        paths
-            .paths
-            .get_mut(&path_id)
-            .expect("known path")
-            .remove_in_flight(&info);
-        let app_limited = self.app_limited;
-        let path = paths.path_data_mut(path_id);
-        if info.ack_eliciting && path.challenge.is_none() {
-            // Only pass ACKs to the congestion controller if we are not validating the current
-            // path, so as to ignore any ACKs from older paths still coming in.
-            let rtt = path.rtt;
-            path.congestion
-                .on_ack(now, info.time_sent, info.size.into(), app_limited, &rtt);
-        }
-
-        // Update state for confirmed delivery of frames
-        if let Some(retransmits) = info.retransmits.get() {
-            for (id, _) in retransmits.reset_stream.iter() {
-                self.streams.reset_acked(*id);
-            }
-        }
-
-        for frame in info.stream_frames {
-            self.streams.received_ack_of(frame);
         }
     }
 
@@ -2587,8 +2556,12 @@ impl Connection {
         // OnPacketsLost
         if let Some(largest_lost) = lost_packets.last().cloned() {
             let old_bytes_in_flight = paths.path_data_mut(path_id).in_flight.bytes;
-            let largest_lost_sent =
-                self.spaces[pn_space].for_path(path_id).sent_packets[&largest_lost].time_sent;
+            let largest_lost_sent = self.spaces[pn_space]
+                .for_path(path_id)
+                .sent_packets
+                .get(&largest_lost)
+                .expect("checked")
+                .time_sent;
             let path_stats = self.stats.paths.entry(path_id).or_default();
             path_stats.lost_packets += lost_packets.len() as u64;
             path_stats.lost_bytes += size_of_lost_packets;
@@ -3584,7 +3557,8 @@ impl Connection {
 
                 let space = &mut self.spaces[SpaceId::Initial];
                 if let Some(info) = space.for_path(PathId::ZERO).take(0) {
-                    self.on_packet_acked(paths, now, PathId::ZERO, info);
+                    let path_state = paths.paths.get_mut(&PathId::ZERO).expect("known path");
+                    on_packet_acked(now, path_state, &mut self.streams, info, self.app_limited);
                 };
 
                 self.discard_space(paths, now, SpaceId::Initial); // Make sure we clean up after
@@ -5592,6 +5566,37 @@ impl Connection {
         } else {
             None
         }
+    }
+}
+
+// Not timing-aware, so it's safe to call this for inferred acks, such as arise from
+// high-latency handshakes
+fn on_packet_acked(
+    now: Instant,
+    path_state: &mut PathState,
+    streams: &mut StreamsState,
+    info: SentPacket,
+    app_limited: bool,
+) {
+    path_state.remove_in_flight(&info);
+    let path = &mut path_state.data;
+    if info.ack_eliciting && path.challenge.is_none() {
+        // Only pass ACKs to the congestion controller if we are not validating the current
+        // path, so as to ignore any ACKs from older paths still coming in.
+        let rtt = path.rtt;
+        path.congestion
+            .on_ack(now, info.time_sent, info.size.into(), app_limited, &rtt);
+    }
+
+    // Update state for confirmed delivery of frames
+    if let Some(retransmits) = info.retransmits.get() {
+        for (id, _) in retransmits.reset_stream.iter() {
+            streams.reset_acked(*id);
+        }
+    }
+
+    for frame in info.stream_frames {
+        streams.received_ack_of(frame);
     }
 }
 
