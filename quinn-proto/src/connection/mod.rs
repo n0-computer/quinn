@@ -1151,11 +1151,7 @@ impl Connection {
             }
 
             if can_send.close {
-                // 0-RTT packets must never carry acks (which would have to be of handshake packets)
-                debug_assert!(
-                    self.spaces[space_id].crypto.is_some(),
-                    "tried to send ACK in 0-RTT"
-                );
+                let have_crypto = self.spaces[space_id].crypto.is_some();
 
                 trace!("sending CONNECTION_CLOSE");
                 // Encode ACKs before the ConnectionClose message, to give the receiver
@@ -1173,6 +1169,8 @@ impl Connection {
                         is_multipath_enabled || path_id == PathId::ZERO,
                         "Only PathId::ZERO allowed without multipath (have {path_id:?})"
                     );
+                    // 0-RTT packets must never carry acks (which would have to be of handshake packets)
+                    debug_assert!(have_crypto, "tried to send ACK in 0-RTT");
                     Self::populate_acks(
                         now,
                         self.receiving_ecn,
@@ -4711,8 +4709,7 @@ impl Connection {
         // ACK
         // TODO(flub): Should this sends acks for this path anyway?
         if !path_exclusive_only {
-            // 0-RTT packets must never carry acks (which would have to be of handshake packets)
-            debug_assert!(space.crypto.is_some(), "tried to send ACK in 0-RTT");
+            let have_crypto = space.crypto.is_some();
 
             for (&path_id, pns) in space
                 .number_spaces
@@ -4723,6 +4720,8 @@ impl Connection {
                     is_multipath_negotiated || path_id == PathId::ZERO,
                     "Only PathId::ZERO allowed without multipath (have {path_id:?})"
                 );
+                // 0-RTT packets must never carry acks (which would have to be of handshake packets)
+                debug_assert!(have_crypto, "tried to send ACK in 0-RTT");
                 Self::populate_acks(
                     now,
                     self.receiving_ecn,
