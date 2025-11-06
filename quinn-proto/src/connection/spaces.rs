@@ -309,10 +309,7 @@ impl SentPacketsMap {
     #[inline]
     pub(super) fn insert(&mut self, n: u64, space: SentPacket) -> Option<SentPacket> {
         // self.data.insert(n, space)
-        match self
-            .data
-            .binary_search_by_key(&Some(n), |v| v.as_ref().map(|(k, _)| *k))
-        {
+        match self.search(&n) {
             Ok(i) => self.data.remove(i).map(|(_, v)| v),
             Err(i) => {
                 self.data.insert(i, Some((n, space)));
@@ -322,11 +319,14 @@ impl SentPacketsMap {
     }
 
     #[inline]
-    pub(super) fn remove(&mut self, n: &u64) -> Option<SentPacket> {
-        match self
-            .data
+    fn search(&self, n: &u64) -> Result<usize, usize> {
+        self.data
             .binary_search_by_key(&Some(*n), |v| v.as_ref().map(|(k, _)| *k))
-        {
+    }
+
+    #[inline]
+    pub(super) fn remove(&mut self, n: &u64) -> Option<SentPacket> {
+        match self.search(n) {
             Ok(i) => self.data.remove(i).map(|(_, v)| v),
             Err(_i) => None,
         }
@@ -337,7 +337,7 @@ impl SentPacketsMap {
         ns: ArrayRangeSet,
     ) -> impl Iterator<Item = (u64, SentPacket)> + '_ {
         SentPacketsExtractor {
-            data: &mut self.data,
+            data: self,
             ranges: ns,
             i: 0,
             current_range: None,
@@ -372,7 +372,7 @@ impl SentPacketsMap {
 }
 
 pub(super) struct SentPacketsExtractor<'a> {
-    data: &'a mut Vec<Option<(u64, SentPacket)>>,
+    data: &'a mut SentPacketsMap,
     ranges: ArrayRangeSet,
     i: usize,
     current_range: Option<(u64, u64)>,
@@ -390,11 +390,8 @@ impl Iterator for SentPacketsExtractor<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.next_i() {
-            Some(i) => match self
-                .data
-                .binary_search_by_key(&Some(i), |v| v.as_ref().map(|(k, _)| *k))
-            {
-                Ok(i) => self.data[i].take(),
+            Some(i) => match self.data.search(&i) {
+                Ok(i) => self.data.data[i].take(),
                 Err(_i) => None,
             },
             None => {
@@ -409,7 +406,8 @@ impl SentPacketsExtractor<'_> {
     fn cleanup(&mut self) {
         if !self.cleanup_done {
             self.cleanup_done = true;
-            self.data.retain(|el| el.is_some());
+
+            self.data.data.retain(|el| el.is_some());
         }
     }
 
