@@ -135,9 +135,7 @@ fn lifecycle() {
 
     const REASON: &[u8] = b"whee";
     info!("closing");
-    let now = pair.time;
-    let (conn, paths) = pair.client_conn_mut(client_ch);
-    conn.close(paths, now, VarInt(42), REASON.into());
+    pair.client_conn_close(client_ch, VarInt(42), REASON.into());
     pair.drive();
     assert_matches!(pair.server_conn_mut(server_ch).0.poll(),
                     Some(Event::ConnectionLost { reason: ConnectionError::ApplicationClosed(
@@ -166,9 +164,7 @@ fn draft_version_compat() {
 
     const REASON: &[u8] = b"whee";
     info!("closing");
-    let now = pair.time;
-    let (conn, paths) = pair.client_conn_mut(client_ch);
-    conn.close(paths, now, VarInt(42), REASON.into());
+    pair.client_conn_close(client_ch, VarInt(42), REASON.into());
     pair.drive();
     assert_matches!(pair.server_conn_mut(server_ch).0.poll(),
                     Some(Event::ConnectionLost { reason: ConnectionError::ApplicationClosed(
@@ -234,9 +230,7 @@ fn client_stateless_reset() {
     pair.client.endpoint =
         Endpoint::new(endpoint_config, Some(Arc::new(server_config())), true, None);
     // Send something big enough to allow room for a smaller stateless reset.
-    let now = pair.time;
-    let (conn, paths) = pair.server_conn_mut(server_ch);
-    conn.close(paths, now, VarInt(42), (&[0xab; 128][..]).into());
+    pair.server_conn_close(server_ch, VarInt(42), (&[0xab; 128][..]).into());
     info!("resetting");
     pair.drive();
     assert_matches!(
@@ -552,9 +546,7 @@ fn zero_rtt_happypath() {
     let client_ch = pair.begin_connect(config.clone());
     pair.drive();
     pair.server.assert_accept();
-    let now = pair.time;
-    let (conn, paths) = pair.client_conn_mut(client_ch);
-    conn.close(paths, now, VarInt(0), [][..].into());
+    pair.client_conn_close(client_ch, VarInt(0), [][..].into());
     pair.drive();
 
     pair.client.addr = SocketAddr::new(
@@ -637,9 +629,7 @@ fn zero_rtt_rejection() {
         Some(Event::Connected)
     );
     assert_matches!(pair.server_conn_mut(server_ch).0.poll(), None);
-    let now = pair.time;
-    let (conn, paths) = pair.client_conn_mut(client_ch);
-    conn.close(paths, now, VarInt(0), [][..].into());
+    pair.client_conn_close(client_ch, VarInt(0), [][..].into());
     pair.drive();
     assert_matches!(
         pair.server_conn_mut(server_ch).0.poll(),
@@ -714,9 +704,7 @@ fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: 
     let client_ch = pair.begin_connect(config.clone());
     pair.drive();
     pair.server.assert_accept();
-    let now = pair.time;
-    let (conn, paths) = pair.client_conn_mut(client_ch);
-    conn.close(paths, now, VarInt(0), [][..].into());
+    pair.client_conn_close(client_ch, VarInt(0), [][..].into());
     pair.drive();
 
     pair.client.addr = SocketAddr::new(
@@ -1143,9 +1131,7 @@ fn instant_close_1() {
     let mut pair = Pair::default();
     info!("connecting");
     let client_ch = pair.begin_connect(client_config());
-    let now = pair.time;
-    let (conn, paths) = pair.client_conn_mut(client_ch);
-    conn.close(paths, now, VarInt(0), Bytes::new());
+    pair.client_conn_close(client_ch, VarInt(0), Bytes::new());
     pair.drive();
     let server_ch = pair.server.assert_accept();
     assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
@@ -1168,9 +1154,7 @@ fn instant_close_2() {
     let client_ch = pair.begin_connect(client_config());
     // Unlike `instant_close`, the server sees a valid Initial packet first.
     pair.drive_client();
-    let now = pair.time;
-    let (conn, paths) = pair.client_conn_mut(client_ch);
-    conn.close(paths, now, VarInt(42), Bytes::new());
+    pair.client_conn_close(client_ch, VarInt(42), Bytes::new());
     pair.drive();
     assert_matches!(pair.client_conn_mut(client_ch).0.poll(), None);
     let server_ch = pair.server.assert_accept();
@@ -1199,9 +1183,7 @@ fn instant_server_close() {
     pair.server.drive_incoming(pair.time, pair.client.addr);
     let server_ch = pair.server.assert_accept();
     info!("closing");
-    let now = pair.time;
-    let (conn, paths) = pair.server_conn_mut(server_ch);
-    conn.close(paths, now, VarInt(42), Bytes::new());
+    pair.server_conn_close(server_ch, VarInt(42), Bytes::new());
     pair.drive();
     assert_matches!(
         pair.client_conn_mut(server_ch).0.poll(),
@@ -1268,9 +1250,7 @@ fn connection_close_sends_acks() {
     pair.client_conn_mut(client_ch).0.ping();
     pair.drive_client();
 
-    let time = pair.time;
-    let (conn, paths) = pair.server_conn_mut(client_ch);
-    conn.close(paths, time, VarInt(42), Bytes::new());
+    pair.server_conn_close(client_ch, VarInt(42), Bytes::new());
 
     pair.drive();
 
@@ -1554,13 +1534,9 @@ fn zero_length_cid() {
     let (client_ch, server_ch) = pair.connect();
     // Ensure we can reconnect after a previous connection is cleaned up
     info!("closing");
-    let now = pair.time;
-    let (conn, paths) = pair.client_conn_mut(client_ch);
-    conn.close(paths, now, VarInt(42), Bytes::new());
+    pair.client_conn_close(client_ch, VarInt(42), Bytes::new());
     pair.drive();
-    let now = pair.time;
-    let (conn, paths) = pair.server_conn_mut(server_ch);
-    conn.close(paths, now, VarInt(42), Bytes::new());
+    pair.server_conn_close(server_ch, VarInt(42), Bytes::new());
     pair.connect();
 }
 
@@ -3547,9 +3523,7 @@ fn address_discovery_zero_rtt_accepted() {
     let client_ch = pair.begin_connect(client_cfg);
     pair.drive();
     pair.server.assert_accept();
-    let now = pair.time;
-    let (conn, paths) = pair.client_conn_mut(client_ch);
-    conn.close(paths, now, VarInt(0), [][..].into());
+    pair.client_conn_close(client_ch, VarInt(0), [][..].into());
     pair.drive();
 
     pair.client.addr = SocketAddr::new(
@@ -3637,9 +3611,7 @@ fn address_discovery_zero_rtt_rejection() {
     assert_matches!(conn.0.poll(), Some(Event::HandshakeDataReady));
     assert_matches!(conn.0.poll(), Some(Event::Connected));
     assert_matches!(conn.0.poll(), None);
-    let now = pair.time;
-    let (conn, paths) = pair.client_conn_mut(client_ch);
-    conn.close(paths, now, VarInt(0), [][..].into());
+    pair.client_conn_close(client_ch, VarInt(0), [][..].into());
     pair.drive();
     assert_matches!(
         pair.server_conn_mut(server_ch).0.poll(),

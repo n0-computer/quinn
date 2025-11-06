@@ -4,7 +4,7 @@ use tracing::{debug, trace, trace_span};
 
 use super::{Connection, PathId, SentFrames, TransmitBuf, spaces::SentPacket};
 use crate::{
-    ConnectionId, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
+    ConnectionId, Duration, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
     connection::{ConnectionSide, Paths},
     frame::{self, Close},
     packet::{FIXED_BIT, Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId},
@@ -45,8 +45,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         dst_cid: ConnectionId,
         buffer: &'a mut TransmitBuf<'b>,
         ack_eliciting: bool,
+        max_pto: Duration,
         conn: &mut Connection,
-        paths: &mut Paths,
     ) -> Option<Self>
     where
         'b: 'a,
@@ -71,7 +71,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             if sent_with_keys.saturating_add(1) == confidentiality_limit {
                 // We still have time to attempt a graceful close
                 conn.close_inner(
-                    paths,
+                    max_pto,
                     now,
                     Close::Connection(frame::ConnectionClose {
                         error_code: TransportErrorCode::AEAD_LIMIT_REACHED,

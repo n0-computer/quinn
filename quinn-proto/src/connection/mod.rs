@@ -1054,8 +1054,8 @@ impl Connection {
                 remote_cid,
                 &mut transmit,
                 can_send.other,
+                self.close_pto(paths),
                 self,
-                paths,
             )?;
             last_packet_number = Some(builder.exact_number);
             coalesce = coalesce && !builder.short_header;
@@ -1338,8 +1338,8 @@ impl Connection {
                     active_cid,
                     &mut transmit,
                     true,
+                    self.close_pto(paths),
                     self,
-                    paths,
                 )?;
 
                 // We implement MTU probes as ping packets padded up to the probe size
@@ -1544,8 +1544,8 @@ impl Connection {
             *prev_cid,
             buf,
             false,
+            self.close_pto(paths),
             self,
-            paths,
         )?;
         trace!("validating previous path with PATH_CHALLENGE {:08x}", token);
         builder
@@ -1832,9 +1832,10 @@ impl Connection {
                         // The peer failed to respond with a PATH_ABANDON when we sent such a
                         // frame.
                         warn!(?path_id, "missing PATH_ABANDON from peer");
+                        let max_pto = self.close_pto(paths);
                         // TODO(flub): What should the error code be?
                         self.close(
-                            paths,
+                            max_pto,
                             now,
                             0u8.into(),
                             "peer ignored PATH_ABANDON frame".into(),
@@ -1856,19 +1857,19 @@ impl Connection {
     /// delivered. There may still be data from the peer that has not been received.
     ///
     /// [`StreamEvent::Finished`]: crate::StreamEvent::Finished
-    pub fn close(&mut self, paths: &mut Paths, now: Instant, error_code: VarInt, reason: Bytes) {
+    pub fn close(&mut self, max_pto: Duration, now: Instant, error_code: VarInt, reason: Bytes) {
         self.close_inner(
-            paths,
+            max_pto,
             now,
             Close::Application(frame::ApplicationClose { error_code, reason }),
         )
     }
 
-    fn close_inner(&mut self, paths: &mut Paths, now: Instant, reason: Close) {
+    fn close_inner(&mut self, max_pto: Duration, now: Instant, reason: Close) {
         let was_closed = self.state.is_closed();
         if !was_closed {
             self.close_common();
-            self.set_close_timer(paths, now);
+            self.set_close_timer(max_pto, now);
             self.close = true;
             self.state = State::Closed(state::Closed { reason });
         }
@@ -2832,15 +2833,12 @@ impl Connection {
     ///
     /// See [`Connection::pto`]
     fn pto_max_path(&self, paths: &Paths, space: SpaceId) -> Duration {
-        match space {
-            SpaceId::Initial | SpaceId::Handshake => self.pto(paths, space, PathId::ZERO),
-            SpaceId::Data => paths
-                .paths
-                .keys()
-                .map(|path_id| self.pto(paths, space, *path_id))
-                .max()
-                .expect("there should be one at least path"),
-        }
+        paths.pto_base_max() + self.max_ack_delay(space)
+    }
+
+    /// TODO(matheus23): Docs & Find out where this belongs
+    pub fn close_pto(&self, paths: &Paths) -> Duration {
+        self.pto_max_path(paths, self.highest_space)
     }
 
     /// Probe Timeout
@@ -2848,11 +2846,14 @@ impl Connection {
     /// The PTO is logically the time in which you'd expect to receive an acknowledgement
     /// for a packet. So approximately RTT + max_ack_delay.
     fn pto(&self, paths: &Paths, space: SpaceId, path_id: PathId) -> Duration {
-        let max_ack_delay = match space {
+        paths.pto_base(path_id) + self.max_ack_delay(space)
+    }
+
+    fn max_ack_delay(&self, space: SpaceId) -> Duration {
+        match space {
             SpaceId::Initial | SpaceId::Handshake => Duration::ZERO,
             SpaceId::Data => self.ack_frequency.max_ack_delay_for_pto(),
-        };
-        paths.path_data(path_id).rtt.pto_base() + max_ack_delay
+        }
     }
 
     fn on_packet_authenticated(
@@ -3462,7 +3463,8 @@ impl Connection {
         if !was_closed && self.state.is_closed() {
             self.close_common();
             if !self.state.is_drained() {
-                self.set_close_timer(paths, now);
+                let max_pto = self.close_pto(paths);
+                self.set_close_timer(max_pto, now);
             }
         }
         if !was_drained && self.state.is_drained() {
@@ -4274,7 +4276,7 @@ impl Connection {
                             trace!("peer abandoned last path, closing connection");
                             // TODO(flub): which error code?
                             self.close(
-                                paths,
+                                self.close_pto(paths),
                                 now,
                                 0u8.into(),
                                 Bytes::from_static(b"last path abandoned by peer"),
@@ -5175,13 +5177,11 @@ impl Connection {
         self.timers.reset();
     }
 
-    fn set_close_timer(&mut self, paths: &mut Paths, now: Instant) {
+    fn set_close_timer(&mut self, max_pto: Duration, now: Instant) {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO with PTO the max of
         // the PTO for all paths.
-        self.timers.set(
-            Timer::Generic(GenericTimer::Close),
-            now + 3 * self.pto_max_path(paths, self.highest_space),
-        );
+        self.timers
+            .set(Timer::Generic(GenericTimer::Close), now + 3 * max_pto);
     }
 
     /// Handle transport parameters received from the peer
@@ -5774,6 +5774,20 @@ impl Paths {
             .any(|path_state| path_state.data.remote == remote && path_state.data.validated)
         // TODO(@divma): we might want to ensure the path has been recently active to consider the
         // address validated
+    }
+
+    /// Probe Timeout base value (without max ack delay)
+    fn pto_base(&self, path_id: PathId) -> Duration {
+        self.path_data(path_id).rtt.pto_base()
+    }
+
+    // TODO(matheus23): Perf: Consider storing this value top-level instead of recomputing every time
+    fn pto_base_max(&self) -> Duration {
+        self.paths
+            .values()
+            .map(|path| path.data.rtt.pto_base())
+            .max()
+            .expect("there should be one at least path")
     }
 }
 

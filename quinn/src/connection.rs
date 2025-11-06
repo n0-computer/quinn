@@ -1494,8 +1494,12 @@ impl State {
     }
 
     fn close(&mut self, error_code: VarInt, reason: Bytes, shared: &Shared) {
-        self.inner
-            .close(&mut self.paths, self.runtime.now(), error_code, reason);
+        self.inner.close(
+            self.inner.close_pto(&self.paths),
+            self.runtime.now(),
+            error_code,
+            reason,
+        );
         self.terminate(ConnectionError::LocallyClosed, shared);
         self.wake();
     }

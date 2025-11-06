@@ -258,6 +258,18 @@ impl Pair {
         self.client.connections.get_mut(&ch).unwrap()
     }
 
+    pub(super) fn client_conn_close(
+        &mut self,
+        ch: ConnectionHandle,
+        error_code: VarInt,
+        reason: Bytes,
+    ) {
+        let now = self.time;
+        let (conn, paths) = self.client_conn_mut(ch);
+        let max_pto = conn.close_pto(paths);
+        conn.close(max_pto, now, error_code, reason);
+    }
+
     pub(super) fn client_streams(&mut self, ch: ConnectionHandle) -> Streams<'_> {
         self.client_conn_mut(ch).0.streams()
     }
@@ -277,6 +289,18 @@ impl Pair {
 
     pub(super) fn server_conn_mut(&mut self, ch: ConnectionHandle) -> &mut (Connection, Paths) {
         self.server.connections.get_mut(&ch).unwrap()
+    }
+
+    pub(super) fn server_conn_close(
+        &mut self,
+        ch: ConnectionHandle,
+        error_code: VarInt,
+        reason: Bytes,
+    ) {
+        let now = self.time;
+        let (conn, paths) = self.server_conn_mut(ch);
+        let max_pto = conn.close_pto(paths);
+        conn.close(max_pto, now, error_code, reason);
     }
 
     pub(super) fn server_streams(&mut self, ch: ConnectionHandle) -> Streams<'_> {
