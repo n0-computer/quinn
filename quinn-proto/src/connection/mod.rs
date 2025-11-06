@@ -25,7 +25,10 @@ use crate::{
     coding::BufMutExt,
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
-    connection::timer::{GenericTimer, PerPathTimer},
+    connection::{
+        spaces::PacketNumberSpace,
+        timer::{GenericTimer, PerPathTimer},
+    },
     crypto::{self, KeyPair, Keys, PacketKey},
     frame::{self, Close, Datagram, FrameStruct, NewToken, ObservedAddr},
     packet::{
@@ -1076,6 +1079,12 @@ impl Connection {
             }
 
             if can_send.close {
+                // 0-RTT packets must never carry acks (which would have to be of handshake packets)
+                debug_assert!(
+                    self.spaces[space_id].crypto.is_some(),
+                    "tried to send ACK in 0-RTT"
+                );
+
                 trace!("sending CONNECTION_CLOSE");
                 // Encode ACKs before the ConnectionClose message, to give the receiver
                 // a better approximate on what data has been processed. This is
@@ -1083,12 +1092,10 @@ impl Connection {
                 // have gotten any other ACK for the data earlier on.
                 let mut sent_frames = SentFrames::default();
                 let is_multipath_enabled = self.is_multipath_negotiated();
-                for path_id in self.spaces[space_id]
+                for (&path_id, pns) in self.spaces[space_id]
                     .number_spaces
-                    .iter()
+                    .iter_mut()
                     .filter(|(_, pns)| !pns.pending_acks.ranges().is_empty())
-                    .map(|(&path_id, _)| path_id)
-                    .collect::<Vec<_>>()
                 {
                     debug_assert!(
                         is_multipath_enabled || path_id == PathId::ZERO,
@@ -1099,7 +1106,7 @@ impl Connection {
                         self.receiving_ecn,
                         &mut sent_frames,
                         path_id,
-                        &mut self.spaces[space_id],
+                        pns,
                         is_multipath_enabled,
                         &mut builder.frame_space_mut(),
                         &mut self.stats,
@@ -4690,12 +4697,13 @@ impl Connection {
         // ACK
         // TODO(flub): Should this sends acks for this path anyway?
         if !path_exclusive_only {
-            for path_id in space
+            // 0-RTT packets must never carry acks (which would have to be of handshake packets)
+            debug_assert!(space.crypto.is_some(), "tried to send ACK in 0-RTT");
+
+            for (&path_id, pns) in space
                 .number_spaces
                 .iter_mut()
                 .filter(|(_, pns)| pns.pending_acks.can_send())
-                .map(|(&path_id, _)| path_id)
-                .collect::<Vec<_>>()
             {
                 debug_assert!(
                     is_multipath_negotiated || path_id == PathId::ZERO,
@@ -4706,7 +4714,7 @@ impl Connection {
                     self.receiving_ecn,
                     &mut sent,
                     path_id,
-                    space,
+                    pns,
                     is_multipath_negotiated,
                     buf,
                     &mut self.stats,
@@ -5142,15 +5150,11 @@ impl Connection {
         receiving_ecn: bool,
         sent: &mut SentFrames,
         path_id: PathId,
-        space: &mut PacketSpace,
+        pns: &mut PacketNumberSpace,
         send_path_acks: bool,
         buf: &mut impl BufMut,
         stats: &mut ConnectionStats,
     ) {
-        // 0-RTT packets must never carry acks (which would have to be of handshake packets)
-        debug_assert!(space.crypto.is_some(), "tried to send ACK in 0-RTT");
-
-        let pns = space.for_path(path_id);
         let ranges = pns.pending_acks.ranges();
         debug_assert!(!ranges.is_empty(), "can not send empty ACK range");
         let ecn = if receiving_ecn {
