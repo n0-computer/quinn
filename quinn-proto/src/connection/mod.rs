@@ -817,12 +817,6 @@ impl Connection {
         // The packet number of the last built packet.
         let mut last_packet_number = None;
 
-        let mut path_id = *paths
-            .paths
-            .first_key_value()
-            .expect("one path must exist")
-            .0;
-
         // If there is any available path we only want to send frames to any backup path
         // that must be sent on that backup path exclusively.
         let have_available_path = paths
@@ -830,13 +824,16 @@ impl Connection {
             .values()
             .any(|path| path.data.local_status() == PathStatus::Available);
 
+        let close_pto = self.close_pto(&paths);
+        let mut paths_iter = paths.paths.iter_mut();
+        let (path_id, mut path) = paths_iter.next().expect("one path must exist");
+        let mut path_id = *path_id;
+
         // Setup for the first path_id
-        let mut transmit = TransmitBuf::new(
-            buf,
-            max_datagrams,
-            paths.path_data(path_id).current_mtu().into(),
-        );
-        if let Some(challenge) = self.send_prev_path_challenge(paths, now, &mut transmit, path_id) {
+        let mut transmit = TransmitBuf::new(buf, max_datagrams, path.data.current_mtu().into());
+        if let Some(challenge) =
+            self.send_prev_path_challenge(now, &mut transmit, path_id, path, close_pto)
+        {
             return Some(challenge);
         }
         let mut space_id = match path_id {
@@ -872,17 +869,22 @@ impl Connection {
                     trace!(?path_id, "remote CIDs retired for abandoned path");
                 }
 
-                match paths.paths.keys().find(|&&next| next > path_id) {
-                    Some(next_path_id) => {
+                match paths.paths.iter_mut().find(|(&next, _)| next > path_id) {
+                    Some((&next_path_id, next_path)) => {
                         // See if this next path can send anything.
-                        path_id = *next_path_id;
+                        path_id = next_path_id;
+                        path = next_path;
                         space_id = SpaceId::Data;
 
                         // update per path state
-                        transmit.set_segment_size(paths.path_data(path_id).current_mtu().into());
-                        if let Some(challenge) =
-                            self.send_prev_path_challenge(paths, now, &mut transmit, path_id)
-                        {
+                        transmit.set_segment_size(path.data.current_mtu().into());
+                        if let Some(challenge) = self.send_prev_path_challenge(
+                            now,
+                            &mut transmit,
+                            path_id,
+                            path,
+                            close_pto,
+                        ) {
                             return Some(challenge);
                         }
 
@@ -956,8 +958,8 @@ impl Connection {
                     break;
                 }
 
-                match paths.paths.keys().find(|&&next| next > path_id) {
-                    Some(next_path_id) => {
+                match paths.paths.iter_mut().find(|(&next, _)| next > path_id) {
+                    Some((&next_path_id, next_path)) => {
                         // See if this next path can send anything.
                         trace!(
                             ?space_id,
@@ -965,14 +967,19 @@ impl Connection {
                             ?next_path_id,
                             "nothing to send on path"
                         );
-                        path_id = *next_path_id;
+                        path_id = next_path_id;
+                        path = next_path;
                         space_id = SpaceId::Data;
 
                         // update per path state
-                        transmit.set_segment_size(paths.path_data(path_id).current_mtu().into());
-                        if let Some(challenge) =
-                            self.send_prev_path_challenge(paths, now, &mut transmit, path_id)
-                        {
+                        transmit.set_segment_size(path.data.current_mtu().into());
+                        if let Some(challenge) = self.send_prev_path_challenge(
+                            now,
+                            &mut transmit,
+                            path_id,
+                            path,
+                            close_pto,
+                        ) {
                             return Some(challenge);
                         }
 
@@ -1510,12 +1517,13 @@ impl Connection {
     /// <https://www.rfc-editor.org/rfc/rfc9000.html#name-off-path-packet-forwarding>
     fn send_prev_path_challenge(
         &mut self,
-        paths: &mut Paths,
         now: Instant,
         buf: &mut TransmitBuf<'_>,
         path_id: PathId,
+        path: &mut PathState,
+        close_pto: Duration,
     ) -> Option<Transmit> {
-        let (prev_cid, prev_path) = paths.paths.get_mut(&path_id)?.prev.as_mut()?;
+        let (prev_cid, prev_path) = path.prev.as_mut()?;
         if !prev_path.challenge_pending {
             return None;
         }
@@ -1544,7 +1552,7 @@ impl Connection {
             *prev_cid,
             buf,
             false,
-            self.close_pto(paths),
+            close_pto,
             self,
         )?;
         trace!("validating previous path with PATH_CHALLENGE {:08x}", token);
@@ -1832,10 +1840,10 @@ impl Connection {
                         // The peer failed to respond with a PATH_ABANDON when we sent such a
                         // frame.
                         warn!(?path_id, "missing PATH_ABANDON from peer");
-                        let max_pto = self.close_pto(paths);
+                        let close_pto = self.close_pto(paths);
                         // TODO(flub): What should the error code be?
                         self.close(
-                            max_pto,
+                            close_pto,
                             now,
                             0u8.into(),
                             "peer ignored PATH_ABANDON frame".into(),
@@ -1857,19 +1865,19 @@ impl Connection {
     /// delivered. There may still be data from the peer that has not been received.
     ///
     /// [`StreamEvent::Finished`]: crate::StreamEvent::Finished
-    pub fn close(&mut self, max_pto: Duration, now: Instant, error_code: VarInt, reason: Bytes) {
+    pub fn close(&mut self, close_pto: Duration, now: Instant, error_code: VarInt, reason: Bytes) {
         self.close_inner(
-            max_pto,
+            close_pto,
             now,
             Close::Application(frame::ApplicationClose { error_code, reason }),
         )
     }
 
-    fn close_inner(&mut self, max_pto: Duration, now: Instant, reason: Close) {
+    fn close_inner(&mut self, close_pto: Duration, now: Instant, reason: Close) {
         let was_closed = self.state.is_closed();
         if !was_closed {
             self.close_common();
-            self.set_close_timer(max_pto, now);
+            self.set_close_timer(close_pto, now);
             self.close = true;
             self.state = State::Closed(state::Closed { reason });
         }
@@ -3463,8 +3471,8 @@ impl Connection {
         if !was_closed && self.state.is_closed() {
             self.close_common();
             if !self.state.is_drained() {
-                let max_pto = self.close_pto(paths);
-                self.set_close_timer(max_pto, now);
+                let close_pto = self.close_pto(paths);
+                self.set_close_timer(close_pto, now);
             }
         }
         if !was_drained && self.state.is_drained() {
@@ -5177,11 +5185,11 @@ impl Connection {
         self.timers.reset();
     }
 
-    fn set_close_timer(&mut self, max_pto: Duration, now: Instant) {
+    fn set_close_timer(&mut self, close_pto: Duration, now: Instant) {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO with PTO the max of
         // the PTO for all paths.
         self.timers
-            .set(Timer::Generic(GenericTimer::Close), now + 3 * max_pto);
+            .set(Timer::Generic(GenericTimer::Close), now + 3 * close_pto);
     }
 
     /// Handle transport parameters received from the peer

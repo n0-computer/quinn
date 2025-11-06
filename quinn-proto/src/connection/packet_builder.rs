@@ -45,7 +45,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         dst_cid: ConnectionId,
         buffer: &'a mut TransmitBuf<'b>,
         ack_eliciting: bool,
-        max_pto: Duration,
+        close_pto: Duration,
         conn: &mut Connection,
     ) -> Option<Self>
     where
@@ -71,7 +71,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             if sent_with_keys.saturating_add(1) == confidentiality_limit {
                 // We still have time to attempt a graceful close
                 conn.close_inner(
-                    max_pto,
+                    close_pto,
                     now,
                     Close::Connection(frame::ConnectionClose {
                         error_code: TransportErrorCode::AEAD_LIMIT_REACHED,
@@ -89,13 +89,11 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         }
 
         let space = &mut conn.spaces[space_id];
-        let exact_number = space.for_path(path_id).get_tx_number(&mut conn.rng);
+        let path_space = space.for_path(path_id);
+        let exact_number = path_space.get_tx_number(&mut conn.rng);
         let span = trace_span!("send", space = ?space_id, pn = exact_number, %path_id).entered();
 
-        let number = PacketNumber::new(
-            exact_number,
-            space.for_path(path_id).largest_acked_packet.unwrap_or(0),
-        );
+        let number = PacketNumber::new(exact_number, path_space.largest_acked_packet.unwrap_or(0));
         let header = match space_id {
             SpaceId::Data if space.crypto.is_some() => Header::Short {
                 dst_cid,

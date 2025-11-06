@@ -266,8 +266,8 @@ impl Pair {
     ) {
         let now = self.time;
         let (conn, paths) = self.client_conn_mut(ch);
-        let max_pto = conn.close_pto(paths);
-        conn.close(max_pto, now, error_code, reason);
+        let close_pto = conn.close_pto(paths);
+        conn.close(close_pto, now, error_code, reason);
     }
 
     pub(super) fn client_streams(&mut self, ch: ConnectionHandle) -> Streams<'_> {
@@ -299,8 +299,8 @@ impl Pair {
     ) {
         let now = self.time;
         let (conn, paths) = self.server_conn_mut(ch);
-        let max_pto = conn.close_pto(paths);
-        conn.close(max_pto, now, error_code, reason);
+        let close_pto = conn.close_pto(paths);
+        conn.close(close_pto, now, error_code, reason);
     }
 
     pub(super) fn server_streams(&mut self, ch: ConnectionHandle) -> Streams<'_> {
