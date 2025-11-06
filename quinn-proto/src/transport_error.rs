@@ -59,8 +59,10 @@ impl coding::Codec for Code {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
         Ok(Self(buf.get_var()?))
     }
-    fn encode<B: BufMut>(&self, buf: &mut B) {
-        buf.write_var(self.0)
+
+    fn encode<B: BufMut>(&self, mut buf: B) -> B {
+        buf.write_var(self.0);
+        buf
     }
 }
 

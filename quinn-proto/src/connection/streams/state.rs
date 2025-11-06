@@ -409,13 +409,13 @@ impl StreamsState {
             .is_some_and(|s| s.can_send_flow_control())
     }
 
-    pub(in crate::connection) fn write_control_frames(
+    pub(in crate::connection) fn write_control_frames<W: BufMut>(
         &mut self,
-        buf: &mut impl BufMut,
+        mut buf: W,
         pending: &mut Retransmits,
         retransmits: &mut ThinRetransmits,
         stats: &mut FrameStats,
-    ) {
+    ) -> W {
         // RESET_STREAM
         while buf.remaining_mut() > frame::ResetStream::SIZE_BOUND {
             let (id, error_code) = match pending.reset_stream.pop() {
@@ -431,7 +431,7 @@ impl StreamsState {
                 .get_or_create()
                 .reset_stream
                 .push((id, error_code));
-            frame::ResetStream {
+            buf = frame::ResetStream {
                 id,
                 error_code,
                 final_offset: VarInt::try_from(stream.offset()).expect("impossibly large offset"),
@@ -454,7 +454,7 @@ impl StreamsState {
             // peer, but we discard that information as soon as the application consumes it, so it
             // can't be relied upon regardless.
             trace!(stream = %frame.id, "STOP_SENDING");
-            frame.encode(buf);
+            buf = frame.encode(buf);
             retransmits.get_or_create().stop_sending.push(frame);
             stats.stop_sending += 1;
         }
@@ -536,13 +536,14 @@ impl StreamsState {
                 Dir::Bi => stats.max_streams_bidi += 1,
             }
         }
+        buf
     }
 
-    pub(crate) fn write_stream_frames(
+    pub(crate) fn write_stream_frames<W: BufMut>(
         &mut self,
-        buf: &mut impl BufMut,
+        mut buf: W,
         fair: bool,
-    ) -> StreamMetaVec {
+    ) -> (StreamMetaVec, W) {
         let mut stream_frames = StreamMetaVec::new();
         while buf.remaining_mut() > frame::Stream::SIZE_BOUND {
             // Pop the stream of the highest priority that currently has pending data. If
@@ -591,7 +592,7 @@ impl StreamsState {
 
             let meta = frame::StreamMeta { id, offsets, fin };
             trace!(id = %meta.id, off = meta.offsets.start, len = meta.offsets.end - meta.offsets.start, fin = meta.fin, "STREAM");
-            meta.encode(encode_length, buf);
+            buf = meta.encode(encode_length, buf);
 
             // The range might not be retrievable in a single `get` if it is
             // stored in noncontiguous fashion. Therefore this loop iterates
@@ -605,7 +606,7 @@ impl StreamsState {
             stream_frames.push(meta);
         }
 
-        stream_frames
+        (stream_frames, buf)
     }
 
     /// Notify the application that new streams were opened or a stream became readable.
@@ -1378,7 +1379,7 @@ mod tests {
         high.write(b"high").unwrap();
 
         let mut buf = Vec::with_capacity(40);
-        let meta = server.write_stream_frames(&mut buf, true);
+        let (meta, _) = server.write_stream_frames(&mut buf, true);
         assert_eq!(meta[0].id, id_high);
         assert_eq!(meta[1].id, id_mid);
         assert_eq!(meta[2].id, id_low);
@@ -1437,7 +1438,7 @@ mod tests {
         high.set_priority(-1).unwrap();
 
         let mut buf = Vec::with_capacity(1000).limit(40);
-        let meta = server.write_stream_frames(&mut buf, true);
+        let (meta, _) = server.write_stream_frames(&mut buf, true);
         assert_eq!(meta.len(), 1);
         assert_eq!(meta[0].id, id_high);
 
@@ -1447,7 +1448,7 @@ mod tests {
         let mut buf = buf.into_inner();
 
         // Send the remaining data. The initial mid priority one should go first now
-        let meta = server.write_stream_frames(&mut buf, true);
+        let (meta, _) = server.write_stream_frames(&mut buf, true);
         assert_eq!(meta.len(), 2);
         assert_eq!(meta[0].id, id_mid);
         assert_eq!(meta[1].id, id_high);
@@ -1508,7 +1509,7 @@ mod tests {
             // loop until all the streams are written
             loop {
                 let mut chunk_buf = buf.limit(40);
-                let meta = server.write_stream_frames(&mut chunk_buf, fair);
+                let (meta, _) = server.write_stream_frames(&mut chunk_buf, fair);
                 if meta.is_empty() {
                     break;
                 }
@@ -1580,7 +1581,7 @@ mod tests {
 
         // Write the first chunk of stream_a
         let mut chunk_buf = buf.limit(40);
-        let meta = server.write_stream_frames(&mut chunk_buf, false);
+        let (meta, _) = server.write_stream_frames(&mut chunk_buf, false);
         let mut buf = chunk_buf.into_inner();
         assert!(!meta.is_empty());
         metas.extend(meta);
@@ -1598,7 +1599,7 @@ mod tests {
         // loop until all the streams are written
         loop {
             let mut chunk_buf = buf.limit(40);
-            let meta = server.write_stream_frames(&mut chunk_buf, false);
+            let (meta, _) = server.write_stream_frames(&mut chunk_buf, false);
             buf = chunk_buf.into_inner();
             if meta.is_empty() {
                 break;

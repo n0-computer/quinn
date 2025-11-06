@@ -36,7 +36,7 @@ impl coding::Codec for PathId {
         Ok(Self(v))
     }
 
-    fn encode<B: bytes::BufMut>(&self, w: &mut B) {
+    fn encode<B: bytes::BufMut>(&self, w: B) -> B {
         VarInt(self.0.into()).encode(w)
     }
 }

@@ -20,7 +20,7 @@ pub trait Codec: Sized {
     /// Decode a `Self` from the provided buffer, if the buffer is large enough
     fn decode<B: Buf>(buf: &mut B) -> Result<Self>;
     /// Append the encoding of `self` to the provided buffer
-    fn encode<B: BufMut>(&self, buf: &mut B);
+    fn encode<B: BufMut>(&self, buf: B) -> B;
 }
 
 impl Codec for u8 {
@@ -30,8 +30,10 @@ impl Codec for u8 {
         }
         Ok(buf.get_u8())
     }
-    fn encode<B: BufMut>(&self, buf: &mut B) {
+
+    fn encode<B: BufMut>(&self, mut buf: B) -> B {
         buf.put_u8(*self);
+        buf
     }
 }
 
@@ -42,8 +44,9 @@ impl Codec for u16 {
         }
         Ok(buf.get_u16())
     }
-    fn encode<B: BufMut>(&self, buf: &mut B) {
+    fn encode<B: BufMut>(&self, mut buf: B) -> B {
         buf.put_u16(*self);
+        buf
     }
 }
 
@@ -54,8 +57,9 @@ impl Codec for u32 {
         }
         Ok(buf.get_u32())
     }
-    fn encode<B: BufMut>(&self, buf: &mut B) {
+    fn encode<B: BufMut>(&self, mut buf: B) -> B {
         buf.put_u32(*self);
+        buf
     }
 }
 
@@ -66,8 +70,9 @@ impl Codec for u64 {
         }
         Ok(buf.get_u64())
     }
-    fn encode<B: BufMut>(&self, buf: &mut B) {
+    fn encode<B: BufMut>(&self, mut buf: B) -> B {
         buf.put_u64(*self);
+        buf
     }
 }
 
@@ -80,8 +85,9 @@ impl Codec for Ipv4Addr {
         buf.copy_to_slice(&mut octets);
         Ok(octets.into())
     }
-    fn encode<B: BufMut>(&self, buf: &mut B) {
+    fn encode<B: BufMut>(&self, mut buf: B) -> B {
         buf.put_slice(&self.octets());
+        buf
     }
 }
 
@@ -94,8 +100,9 @@ impl Codec for Ipv6Addr {
         buf.copy_to_slice(&mut octets);
         Ok(octets.into())
     }
-    fn encode<B: BufMut>(&self, buf: &mut B) {
+    fn encode<B: BufMut>(&self, mut buf: B) -> B {
         buf.put_slice(&self.octets());
+        buf
     }
 }
 

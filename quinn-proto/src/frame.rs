@@ -45,8 +45,10 @@ impl coding::Codec for FrameType {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
         Ok(Self(buf.get_var()?))
     }
-    fn encode<B: BufMut>(&self, buf: &mut B) {
+
+    fn encode<B: BufMut>(&self, mut buf: B) -> B {
         buf.write_var(self.0);
+        buf
     }
 }
 
@@ -283,12 +285,13 @@ impl RetireConnectionId {
     };
 
     /// Encode [`Self`] into the given buffer
-    pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, mut buf: W) -> W {
         buf.write(self.get_type());
         if let Some(id) = self.path_id {
             buf.write(id);
         }
         buf.write_var(self.sequence);
+        buf
     }
 
     /// Decode [`Self`] from the buffer, provided that the frame type has been verified (either
@@ -499,8 +502,8 @@ impl PathAck {
         delay: u64,
         ranges: &ArrayRangeSet,
         ecn: Option<&EcnCounts>,
-        buf: &mut W,
-    ) {
+        mut buf: W,
+    ) -> W {
         let mut rest = ranges.iter().rev();
         let first = rest
             .next()
@@ -525,8 +528,9 @@ impl PathAck {
             prev = block.start;
         }
         if let Some(x) = ecn {
-            x.encode(buf)
+            buf = x.encode(buf);
         }
+        buf
     }
 
     pub fn into_ack(self) -> (Ack, PathId) {
@@ -585,8 +589,8 @@ impl Ack {
         delay: u64,
         ranges: &ArrayRangeSet,
         ecn: Option<&EcnCounts>,
-        buf: &mut W,
-    ) {
+        mut buf: W,
+    ) -> W {
         let mut rest = ranges.iter().rev();
         let first = rest.next().unwrap();
         let largest = first.end - 1;
@@ -608,8 +612,9 @@ impl Ack {
             prev = block.start;
         }
         if let Some(x) = ecn {
-            x.encode(buf)
+            buf = x.encode(buf);
         }
+        buf
     }
 
     pub fn iter(&self) -> AckIter<'_> {
@@ -647,10 +652,11 @@ impl EcnCounts {
         ce: 0,
     };
 
-    pub fn encode<W: BufMut>(&self, out: &mut W) {
+    pub fn encode<W: BufMut>(&self, mut out: W) -> W {
         out.write_var(self.ect0);
         out.write_var(self.ect1);
         out.write_var(self.ce);
+        out
     }
 }
 
@@ -686,7 +692,7 @@ impl Default for StreamMeta {
 }
 
 impl StreamMeta {
-    pub(crate) fn encode<W: BufMut>(&self, length: bool, out: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, length: bool, mut out: W) -> W {
         let mut ty = *STREAM_TYS.start();
         if self.offsets.start != 0 {
             ty |= 0x04;
@@ -705,6 +711,7 @@ impl StreamMeta {
         if length {
             out.write_var(self.offsets.end - self.offsets.start); // <=8 bytes
         }
+        out
     }
 }
 
@@ -720,11 +727,12 @@ pub(crate) struct Crypto {
 impl Crypto {
     pub(crate) const SIZE_BOUND: usize = 17;
 
-    pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, mut out: W) -> W {
         out.write(FrameType::CRYPTO);
         out.write_var(self.offset);
         out.write_var(self.data.len() as u64);
         out.put_slice(&self.data);
+        out
     }
 }
 
@@ -734,10 +742,11 @@ pub(crate) struct NewToken {
 }
 
 impl NewToken {
-    pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, mut out: W) -> W {
         out.write(FrameType::NEW_TOKEN);
         out.write_var(self.token.len() as u64);
         out.put_slice(&self.token);
+        out
     }
 
     pub(crate) fn size(&self) -> usize {
@@ -758,9 +767,10 @@ impl MaxPathId {
     }
 
     /// Encode [`Self`] into the given buffer
-    pub(crate) fn encode<B: BufMut>(&self, buf: &mut B) {
+    pub(crate) fn encode<W: BufMut>(&self, mut buf: W) -> W {
         buf.write(FrameType::MAX_PATH_ID);
         buf.write(self.0);
+        buf
     }
 }
 
@@ -772,9 +782,10 @@ impl PathsBlocked {
         VarInt(FrameType::PATHS_BLOCKED.0).size() + VarInt(u32::MAX as u64).size();
 
     /// Encode [`Self`] into the given buffer
-    pub(crate) fn encode<B: BufMut>(&self, buf: &mut B) {
+    pub(crate) fn encode<W: BufMut>(&self, mut buf: W) -> W {
         buf.write(FrameType::PATHS_BLOCKED);
         buf.write(self.0);
+        buf
     }
 
     /// Decode [`Self`] from the buffer, provided that the frame type has been verified
@@ -803,10 +814,11 @@ impl PathCidsBlocked {
     }
 
     // Encode [`Self`] into the given buffer
-    pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, mut buf: W) -> W {
         buf.write(FrameType::PATH_CIDS_BLOCKED);
         buf.write(self.path_id);
         buf.write(self.next_seq);
+        buf
     }
 }
 
@@ -1138,11 +1150,12 @@ impl FrameStruct for ResetStream {
 }
 
 impl ResetStream {
-    pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, mut out: W) -> W {
         out.write(FrameType::RESET_STREAM); // 1 byte
         out.write(self.id); // <= 8 bytes
         out.write(self.error_code); // <= 8 bytes
         out.write(self.final_offset); // <= 8 bytes
+        out
     }
 }
 
@@ -1157,10 +1170,11 @@ impl FrameStruct for StopSending {
 }
 
 impl StopSending {
-    pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, mut out: W) -> W {
         out.write(FrameType::STOP_SENDING); // 1 byte
         out.write(self.id); // <= 8 bytes
-        out.write(self.error_code) // <= 8 bytes
+        out.write(self.error_code); // <= 8 bytes
+        out
     }
 }
 
@@ -1203,7 +1217,7 @@ impl NewConnectionId {
             + reset_token_len
     };
 
-    pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, mut out: W) -> W {
         out.write(self.get_type());
         if let Some(id) = self.path_id {
             out.write(id);
@@ -1213,6 +1227,7 @@ impl NewConnectionId {
         out.write(self.id.len() as u8);
         out.put_slice(&self.id);
         out.put_slice(&self.reset_token);
+        out
     }
 
     pub(crate) fn get_type(&self) -> FrameType {
@@ -1283,13 +1298,14 @@ impl FrameStruct for Datagram {
 }
 
 impl Datagram {
-    pub(crate) fn encode(&self, length: bool, out: &mut impl BufMut) {
+    pub(crate) fn encode<W: BufMut>(&self, length: bool, mut out: W) -> W {
         out.write(FrameType(*DATAGRAM_TYS.start() | u64::from(length))); // 1 byte
         if length {
             // Safe to unwrap because we check length sanity before queueing datagrams
             out.write(VarInt::from_u64(self.data.len() as u64).unwrap()); // <= 8 bytes
         }
         out.put_slice(&self.data);
+        out
     }
 
     pub(crate) fn size(&self, length: bool) -> usize {
@@ -1310,12 +1326,13 @@ pub(crate) struct AckFrequency {
 }
 
 impl AckFrequency {
-    pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, mut buf: W) -> W {
         buf.write(FrameType::ACK_FREQUENCY);
         buf.write(self.sequence);
         buf.write(self.ack_eliciting_threshold);
         buf.write(self.request_max_ack_delay);
         buf.write(self.reordering_threshold);
+        buf
     }
 }
 
@@ -1361,7 +1378,7 @@ impl ObservedAddr {
     }
 
     /// Unconditionally write this frame to `buf`.
-    pub(crate) fn write<W: BufMut>(&self, buf: &mut W) {
+    pub(crate) fn write<W: BufMut>(&self, mut buf: W) -> W {
         buf.write(self.get_type());
         buf.write(self.seq_no);
         match self.ip {
@@ -1373,6 +1390,7 @@ impl ObservedAddr {
             }
         }
         buf.write::<u16>(self.port);
+        buf
     }
 
     /// Reads the frame contents from the buffer.
@@ -1408,10 +1426,11 @@ impl PathAbandon {
     pub(crate) const SIZE_BOUND: usize = VarInt(FrameType::PATH_ABANDON.0).size() + 8 + 8;
 
     /// Encode [`Self`] into the given buffer
-    pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, mut buf: W) -> W {
         buf.write(FrameType::PATH_ABANDON);
         buf.write(self.path_id);
         buf.write(self.error_code);
+        buf
     }
 
     /// Decode [`Self`] from the buffer, provided that the frame type has been verified
@@ -1434,10 +1453,11 @@ impl PathAvailable {
     pub(crate) const SIZE_BOUND: usize = VarInt(FrameType::PATH_AVAILABLE.0).size() + 8 + 8;
 
     /// Encode [`Self`] into the given buffer
-    pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, mut buf: W) -> W {
         buf.write(Self::TYPE);
         buf.write(self.path_id);
         buf.write(self.status_seq_no);
+        buf
     }
 
     /// Decode [`Self`] from the buffer, provided that the frame type has been verified
@@ -1459,10 +1479,11 @@ impl PathBackup {
     const TYPE: FrameType = FrameType::PATH_BACKUP;
 
     /// Encode [`Self`] into the given buffer
-    pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
+    pub(crate) fn encode<W: BufMut>(&self, mut buf: W) -> W {
         buf.write(Self::TYPE);
         buf.write(self.path_id);
         buf.write(self.status_seq_no);
+        buf
     }
 
     /// Decode [`Self`] from the buffer, provided that the frame type has been verified

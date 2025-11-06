@@ -166,24 +166,24 @@ impl DatagramState {
     ///
     /// Returns whether a frame was written. At most `max_size` bytes will be written, including
     /// framing.
-    pub(super) fn write(&mut self, buf: &mut impl BufMut) -> bool {
+    pub(super) fn write<W: BufMut>(&mut self, mut buf: W) -> (bool, W) {
         let datagram = match self.outgoing.pop_front() {
             Some(x) => x,
-            None => return false,
+            None => return (false, buf),
         };
 
         if buf.remaining_mut() < datagram.size(true) {
             // Future work: we could be more clever about cramming small datagrams into
             // mostly-full packets when a larger one is queued first
             self.outgoing.push_front(datagram);
-            return false;
+            return (false, buf);
         }
 
         trace!(len = datagram.data.len(), "DATAGRAM");
 
         self.outgoing_total -= datagram.data.len();
-        datagram.encode(true, buf);
-        true
+        buf = datagram.encode(true, buf);
+        (true, buf)
     }
 
     pub(super) fn recv(&mut self) -> Option<Bytes> {
