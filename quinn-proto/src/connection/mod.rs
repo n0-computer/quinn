@@ -836,8 +836,8 @@ impl Connection {
         &mut self,
         now: Instant,
         max_datagrams: usize,
-        buf: &mut Vec<u8>,
-    ) -> Option<Transmit> {
+        buf: Vec<u8>,
+    ) -> (Option<Transmit>, Vec<u8>) {
         assert!(max_datagrams != 0);
         let max_datagrams = match self.config.enable_segmentation_offload {
             false => 1,
@@ -865,14 +865,14 @@ impl Connection {
         let close = match self.state {
             State::Drained => {
                 self.app_limited = true;
-                return None;
+                return (None, buf);
             }
             State::Draining | State::Closed(_) => {
                 // self.close is only reset once the associated packet had been
                 // encoded successfully
                 if !self.close {
                     self.app_limited = true;
-                    return None;
+                    return (None, buf);
                 }
                 true
             }
@@ -924,9 +924,14 @@ impl Connection {
             max_datagrams,
             self.path_data(path_id).current_mtu().into(),
         );
-        if let Some(challenge) = self.send_prev_path_challenge(now, &mut transmit, path_id) {
-            return Some(challenge);
-        }
+        match self.send_prev_path_challenge(now, transmit, path_id) {
+            (Some(challenge), t) => {
+                return (Some(challenge), t.into_inner());
+            }
+            (None, t) => {
+                transmit = t;
+            }
+        };
         let mut space_id = match path_id {
             PathId::ZERO => SpaceId::Initial,
             _ => SpaceId::Data,
@@ -963,10 +968,11 @@ impl Connection {
 
                         // update per path state
                         transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
-                        if let Some(challenge) =
-                            self.send_prev_path_challenge(now, &mut transmit, path_id)
-                        {
-                            return Some(challenge);
+                        match self.send_prev_path_challenge(now, transmit, path_id) {
+                            (Some(challenge), t) => return (Some(challenge), t.into_inner()),
+                            (None, t) => {
+                                transmit = t;
+                            }
                         }
 
                         continue;
@@ -1053,10 +1059,11 @@ impl Connection {
 
                         // update per path state
                         transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
-                        if let Some(challenge) =
-                            self.send_prev_path_challenge(now, &mut transmit, path_id)
-                        {
-                            return Some(challenge);
+                        match self.send_prev_path_challenge(now, transmit, path_id) {
+                            (Some(challenge), t) => return (Some(challenge), t.into_inner()),
+                            (None, t) => {
+                                transmit = t;
+                            }
                         }
 
                         continue;
@@ -1130,15 +1137,18 @@ impl Connection {
                 prev.update_unacked = false;
             }
 
-            let mut builder = PacketBuilder::new(
+            let mut builder = match PacketBuilder::new(
                 now,
                 space_id,
                 path_id,
                 remote_cid,
-                &mut transmit,
+                transmit,
                 can_send.other,
                 self,
-            )?;
+            ) {
+                Ok(b) => b,
+                Err(transmit) => return (None, transmit.into_inner()),
+            };
             last_packet_number = Some(builder.exact_number);
             coalesce = coalesce && !builder.short_header;
 
@@ -1216,7 +1226,7 @@ impl Connection {
                         ),
                     }
                 }
-                builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
+                transmit = builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
                 if space_id == self.highest_space {
                     // Don't send another close packet. Even with multipath we only send
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
@@ -1246,7 +1256,7 @@ impl Connection {
                         .write(frame::FrameType::PATH_RESPONSE);
                     builder.frame_space_mut().write(token);
                     self.stats.frame_tx.path_response += 1;
-                    builder.finish_and_track(
+                    transmit = builder.finish_and_track(
                         now,
                         self,
                         path_id,
@@ -1257,13 +1267,16 @@ impl Connection {
                         PadDatagram::ToMinMtu,
                     );
                     self.stats.udp_tx.on_sent(1, transmit.len());
-                    return Some(Transmit {
-                        destination: remote,
-                        size: transmit.len(),
-                        ecn: None,
-                        segment_size: None,
-                        src_ip: self.local_ip,
-                    });
+                    return (
+                        Some(Transmit {
+                            destination: remote,
+                            size: transmit.len(),
+                            ecn: None,
+                            segment_size: None,
+                            src_ip: self.local_ip,
+                        }),
+                        transmit.into_inner(),
+                    );
                 }
             }
 
@@ -1323,12 +1336,13 @@ impl Connection {
                     .saturating_sub(builder.predict_packet_end())
                     > MIN_PACKET_SPACE
                 && self
-                    .next_send_space(space_id, path_id, builder.buf, close)
+                    .next_send_space(space_id, path_id, &builder.buf, close)
                     .is_some()
             {
                 // We can append/coalesce the next packet into the current
                 // datagram. Finish the current packet without adding extra padding.
-                builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No);
+                transmit =
+                    builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No);
             } else {
                 // We need a new datagram for the next packet.  Finish the current
                 // packet with padding.
@@ -1348,13 +1362,19 @@ impl Connection {
                             "GSO truncated by demand for {} padding bytes",
                             builder.buf.datagram_remaining_mut() - builder.predict_packet_end()
                         );
-                        builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No);
+                        transmit = builder.finish_and_track(
+                            now,
+                            self,
+                            path_id,
+                            sent_frames,
+                            PadDatagram::No,
+                        );
                         break;
                     }
 
                     // Pad the current datagram to GSO segment size so it can be
                     // included in the GSO batch.
-                    builder.finish_and_track(
+                    transmit = builder.finish_and_track(
                         now,
                         self,
                         path_id,
@@ -1362,7 +1382,8 @@ impl Connection {
                         PadDatagram::ToSegmentSize,
                     );
                 } else {
-                    builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
+                    transmit =
+                        builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
                 }
                 if transmit.num_datagrams() == 1 {
                     transmit.clip_datagram_size();
@@ -1396,24 +1417,21 @@ impl Connection {
             if let Some(active_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) {
                 let space_id = SpaceId::Data;
                 let next_pn = self.spaces[space_id].for_path(path_id).peek_tx_number();
-                let probe_size = self
-                    .path_data_mut(path_id)
-                    .mtud
-                    .poll_transmit(now, next_pn)?;
+                let Some(probe_size) = self.path_data_mut(path_id).mtud.poll_transmit(now, next_pn)
+                else {
+                    return (None, transmit.into_inner());
+                };
 
                 debug_assert_eq!(transmit.num_datagrams(), 0);
                 transmit.start_new_datagram_with_size(probe_size as usize);
 
                 debug_assert_eq!(transmit.datagram_start_offset(), 0);
-                let mut builder = PacketBuilder::new(
-                    now,
-                    space_id,
-                    path_id,
-                    active_cid,
-                    &mut transmit,
-                    true,
-                    self,
-                )?;
+                let mut builder = match PacketBuilder::new(
+                    now, space_id, path_id, active_cid, transmit, true, self,
+                ) {
+                    Ok(b) => b,
+                    Err(transmit) => return (None, transmit.into_inner()),
+                };
 
                 // We implement MTU probes as ping packets padded up to the probe size
                 trace!(?probe_size, "writing MTUD probe");
@@ -1434,7 +1452,7 @@ impl Connection {
                     non_retransmits: true,
                     ..Default::default()
                 };
-                builder.finish_and_track(
+                transmit = builder.finish_and_track(
                     now,
                     self,
                     path_id,
@@ -1451,7 +1469,7 @@ impl Connection {
         }
 
         if transmit.is_empty() {
-            return None;
+            return (None, transmit.into_inner());
         }
 
         trace!(
@@ -1468,20 +1486,23 @@ impl Connection {
             .udp_tx
             .on_sent(transmit.num_datagrams() as u64, transmit.len());
 
-        Some(Transmit {
-            destination: self.path_data(path_id).remote,
-            size: transmit.len(),
-            ecn: if self.path_data(path_id).sending_ecn {
-                Some(EcnCodepoint::Ect0)
-            } else {
-                None
-            },
-            segment_size: match transmit.num_datagrams() {
-                1 => None,
-                _ => Some(transmit.segment_size()),
-            },
-            src_ip: self.local_ip,
-        })
+        (
+            Some(Transmit {
+                destination: self.path_data(path_id).remote,
+                size: transmit.len(),
+                ecn: if self.path_data(path_id).sending_ecn {
+                    Some(EcnCodepoint::Ect0)
+                } else {
+                    None
+                },
+                segment_size: match transmit.num_datagrams() {
+                    1 => None,
+                    _ => Some(transmit.segment_size()),
+                },
+                src_ip: self.local_ip,
+            }),
+            transmit.into_inner(),
+        )
     }
 
     /// Returns the [`SpaceId`] of the next packet space which has data to send
@@ -1492,7 +1513,7 @@ impl Connection {
         &mut self,
         current_space_id: SpaceId,
         path_id: PathId,
-        buf: &TransmitBuf<'_>,
+        buf: &TransmitBuf,
         close: bool,
     ) -> Option<SpaceId> {
         // Number of bytes available for frames if this is a 1-RTT packet. We're guaranteed
@@ -1521,7 +1542,7 @@ impl Connection {
         &mut self,
         space_id: SpaceId,
         path_id: PathId,
-        transmit: &TransmitBuf<'_>,
+        transmit: &TransmitBuf,
         can_send: &SendableFrames,
         now: Instant,
     ) -> PathBlocked {
@@ -1572,12 +1593,19 @@ impl Connection {
     fn send_prev_path_challenge(
         &mut self,
         now: Instant,
-        buf: &mut TransmitBuf<'_>,
+        mut buf: TransmitBuf,
         path_id: PathId,
-    ) -> Option<Transmit> {
-        let (prev_cid, prev_path) = self.paths.get_mut(&path_id)?.prev.as_mut()?;
+    ) -> (Option<Transmit>, TransmitBuf) {
+        let Some((prev_cid, prev_path)) = match self.paths.get_mut(&path_id) {
+            Some(it) => it,
+            None => return (None, buf),
+        }
+        .prev
+        .as_mut() else {
+            return (None, buf);
+        };
         if !prev_path.challenge_pending {
-            return None;
+            return (None, buf);
         }
         prev_path.challenge_pending = false;
         let token = prev_path
@@ -1598,7 +1626,10 @@ impl Connection {
         // this is sent first.
         debug_assert_eq!(buf.datagram_start_offset(), 0);
         let mut builder =
-            PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
+            match PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self) {
+                Ok(builder) => builder,
+                Err(buf) => return (None, buf),
+            };
         trace!("validating previous path with PATH_CHALLENGE {:08x}", token);
         builder
             .frame_space_mut()
@@ -1612,16 +1643,19 @@ impl Connection {
         // sending a datagram of this size
         builder.pad_to(MIN_INITIAL_SIZE);
 
-        builder.finish(self, now);
+        let (buf, _, _) = builder.finish(self, now);
         self.stats.udp_tx.on_sent(1, buf.len());
 
-        Some(Transmit {
-            destination,
-            size: buf.len(),
-            ecn: None,
-            segment_size: None,
-            src_ip: self.local_ip,
-        })
+        (
+            Some(Transmit {
+                destination,
+                size: buf.len(),
+                ecn: None,
+                segment_size: None,
+                src_ip: self.local_ip,
+            }),
+            buf,
+        )
     }
 
     /// Indicate what types of frames are ready to send for the given space

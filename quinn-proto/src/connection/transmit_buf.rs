@@ -26,9 +26,9 @@ use crate::packet::BufLen;
 ///
 /// [`Connection::poll_transmit`]: super::Connection::poll_transmit
 #[derive(Debug)]
-pub(super) struct TransmitBuf<'a> {
+pub(super) struct TransmitBuf {
     /// The buffer itself, packets are written to this buffer
-    buf: &'a mut Vec<u8>,
+    buf: Vec<u8>,
     /// Offset into the buffer at which the current datagram starts
     ///
     /// Note that when coalescing packets this might be before the start of the current
@@ -56,8 +56,8 @@ pub(super) struct TransmitBuf<'a> {
     segment_size: usize,
 }
 
-impl<'a> TransmitBuf<'a> {
-    pub(super) fn new(buf: &'a mut Vec<u8>, max_datagrams: usize, mtu: usize) -> Self {
+impl TransmitBuf {
+    pub(super) fn new(buf: Vec<u8>, max_datagrams: usize, mtu: usize) -> Self {
         Self {
             buf,
             datagram_start: 0,
@@ -66,6 +66,10 @@ impl<'a> TransmitBuf<'a> {
             num_datagrams: 0,
             segment_size: mtu,
         }
+    }
+
+    pub(super) fn into_inner(self) -> Vec<u8> {
+        self.buf
     }
 
     pub(super) fn set_segment_size(&mut self, mtu: usize) {
@@ -221,7 +225,7 @@ impl<'a> TransmitBuf<'a> {
     }
 }
 
-unsafe impl BufMut for TransmitBuf<'_> {
+unsafe impl BufMut for TransmitBuf {
     fn remaining_mut(&self) -> usize {
         self.buf.remaining_mut()
     }
@@ -235,7 +239,7 @@ unsafe impl BufMut for TransmitBuf<'_> {
     }
 }
 
-impl BufLen for TransmitBuf<'_> {
+impl BufLen for TransmitBuf {
     fn len(&self) -> usize {
         self.len()
     }
