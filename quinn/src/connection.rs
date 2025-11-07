@@ -1221,7 +1221,6 @@ impl State {
     fn drive_transmit(&mut self, cx: &mut Context) -> io::Result<bool> {
         let now = self.runtime.now();
         let mut transmits = 0;
-        let mut send_buffer = Vec::new();
 
         let max_datagrams = self
             .sender
@@ -1233,17 +1232,19 @@ impl State {
             let t = match self.buffered_transmit.take() {
                 Some(t) => t,
                 None => {
-                    send_buffer.clear();
-                    match self.inner.poll_transmit(now, max_datagrams, send_buffer) {
-                        (Some(t), buf) => {
-                            send_buffer = buf;
+                    self.send_buffer.clear();
+                    match self
+                        .inner
+                        .poll_transmit(now, max_datagrams, &mut self.send_buffer)
+                    {
+                        Some(t) => {
                             transmits += match t.segment_size {
                                 None => 1,
                                 Some(s) => t.size.div_ceil(s), // round up
                             };
                             t
                         }
-                        (None, _) => {
+                        None => {
                             break;
                         }
                     }
@@ -1254,7 +1255,7 @@ impl State {
             match self
                 .sender
                 .as_mut()
-                .poll_send(&udp_transmit(&t, &send_buffer[..len]), cx)
+                .poll_send(&udp_transmit(&t, &self.send_buffer[..len]), cx)
             {
                 Poll::Pending => {
                     self.buffered_transmit = Some(t);

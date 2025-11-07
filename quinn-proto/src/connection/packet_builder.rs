@@ -18,8 +18,8 @@ use crate::{
 ///
 /// The builder manages the write buffer into which the packet is written, and directly
 /// implements [`BufMut`] to write frames into the packet.
-pub(super) struct PacketBuilder {
-    pub(super) buf: TransmitBuf,
+pub(super) struct PacketBuilder<'a> {
+    pub(super) buf: TransmitBuf<'a>,
     pub(super) space: SpaceId,
     path: PathId,
     pub(super) partial_encode: PartialEncode,
@@ -33,7 +33,36 @@ pub(super) struct PacketBuilder {
     pub(super) _span: tracing::span::EnteredSpan,
 }
 
-impl PacketBuilder {
+pub(super) struct PausedPacketBuilder {
+    space: SpaceId,
+    path: PathId,
+    partial_encode: PartialEncode,
+    ack_eliciting: bool,
+    exact_number: u64,
+    short_header: bool,
+    min_size: usize,
+    tag_len: usize,
+    _span: tracing::span::EnteredSpan,
+}
+
+impl PausedPacketBuilder {
+    pub(super) fn unpause<'a>(self, buf: TransmitBuf<'a>) -> PacketBuilder<'a> {
+        PacketBuilder {
+            buf,
+            space: self.space,
+            path: self.path,
+            partial_encode: self.partial_encode,
+            ack_eliciting: self.ack_eliciting,
+            exact_number: self.exact_number,
+            short_header: self.short_header,
+            min_size: self.min_size,
+            tag_len: self.tag_len,
+            _span: self._span,
+        }
+    }
+}
+
+impl<'a> PacketBuilder<'a> {
     /// Write a new packet header to `buffer` and determine the packet's properties
     ///
     /// Marks the connection drained and returns `None` if the confidentiality limit would be
@@ -43,10 +72,10 @@ impl PacketBuilder {
         space_id: SpaceId,
         path_id: PathId,
         dst_cid: ConnectionId,
-        mut buffer: TransmitBuf,
+        mut buffer: TransmitBuf<'a>,
         ack_eliciting: bool,
         conn: &mut Connection,
-    ) -> Result<Self, TransmitBuf> {
+    ) -> Result<Self, TransmitBuf<'a>> {
         let version = conn.version;
         // Initiate key update if we're approaching the confidentiality limit
         let sent_with_keys = conn.spaces[space_id].sent_with_keys();
@@ -190,9 +219,24 @@ impl PacketBuilder {
     /// The [`BufMut::remaining_mut`] call on the returned buffer indicates the amount of
     /// space available to write QUIC frames into.
     // In rust 1.82 we can use `-> impl BufMut + use<'_, 'a, 'b>`
-    pub(super) fn frame_space_mut(&mut self) -> bytes::buf::Limit<&'_ mut TransmitBuf> {
+    pub(super) fn frame_space_mut(
+        self,
+    ) -> (bytes::buf::Limit<TransmitBuf<'a>>, PausedPacketBuilder) {
         let remaining_space = self.frame_space_remaining();
-        (&mut self.buf).limit(remaining_space)
+        (
+            self.buf.limit(remaining_space),
+            PausedPacketBuilder {
+                space: self.space,
+                path: self.path,
+                partial_encode: self.partial_encode,
+                ack_eliciting: self.ack_eliciting,
+                exact_number: self.exact_number,
+                short_header: self.short_header,
+                min_size: self.min_size,
+                tag_len: self.tag_len,
+                _span: self._span,
+            },
+        )
     }
 
     pub(super) fn finish_and_track(
@@ -202,7 +246,7 @@ impl PacketBuilder {
         path_id: PathId,
         sent: SentFrames,
         pad_datagram: PadDatagram,
-    ) -> TransmitBuf {
+    ) -> TransmitBuf<'a> {
         match pad_datagram {
             PadDatagram::No => (),
             PadDatagram::ToSize(size) => self.pad_to(size),
@@ -257,7 +301,7 @@ impl PacketBuilder {
         mut self,
         conn: &mut Connection,
         now: Instant,
-    ) -> (TransmitBuf, usize, bool) {
+    ) -> (TransmitBuf<'a>, usize, bool) {
         debug_assert!(
             self.buf.len() <= self.buf.datagram_max_offset() - self.tag_len,
             "packet exceeds maximum size"

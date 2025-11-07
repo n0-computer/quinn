@@ -836,8 +836,8 @@ impl Connection {
         &mut self,
         now: Instant,
         max_datagrams: usize,
-        buf: Vec<u8>,
-    ) -> (Option<Transmit>, Vec<u8>) {
+        buf: &mut Vec<u8>,
+    ) -> Option<Transmit> {
         assert!(max_datagrams != 0);
         let max_datagrams = match self.config.enable_segmentation_offload {
             false => 1,
@@ -865,14 +865,14 @@ impl Connection {
         let close = match self.state {
             State::Drained => {
                 self.app_limited = true;
-                return (None, buf);
+                return None;
             }
             State::Draining | State::Closed(_) => {
                 // self.close is only reset once the associated packet had been
                 // encoded successfully
                 if !self.close {
                     self.app_limited = true;
-                    return (None, buf);
+                    return None;
                 }
                 true
             }
@@ -925,8 +925,8 @@ impl Connection {
             self.path_data(path_id).current_mtu().into(),
         );
         match self.send_prev_path_challenge(now, transmit, path_id) {
-            (Some(challenge), t) => {
-                return (Some(challenge), t.into_inner());
+            (Some(challenge), _) => {
+                return Some(challenge);
             }
             (None, t) => {
                 transmit = t;
@@ -969,7 +969,7 @@ impl Connection {
                         // update per path state
                         transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
                         match self.send_prev_path_challenge(now, transmit, path_id) {
-                            (Some(challenge), t) => return (Some(challenge), t.into_inner()),
+                            (Some(challenge), _) => return Some(challenge),
                             (None, t) => {
                                 transmit = t;
                             }
@@ -1060,7 +1060,7 @@ impl Connection {
                         // update per path state
                         transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
                         match self.send_prev_path_challenge(now, transmit, path_id) {
-                            (Some(challenge), t) => return (Some(challenge), t.into_inner()),
+                            (Some(challenge), _) => return Some(challenge),
                             (None, t) => {
                                 transmit = t;
                             }
@@ -1137,7 +1137,7 @@ impl Connection {
                 prev.update_unacked = false;
             }
 
-            let mut builder = match PacketBuilder::new(
+            let mut builder = PacketBuilder::new(
                 now,
                 space_id,
                 path_id,
@@ -1145,10 +1145,8 @@ impl Connection {
                 transmit,
                 can_send.other,
                 self,
-            ) {
-                Ok(b) => b,
-                Err(transmit) => return (None, transmit.into_inner()),
-            };
+            )
+            .ok()?;
             last_packet_number = Some(builder.exact_number);
             coalesce = coalesce && !builder.short_header;
 
@@ -1181,16 +1179,18 @@ impl Connection {
                     );
                     // 0-RTT packets must never carry acks (which would have to be of handshake packets)
                     debug_assert!(have_crypto, "tried to send ACK in 0-RTT");
-                    Self::populate_acks(
+                    let (mut buf, paused) = builder.frame_space_mut();
+                    buf = Self::populate_acks(
                         now,
                         self.receiving_ecn,
                         &mut sent_frames,
                         path_id,
                         pns,
                         is_multipath_enabled,
-                        builder.frame_space_mut(),
+                        buf,
                         &mut self.stats,
                     );
+                    builder = paused.unpause(buf.into_inner());
                 }
 
                 // Since there only 64 ACK frames there will always be enough space
@@ -1202,17 +1202,18 @@ impl Connection {
                 );
                 if frame::ConnectionClose::SIZE_BOUND < builder.frame_space_remaining() {
                     let max_frame_size = builder.frame_space_remaining();
+                    let (mut buf, paused) = builder.frame_space_mut();
                     match self.state {
                         State::Closed(state::Closed { ref reason }) => {
                             if space_id == SpaceId::Data || reason.is_transport_layer() {
-                                reason.encode(&mut builder.frame_space_mut(), max_frame_size)
+                                reason.encode(&mut buf, max_frame_size)
                             } else {
                                 frame::ConnectionClose {
                                     error_code: TransportErrorCode::APPLICATION_ERROR,
                                     frame_type: None,
                                     reason: Bytes::new(),
                                 }
-                                .encode(&mut builder.frame_space_mut(), max_frame_size)
+                                .encode(&mut buf, max_frame_size)
                             }
                         }
                         State::Draining => frame::ConnectionClose {
@@ -1220,11 +1221,12 @@ impl Connection {
                             frame_type: None,
                             reason: Bytes::new(),
                         }
-                        .encode(&mut builder.frame_space_mut(), max_frame_size),
+                        .encode(&mut buf, max_frame_size),
                         _ => unreachable!(
                             "tried to make a close packet when the connection wasn't closed"
                         ),
                     }
+                    builder = paused.unpause(buf.into_inner());
                 }
                 transmit = builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
                 if space_id == self.highest_space {
@@ -1251,10 +1253,12 @@ impl Connection {
                     //    CID as the current active one for the path.  Though see also
                     //    https://github.com/quinn-rs/quinn/issues/2184
                     trace!("PATH_RESPONSE {:08x} (off-path)", token);
-                    builder
-                        .frame_space_mut()
-                        .write(frame::FrameType::PATH_RESPONSE);
-                    builder.frame_space_mut().write(token);
+                    let (mut buf, paused) = builder.frame_space_mut();
+                    buf.write(frame::FrameType::PATH_RESPONSE);
+                    builder = paused.unpause(buf.into_inner());
+                    let (mut buf, paused) = builder.frame_space_mut();
+                    buf.write(token);
+                    builder = paused.unpause(buf.into_inner());
                     self.stats.frame_tx.path_response += 1;
                     transmit = builder.finish_and_track(
                         now,
@@ -1267,31 +1271,25 @@ impl Connection {
                         PadDatagram::ToMinMtu,
                     );
                     self.stats.udp_tx.on_sent(1, transmit.len());
-                    return (
-                        Some(Transmit {
-                            destination: remote,
-                            size: transmit.len(),
-                            ecn: None,
-                            segment_size: None,
-                            src_ip: self.local_ip,
-                        }),
-                        transmit.into_inner(),
-                    );
+                    return Some(Transmit {
+                        destination: remote,
+                        size: transmit.len(),
+                        ecn: None,
+                        segment_size: None,
+                        src_ip: self.local_ip,
+                    });
                 }
             }
 
-            let (sent_frames, _) = {
+            let sent_frames = {
                 let path_exclusive_only = have_available_path
                     && self.path_data(path_id).local_status() == PathStatus::Backup;
                 let pn = builder.exact_number;
-                self.populate_packet(
-                    now,
-                    space_id,
-                    path_id,
-                    path_exclusive_only,
-                    builder.frame_space_mut(),
-                    pn,
-                )
+                let (buf, paused) = builder.frame_space_mut();
+                let (fs, buf) =
+                    self.populate_packet(now, space_id, path_id, path_exclusive_only, buf, pn);
+                builder = paused.unpause(buf.into_inner());
+                fs
             };
 
             // ACK-only packets should only be sent when explicitly allowed. If we write them due to
@@ -1419,32 +1417,31 @@ impl Connection {
                 let next_pn = self.spaces[space_id].for_path(path_id).peek_tx_number();
                 let Some(probe_size) = self.path_data_mut(path_id).mtud.poll_transmit(now, next_pn)
                 else {
-                    return (None, transmit.into_inner());
+                    return None;
                 };
 
                 debug_assert_eq!(transmit.num_datagrams(), 0);
                 transmit.start_new_datagram_with_size(probe_size as usize);
 
                 debug_assert_eq!(transmit.datagram_start_offset(), 0);
-                let mut builder = match PacketBuilder::new(
-                    now, space_id, path_id, active_cid, transmit, true, self,
-                ) {
-                    Ok(b) => b,
-                    Err(transmit) => return (None, transmit.into_inner()),
-                };
+                let mut builder =
+                    PacketBuilder::new(now, space_id, path_id, active_cid, transmit, true, self)
+                        .ok()?;
 
                 // We implement MTU probes as ping packets padded up to the probe size
                 trace!(?probe_size, "writing MTUD probe");
                 trace!("PING");
-                builder.frame_space_mut().write(frame::FrameType::PING);
+                let (mut buf, paused) = builder.frame_space_mut();
+                buf.write(frame::FrameType::PING);
+                builder = paused.unpause(buf.into_inner());
                 self.stats.frame_tx.ping += 1;
 
                 // If supported by the peer, we want no delays to the probe's ACK
                 if self.peer_supports_ack_frequency() {
                     trace!("IMMEDIATE_ACK");
-                    builder
-                        .frame_space_mut()
-                        .write(frame::FrameType::IMMEDIATE_ACK);
+                    let (mut buf, paused) = builder.frame_space_mut();
+                    buf.write(frame::FrameType::IMMEDIATE_ACK);
+                    builder = paused.unpause(buf.into_inner());
                     self.stats.frame_tx.immediate_ack += 1;
                 }
 
@@ -1469,7 +1466,7 @@ impl Connection {
         }
 
         if transmit.is_empty() {
-            return (None, transmit.into_inner());
+            return None;
         }
 
         trace!(
@@ -1486,23 +1483,20 @@ impl Connection {
             .udp_tx
             .on_sent(transmit.num_datagrams() as u64, transmit.len());
 
-        (
-            Some(Transmit {
-                destination: self.path_data(path_id).remote,
-                size: transmit.len(),
-                ecn: if self.path_data(path_id).sending_ecn {
-                    Some(EcnCodepoint::Ect0)
-                } else {
-                    None
-                },
-                segment_size: match transmit.num_datagrams() {
-                    1 => None,
-                    _ => Some(transmit.segment_size()),
-                },
-                src_ip: self.local_ip,
-            }),
-            transmit.into_inner(),
-        )
+        Some(Transmit {
+            destination: self.path_data(path_id).remote,
+            size: transmit.len(),
+            ecn: if self.path_data(path_id).sending_ecn {
+                Some(EcnCodepoint::Ect0)
+            } else {
+                None
+            },
+            segment_size: match transmit.num_datagrams() {
+                1 => None,
+                _ => Some(transmit.segment_size()),
+            },
+            src_ip: self.local_ip,
+        })
     }
 
     /// Returns the [`SpaceId`] of the next packet space which has data to send
@@ -1590,12 +1584,12 @@ impl Connection {
     ///
     /// QUIC-TRANSPORT section 9.3.3
     /// <https://www.rfc-editor.org/rfc/rfc9000.html#name-off-path-packet-forwarding>
-    fn send_prev_path_challenge(
+    fn send_prev_path_challenge<'a>(
         &mut self,
         now: Instant,
-        mut buf: TransmitBuf,
+        mut buf: TransmitBuf<'a>,
         path_id: PathId,
-    ) -> (Option<Transmit>, TransmitBuf) {
+    ) -> (Option<Transmit>, TransmitBuf<'a>) {
         let Some((prev_cid, prev_path)) = match self.paths.get_mut(&path_id) {
             Some(it) => it,
             None => return (None, buf),
@@ -1631,10 +1625,13 @@ impl Connection {
                 Err(buf) => return (None, buf),
             };
         trace!("validating previous path with PATH_CHALLENGE {:08x}", token);
-        builder
-            .frame_space_mut()
-            .write(frame::FrameType::PATH_CHALLENGE);
-        builder.frame_space_mut().write(token);
+        let (mut buf, paused) = builder.frame_space_mut();
+        buf.write(frame::FrameType::PATH_CHALLENGE);
+        builder = paused.unpause(buf.into_inner());
+        let (mut buf, paused) = builder.frame_space_mut();
+        buf.write(token);
+        builder = paused.unpause(buf.into_inner());
+
         self.stats.frame_tx.path_challenge += 1;
 
         // An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
