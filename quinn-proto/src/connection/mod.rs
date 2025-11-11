@@ -4329,9 +4329,9 @@ impl Connection {
                             Timer::PerPath(path_id, PathTimer::PathAbandoned),
                             now + delay,
                         );
-                        self.timers
-                            .stop(Timer::PerPath(path_id, PathTimer::PathNotAbandoned));
                     }
+                    self.timers
+                        .stop(Timer::PerPath(path_id, PathTimer::PathNotAbandoned));
                 }
                 Frame::PathAvailable(info) => {
                     span.record("path", tracing::field::debug(&info.path_id));
