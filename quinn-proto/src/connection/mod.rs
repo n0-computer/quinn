@@ -3264,7 +3264,7 @@ impl Connection {
         pns.loss_time = None;
         pns.loss_probes = 0;
         let sent_packets = mem::take(&mut pns.sent_packets);
-        let mut path = self.paths.get_mut(&PathId::ZERO).unwrap();
+        let path = self.paths.get_mut(&PathId::ZERO).unwrap();
         for packet in sent_packets.into_values() {
             path.data.remove_in_flight(&packet);
         }
