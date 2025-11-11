@@ -4303,9 +4303,10 @@ impl Connection {
                 }) => {
                     span.record("path", tracing::field::debug(&path_id));
                     // TODO(flub): don't really know which error code to use here.
-                    match self.close_path(now, path_id, error_code.into()) {
+                    let already_closed = match self.close_path(now, path_id, error_code.into()) {
                         Ok(()) => {
                             trace!("peer abandoned path");
+                            false
                         }
                         Err(ClosePathError::LastOpenPath) => {
                             trace!("peer abandoned last path, closing connection");
@@ -4315,18 +4316,22 @@ impl Connection {
                                 0u8.into(),
                                 Bytes::from_static(b"last path abandoned by peer"),
                             );
+                            false
                         }
                         Err(ClosePathError::ClosedPath) => {
                             trace!("peer abandoned already closed path");
+                            true
                         }
+                    };
+                    if !already_closed {
+                        let delay = self.pto(SpaceId::Data, path_id) * 3;
+                        self.timers.set(
+                            Timer::PerPath(path_id, PathTimer::PathAbandoned),
+                            now + delay,
+                        );
+                        self.timers
+                            .stop(Timer::PerPath(path_id, PathTimer::PathNotAbandoned));
                     }
-                    let delay = self.pto(SpaceId::Data, path_id) * 3;
-                    self.timers.set(
-                        Timer::PerPath(path_id, PathTimer::PathAbandoned),
-                        now + delay,
-                    );
-                    self.timers
-                        .stop(Timer::PerPath(path_id, PathTimer::PathNotAbandoned));
                 }
                 Frame::PathAvailable(info) => {
                     span.record("path", tracing::field::debug(&info.path_id));
