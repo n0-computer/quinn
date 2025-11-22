@@ -68,6 +68,20 @@ impl ArrayRangeSet {
         false
     }
 
+    pub fn replace(&mut self, range: Range<u64>) -> Replace<'_> {
+        let mut res = Vec::new();
+        for r in self.iter() {
+            if r.end > range.start && r.start < range.end {
+                res.push(Range {
+                    start: r.start.max(range.start),
+                    end: r.end.min(range.end),
+                });
+            }
+        }
+        self.insert(range);
+        Replace(self, res.into_iter())
+    }
+
     pub fn subtract(&mut self, other: &Self) {
         // TODO: This can potentially be made more efficient, since the we know
         // individual ranges are not overlapping, and the next range must start
@@ -205,5 +219,15 @@ impl ArrayRangeSet {
 
     pub fn max(&self) -> Option<u64> {
         self.iter().next_back().map(|x| x.end - 1)
+    }
+}
+
+pub struct Replace<'a>(&'a mut ArrayRangeSet, std::vec::IntoIter<Range<u64>>);
+
+impl<'a> Iterator for Replace<'a> {
+    type Item = Range<u64>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.1.next()
     }
 }
