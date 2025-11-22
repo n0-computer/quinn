@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use tinyvec::TinyVec;
+use tinyvec::{TinyVec, TinyVecIterator};
 
 /// A set of u64 values optimized for long runs and random insert/delete/contains
 ///
@@ -69,7 +69,7 @@ impl ArrayRangeSet {
     }
 
     pub fn replace(&mut self, range: Range<u64>) -> Replace<'_> {
-        let mut res = Vec::new();
+        let mut res = TinyVec::<[Range<u64>;2]>::new();
         for r in self.iter() {
             if r.end > range.start && r.start < range.end {
                 res.push(Range {
@@ -79,7 +79,7 @@ impl ArrayRangeSet {
             }
         }
         self.insert(range);
-        Replace(self, res.into_iter())
+        Replace(res.into_iter(), self)
     }
 
     pub fn subtract(&mut self, other: &Self) {
@@ -222,12 +222,12 @@ impl ArrayRangeSet {
     }
 }
 
-pub struct Replace<'a>(&'a mut ArrayRangeSet, std::vec::IntoIter<Range<u64>>);
+pub struct Replace<'a>(TinyVecIterator<[Range<u64>; 2]>, &'a mut ArrayRangeSet);
 
 impl<'a> Iterator for Replace<'a> {
     type Item = Range<u64>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.1.next()
+        self.0.next()
     }
 }
