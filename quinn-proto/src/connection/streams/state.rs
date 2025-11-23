@@ -535,7 +535,7 @@ impl StreamsState {
             #[cfg(feature = "qlog")]
             qlog.frame(QuicFrame::MaxStreamData {
                 stream_id: id.into(),
-                maximum: max.into(),
+                maximum: max,
             });
             stats.max_stream_data += 1;
         }

@@ -41,7 +41,7 @@ impl FrameType {
     }
 
     #[cfg(feature = "qlog")]
-    pub(crate) fn to_u64(&self) -> u64 {
+    pub(crate) fn to_u64(self) -> u64 {
         self.0
     }
 }
@@ -346,8 +346,8 @@ impl Close {
 
     pub(crate) fn error_code(&self) -> u64 {
         match self {
-            Close::Connection(frame) => frame.error_code.into(),
-            Close::Application(frame) => frame.error_code.into(),
+            Self::Connection(frame) => frame.error_code.into(),
+            Self::Application(frame) => frame.error_code.into(),
         }
     }
 }

@@ -479,11 +479,11 @@ impl Header {
     #[cfg(feature = "qlog")]
     pub(crate) fn src_cid(&self) -> Option<ConnectionId> {
         match self {
-            Header::Initial(initial_header) => Some(initial_header.src_cid),
-            Header::Long { src_cid, .. } => Some(*src_cid),
-            Header::Retry { src_cid, .. } => Some(*src_cid),
-            Header::Short { .. } => None,
-            Header::VersionNegotiate { src_cid, .. } => Some(*src_cid),
+            Self::Initial(initial_header) => Some(initial_header.src_cid),
+            Self::Long { src_cid, .. } => Some(*src_cid),
+            Self::Retry { src_cid, .. } => Some(*src_cid),
+            Self::Short { .. } => None,
+            Self::VersionNegotiate { src_cid, .. } => Some(*src_cid),
         }
     }
 }

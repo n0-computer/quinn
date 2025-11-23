@@ -305,18 +305,16 @@ impl crate::Frame {
     fn to_qlog(&self) -> QuicFrame {
         use qlog::events::quic::AckedRanges;
 
-        use crate::frame::Frame;
-
         match self {
-            Frame::Padding => QuicFrame::Padding {
+            Self::Padding => QuicFrame::Padding {
                 length: None,
                 payload_length: 1,
             },
-            Frame::Ping => QuicFrame::Ping {
+            Self::Ping => QuicFrame::Ping {
                 length: None,
                 payload_length: None,
             },
-            Frame::Ack(ack) => QuicFrame::Ack {
+            Self::Ack(ack) => QuicFrame::Ack {
                 ack_delay: Some(ack.delay as f32),
                 acked_ranges: Some(AckedRanges::Double(
                     ack.iter()
@@ -329,24 +327,24 @@ impl crate::Frame {
                 length: None,
                 payload_length: None,
             },
-            Frame::ResetStream(f) => QuicFrame::ResetStream {
+            Self::ResetStream(f) => QuicFrame::ResetStream {
                 stream_id: f.id.into(),
                 error_code: f.error_code.into(),
                 final_size: f.final_offset.into(),
                 length: None,
                 payload_length: None,
             },
-            Frame::StopSending(f) => QuicFrame::StopSending {
+            Self::StopSending(f) => QuicFrame::StopSending {
                 stream_id: f.id.into(),
                 error_code: f.error_code.into(),
                 length: None,
                 payload_length: None,
             },
-            Frame::Crypto(c) => QuicFrame::Crypto {
+            Self::Crypto(c) => QuicFrame::Crypto {
                 offset: c.offset,
                 length: c.data.len() as u64,
             },
-            Frame::NewToken(t) => {
+            Self::NewToken(t) => {
                 use ::qlog;
                 QuicFrame::NewToken {
                     token: qlog::Token {
@@ -360,71 +358,71 @@ impl crate::Frame {
                     },
                 }
             }
-            Frame::Stream(s) => QuicFrame::Stream {
+            Self::Stream(s) => QuicFrame::Stream {
                 stream_id: s.id.into(),
                 offset: s.offset,
                 length: s.data.len() as u64,
                 fin: Some(s.fin),
                 raw: None,
             },
-            Frame::MaxData(v) => QuicFrame::MaxData {
+            Self::MaxData(v) => QuicFrame::MaxData {
                 maximum: (*v).into(),
             },
-            Frame::MaxStreamData { id, offset } => QuicFrame::MaxStreamData {
+            Self::MaxStreamData { id, offset } => QuicFrame::MaxStreamData {
                 stream_id: (*id).into(),
                 maximum: *offset,
             },
-            Frame::MaxStreams { dir, count } => QuicFrame::MaxStreams {
+            Self::MaxStreams { dir, count } => QuicFrame::MaxStreams {
                 maximum: *count,
                 stream_type: (*dir).into(),
             },
-            Frame::DataBlocked { offset } => QuicFrame::DataBlocked { limit: *offset },
-            Frame::StreamDataBlocked { id, offset } => QuicFrame::StreamDataBlocked {
+            Self::DataBlocked { offset } => QuicFrame::DataBlocked { limit: *offset },
+            Self::StreamDataBlocked { id, offset } => QuicFrame::StreamDataBlocked {
                 stream_id: (*id).into(),
                 limit: *offset,
             },
-            Frame::StreamsBlocked { dir, limit } => QuicFrame::StreamsBlocked {
+            Self::StreamsBlocked { dir, limit } => QuicFrame::StreamsBlocked {
                 stream_type: (*dir).into(),
                 limit: *limit,
             },
-            Frame::NewConnectionId(f) => QuicFrame::NewConnectionId {
+            Self::NewConnectionId(f) => QuicFrame::NewConnectionId {
                 sequence_number: f.sequence as u32,
                 retire_prior_to: f.retire_prior_to as u32,
                 connection_id_length: Some(f.id.len() as u8),
                 connection_id: format!("{}", f.id),
                 stateless_reset_token: Some(format!("{}", f.reset_token)),
             },
-            Frame::RetireConnectionId(f) => QuicFrame::RetireConnectionId {
+            Self::RetireConnectionId(f) => QuicFrame::RetireConnectionId {
                 sequence_number: f.sequence as u32,
             },
-            Frame::PathChallenge(_) => QuicFrame::PathChallenge { data: None },
-            Frame::PathResponse(_) => QuicFrame::PathResponse { data: None },
-            Frame::Close(close) => QuicFrame::ConnectionClose {
+            Self::PathChallenge(_) => QuicFrame::PathChallenge { data: None },
+            Self::PathResponse(_) => QuicFrame::PathResponse { data: None },
+            Self::Close(close) => QuicFrame::ConnectionClose {
                 error_space: None,
                 error_code: Some(close.error_code()),
                 error_code_value: None,
                 reason: None,
                 trigger_frame_type: None,
             },
-            Frame::Datagram(d) => QuicFrame::Datagram {
+            Self::Datagram(d) => QuicFrame::Datagram {
                 length: d.data.len() as u64,
                 raw: None,
             },
-            Frame::HandshakeDone => QuicFrame::HandshakeDone,
+            Self::HandshakeDone => QuicFrame::HandshakeDone,
             // Extensions and unsupported frames → Unknown
-            Frame::AckFrequency(_)
-            | Frame::ImmediateAck
-            | Frame::ObservedAddr(_)
-            | Frame::PathAck(_)
-            | Frame::PathAbandon(_)
-            | Frame::PathAvailable(_)
-            | Frame::PathBackup(_)
-            | Frame::MaxPathId(_)
-            | Frame::PathsBlocked(_)
-            | Frame::PathCidsBlocked(_)
-            | Frame::AddAddress(_)
-            | Frame::PunchMeNow(_)
-            | Frame::RemoveAddress(_) => unknown_frame(&self.ty()),
+            Self::AckFrequency(_)
+            | Self::ImmediateAck
+            | Self::ObservedAddr(_)
+            | Self::PathAck(_)
+            | Self::PathAbandon(_)
+            | Self::PathAvailable(_)
+            | Self::PathBackup(_)
+            | Self::MaxPathId(_)
+            | Self::PathsBlocked(_)
+            | Self::PathCidsBlocked(_)
+            | Self::AddAddress(_)
+            | Self::PunchMeNow(_)
+            | Self::RemoveAddress(_) => unknown_frame(&self.ty()),
         }
     }
 }
@@ -433,8 +431,8 @@ impl crate::Frame {
 impl From<crate::Dir> for StreamType {
     fn from(value: crate::Dir) -> Self {
         match value {
-            crate::Dir::Bi => StreamType::Bidirectional,
-            crate::Dir::Uni => StreamType::Unidirectional,
+            crate::Dir::Bi => Self::Bidirectional,
+            crate::Dir::Uni => Self::Unidirectional,
         }
     }
 }
