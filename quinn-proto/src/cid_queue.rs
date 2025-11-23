@@ -8,7 +8,15 @@ struct CidData(ConnectionId, Option<ResetToken>);
 
 /// Sliding window of active Connection IDs
 ///
-/// May contain gaps due to packet loss or reordering
+/// This represents a circular buffer that can contain gaps due to packet loss or reordering.
+/// The buffer has three regions:
+/// - Exactly one active CID at `self.buffer[self.cursor]`.
+/// - Zero to `Self::LEN - 1` reserved CIDs from `self.cursor` up to `self.cursor_reserved`.
+/// - More "available"/"ready" CIDs after `self.cursor_reserved`.
+///
+/// You grow the range of reserved CIDs by calling [`CidQueue::next_reserved`], which takes one
+/// of the available ones and returns the CID that was reserved.
+/// You add available/ready CIDs by calling [`CidQueue::insert`].
 #[derive(Debug)]
 pub(crate) struct CidQueue {
     /// Ring buffer indexed by `self.cursor`
