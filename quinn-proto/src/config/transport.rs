@@ -766,7 +766,7 @@ impl QlogConfig {
             None,
             self.start_time,
             trace,
-            qlog::events::EventImportance::Core,
+            qlog::events::EventImportance::Extra,
             writer,
         );
 

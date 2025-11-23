@@ -17,7 +17,7 @@ use super::{
 use crate::{
     Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
     coding::BufMutExt,
-    connection::{qlog::QlogPacket, stats::FrameStats},
+    connection::{qlog::QlogSentPacket, stats::FrameStats},
     frame::{self, FrameStruct, StreamMetaVec},
     transport_parameters::TransportParameters,
 };
@@ -417,7 +417,7 @@ impl StreamsState {
         pending: &mut Retransmits,
         retransmits: &mut ThinRetransmits,
         stats: &mut FrameStats,
-        #[allow(unused)] qlog: &mut QlogPacket,
+        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) {
         // RESET_STREAM
         while buf.remaining_mut() > frame::ResetStream::SIZE_BOUND {
@@ -577,7 +577,7 @@ impl StreamsState {
         &mut self,
         buf: &mut impl BufMut,
         fair: bool,
-        #[allow(unused)] qlog: &mut QlogPacket,
+        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) -> StreamMetaVec {
         let mut stream_frames = StreamMetaVec::new();
         while buf.remaining_mut() > frame::Stream::SIZE_BOUND {

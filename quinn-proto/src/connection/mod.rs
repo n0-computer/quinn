@@ -30,7 +30,7 @@ use crate::{
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     connection::{
-        qlog::{QlogPacket, QlogRecvPacket},
+        qlog::{QlogRecvPacket, QlogSentPacket},
         timer::{ConnTimer, PathTimer},
     },
     crypto::{self, KeyPair, Keys, PacketKey},
@@ -457,9 +457,14 @@ impl Connection {
             this.write_crypto();
             this.init_0rtt();
         }
-        this.config
-            .qlog_sink
-            .emit_connection_started(now, loc_cid, rem_cid, remote, local_ip);
+        this.config.qlog_sink.emit_connection_started(
+            now,
+            loc_cid,
+            rem_cid,
+            remote,
+            local_ip,
+            this.initial_dst_cid,
+        );
         this
     }
 
@@ -1139,7 +1144,7 @@ impl Connection {
                 prev.update_unacked = false;
             }
 
-            let mut qlog = QlogPacket::default();
+            let mut qlog = QlogSentPacket::default();
             let mut builder = PacketBuilder::new(
                 now,
                 space_id,
@@ -1422,7 +1427,7 @@ impl Connection {
             self.path_data(path_id).pto_count,
             &mut self.paths.get_mut(&path_id).unwrap().data,
             now,
-            self.orig_rem_cid,
+            self.initial_dst_cid,
         );
 
         self.app_limited = transmit.is_empty() && !congestion_blocked;
@@ -1443,7 +1448,7 @@ impl Connection {
                 transmit.start_new_datagram_with_size(probe_size as usize);
 
                 debug_assert_eq!(transmit.datagram_start_offset(), 0);
-                let mut qlog = QlogPacket::default();
+                let mut qlog = QlogSentPacket::default();
                 let mut builder = PacketBuilder::new(
                     now,
                     space_id,
@@ -1642,7 +1647,7 @@ impl Connection {
         // if a post-migration packet caused the CID to be retired, it's fair to pretend
         // this is sent first.
         debug_assert_eq!(buf.datagram_start_offset(), 0);
-        let mut qlog = QlogPacket::default();
+        let mut qlog = QlogSentPacket::default();
         let mut builder = PacketBuilder::new(
             now,
             SpaceId::Data,
@@ -1773,7 +1778,7 @@ impl Connection {
                         path.data.pto_count,
                         &mut path.data,
                         now,
-                        self.orig_rem_cid,
+                        self.initial_dst_cid,
                     );
                 }
 
@@ -1878,7 +1883,7 @@ impl Connection {
                             self.path_data(path_id).pto_count,
                             &mut self.paths.get_mut(&path_id).unwrap().data,
                             now,
-                            self.orig_rem_cid,
+                            self.initial_dst_cid,
                         );
                     }
                     PathTimer::PathValidation => {
@@ -2754,7 +2759,7 @@ impl Connection {
                     lost_send_time,
                     pn_space,
                     now,
-                    self.orig_rem_cid,
+                    self.initial_dst_cid,
                 );
                 self.paths
                     .get_mut(&path_id)
@@ -3139,7 +3144,7 @@ impl Connection {
 
         let packet: Packet = packet.into();
 
-        let mut qlog = QlogRecvPacket::default();
+        let mut qlog = QlogRecvPacket::new(len);
         #[cfg(feature = "qlog")]
         qlog.header(&packet, Some(packet_number));
 
@@ -3151,9 +3156,7 @@ impl Connection {
             packet,
             &mut qlog,
         )?;
-        self.config
-            .qlog_sink
-            .emit_packet_received(qlog, now, self.orig_rem_cid);
+        self.config.qlog_sink.emit_packet_received(self, qlog, now);
         if let Some(data) = remaining {
             self.handle_coalesced(now, remote, path_id, ecn, data);
         }
@@ -3162,7 +3165,7 @@ impl Connection {
             self.path_data(path_id).pto_count,
             &mut self.paths.get_mut(&path_id).unwrap().data,
             now,
-            self.orig_rem_cid,
+            self.initial_dst_cid,
         );
 
         Ok(())
@@ -3386,6 +3389,7 @@ impl Connection {
         ecn: Option<EcnCodepoint>,
         partial_decode: PartialDecode,
     ) {
+        let qlog = QlogRecvPacket::new(partial_decode.len());
         if let Some(decoded) = packet_crypto::unprotect_header(
             partial_decode,
             &self.spaces,
@@ -3399,6 +3403,7 @@ impl Connection {
                 ecn,
                 decoded.packet,
                 decoded.stateless_reset,
+                qlog,
             );
         }
     }
@@ -3411,6 +3416,7 @@ impl Connection {
         ecn: Option<EcnCodepoint>,
         packet: Option<Packet>,
         stateless_reset: bool,
+        mut qlog: QlogRecvPacket,
     ) {
         self.stats.udp_rx.ios += 1;
         if let Some(ref packet) = packet {
@@ -3477,7 +3483,6 @@ impl Connection {
                 }
             }
             Ok((packet, number)) => {
-                let mut qlog = QlogRecvPacket::default();
                 #[cfg(feature = "qlog")]
                 qlog.header(&packet, number);
                 let span = match number {
@@ -3491,16 +3496,12 @@ impl Connection {
                     .map(|pns| &mut pns.dedup);
                 if number.zip(dedup).is_some_and(|(n, d)| d.insert(n)) {
                     debug!("discarding possible duplicate packet");
-                    self.config
-                        .qlog_sink
-                        .emit_packet_received(qlog, now, self.orig_rem_cid);
+                    self.config.qlog_sink.emit_packet_received(self, qlog, now);
                     return;
                 } else if self.state.is_handshake() && packet.header.is_short() {
                     // TODO: SHOULD buffer these to improve reordering tolerance.
                     trace!("dropping short packet during handshake");
-                    self.config
-                        .qlog_sink
-                        .emit_packet_received(qlog, now, self.orig_rem_cid);
+                    self.config.qlog_sink.emit_packet_received(self, qlog, now);
                     return;
                 } else {
                     if let Header::Initial(InitialHeader { ref token, .. }) = packet.header {
@@ -3510,11 +3511,7 @@ impl Connection {
                                 // packets can be spoofed, so we discard rather than killing the
                                 // connection.
                                 warn!("discarding Initial with invalid retry token");
-                                self.config.qlog_sink.emit_packet_received(
-                                    qlog,
-                                    now,
-                                    self.orig_rem_cid,
-                                );
+                                self.config.qlog_sink.emit_packet_received(self, qlog, now);
                                 return;
                             }
                         }
@@ -3546,9 +3543,7 @@ impl Connection {
                     let res = self
                         .process_decrypted_packet(now, remote, path_id, number, packet, &mut qlog);
 
-                    self.config
-                        .qlog_sink
-                        .emit_packet_received(qlog, now, self.orig_rem_cid);
+                    self.config.qlog_sink.emit_packet_received(self, qlog, now);
                     res
                 }
             }
@@ -3931,7 +3926,7 @@ impl Connection {
         now: Instant,
         path_id: PathId,
         packet: Packet,
-        qlog: &mut QlogRecvPacket,
+        #[allow(unused)] qlog: &mut QlogRecvPacket,
     ) -> Result<(), TransportError> {
         debug_assert_ne!(packet.header.space(), SpaceId::Data);
         debug_assert_eq!(path_id, PathId::ZERO);
@@ -4000,7 +3995,7 @@ impl Connection {
         path_id: PathId,
         number: u64,
         packet: Packet,
-        qlog: &mut QlogRecvPacket,
+        #[allow(unused)] qlog: &mut QlogRecvPacket,
     ) -> Result<(), TransportError> {
         let payload = packet.payload.freeze();
         let mut is_probing_packet = true;
@@ -4757,7 +4752,7 @@ impl Connection {
         path_exclusive_only: bool,
         buf: &mut impl BufMut,
         pn: u64,
-        #[allow(unused)] qlog: &mut QlogPacket,
+        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) -> SentFrames {
         let mut sent = SentFrames::default();
         let is_multipath_negotiated = self.is_multipath_negotiated();
@@ -5352,7 +5347,7 @@ impl Connection {
         send_path_acks: bool,
         buf: &mut impl BufMut,
         stats: &mut ConnectionStats,
-        #[allow(unused)] qlog: &mut QlogPacket,
+        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) {
         // 0-RTT packets must never carry acks (which would have to be of handshake packets)
         debug_assert!(space.crypto.is_some(), "tried to send ACK in 0-RTT");
