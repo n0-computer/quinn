@@ -12,6 +12,7 @@ use qlog::{
     },
     streamer::QlogStreamer,
 };
+use std::net::{IpAddr, SocketAddr};
 #[cfg(feature = "qlog")]
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "qlog")]
@@ -60,6 +61,42 @@ impl QlogSink {
         #[cfg(not(feature = "qlog"))]
         {
             false
+        }
+    }
+
+    pub(super) fn emit_connection_started(
+        &self,
+        now: Instant,
+        loc_cid: ConnectionId,
+        rem_cid: ConnectionId,
+        remote: SocketAddr,
+        local_ip: Option<IpAddr>,
+    ) {
+        #[cfg(feature = "qlog")]
+        {
+            use qlog::events::connectivity::ConnectionStarted;
+
+            let Some(stream) = self.stream.as_ref() else {
+                return;
+            };
+            // TODO: Review fields. The standard has changed since.
+            stream.emit_event(
+                rem_cid,
+                EventData::ConnectionStarted(ConnectionStarted {
+                    ip_version: Some(String::from(match remote.ip() {
+                        IpAddr::V4(_) => "v4",
+                        IpAddr::V6(_) => "v6",
+                    })),
+                    src_ip: local_ip.map(|addr| addr.to_string()).unwrap_or_default(),
+                    dst_ip: remote.ip().to_string(),
+                    protocol: None,
+                    src_port: None,
+                    dst_port: Some(remote.port()),
+                    src_cid: Some(loc_cid.to_string()),
+                    dst_cid: Some(rem_cid.to_string()),
+                }),
+                now,
+            );
         }
     }
 

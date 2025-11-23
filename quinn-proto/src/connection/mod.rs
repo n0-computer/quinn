@@ -457,6 +457,9 @@ impl Connection {
             this.write_crypto();
             this.init_0rtt();
         }
+        this.config
+            .qlog_sink
+            .emit_connection_started(now, loc_cid, rem_cid, remote, local_ip);
         this
     }
 
