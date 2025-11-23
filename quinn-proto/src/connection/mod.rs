@@ -12,7 +12,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use frame::StreamMetaVec;
 
 #[cfg(feature = "qlog")]
-use ::qlog::events::quic::QuicFrame;
+use ::qlog::events::quic::{AckedRanges, QuicFrame};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
 use thiserror::Error;
@@ -30,7 +30,7 @@ use crate::{
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     connection::{
-        qlog::QlogPacket,
+        qlog::{QlogPacket, QlogRecvPacket},
         timer::{ConnTimer, PathTimer},
     },
     crypto::{self, KeyPair, Keys, PacketKey},
@@ -3035,14 +3035,6 @@ impl Connection {
             // Update outgoing spin bit, inverting iff we're the client
             self.spin = self.side.is_client() ^ spin;
         }
-
-        self.config.qlog_sink.emit_packet_received(
-            packet,
-            space_id,
-            !is_1rtt,
-            now,
-            self.orig_rem_cid,
-        );
     }
 
     /// Resets the idle timeout timers
@@ -3145,7 +3137,23 @@ impl Connection {
             false,
         );
 
-        self.process_decrypted_packet(now, remote, path_id, Some(packet_number), packet.into())?;
+        let packet: Packet = packet.into();
+
+        let mut qlog = QlogRecvPacket::default();
+        #[cfg(feature = "qlog")]
+        qlog.header(&packet, Some(packet_number));
+
+        self.process_decrypted_packet(
+            now,
+            remote,
+            path_id,
+            Some(packet_number),
+            packet,
+            &mut qlog,
+        )?;
+        self.config
+            .qlog_sink
+            .emit_packet_received(qlog, now, self.orig_rem_cid);
         if let Some(data) = remaining {
             self.handle_coalesced(now, remote, path_id, ecn, data);
         }
@@ -3469,6 +3477,9 @@ impl Connection {
                 }
             }
             Ok((packet, number)) => {
+                let mut qlog = QlogRecvPacket::default();
+                #[cfg(feature = "qlog")]
+                qlog.header(&packet, number);
                 let span = match number {
                     Some(pn) => trace_span!("recv", space = ?packet.header.space(), pn, %path_id),
                     None => trace_span!("recv", space = ?packet.header.space(), %path_id),
@@ -3480,10 +3491,16 @@ impl Connection {
                     .map(|pns| &mut pns.dedup);
                 if number.zip(dedup).is_some_and(|(n, d)| d.insert(n)) {
                     debug!("discarding possible duplicate packet");
+                    self.config
+                        .qlog_sink
+                        .emit_packet_received(qlog, now, self.orig_rem_cid);
                     return;
                 } else if self.state.is_handshake() && packet.header.is_short() {
                     // TODO: SHOULD buffer these to improve reordering tolerance.
                     trace!("dropping short packet during handshake");
+                    self.config
+                        .qlog_sink
+                        .emit_packet_received(qlog, now, self.orig_rem_cid);
                     return;
                 } else {
                     if let Header::Initial(InitialHeader { ref token, .. }) = packet.header {
@@ -3493,6 +3510,11 @@ impl Connection {
                                 // packets can be spoofed, so we discard rather than killing the
                                 // connection.
                                 warn!("discarding Initial with invalid retry token");
+                                self.config.qlog_sink.emit_packet_received(
+                                    qlog,
+                                    now,
+                                    self.orig_rem_cid,
+                                );
                                 return;
                             }
                         }
@@ -3521,7 +3543,13 @@ impl Connection {
                         }
                     }
 
-                    self.process_decrypted_packet(now, remote, path_id, number, packet)
+                    let res = self
+                        .process_decrypted_packet(now, remote, path_id, number, packet, &mut qlog);
+
+                    self.config
+                        .qlog_sink
+                        .emit_packet_received(qlog, now, self.orig_rem_cid);
+                    res
                 }
             }
         };
@@ -3588,6 +3616,7 @@ impl Connection {
         path_id: PathId,
         number: Option<u64>,
         packet: Packet,
+        qlog: &mut QlogRecvPacket,
     ) -> Result<(), ConnectionError> {
         if !self.paths.contains_key(&path_id) {
             // There is a chance this is a server side, first (for this path) packet, which would
@@ -3600,10 +3629,10 @@ impl Connection {
             State::Established => {
                 match packet.header.space() {
                     SpaceId::Data => {
-                        self.process_payload(now, remote, path_id, number.unwrap(), packet)?
+                        self.process_payload(now, remote, path_id, number.unwrap(), packet, qlog)?
                     }
                     _ if packet.header.has_frames() => {
-                        self.process_early_payload(now, path_id, packet)?
+                        self.process_early_payload(now, path_id, packet, qlog)?
                     }
                     _ => {
                         trace!("discarding unexpected pre-handshake packet");
@@ -3620,6 +3649,8 @@ impl Connection {
                             continue;
                         }
                     };
+                    #[cfg(feature = "qlog")]
+                    qlog.frame(&frame);
 
                     if let Frame::Padding = frame {
                         continue;
@@ -3750,7 +3781,7 @@ impl Connection {
                 }
                 self.on_path_validated(path_id);
 
-                self.process_early_payload(now, path_id, packet)?;
+                self.process_early_payload(now, path_id, packet, qlog)?;
                 if self.state.is_closed() {
                     return Ok(());
                 }
@@ -3844,7 +3875,7 @@ impl Connection {
                 }
 
                 let starting_space = self.highest_space;
-                self.process_early_payload(now, path_id, packet)?;
+                self.process_early_payload(now, path_id, packet, qlog)?;
 
                 if self.side.is_server()
                     && starting_space == SpaceId::Initial
@@ -3868,7 +3899,7 @@ impl Connection {
                 ty: LongType::ZeroRtt,
                 ..
             } => {
-                self.process_payload(now, remote, path_id, number.unwrap(), packet)?;
+                self.process_payload(now, remote, path_id, number.unwrap(), packet, qlog)?;
                 Ok(())
             }
             Header::VersionNegotiate { .. } => {
@@ -3900,6 +3931,7 @@ impl Connection {
         now: Instant,
         path_id: PathId,
         packet: Packet,
+        qlog: &mut QlogRecvPacket,
     ) -> Result<(), TransportError> {
         debug_assert_ne!(packet.header.space(), SpaceId::Data);
         debug_assert_eq!(path_id, PathId::ZERO);
@@ -3907,6 +3939,8 @@ impl Connection {
         let mut ack_eliciting = false;
         for result in frame::Iter::new(packet.payload.freeze())? {
             let frame = result?;
+            #[cfg(feature = "qlog")]
+            qlog.frame(&frame);
             let span = match frame {
                 Frame::Padding => continue,
                 _ => Some(trace_span!("frame", ty = %frame.ty(), path = tracing::field::Empty)),
@@ -3966,6 +4000,7 @@ impl Connection {
         path_id: PathId,
         number: u64,
         packet: Packet,
+        qlog: &mut QlogRecvPacket,
     ) -> Result<(), TransportError> {
         let payload = packet.payload.freeze();
         let mut is_probing_packet = true;
@@ -3977,6 +4012,8 @@ impl Connection {
         let mut migration_observed_addr = None;
         for result in frame::Iter::new(payload)? {
             let frame = result?;
+            #[cfg(feature = "qlog")]
+            qlog.frame(&frame);
             let span = match frame {
                 Frame::Padding => continue,
                 _ => trace_span!("frame", ty = %frame.ty(), path = tracing::field::Empty),
@@ -5354,10 +5391,15 @@ impl Connection {
             #[cfg(feature = "qlog")]
             qlog.frame(QuicFrame::Ack {
                 ack_delay: Some(delay as f32),
-                acked_ranges: None,
-                ce: None,
-                ect0: None,
-                ect1: None,
+                acked_ranges: Some(AckedRanges::Double(
+                    ranges
+                        .iter()
+                        .map(|range| (range.start, range.end))
+                        .collect(),
+                )),
+                ect1: ecn.map(|e| e.ect1),
+                ect0: ecn.map(|e| e.ect0),
+                ce: ecn.map(|e| e.ce),
                 length: None,
                 payload_length: None,
             });

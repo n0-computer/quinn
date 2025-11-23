@@ -7,7 +7,7 @@ use qlog::{
         Event, EventData,
         quic::{
             PacketHeader, PacketLost, PacketLostTrigger, PacketReceived, PacketSent, PacketType,
-            QuicFrame,
+            QuicFrame, StreamType,
         },
     },
     streamer::QlogStreamer,
@@ -24,7 +24,10 @@ use crate::{
     packet::SpaceId,
 };
 #[cfg(feature = "qlog")]
-use crate::{FrameType, packet::Header};
+use crate::{
+    FrameType,
+    packet::{Header, Packet},
+};
 
 /// Shareable handle to a single qlog output stream
 #[cfg(feature = "qlog")]
@@ -171,9 +174,7 @@ impl QlogSink {
 
     pub(super) fn emit_packet_received(
         &self,
-        pn: u64,
-        space: SpaceId,
-        is_0rtt: bool,
+        data: QlogRecvPacket,
         now: Instant,
         orig_rem_cid: ConnectionId,
     ) {
@@ -183,15 +184,7 @@ impl QlogSink {
                 return;
             };
 
-            let event = PacketReceived {
-                header: PacketHeader {
-                    packet_number: Some(pn),
-                    packet_type: packet_type(space, is_0rtt),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-
+            let event = data.inner;
             stream.emit_event(orig_rem_cid, EventData::PacketReceived(event), now);
         }
     }
@@ -224,15 +217,190 @@ impl QlogPacket {
 
     pub(crate) fn unknown_frame(&mut self, frame: &FrameType) {
         let ty = frame.to_u64();
-        self.frame(QuicFrame::Unknown {
-            raw_frame_type: ty,
-            frame_type_value: Some(ty),
-            raw: None,
-        });
+        self.frame(unknown(frame.to_u64(), None))
     }
 
     pub(super) fn finalize(&mut self, len: usize) {
         self.inner.header.length = Some(len as u16);
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct QlogRecvPacket {
+    #[cfg(feature = "qlog")]
+    inner: PacketReceived,
+}
+
+#[cfg(feature = "qlog")]
+impl QlogRecvPacket {
+    pub(crate) fn header(&mut self, packet: &Packet, pn: Option<u64>) {
+        let header = &packet.header;
+        let len = packet.header_data.len() + packet.payload.len();
+        let is_0rtt = !packet.header.is_1rtt();
+        self.inner.header.scid = header.src_cid().map(encode_cid);
+        self.inner.header.dcid = Some(encode_cid(header.dst_cid()));
+        self.inner.header.packet_number = pn;
+        self.inner.header.packet_type = packet_type(header.space(), is_0rtt);
+        self.inner.header.length = Some(len as u16)
+    }
+
+    pub(crate) fn frame(&mut self, frame: &crate::Frame) {
+        self.inner
+            .frames
+            .get_or_insert_default()
+            .push(frame.to_qlog())
+    }
+}
+
+fn unknown(ty: u64, len: Option<u64>) -> QuicFrame {
+    QuicFrame::Unknown {
+        raw_frame_type: ty,
+        frame_type_value: Some(ty),
+        raw: len.map(|len| qlog::events::RawInfo {
+            length: Some(len),
+            payload_length: None,
+            data: None,
+        }),
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl crate::Frame {
+    fn to_qlog(&self) -> QuicFrame {
+        use qlog::events::quic::AckedRanges;
+
+        use crate::frame::Frame;
+
+        match self {
+            Frame::Padding => QuicFrame::Padding {
+                length: None,
+                // TODO: report correct length
+                payload_length: 0,
+            },
+            Frame::Ping => QuicFrame::Ping {
+                length: None,
+                payload_length: None,
+            },
+            Frame::Ack(ack) => QuicFrame::Ack {
+                ack_delay: Some(ack.delay as f32),
+                acked_ranges: Some(AckedRanges::Double(
+                    ack.iter()
+                        .map(|range| (*range.start(), *range.end()))
+                        .collect(),
+                )),
+                ect1: ack.ecn.as_ref().map(|e| e.ect1),
+                ect0: ack.ecn.as_ref().map(|e| e.ect0),
+                ce: ack.ecn.as_ref().map(|e| e.ce),
+                length: None,
+                payload_length: None,
+            },
+            Frame::ResetStream(f) => QuicFrame::ResetStream {
+                stream_id: f.id.into(),
+                error_code: f.error_code.into(),
+                final_size: f.final_offset.into(),
+                length: None,
+                payload_length: None,
+            },
+            Frame::StopSending(f) => QuicFrame::StopSending {
+                stream_id: f.id.into(),
+                error_code: f.error_code.into(),
+                length: None,
+                payload_length: None,
+            },
+            Frame::Crypto(c) => QuicFrame::Crypto {
+                offset: c.offset,
+                length: c.data.len() as u64,
+            },
+            Frame::NewToken(t) => {
+                use ::qlog;
+                QuicFrame::NewToken {
+                    token: qlog::Token {
+                        ty: Some(::qlog::TokenType::Retry),
+                        raw: Some(qlog::events::RawInfo {
+                            data: qlog::HexSlice::maybe_string(Some(&t.token)),
+                            length: Some(t.token.len() as u64),
+                            payload_length: None,
+                        }),
+                        details: None,
+                    },
+                }
+            }
+            Frame::Stream(s) => QuicFrame::Stream {
+                stream_id: s.id.into(),
+                offset: s.offset,
+                length: s.data.len() as u64,
+                fin: Some(s.fin),
+                raw: None,
+            },
+            Frame::MaxData(v) => QuicFrame::MaxData {
+                maximum: (*v).into(),
+            },
+            Frame::MaxStreamData { id, offset } => QuicFrame::MaxStreamData {
+                stream_id: (*id).into(),
+                maximum: *offset,
+            },
+            Frame::MaxStreams { dir, count } => QuicFrame::MaxStreams {
+                maximum: *count,
+                stream_type: (*dir).into(),
+            },
+            Frame::DataBlocked { offset } => QuicFrame::DataBlocked { limit: *offset },
+            Frame::StreamDataBlocked { id, offset } => QuicFrame::StreamDataBlocked {
+                stream_id: (*id).into(),
+                limit: *offset,
+            },
+            Frame::StreamsBlocked { dir, limit } => QuicFrame::StreamsBlocked {
+                stream_type: (*dir).into(),
+                limit: *limit,
+            },
+            Frame::NewConnectionId(f) => QuicFrame::NewConnectionId {
+                sequence_number: f.sequence as u32,
+                retire_prior_to: f.retire_prior_to as u32,
+                connection_id_length: Some(f.id.len() as u8),
+                connection_id: format!("{}", f.id),
+                stateless_reset_token: Some(format!("{}", f.reset_token)),
+            },
+            Frame::RetireConnectionId(f) => QuicFrame::RetireConnectionId {
+                sequence_number: f.sequence as u32,
+            },
+            Frame::PathChallenge(_) => QuicFrame::PathChallenge { data: None },
+            Frame::PathResponse(_) => QuicFrame::PathResponse { data: None },
+            Frame::Close(close) => QuicFrame::ConnectionClose {
+                error_space: None,
+                error_code: Some(close.error_code()),
+                error_code_value: None,
+                reason: None,
+                trigger_frame_type: None,
+            },
+            Frame::Datagram(d) => QuicFrame::Datagram {
+                length: d.data.len() as u64,
+                raw: None,
+            },
+            Frame::HandshakeDone => QuicFrame::HandshakeDone,
+            // Extensions and unsupported frames → Unknown
+            Frame::AckFrequency(_)
+            | Frame::ImmediateAck
+            | Frame::ObservedAddr(_)
+            | Frame::PathAck(_)
+            | Frame::PathAbandon(_)
+            | Frame::PathAvailable(_)
+            | Frame::PathBackup(_)
+            | Frame::MaxPathId(_)
+            | Frame::PathsBlocked(_)
+            | Frame::PathCidsBlocked(_)
+            | Frame::AddAddress(_)
+            | Frame::PunchMeNow(_)
+            | Frame::RemoveAddress(_) => unknown(self.ty().to_u64(), None),
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl From<crate::Dir> for StreamType {
+    fn from(value: crate::Dir) -> Self {
+        match value {
+            crate::Dir::Bi => StreamType::Bidirectional,
+            crate::Dir::Uni => StreamType::Unidirectional,
+        }
     }
 }
 
