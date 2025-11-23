@@ -5,7 +5,7 @@ use tracing::{debug, trace, trace_span};
 use super::{Connection, PathId, SentFrames, TransmitBuf, spaces::SentPacket};
 use crate::{
     ConnectionId, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
-    connection::ConnectionSide,
+    connection::{ConnectionSide, qlog::QlogPacket},
     frame::{self, Close},
     packet::{FIXED_BIT, Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId},
 };
@@ -46,6 +46,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         buffer: &'a mut TransmitBuf<'b>,
         ack_eliciting: bool,
         conn: &mut Connection,
+        #[allow(unused)] qlog: &mut QlogPacket,
     ) -> Option<Self>
     where
         'b: 'a,
@@ -130,6 +131,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
                 version,
             }),
         };
+
         let partial_encode = header.encode(buffer);
         if conn.peer_params.grease_quic_bit && conn.rng.random() {
             buffer.as_mut_slice()[partial_encode.start] ^= FIXED_BIT;
@@ -161,6 +163,14 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         );
         let max_size = buffer.datagram_max_offset() - tag_len;
         debug_assert!(max_size >= min_size);
+
+        #[cfg(feature = "qlog")]
+        qlog.header(
+            &header,
+            Some(exact_number),
+            space_id,
+            space_id == SpaceId::Data && conn.spaces[SpaceId::Data].crypto.is_none(),
+        );
 
         Some(Self {
             buf: buffer,
@@ -204,6 +214,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         path_id: PathId,
         sent: SentFrames,
         pad_datagram: PadDatagram,
+        qlog: QlogPacket,
     ) {
         match pad_datagram {
             PadDatagram::No => (),
@@ -214,7 +225,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         let ack_eliciting = self.ack_eliciting;
         let exact_number = self.exact_number;
         let space_id = self.space;
-        let (size, padded) = self.finish(conn, now);
+        let (size, padded) = self.finish(conn, now, qlog);
 
         let size = match padded || ack_eliciting {
             true => size as u16,
@@ -254,7 +265,12 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
     }
 
     /// Encrypt packet, returning the length of the packet and whether padding was added
-    pub(super) fn finish(self, conn: &mut Connection, now: Instant) -> (usize, bool) {
+    pub(super) fn finish(
+        self,
+        conn: &mut Connection,
+        now: Instant,
+        #[allow(unused_mut)] mut qlog: QlogPacket,
+    ) -> (usize, bool) {
         debug_assert!(
             self.buf.len() <= self.buf.datagram_max_offset() - self.tag_len,
             "packet exceeds maximum size"
@@ -293,14 +309,11 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
 
         let packet_len = self.buf.len() - encode_start;
         trace!(size = %packet_len, short_header = %self.short_header, "wrote packet");
-        conn.config.qlog_sink.emit_packet_sent(
-            self.exact_number,
-            packet_len,
-            self.space,
-            self.space == SpaceId::Data && conn.spaces[SpaceId::Data].crypto.is_none(),
-            now,
-            conn.orig_rem_cid,
-        );
+        #[cfg(feature = "qlog")]
+        qlog.finalize(packet_len);
+        conn.config
+            .qlog_sink
+            .emit_packet_sent(conn.orig_rem_cid, qlog, now);
         (packet_len, pad)
     }
 

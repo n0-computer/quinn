@@ -2,18 +2,18 @@
 #![allow(unused_variables)]
 
 #[cfg(feature = "qlog")]
-use std::sync::{Arc, Mutex};
-
-#[cfg(feature = "qlog")]
 use qlog::{
     events::{
         Event, EventData,
         quic::{
             PacketHeader, PacketLost, PacketLostTrigger, PacketReceived, PacketSent, PacketType,
+            QuicFrame,
         },
     },
     streamer::QlogStreamer,
 };
+#[cfg(feature = "qlog")]
+use std::sync::{Arc, Mutex};
 #[cfg(feature = "qlog")]
 use tracing::warn;
 
@@ -22,6 +22,8 @@ use crate::{
     connection::{PathData, SentPacket},
     packet::SpaceId,
 };
+#[cfg(feature = "qlog")]
+use crate::{FrameType, packet::Header};
 
 /// Shareable handle to a single qlog output stream
 #[cfg(feature = "qlog")]
@@ -117,30 +119,16 @@ impl QlogSink {
 
     pub(super) fn emit_packet_sent(
         &self,
-        pn: u64,
-        len: usize,
-        space: SpaceId,
-        is_0rtt: bool,
-        now: Instant,
         orig_rem_cid: ConnectionId,
+        packet: QlogPacket,
+        now: Instant,
     ) {
         #[cfg(feature = "qlog")]
         {
             let Some(stream) = self.stream.as_ref() else {
                 return;
             };
-
-            let event = PacketSent {
-                header: PacketHeader {
-                    packet_number: Some(pn),
-                    packet_type: packet_type(space, is_0rtt),
-                    length: Some(len as u16),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-
-            stream.emit_event(orig_rem_cid, EventData::PacketSent(event), now);
+            stream.emit_event(orig_rem_cid, EventData::PacketSent(packet.inner), now);
         }
     }
 
@@ -172,6 +160,45 @@ impl QlogSink {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct QlogPacket {
+    #[cfg(feature = "qlog")]
+    inner: PacketSent,
+}
+
+#[cfg(feature = "qlog")]
+impl QlogPacket {
+    pub(crate) fn header(
+        &mut self,
+        header: &Header,
+        pn: Option<u64>,
+        space: SpaceId,
+        is_0rtt: bool,
+    ) {
+        self.inner.header.scid = header.src_cid().map(encode_cid);
+        self.inner.header.dcid = Some(encode_cid(header.dst_cid()));
+        self.inner.header.packet_number = pn;
+        self.inner.header.packet_type = packet_type(space, is_0rtt);
+    }
+
+    pub(crate) fn frame(&mut self, frame: QuicFrame) {
+        self.inner.frames.get_or_insert_default().push(frame);
+    }
+
+    pub(crate) fn unknown_frame(&mut self, frame: &FrameType) {
+        let ty = frame.to_u64();
+        self.frame(QuicFrame::Unknown {
+            raw_frame_type: ty,
+            frame_type_value: Some(ty),
+            raw: None,
+        });
+    }
+
+    pub(super) fn finalize(&mut self, len: usize) {
+        self.inner.header.length = Some(len as u16);
+    }
+}
+
 #[cfg(feature = "qlog")]
 impl From<Option<QlogStream>> for QlogSink {
     fn from(stream: Option<QlogStream>) -> Self {
@@ -187,4 +214,9 @@ fn packet_type(space: SpaceId, is_0rtt: bool) -> PacketType {
         SpaceId::Data if is_0rtt => PacketType::ZeroRtt,
         SpaceId::Data => PacketType::OneRtt,
     }
+}
+
+#[cfg(feature = "qlog")]
+fn encode_cid(cid: ConnectionId) -> String {
+    format!("{cid}")
 }
