@@ -11,11 +11,15 @@ use std::{
 use bytes::{BufMut, Bytes, BytesMut};
 use frame::StreamMetaVec;
 
+#[cfg(feature = "qlog")]
+use ::qlog::events::quic::{AckedRanges, QuicFrame};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
 use thiserror::Error;
 use tracing::{debug, error, trace, trace_span, warn};
 
+#[cfg(feature = "qlog")]
+use crate::FrameType;
 use crate::{
     Dir, Duration, EndpointConfig, Frame, INITIAL_MTU, Instant, MAX_CID_SIZE, MAX_STREAM_COUNT,
     MIN_INITIAL_SIZE, Side, StreamId, TIMER_GRANULARITY, TokenStore, Transmit, TransportError,
@@ -25,8 +29,11 @@ use crate::{
     coding::BufMutExt,
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
-    connection::spaces::LostPacket,
-    connection::timer::{ConnTimer, PathTimer},
+    connection::{
+        qlog::{QlogRecvPacket, QlogSentPacket},
+        spaces::LostPacket,
+        timer::{ConnTimer, PathTimer},
+    },
     crypto::{self, KeyPair, Keys, PacketKey},
     frame::{self, Close, Datagram, FrameStruct, NewToken, ObservedAddr},
     iroh_hp,
@@ -462,6 +469,14 @@ impl Connection {
             this.write_crypto();
             this.init_0rtt();
         }
+        this.config.qlog_sink.emit_connection_started(
+            now,
+            loc_cid,
+            rem_cid,
+            remote,
+            local_ip,
+            this.initial_dst_cid,
+        );
         this
     }
 
@@ -1155,6 +1170,7 @@ impl Connection {
                 prev.update_unacked = false;
             }
 
+            let mut qlog = QlogSentPacket::default();
             let mut builder = PacketBuilder::new(
                 now,
                 space_id,
@@ -1163,6 +1179,7 @@ impl Connection {
                 &mut transmit,
                 can_send.other,
                 self,
+                &mut qlog,
             )?;
             last_packet_number = Some(builder.exact_number);
             coalesce = coalesce && !builder.short_header;
@@ -1203,6 +1220,7 @@ impl Connection {
                         is_multipath_enabled,
                         &mut builder.frame_space_mut(),
                         &mut self.stats,
+                        &mut qlog,
                     );
                 }
 
@@ -1215,33 +1233,49 @@ impl Connection {
                 );
                 if frame::ConnectionClose::SIZE_BOUND < builder.frame_space_remaining() {
                     let max_frame_size = builder.frame_space_remaining();
-                    match self.state.as_type() {
+                    #[allow(unused)]
+                    let error_code = match self.state.as_type() {
                         StateType::Closed => {
                             let reason: Close =
                                 self.state.as_closed().expect("checked").clone().into();
                             if space_id == SpaceId::Data || reason.is_transport_layer() {
-                                reason.encode(&mut builder.frame_space_mut(), max_frame_size)
+                                reason.encode(&mut builder.frame_space_mut(), max_frame_size);
+                                reason.error_code()
                             } else {
+                                let error_code = TransportErrorCode::APPLICATION_ERROR;
                                 frame::ConnectionClose {
-                                    error_code: TransportErrorCode::APPLICATION_ERROR,
+                                    error_code,
                                     frame_type: None,
                                     reason: Bytes::new(),
                                 }
-                                .encode(&mut builder.frame_space_mut(), max_frame_size)
+                                .encode(&mut builder.frame_space_mut(), max_frame_size);
+                                error_code.into()
                             }
                         }
-                        StateType::Draining => frame::ConnectionClose {
-                            error_code: TransportErrorCode::NO_ERROR,
-                            frame_type: None,
-                            reason: Bytes::new(),
+                        StateType::Draining => {
+                            let error_code = TransportErrorCode::NO_ERROR;
+                            frame::ConnectionClose {
+                                error_code,
+                                frame_type: None,
+                                reason: Bytes::new(),
+                            }
+                            .encode(&mut builder.frame_space_mut(), max_frame_size);
+                            error_code.into()
                         }
-                        .encode(&mut builder.frame_space_mut(), max_frame_size),
                         _ => unreachable!(
                             "tried to make a close packet when the connection wasn't closed"
                         ),
-                    }
+                    };
+                    #[cfg(feature = "qlog")]
+                    qlog.frame(QuicFrame::ConnectionClose {
+                        error_space: None,
+                        error_code: Some(error_code),
+                        error_code_value: None,
+                        reason: None,
+                        trigger_frame_type: None,
+                    });
                 }
-                builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
+                builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram, qlog);
                 if space_id == self.highest_space {
                     // Don't send another close packet. Even with multipath we only send
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
@@ -1269,6 +1303,8 @@ impl Connection {
                     builder
                         .frame_space_mut()
                         .write(frame::FrameType::PATH_RESPONSE);
+                    #[cfg(feature = "qlog")]
+                    qlog.frame(QuicFrame::PathResponse { data: None });
                     builder.frame_space_mut().write(token);
                     self.stats.frame_tx.path_response += 1;
                     builder.finish_and_track(
@@ -1280,6 +1316,7 @@ impl Connection {
                             ..SentFrames::default()
                         },
                         PadDatagram::ToMinMtu,
+                        qlog,
                     );
                     self.stats.udp_tx.on_sent(1, transmit.len());
                     return Some(Transmit {
@@ -1303,6 +1340,7 @@ impl Connection {
                     path_exclusive_only,
                     &mut builder.frame_space_mut(),
                     pn,
+                    &mut qlog,
                 )
             };
 
@@ -1353,7 +1391,7 @@ impl Connection {
             {
                 // We can append/coalesce the next packet into the current
                 // datagram. Finish the current packet without adding extra padding.
-                builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No);
+                builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No, qlog);
             } else {
                 // We need a new datagram for the next packet.  Finish the current
                 // packet with padding.
@@ -1373,7 +1411,14 @@ impl Connection {
                             "GSO truncated by demand for {} padding bytes",
                             builder.buf.datagram_remaining_mut() - builder.predict_packet_end()
                         );
-                        builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No);
+                        builder.finish_and_track(
+                            now,
+                            self,
+                            path_id,
+                            sent_frames,
+                            PadDatagram::No,
+                            qlog,
+                        );
                         break;
                     }
 
@@ -1385,9 +1430,10 @@ impl Connection {
                         path_id,
                         sent_frames,
                         PadDatagram::ToSegmentSize,
+                        qlog,
                     );
                 } else {
-                    builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
+                    builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram, qlog);
                 }
                 if transmit.num_datagrams() == 1 {
                     transmit.clip_datagram_size();
@@ -1409,7 +1455,7 @@ impl Connection {
             self.path_data(path_id).pto_count,
             &mut self.paths.get_mut(&path_id).unwrap().data,
             now,
-            self.orig_rem_cid,
+            self.initial_dst_cid,
         );
 
         self.app_limited = transmit.is_empty() && !congestion_blocked;
@@ -1430,6 +1476,7 @@ impl Connection {
                 transmit.start_new_datagram_with_size(probe_size as usize);
 
                 debug_assert_eq!(transmit.datagram_start_offset(), 0);
+                let mut qlog = QlogSentPacket::default();
                 let mut builder = PacketBuilder::new(
                     now,
                     space_id,
@@ -1438,12 +1485,18 @@ impl Connection {
                     &mut transmit,
                     true,
                     self,
+                    &mut qlog,
                 )?;
 
                 // We implement MTU probes as ping packets padded up to the probe size
                 trace!(?probe_size, "writing MTUD probe");
                 trace!("PING");
                 builder.frame_space_mut().write(frame::FrameType::PING);
+                #[cfg(feature = "qlog")]
+                qlog.frame(QuicFrame::Ping {
+                    length: None,
+                    payload_length: None,
+                });
                 self.stats.frame_tx.ping += 1;
 
                 // If supported by the peer, we want no delays to the probe's ACK
@@ -1465,6 +1518,7 @@ impl Connection {
                     path_id,
                     sent_frames,
                     PadDatagram::ToSize(probe_size),
+                    qlog,
                 );
 
                 self.path_stats
@@ -1622,13 +1676,24 @@ impl Connection {
         // if a post-migration packet caused the CID to be retired, it's fair to pretend
         // this is sent first.
         debug_assert_eq!(buf.datagram_start_offset(), 0);
-        let mut builder =
-            PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
+        let mut qlog = QlogSentPacket::default();
+        let mut builder = PacketBuilder::new(
+            now,
+            SpaceId::Data,
+            path_id,
+            *prev_cid,
+            buf,
+            false,
+            self,
+            &mut qlog,
+        )?;
         trace!("validating previous path with PATH_CHALLENGE {:08x}", token);
         builder
             .frame_space_mut()
             .write(frame::FrameType::PATH_CHALLENGE);
         builder.frame_space_mut().write(token);
+        #[cfg(feature = "qlog")]
+        qlog.frame(QuicFrame::PathChallenge { data: None });
         self.stats.frame_tx.path_challenge += 1;
 
         // An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
@@ -1637,7 +1702,7 @@ impl Connection {
         // sending a datagram of this size
         builder.pad_to(MIN_INITIAL_SIZE);
 
-        builder.finish(self, now);
+        builder.finish(self, now, qlog);
         self.stats.udp_tx.on_sent(1, buf.len());
 
         Some(Transmit {
@@ -1744,7 +1809,7 @@ impl Connection {
                         path.data.pto_count,
                         &mut path.data,
                         now,
-                        self.orig_rem_cid,
+                        self.initial_dst_cid,
                     );
                 }
 
@@ -1851,7 +1916,7 @@ impl Connection {
                                 self.path_data(path_id).pto_count,
                                 &mut self.paths.get_mut(&path_id).unwrap().data,
                                 now,
-                                self.orig_rem_cid,
+                                self.initial_dst_cid,
                             );
                         }
                         PathTimer::PathValidation => {
@@ -2785,7 +2850,7 @@ impl Connection {
                     loss_delay,
                     pn_space,
                     now,
-                    self.orig_rem_cid,
+                    self.initial_dst_cid,
                 );
                 self.paths
                     .get_mut(&path_id)
@@ -3075,14 +3140,6 @@ impl Connection {
             // Update outgoing spin bit, inverting iff we're the client
             self.spin = self.side.is_client() ^ spin;
         }
-
-        self.config.qlog_sink.emit_packet_received(
-            packet,
-            space_id,
-            !is_1rtt,
-            now,
-            self.orig_rem_cid,
-        );
     }
 
     /// Resets the idle timeout timers
@@ -3184,7 +3241,21 @@ impl Connection {
             false,
         );
 
-        self.process_decrypted_packet(now, remote, path_id, Some(packet_number), packet.into())?;
+        let packet: Packet = packet.into();
+
+        let mut qlog = QlogRecvPacket::new(len);
+        #[cfg(feature = "qlog")]
+        qlog.header(&packet, Some(packet_number));
+
+        self.process_decrypted_packet(
+            now,
+            remote,
+            path_id,
+            Some(packet_number),
+            packet,
+            &mut qlog,
+        )?;
+        self.config.qlog_sink.emit_packet_received(self, qlog, now);
         if let Some(data) = remaining {
             self.handle_coalesced(now, remote, path_id, ecn, data);
         }
@@ -3193,7 +3264,7 @@ impl Connection {
             self.path_data(path_id).pto_count,
             &mut self.paths.get_mut(&path_id).unwrap().data,
             now,
-            self.orig_rem_cid,
+            self.initial_dst_cid,
         );
 
         Ok(())
@@ -3417,6 +3488,7 @@ impl Connection {
         ecn: Option<EcnCodepoint>,
         partial_decode: PartialDecode,
     ) {
+        let qlog = QlogRecvPacket::new(partial_decode.len());
         if let Some(decoded) = packet_crypto::unprotect_header(
             partial_decode,
             &self.spaces,
@@ -3430,6 +3502,7 @@ impl Connection {
                 ecn,
                 decoded.packet,
                 decoded.stateless_reset,
+                qlog,
             );
         }
     }
@@ -3442,6 +3515,7 @@ impl Connection {
         ecn: Option<EcnCodepoint>,
         packet: Option<Packet>,
         stateless_reset: bool,
+        mut qlog: QlogRecvPacket,
     ) {
         self.stats.udp_rx.ios += 1;
         if let Some(ref packet) = packet {
@@ -3510,6 +3584,8 @@ impl Connection {
                 }
             }
             Ok((packet, number)) => {
+                #[cfg(feature = "qlog")]
+                qlog.header(&packet, number);
                 let span = match number {
                     Some(pn) => trace_span!("recv", space = ?packet.header.space(), pn),
                     None => trace_span!("recv", space = ?packet.header.space()),
@@ -3521,10 +3597,12 @@ impl Connection {
                     .map(|pns| &mut pns.dedup);
                 if number.zip(dedup).is_some_and(|(n, d)| d.insert(n)) {
                     debug!("discarding possible duplicate packet");
+                    self.config.qlog_sink.emit_packet_received(self, qlog, now);
                     return;
                 } else if self.state.is_handshake() && packet.header.is_short() {
                     // TODO: SHOULD buffer these to improve reordering tolerance.
                     trace!("dropping short packet during handshake");
+                    self.config.qlog_sink.emit_packet_received(self, qlog, now);
                     return;
                 } else {
                     if let Header::Initial(InitialHeader { ref token, .. }) = packet.header {
@@ -3534,6 +3612,7 @@ impl Connection {
                                 // packets can be spoofed, so we discard rather than killing the
                                 // connection.
                                 warn!("discarding Initial with invalid retry token");
+                                self.config.qlog_sink.emit_packet_received(self, qlog, now);
                                 return;
                             }
                         }
@@ -3562,7 +3641,11 @@ impl Connection {
                         }
                     }
 
-                    self.process_decrypted_packet(now, remote, path_id, number, packet)
+                    let res = self
+                        .process_decrypted_packet(now, remote, path_id, number, packet, &mut qlog);
+
+                    self.config.qlog_sink.emit_packet_received(self, qlog, now);
+                    res
                 }
             }
         };
@@ -3632,6 +3715,7 @@ impl Connection {
         path_id: PathId,
         number: Option<u64>,
         packet: Packet,
+        qlog: &mut QlogRecvPacket,
     ) -> Result<(), ConnectionError> {
         if !self.paths.contains_key(&path_id) {
             // There is a chance this is a server side, first (for this path) packet, which would
@@ -3644,10 +3728,10 @@ impl Connection {
             StateType::Established => {
                 match packet.header.space() {
                     SpaceId::Data => {
-                        self.process_payload(now, remote, path_id, number.unwrap(), packet)?
+                        self.process_payload(now, remote, path_id, number.unwrap(), packet, qlog)?
                     }
                     _ if packet.header.has_frames() => {
-                        self.process_early_payload(now, path_id, packet)?
+                        self.process_early_payload(now, path_id, packet, qlog)?
                     }
                     _ => {
                         trace!("discarding unexpected pre-handshake packet");
@@ -3664,6 +3748,8 @@ impl Connection {
                             continue;
                         }
                     };
+                    #[cfg(feature = "qlog")]
+                    qlog.frame(&frame);
 
                     if let Frame::Padding = frame {
                         continue;
@@ -3794,7 +3880,7 @@ impl Connection {
                 }
                 self.on_path_validated(path_id);
 
-                self.process_early_payload(now, path_id, packet)?;
+                self.process_early_payload(now, path_id, packet, qlog)?;
                 if self.state.is_closed() {
                     return Ok(());
                 }
@@ -3891,7 +3977,7 @@ impl Connection {
                 }
 
                 let starting_space = self.highest_space;
-                self.process_early_payload(now, path_id, packet)?;
+                self.process_early_payload(now, path_id, packet, qlog)?;
 
                 if self.side.is_server()
                     && starting_space == SpaceId::Initial
@@ -3916,7 +4002,7 @@ impl Connection {
                 ty: LongType::ZeroRtt,
                 ..
             } => {
-                self.process_payload(now, remote, path_id, number.unwrap(), packet)?;
+                self.process_payload(now, remote, path_id, number.unwrap(), packet, qlog)?;
                 Ok(())
             }
             Header::VersionNegotiate { .. } => {
@@ -3948,6 +4034,7 @@ impl Connection {
         now: Instant,
         path_id: PathId,
         packet: Packet,
+        #[allow(unused)] qlog: &mut QlogRecvPacket,
     ) -> Result<(), TransportError> {
         debug_assert_ne!(packet.header.space(), SpaceId::Data);
         debug_assert_eq!(path_id, PathId::ZERO);
@@ -3955,6 +4042,8 @@ impl Connection {
         let mut ack_eliciting = false;
         for result in frame::Iter::new(packet.payload.freeze())? {
             let frame = result?;
+            #[cfg(feature = "qlog")]
+            qlog.frame(&frame);
             let span = match frame {
                 Frame::Padding => continue,
                 _ => Some(trace_span!("frame", ty = %frame.ty(), path = tracing::field::Empty)),
@@ -4012,6 +4101,7 @@ impl Connection {
         path_id: PathId,
         number: u64,
         packet: Packet,
+        #[allow(unused)] qlog: &mut QlogRecvPacket,
     ) -> Result<(), TransportError> {
         let payload = packet.payload.freeze();
         let mut is_probing_packet = true;
@@ -4023,6 +4113,8 @@ impl Connection {
         let mut migration_observed_addr = None;
         for result in frame::Iter::new(payload)? {
             let frame = result?;
+            #[cfg(feature = "qlog")]
+            qlog.frame(&frame);
             let span = match frame {
                 Frame::Padding => continue,
                 _ => trace_span!("frame", ty = %frame.ty(), path = tracing::field::Empty),
@@ -4863,6 +4955,7 @@ impl Connection {
         path_exclusive_only: bool,
         buf: &mut impl BufMut,
         pn: u64,
+        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) -> SentFrames {
         let mut sent = SentFrames::default();
         let is_multipath_negotiated = self.is_multipath_negotiated();
@@ -4878,6 +4971,8 @@ impl Connection {
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
             trace!("HANDSHAKE_DONE");
             buf.write(frame::FrameType::HANDSHAKE_DONE);
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::HandshakeDone);
             sent.retransmits.get_or_create().handshake_done = true;
             // This is just a u8 counter and the frame is typically just sent once
             self.stats.frame_tx.handshake_done =
@@ -4929,6 +5024,8 @@ impl Connection {
                 self.stats.frame_tx.observed_addr += 1;
                 sent.retransmits.get_or_create().observed_addr = true;
                 space.pending.observed_addr = false;
+                #[cfg(feature = "qlog")]
+                qlog.unknown_frame(&frame.get_type());
             }
         }
 
@@ -4938,6 +5035,11 @@ impl Connection {
             buf.write(frame::FrameType::PING);
             sent.non_retransmits = true;
             self.stats.frame_tx.ping += 1;
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::Ping {
+                length: None,
+                payload_length: None,
+            });
         }
 
         // IMMEDIATE_ACK
@@ -4946,6 +5048,8 @@ impl Connection {
             buf.write(frame::FrameType::IMMEDIATE_ACK);
             sent.non_retransmits = true;
             self.stats.frame_tx.immediate_ack += 1;
+            #[cfg(feature = "qlog")]
+            qlog.unknown_frame(&frame::FrameType::IMMEDIATE_ACK);
         }
 
         // ACK
@@ -4971,6 +5075,7 @@ impl Connection {
                     is_multipath_negotiated,
                     buf,
                     &mut self.stats,
+                    qlog,
                 );
             }
         }
@@ -5004,11 +5109,15 @@ impl Connection {
             self.ack_frequency
                 .ack_frequency_sent(path_id, pn, max_ack_delay);
             self.stats.frame_tx.ack_frequency += 1;
+            #[cfg(feature = "qlog")]
+            qlog.unknown_frame(&frame::FrameType::ACK_FREQUENCY);
         }
 
         // PATH_CHALLENGE
         if buf.remaining_mut() > 9 && space_id == SpaceId::Data && path.send_new_challenge {
             path.send_new_challenge = false;
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::PathChallenge { data: None });
 
             // Generate a new challenge every time we send a new PATH_CHALLENGE
             let token = self.rng.random();
@@ -5041,6 +5150,8 @@ impl Connection {
                 let frame = frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
                 if buf.remaining_mut() > frame.size() {
                     frame.write(buf);
+                    #[cfg(feature = "qlog")]
+                    qlog.unknown_frame(&frame.get_type());
 
                     self.next_observed_addr_seq_no =
                         self.next_observed_addr_seq_no.saturating_add(1u8);
@@ -5061,6 +5172,8 @@ impl Connection {
                 trace!("PATH_RESPONSE {:08x}", token);
                 buf.write(frame::FrameType::PATH_RESPONSE);
                 buf.write(token);
+                #[cfg(feature = "qlog")]
+                qlog.frame(QuicFrame::PathResponse { data: None });
                 self.stats.frame_tx.path_response += 1;
 
                 // NOTE: this is technically not required but might be useful to ride the
@@ -5076,6 +5189,8 @@ impl Connection {
                         frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
                     if buf.remaining_mut() > frame.size() {
                         frame.write(buf);
+                        #[cfg(feature = "qlog")]
+                        qlog.unknown_frame(&frame.get_type());
 
                         self.next_observed_addr_seq_no =
                             self.next_observed_addr_seq_no.saturating_add(1u8);
@@ -5123,6 +5238,11 @@ impl Connection {
             );
             truncated.encode(buf);
             self.stats.frame_tx.crypto += 1;
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::Crypto {
+                offset: truncated.offset,
+                length: truncated.data.len() as u64,
+            });
             sent.retransmits.get_or_create().crypto.push_back(truncated);
             if !frame.data.is_empty() {
                 frame.offset += len as u64;
@@ -5144,6 +5264,8 @@ impl Connection {
                 error_code,
             }
             .encode(buf);
+            #[cfg(feature = "qlog")]
+            qlog.unknown_frame(&FrameType::PATH_ABANDON);
             self.stats.frame_tx.path_abandon += 1;
             trace!(%path_id, "PATH_ABANDON");
             sent.retransmits
@@ -5175,6 +5297,8 @@ impl Connection {
                         status_seq_no: seq,
                     }
                     .encode(buf);
+                    #[cfg(feature = "qlog")]
+                    qlog.unknown_frame(&FrameType::PATH_AVAILABLE);
                     self.stats.frame_tx.path_available += 1;
                     trace!(%path_id, %seq, "PATH_AVAILABLE")
                 }
@@ -5184,6 +5308,8 @@ impl Connection {
                         status_seq_no: seq,
                     }
                     .encode(buf);
+                    #[cfg(feature = "qlog")]
+                    qlog.unknown_frame(&FrameType::PATH_BACKUP);
                     self.stats.frame_tx.path_backup += 1;
                     trace!(%path_id, %seq, "PATH_BACKUP")
                 }
@@ -5196,6 +5322,8 @@ impl Connection {
             && frame::MaxPathId::SIZE_BOUND <= buf.remaining_mut()
         {
             frame::MaxPathId(self.local_max_path_id).encode(buf);
+            #[cfg(feature = "qlog")]
+            qlog.unknown_frame(&FrameType::MAX_PATH_ID);
             space.pending.max_path_id = false;
             sent.retransmits.get_or_create().max_path_id = true;
             trace!(val = %self.local_max_path_id, "MAX_PATH_ID");
@@ -5208,6 +5336,8 @@ impl Connection {
             && frame::PathsBlocked::SIZE_BOUND <= buf.remaining_mut()
         {
             frame::PathsBlocked(self.remote_max_path_id).encode(buf);
+            #[cfg(feature = "qlog")]
+            qlog.unknown_frame(&FrameType::PATHS_BLOCKED);
             space.pending.paths_blocked = false;
             sent.retransmits.get_or_create().paths_blocked = true;
             trace!(max_path_id = ?self.remote_max_path_id, "PATHS_BLOCKED");
@@ -5229,6 +5359,8 @@ impl Connection {
                 next_seq: VarInt(next_seq),
             }
             .encode(buf);
+            #[cfg(feature = "qlog")]
+            qlog.unknown_frame(&FrameType::PATH_CIDS_BLOCKED);
             sent.retransmits
                 .get_or_create()
                 .path_cids_blocked
@@ -5244,6 +5376,7 @@ impl Connection {
                 &mut space.pending,
                 &mut sent.retransmits,
                 &mut self.stats.frame_tx,
+                qlog,
             );
         }
 
@@ -5300,6 +5433,14 @@ impl Connection {
             }
             .encode(buf);
             sent.retransmits.get_or_create().new_cids.push(issued);
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::NewConnectionId {
+                sequence_number: issued.sequence as u32,
+                retire_prior_to: retire_prior_to as u32,
+                connection_id_length: Some(issued.id.len() as u8),
+                connection_id: format!("{}", issued.id),
+                stateless_reset_token: Some(format!("{}", issued.reset_token)),
+            });
         }
 
         // RETIRE_CONNECTION_ID
@@ -5319,6 +5460,10 @@ impl Connection {
                 None => break,
             };
             frame::RetireConnectionId { path_id, sequence }.encode(buf);
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::RetireConnectionId {
+                sequence_number: sequence as u32,
+            });
             sent.retransmits
                 .get_or_create()
                 .retire_cids
@@ -5331,11 +5476,18 @@ impl Connection {
             && buf.remaining_mut() > Datagram::SIZE_BOUND
             && space_id == SpaceId::Data
         {
+            #[cfg(feature = "qlog")]
+            let prev_remaining = buf.remaining_mut();
             match self.datagrams.write(buf) {
                 true => {
                     sent_datagrams = true;
                     sent.non_retransmits = true;
                     self.stats.frame_tx.datagram += 1;
+                    #[cfg(feature = "qlog")]
+                    qlog.frame(QuicFrame::Datagram {
+                        length: (prev_remaining - buf.remaining_mut()) as u64,
+                        raw: None,
+                    });
                 }
                 false => break,
             }
@@ -5383,6 +5535,22 @@ impl Connection {
 
             trace!("NEW_TOKEN");
             new_token.encode(buf);
+            #[cfg(feature = "qlog")]
+            {
+                use ::qlog;
+                qlog.frame(QuicFrame::NewToken {
+                    token: qlog::Token {
+                        // TODO: pick the token type some how
+                        ty: Some(qlog::TokenType::Retry),
+                        raw: Some(qlog::events::RawInfo {
+                            data: qlog::HexSlice::maybe_string(Some(&new_token.token)),
+                            length: Some(new_token.token.len() as u64),
+                            payload_length: None,
+                        }),
+                        details: None,
+                    },
+                });
+            }
             sent.retransmits
                 .get_or_create()
                 .new_tokens
@@ -5392,9 +5560,9 @@ impl Connection {
 
         // STREAM
         if !path_exclusive_only && space_id == SpaceId::Data {
-            sent.stream_frames = self
-                .streams
-                .write_stream_frames(buf, self.config.send_fairness);
+            sent.stream_frames =
+                self.streams
+                    .write_stream_frames(buf, self.config.send_fairness, qlog);
             self.stats.frame_tx.stream += sent.stream_frames.len() as u64;
         }
 
@@ -5448,6 +5616,7 @@ impl Connection {
         send_path_acks: bool,
         buf: &mut impl BufMut,
         stats: &mut ConnectionStats,
+        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) {
         // 0-RTT packets must never carry acks (which would have to be of handshake packets)
         debug_assert!(space.crypto.is_some(), "tried to send ACK in 0-RTT");
@@ -5473,12 +5642,31 @@ impl Connection {
             if !ranges.is_empty() {
                 trace!("PATH_ACK {path_id:?} {ranges:?}, Delay = {delay_micros}us");
                 frame::PathAck::encode(path_id, delay as _, ranges, ecn, buf);
+                #[cfg(feature = "qlog")]
+                qlog.unknown_frame(&FrameType::PATH_ACK);
                 stats.frame_tx.path_acks += 1;
             }
         } else {
             trace!("ACK {ranges:?}, Delay = {delay_micros}us");
             frame::Ack::encode(delay as _, ranges, ecn, buf);
             stats.frame_tx.acks += 1;
+
+            // TODO: ack ranges
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::Ack {
+                ack_delay: Some(delay as f32),
+                acked_ranges: Some(AckedRanges::Double(
+                    ranges
+                        .iter()
+                        .map(|range| (range.start, range.end))
+                        .collect(),
+                )),
+                ect1: ecn.map(|e| e.ect1),
+                ect0: ecn.map(|e| e.ect0),
+                ce: ecn.map(|e| e.ce),
+                length: None,
+                payload_length: None,
+            });
         }
     }
 

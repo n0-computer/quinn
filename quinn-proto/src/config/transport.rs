@@ -735,9 +735,14 @@ impl QlogConfig {
     }
 
     /// Vantage point for this trace
-    pub fn vantage_point(&mut self, vantage_point: VantagePointType, name: Option<String>) {
+    pub fn vantage_point(
+        &mut self,
+        vantage_point: VantagePointType,
+        name: Option<String>,
+    ) -> &mut Self {
         self.vantage_point.name = name;
         self.vantage_point.ty = vantage_point;
+        self
     }
 
     /// Construct the [`QlogStream`] described by this configuration
@@ -763,7 +768,7 @@ impl QlogConfig {
             None,
             self.start_time,
             trace,
-            qlog::events::EventImportance::Core,
+            qlog::events::EventImportance::Extra,
             writer,
         );
 
