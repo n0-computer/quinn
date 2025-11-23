@@ -5,6 +5,8 @@ use std::{
 };
 
 use bytes::BufMut;
+#[cfg(feature = "qlog")]
+use qlog::events::quic::QuicFrame;
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
 
@@ -15,7 +17,7 @@ use super::{
 use crate::{
     Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
     coding::BufMutExt,
-    connection::stats::FrameStats,
+    connection::{qlog::QlogSentPacket, stats::FrameStats},
     frame::{self, FrameStruct, StreamMetaVec},
     transport_parameters::TransportParameters,
 };
@@ -415,6 +417,7 @@ impl StreamsState {
         pending: &mut Retransmits,
         retransmits: &mut ThinRetransmits,
         stats: &mut FrameStats,
+        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) {
         // RESET_STREAM
         while buf.remaining_mut() > frame::ResetStream::SIZE_BOUND {
@@ -437,6 +440,14 @@ impl StreamsState {
                 final_offset: VarInt::try_from(stream.offset()).expect("impossibly large offset"),
             }
             .encode(buf);
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::ResetStream {
+                stream_id: id.into(),
+                error_code: error_code.into(),
+                final_size: stream.offset(),
+                length: None,
+                payload_length: None,
+            });
             stats.reset_stream += 1;
         }
 
@@ -455,6 +466,13 @@ impl StreamsState {
             // can't be relied upon regardless.
             trace!(stream = %frame.id, "STOP_SENDING");
             frame.encode(buf);
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::StopSending {
+                stream_id: frame.id.into(),
+                error_code: frame.error_code.into(),
+                length: None,
+                payload_length: None,
+            });
             retransmits.get_or_create().stop_sending.push(frame);
             stats.stop_sending += 1;
         }
@@ -479,6 +497,10 @@ impl StreamsState {
             retransmits.get_or_create().max_data = true;
             buf.write(frame::FrameType::MAX_DATA);
             buf.write(max);
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::MaxData {
+                maximum: max.into(),
+            });
             stats.max_data += 1;
         }
 
@@ -510,6 +532,11 @@ impl StreamsState {
             buf.write(frame::FrameType::MAX_STREAM_DATA);
             buf.write(id);
             buf.write_var(max);
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::MaxStreamData {
+                stream_id: id.into(),
+                maximum: max,
+            });
             stats.max_stream_data += 1;
         }
 
@@ -531,6 +558,14 @@ impl StreamsState {
                 Dir::Bi => frame::FrameType::MAX_STREAMS_BIDI,
             });
             buf.write_var(self.max_remote[dir as usize]);
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::MaxStreams {
+                maximum: self.max_remote[dir as usize],
+                stream_type: match dir {
+                    Dir::Bi => qlog::events::quic::StreamType::Bidirectional,
+                    Dir::Uni => qlog::events::quic::StreamType::Unidirectional,
+                },
+            });
             match dir {
                 Dir::Uni => stats.max_streams_uni += 1,
                 Dir::Bi => stats.max_streams_bidi += 1,
@@ -542,6 +577,7 @@ impl StreamsState {
         &mut self,
         buf: &mut impl BufMut,
         fair: bool,
+        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) -> StreamMetaVec {
         let mut stream_frames = StreamMetaVec::new();
         while buf.remaining_mut() > frame::Stream::SIZE_BOUND {
@@ -592,6 +628,14 @@ impl StreamsState {
             let meta = frame::StreamMeta { id, offsets, fin };
             trace!(id = %meta.id, off = meta.offsets.start, len = meta.offsets.end - meta.offsets.start, fin = meta.fin, "STREAM");
             meta.encode(encode_length, buf);
+            #[cfg(feature = "qlog")]
+            qlog.frame(QuicFrame::Stream {
+                stream_id: meta.id.into(),
+                offset: meta.offsets.start,
+                length: meta.offsets.end - meta.offsets.start,
+                fin: Some(meta.fin),
+                raw: None,
+            });
 
             // The range might not be retrievable in a single `get` if it is
             // stored in noncontiguous fashion. Therefore this loop iterates
@@ -1378,7 +1422,7 @@ mod tests {
         high.write(b"high").unwrap();
 
         let mut buf = Vec::with_capacity(40);
-        let meta = server.write_stream_frames(&mut buf, true);
+        let meta = server.write_stream_frames(&mut buf, true, &mut Default::default());
         assert_eq!(meta[0].id, id_high);
         assert_eq!(meta[1].id, id_mid);
         assert_eq!(meta[2].id, id_low);
@@ -1437,7 +1481,7 @@ mod tests {
         high.set_priority(-1).unwrap();
 
         let mut buf = Vec::with_capacity(1000).limit(40);
-        let meta = server.write_stream_frames(&mut buf, true);
+        let meta = server.write_stream_frames(&mut buf, true, &mut Default::default());
         assert_eq!(meta.len(), 1);
         assert_eq!(meta[0].id, id_high);
 
@@ -1447,7 +1491,7 @@ mod tests {
         let mut buf = buf.into_inner();
 
         // Send the remaining data. The initial mid priority one should go first now
-        let meta = server.write_stream_frames(&mut buf, true);
+        let meta = server.write_stream_frames(&mut buf, true, &mut Default::default());
         assert_eq!(meta.len(), 2);
         assert_eq!(meta[0].id, id_mid);
         assert_eq!(meta[1].id, id_high);
@@ -1508,7 +1552,8 @@ mod tests {
             // loop until all the streams are written
             loop {
                 let mut chunk_buf = buf.limit(40);
-                let meta = server.write_stream_frames(&mut chunk_buf, fair);
+                let meta =
+                    server.write_stream_frames(&mut chunk_buf, fair, &mut Default::default());
                 if meta.is_empty() {
                     break;
                 }
@@ -1580,7 +1625,7 @@ mod tests {
 
         // Write the first chunk of stream_a
         let mut chunk_buf = buf.limit(40);
-        let meta = server.write_stream_frames(&mut chunk_buf, false);
+        let meta = server.write_stream_frames(&mut chunk_buf, false, &mut Default::default());
         let mut buf = chunk_buf.into_inner();
         assert!(!meta.is_empty());
         metas.extend(meta);
@@ -1598,7 +1643,7 @@ mod tests {
         // loop until all the streams are written
         loop {
             let mut chunk_buf = buf.limit(40);
-            let meta = server.write_stream_frames(&mut chunk_buf, false);
+            let meta = server.write_stream_frames(&mut chunk_buf, false, &mut Default::default());
             buf = chunk_buf.into_inner();
             if meta.is_empty() {
                 break;
