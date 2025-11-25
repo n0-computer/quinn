@@ -3184,7 +3184,7 @@ impl Connection {
 
         let packet: Packet = packet.into();
 
-        let mut qlog = QlogRecvPacket::new(len);
+        let mut qlog = QlogRecvPacket::new(len, remote, path_id);
         #[cfg(feature = "qlog")]
         qlog.header(&packet, Some(packet_number));
 
@@ -3429,7 +3429,7 @@ impl Connection {
         ecn: Option<EcnCodepoint>,
         partial_decode: PartialDecode,
     ) {
-        let qlog = QlogRecvPacket::new(partial_decode.len());
+        let qlog = QlogRecvPacket::new(partial_decode.len(), remote, path_id);
         if let Some(decoded) = packet_crypto::unprotect_header(
             partial_decode,
             &self.spaces,
