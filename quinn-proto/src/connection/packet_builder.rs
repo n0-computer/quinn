@@ -269,8 +269,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
     pub(super) fn finish(
         self,
         conn: &mut Connection,
-        now: Instant,
-        #[allow(unused_mut)] mut qlog: QlogSentPacket,
+        #[allow(unused)] now: Instant,
+        #[allow(unused)] mut qlog: QlogSentPacket,
     ) -> (usize, bool) {
         debug_assert!(
             self.buf.len() <= self.buf.datagram_max_offset() - self.tag_len,
@@ -317,7 +317,9 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         let packet_len = self.buf.len() - encode_start;
         trace!(size = %packet_len, short_header = %self.short_header, "wrote packet");
         qlog.finalize(packet_len);
-        conn.config.qlog_sink.emit_packet_sent(conn, qlog, now);
+        conn.config
+            .qlog_sink
+            .emit_packet_sent(conn, self.path, qlog, now);
         (packet_len, pad)
     }
 
