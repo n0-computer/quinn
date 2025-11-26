@@ -236,10 +236,11 @@ impl QlogSentPacket {
         pn: Option<u64>,
         space: SpaceId,
         is_0rtt: bool,
+        path_id: PathId,
     ) {
         self.inner.header.scid = header.src_cid().map(encode_cid);
         self.inner.header.dcid = Some(encode_cid(header.dst_cid()));
-        self.inner.header.packet_number = pn;
+        self.inner.header.packet_number = pn.map(|pn| pn + path_id.0 as u64 * 1_000_000_000);
         self.inner.header.packet_type = packet_type(space, is_0rtt);
     }
 
@@ -293,7 +294,7 @@ impl QlogRecvPacket {
         let is_0rtt = !packet.header.is_1rtt();
         self.inner.header.scid = header.src_cid().map(encode_cid);
         self.inner.header.dcid = Some(encode_cid(header.dst_cid()));
-        self.inner.header.packet_number = pn;
+        self.inner.header.packet_number = pn.map(|pn| pn + self.path_id.0 as u64 * 1_000_000_000);
         self.inner.header.packet_type = packet_type(header.space(), is_0rtt);
     }
 
