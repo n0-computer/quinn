@@ -200,9 +200,13 @@ pub enum StateTyp {
 enum InnerState {
     Handshake(Handshake),
     Established,
+    // TODO: should this be split into `ClosedLocal` and `ClosedRemote`?
     Closed {
+        /// The reason the remote closed the connection, or the reason we are sending to the remote.
         remote_reason: Closed,
+        /// Set to true if we closed the connection locally
         local_reason: bool,
+        /// Did we read this as error already?
         error_read: bool,
     },
     Draining {
