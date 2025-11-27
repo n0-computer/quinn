@@ -145,7 +145,11 @@ fn lifecycle() {
                     Some(Event::ConnectionLost { reason: ConnectionError::ApplicationClosed(
                         ApplicationClose { error_code: VarInt(42), ref reason }
                     )}) if reason == REASON);
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).poll(),
+            Some(Event::ConnectionLost {
+                reason: ConnectionError::ConnectionClosed(close)
+            }) if close.error_code == TransportErrorCode::NO_ERROR
+    );
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
     assert_eq!(pair.server.known_connections(), 0);
@@ -178,7 +182,11 @@ fn draft_version_compat() {
                     Some(Event::ConnectionLost { reason: ConnectionError::ApplicationClosed(
                         ApplicationClose { error_code: VarInt(42), ref reason }
                     )}) if reason == REASON);
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).poll(),
+            Some(Event::ConnectionLost {
+                reason: ConnectionError::ConnectionClosed(close)
+            }) if close.error_code == TransportErrorCode::NO_ERROR
+    );
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
     assert_eq!(pair.server.known_connections(), 0);
@@ -438,9 +446,13 @@ fn reject_self_signed_server_cert() {
 
     pair.drive();
 
-    assert_matches!(pair.client_conn_mut(client_ch).poll(),
-                    Some(Event::ConnectionLost { reason: ConnectionError::TransportError(ref error)})
-                    if error.code == TransportErrorCode::crypto(AlertDescription::UnknownCA.into()));
+    let a = pair.client_conn_mut(client_ch).poll();
+    dbg!(&a);
+    assert_matches!(
+        a,
+        Some(Event::ConnectionLost { reason: ConnectionError::TransportError(ref error)})
+        if error.code == TransportErrorCode::crypto(AlertDescription::UnknownCA.into())
+    );
 }
 
 #[test]
@@ -884,8 +896,10 @@ fn alpn_mismatch() {
     ]))));
 
     pair.drive();
+    let res = pair.client_conn_mut(client_ch).poll();
+    dbg!(&res);
     assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
+        res,
         Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(err) }) if err.error_code == TransportErrorCode::crypto(0x78)
     );
 }
@@ -1133,14 +1147,19 @@ fn instant_close_1() {
     let mut pair = Pair::default();
     info!("connecting");
     let client_ch = pair.begin_connect(client_config());
+    let reason = Bytes::new();
     pair.client
         .connections
         .get_mut(&client_ch)
         .unwrap()
-        .close(pair.time, VarInt(0), Bytes::new());
+        .close(pair.time, VarInt(0), reason);
     pair.drive();
     let server_ch = pair.server.assert_accept();
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).poll(),
+        Some(Event::ConnectionLost {
+            reason: ConnectionError::ApplicationClosed(ApplicationClose { error_code: VarInt(0), ref reason })
+            }) if reason == reason
+    );
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
         Some(Event::ConnectionLost {
@@ -1160,13 +1179,18 @@ fn instant_close_2() {
     let client_ch = pair.begin_connect(client_config());
     // Unlike `instant_close`, the server sees a valid Initial packet first.
     pair.drive_client();
+    let reason = Bytes::new();
     pair.client
         .connections
         .get_mut(&client_ch)
         .unwrap()
-        .close(pair.time, VarInt(42), Bytes::new());
+        .close(pair.time, VarInt(42), reason);
     pair.drive();
-    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).poll(),
+        Some(Event::ConnectionLost {
+            reason: ConnectionError::ApplicationClosed(ApplicationClose { error_code: VarInt(42), ref reason })
+            }) if reason == reason
+    );
     let server_ch = pair.server.assert_accept();
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),

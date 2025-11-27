@@ -205,8 +205,6 @@ pub struct Connection {
     timers: TimerTable,
     /// Number of packets received which could not be authenticated
     authentication_failures: u64,
-    /// Why the connection was lost, if it has been
-    error: Option<ConnectionError>,
 
     //
     // Queued non-retransmittable 1-RTT data
@@ -409,7 +407,6 @@ impl Connection {
             },
             timers: TimerTable::default(),
             authentication_failures: 0,
-            error: None,
             close: false,
 
             ack_frequency: AckFrequencyState::new(get_max_ack_delay(
@@ -486,8 +483,9 @@ impl Connection {
             return Some(Event::Stream(event));
         }
 
-        if let Some(err) = self.error.take() {
-            return Some(Event::ConnectionLost { reason: err });
+        dbg!(&self.state);
+        if let Some(reason) = self.state.take_error() {
+            return Some(Event::ConnectionLost { reason });
         }
 
         None
@@ -881,11 +879,11 @@ impl Connection {
 
         // Check whether we need to send a close message
         let close = match self.state {
-            State::Drained => {
+            State::Drained { .. } => {
                 self.app_limited = true;
                 return None;
             }
-            State::Draining | State::Closed(_) => {
+            State::Draining { .. } | State::Closed { .. } => {
                 // self.close is only reset once the associated packet had been
                 // encoded successfully
                 if !self.close {
@@ -1210,7 +1208,10 @@ impl Connection {
                 if frame::ConnectionClose::SIZE_BOUND < builder.frame_space_remaining() {
                     let max_frame_size = builder.frame_space_remaining();
                     match self.state {
-                        State::Closed(state::Closed { ref reason }) => {
+                        State::Closed {
+                            reason: state::Closed { ref reason },
+                            ..
+                        } => {
                             if space_id == SpaceId::Data || reason.is_transport_layer() {
                                 reason.encode(&mut builder.frame_space_mut(), max_frame_size)
                             } else {
@@ -1222,7 +1223,7 @@ impl Connection {
                                 .encode(&mut builder.frame_space_mut(), max_frame_size)
                             }
                         }
-                        State::Draining => frame::ConnectionClose {
+                        State::Draining { .. } => frame::ConnectionClose {
                             error_code: TransportErrorCode::NO_ERROR,
                             frame_type: None,
                             reason: Bytes::new(),
@@ -1781,7 +1782,22 @@ impl Connection {
             match timer {
                 Timer::Conn(timer) => match timer {
                     ConnTimer::Close => {
-                        self.state = State::Drained;
+                        // TODO: what is the right error?
+                        let error = self
+                            .state
+                            .take_error()
+                            .map(|e| match e {
+                                ConnectionError::ConnectionClosed(close) => {
+                                    if close.error_code == TransportErrorCode::PROTOCOL_VIOLATION {
+                                        ConnectionError::TransportError(close.error_code.into())
+                                    } else {
+                                        ConnectionError::ConnectionClosed(close)
+                                    }
+                                }
+                                e => e,
+                            })
+                            .unwrap_or(ConnectionError::LocallyClosed);
+                        self.state = State::Drained { error: Some(error) };
                         self.endpoint_events.push_back(EndpointEventInner::Drained);
                     }
                     ConnTimer::Idle => {
@@ -1952,7 +1968,10 @@ impl Connection {
             self.close_common();
             self.set_close_timer(now);
             self.close = true;
-            self.state = State::Closed(state::Closed { reason });
+            self.state = State::Closed {
+                error_read: false,
+                reason: state::Closed { reason },
+            };
         }
     }
 
@@ -3508,7 +3527,6 @@ impl Connection {
 
         // State transitions for error cases
         if let Err(conn_err) = result {
-            self.error = Some(conn_err.clone());
             self.state = match conn_err {
                 ConnectionError::ApplicationClosed(reason) => State::closed(reason),
                 ConnectionError::ConnectionClosed(reason) => State::closed(reason),
@@ -3516,7 +3534,9 @@ impl Connection {
                 | ConnectionError::TransportError(TransportError {
                     code: TransportErrorCode::AEAD_LIMIT_REACHED,
                     ..
-                }) => State::Drained,
+                }) => State::Drained {
+                    error: Some(conn_err.clone()),
+                },
                 ConnectionError::TimedOut => {
                     unreachable!("timeouts aren't generated by packet processing");
                 }
@@ -3524,7 +3544,9 @@ impl Connection {
                     debug!("closing connection due to transport error: {}", err);
                     State::closed(err)
                 }
-                ConnectionError::VersionMismatch => State::Draining,
+                ConnectionError::VersionMismatch => State::Draining {
+                    error: Some(conn_err.clone()),
+                },
                 ConnectionError::LocallyClosed => {
                     unreachable!("LocallyClosed isn't generated by packet processing");
                 }
@@ -3548,7 +3570,7 @@ impl Connection {
         }
 
         // Transmit CONNECTION_CLOSE if necessary
-        if let State::Closed(_) = self.state {
+        if let State::Closed { .. } = self.state {
             // If there is no PathData for this PathId the packet was for a brand new
             // path. It was a valid packet however, so the remote is valid and we want to
             // send CONNECTION_CLOSE.
@@ -3591,7 +3613,7 @@ impl Connection {
                 }
                 return Ok(());
             }
-            State::Closed(_) => {
+            State::Closed { .. } => {
                 for result in frame::Iter::new(packet.payload.freeze())? {
                     let frame = match result {
                         Ok(frame) => frame,
@@ -3609,13 +3631,15 @@ impl Connection {
 
                     if let Frame::Close(_) = frame {
                         trace!("draining");
-                        self.state = State::Draining;
+                        self.state = State::Draining {
+                            error: Some(error.into()),
+                        };
                         break;
                     }
                 }
                 return Ok(());
             }
-            State::Draining | State::Drained => return Ok(()),
+            State::Draining { .. } | State::Drained { .. } => return Ok(()),
             State::Handshake(ref mut state) => state,
         };
 
@@ -3912,12 +3936,12 @@ impl Connection {
                     self.on_path_ack_received(now, packet.header.space(), ack)?;
                 }
                 Frame::Close(reason) => {
-                    self.error = Some(reason.into());
-                    self.state = State::Draining;
+                    self.state = State::Draining {
+                        error: Some(reason.into()),
+                    };
                     return Ok(());
                 }
                 _ => {
-                    dbg!(&frame);
                     let mut err =
                         TransportError::PROTOCOL_VIOLATION("illegal frame type in handshake");
                     err.frame = Some(frame.ty());
@@ -4606,8 +4630,9 @@ impl Connection {
         self.streams.queue_max_stream_id(pending);
 
         if let Some(reason) = close {
-            self.error = Some(reason.into());
-            self.state = State::Draining;
+            self.state = State::Draining {
+                error: Some(reason.into()),
+            };
             self.close = true;
         }
 
@@ -5806,8 +5831,9 @@ impl Connection {
     /// Terminate the connection instantly, without sending a close packet
     fn kill(&mut self, reason: ConnectionError) {
         self.close_common();
-        self.error = Some(reason);
-        self.state = State::Drained;
+        self.state = State::Drained {
+            error: Some(reason),
+        };
         self.endpoint_events.push_back(EndpointEventInner::Drained);
     }
 
@@ -6274,21 +6300,33 @@ pub struct MultipathNotNegotiated {
 }
 
 #[allow(unreachable_pub)] // fuzzing only
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum State {
     Handshake(state::Handshake),
     Established,
-    Closed(state::Closed),
-    Draining,
+    Closed {
+        reason: state::Closed,
+        error_read: bool,
+    },
+    Draining {
+        /// Why the connection was lost, if it has been
+        error: Option<ConnectionError>,
+    },
     /// Waiting for application to call close so we can dispose of the resources
-    Drained,
+    Drained {
+        /// Why the connection was lost, if it has been
+        error: Option<ConnectionError>,
+    },
 }
 
 impl State {
     fn closed<R: Into<Close>>(reason: R) -> Self {
-        Self::Closed(state::Closed {
-            reason: reason.into(),
-        })
+        Self::Closed {
+            reason: state::Closed {
+                reason: reason.into(),
+            },
+            error_read: false,
+        }
     }
 
     fn is_handshake(&self) -> bool {
@@ -6300,11 +6338,30 @@ impl State {
     }
 
     fn is_closed(&self) -> bool {
-        matches!(*self, Self::Closed(_) | Self::Draining | Self::Drained)
+        matches!(
+            *self,
+            Self::Closed { .. } | Self::Draining { .. } | Self::Drained { .. }
+        )
     }
 
     fn is_drained(&self) -> bool {
-        matches!(*self, Self::Drained)
+        matches!(*self, Self::Drained { .. })
+    }
+
+    fn take_error(&mut self) -> Option<ConnectionError> {
+        match self {
+            Self::Draining { error } => error.take(),
+            Self::Drained { error } => error.take(),
+            Self::Closed { reason, error_read } => {
+                if *error_read {
+                    None
+                } else {
+                    *error_read = true;
+                    Some(reason.clone().reason.into())
+                }
+            }
+            Self::Handshake(_) | Self::Established => None,
+        }
     }
 }
 
@@ -6312,7 +6369,7 @@ mod state {
     use super::*;
 
     #[allow(unreachable_pub)] // fuzzing only
-    #[derive(Clone)]
+    #[derive(Debug, Clone)]
     pub struct Handshake {
         /// Whether the remote CID has been set by the peer yet
         ///
@@ -6344,7 +6401,7 @@ mod state {
     }
 
     #[allow(unreachable_pub)] // fuzzing only
-    #[derive(Clone)]
+    #[derive(Debug, Clone)]
     pub struct Closed {
         pub(super) reason: Close,
     }
