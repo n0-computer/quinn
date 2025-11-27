@@ -1157,10 +1157,11 @@ fn instant_close_1() {
         .close(pair.time, VarInt(0), reason);
     pair.drive();
     let server_ch = pair.server.assert_accept();
-    assert_matches!(pair.client_conn_mut(client_ch).poll(),
+    assert_matches!(
+        pair.client_conn_mut(client_ch).poll(),
         Some(Event::ConnectionLost {
-            reason: ConnectionError::ApplicationClosed(ApplicationClose { error_code: VarInt(0), ref reason })
-            }) if reason == reason
+            reason: ConnectionError::LocallyClosed
+        })
     );
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
@@ -1188,10 +1189,11 @@ fn instant_close_2() {
         .unwrap()
         .close(pair.time, VarInt(42), reason);
     pair.drive();
-    assert_matches!(pair.client_conn_mut(client_ch).poll(),
+    assert_matches!(
+        pair.client_conn_mut(client_ch).poll(),
         Some(Event::ConnectionLost {
-            reason: ConnectionError::ApplicationClosed(ApplicationClose { error_code: VarInt(42), ref reason })
-            }) if reason == reason
+            reason: ConnectionError::LocallyClosed
+        })
     );
     let server_ch = pair.server.assert_accept();
     assert_matches!(

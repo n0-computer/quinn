@@ -340,7 +340,7 @@ impl Connection {
         };
         #[cfg(not(test))]
         let data_space = PacketSpace::new(now, SpaceId::Data, &mut rng);
-        let state = State::Handshake(state::Handshake {
+        let state = State::handshake(state::Handshake {
             rem_cid_set: side.is_server(),
             expected_token: Bytes::new(),
             client_hello: None,
@@ -483,7 +483,6 @@ impl Connection {
             return Some(Event::Stream(event));
         }
 
-        dbg!(&self.state);
         if let Some(reason) = self.state.take_error() {
             return Some(Event::ConnectionLost { reason });
         }
@@ -878,12 +877,12 @@ impl Connection {
         // Once there's nothing more to send on the AVAILABLE paths, do the same for BACKUP paths
 
         // Check whether we need to send a close message
-        let close = match self.state {
-            State::Drained { .. } => {
+        let close = match self.state.as_typ() {
+            StateTyp::Drained => {
                 self.app_limited = true;
                 return None;
             }
-            State::Draining { .. } | State::Closed { .. } => {
+            StateTyp::Draining | StateTyp::Closed => {
                 // self.close is only reset once the associated packet had been
                 // encoded successfully
                 if !self.close {
@@ -1207,11 +1206,9 @@ impl Connection {
                 );
                 if frame::ConnectionClose::SIZE_BOUND < builder.frame_space_remaining() {
                     let max_frame_size = builder.frame_space_remaining();
-                    match self.state {
-                        State::Closed {
-                            reason: state::Closed { ref reason },
-                            ..
-                        } => {
+                    match self.state.as_typ() {
+                        StateTyp::Closed => {
+                            let reason = &self.state.as_closed().expect("checked").reason;
                             if space_id == SpaceId::Data || reason.is_transport_layer() {
                                 reason.encode(&mut builder.frame_space_mut(), max_frame_size)
                             } else {
@@ -1223,7 +1220,7 @@ impl Connection {
                                 .encode(&mut builder.frame_space_mut(), max_frame_size)
                             }
                         }
-                        State::Draining { .. } => frame::ConnectionClose {
+                        StateTyp::Draining => frame::ConnectionClose {
                             error_code: TransportErrorCode::NO_ERROR,
                             frame_type: None,
                             reason: Bytes::new(),
@@ -1782,22 +1779,7 @@ impl Connection {
             match timer {
                 Timer::Conn(timer) => match timer {
                     ConnTimer::Close => {
-                        let error = self
-                            .state
-                            .take_error()
-                            .map(|e| match e {
-                                ConnectionError::ConnectionClosed(close) => {
-                                    if close.error_code == TransportErrorCode::PROTOCOL_VIOLATION {
-                                        ConnectionError::TransportError(close.error_code.into())
-                                    } else {
-                                        ConnectionError::ConnectionClosed(close)
-                                    }
-                                }
-                                e => e,
-                            })
-                            // If we haven't received a close error we fallback to LocallyClosed
-                            .unwrap_or(ConnectionError::LocallyClosed);
-                        self.state = State::Drained { error: Some(error) };
+                        self.state.to_drained(None);
                         self.endpoint_events.push_back(EndpointEventInner::Drained);
                     }
                     ConnTimer::Idle => {
@@ -1968,10 +1950,7 @@ impl Connection {
             self.close_common();
             self.set_close_timer(now);
             self.close = true;
-            self.state = State::Closed {
-                error_read: false,
-                reason: state::Closed { reason },
-            };
+            self.state.to_closed_locally(reason);
         }
     }
 
@@ -3010,7 +2989,7 @@ impl Connection {
                 // the real server.  From now on we should no longer allow the server to migrate
                 // its address.
                 if space_id == SpaceId::Handshake {
-                    if let State::Handshake(ref mut hs) = self.state {
+                    if let Some(hs) = self.state.as_handshake_mut() {
                         hs.allow_server_migration = false;
                     }
                 }
@@ -3126,11 +3105,10 @@ impl Connection {
         let path_id = PathId::ZERO;
         self.path_data_mut(path_id).total_recvd = len as u64;
 
-        match self.state {
-            State::Handshake(ref mut state) => {
-                state.expected_token = packet.header.token.clone();
-            }
-            _ => unreachable!("first packet must be delivered in Handshake state"),
+        if let Some(hs) = self.state.as_handshake_mut() {
+            hs.expected_token = packet.header.token.clone();
+        } else {
+            unreachable!("first packet must be delivered in Handshake state");
         }
 
         // The first packet is always on PathId::ZERO
@@ -3270,9 +3248,9 @@ impl Connection {
             }
             let offset = self.spaces[space].crypto_offset;
             let outgoing = Bytes::from(outgoing);
-            if let State::Handshake(ref mut state) = self.state {
+            if let Some(hs) = self.state.as_handshake_mut() {
                 if space == SpaceId::Initial && offset == 0 && self.side.is_client() {
-                    state.client_hello = Some(outgoing.clone());
+                    hs.client_hello = Some(outgoing.clone());
                 }
             }
             self.spaces[space].crypto_offset += outgoing.len() as u64;
@@ -3420,15 +3398,17 @@ impl Connection {
                 return;
             }
             if remote != self.path_data_mut(path_id).remote {
-                match self.state {
-                    State::Handshake(ref hs) if hs.allow_server_migration => {
+                if let Some(hs) = self.state.as_handshake() {
+                    if hs.allow_server_migration {
                         trace!(?remote, prev = ?self.path_data(path_id).remote, "server migrated to new remote");
                         self.path_data_mut(path_id).remote = remote;
-                    }
-                    _ => {
+                    } else {
                         debug!("discarding packet with unexpected remote during handshake");
                         return;
                     }
+                } else {
+                    debug!("discarding packet with unexpected remote during handshake");
+                    return;
                 }
             }
         }
@@ -3486,7 +3466,7 @@ impl Connection {
                     return;
                 } else {
                     if let Header::Initial(InitialHeader { ref token, .. }) = packet.header {
-                        if let State::Handshake(ref hs) = self.state {
+                        if let Some(hs) = self.state.as_handshake() {
                             if self.side.is_server() && token != &hs.expected_token {
                                 // Clients must send the same retry token in every Initial. Initial
                                 // packets can be spoofed, so we discard rather than killing the
@@ -3527,26 +3507,26 @@ impl Connection {
 
         // State transitions for error cases
         if let Err(conn_err) = result {
-            self.state = match conn_err {
-                ConnectionError::ApplicationClosed(reason) => State::closed(reason),
-                ConnectionError::ConnectionClosed(reason) => State::closed(reason),
+            match conn_err {
+                ConnectionError::ApplicationClosed(reason) => self.state.to_closed(reason),
+                ConnectionError::ConnectionClosed(reason) => self.state.to_closed(reason),
                 ConnectionError::Reset
                 | ConnectionError::TransportError(TransportError {
                     code: TransportErrorCode::AEAD_LIMIT_REACHED,
                     ..
-                }) => State::Drained {
-                    error: Some(conn_err.clone()),
-                },
+                }) => {
+                    self.state.to_drained(Some(conn_err));
+                }
                 ConnectionError::TimedOut => {
                     unreachable!("timeouts aren't generated by packet processing");
                 }
                 ConnectionError::TransportError(err) => {
                     debug!("closing connection due to transport error: {}", err);
-                    State::closed(err)
+                    self.state.to_closed(err);
                 }
-                ConnectionError::VersionMismatch => State::Draining {
-                    error: Some(conn_err.clone()),
-                },
+                ConnectionError::VersionMismatch => {
+                    self.state.to_draining(conn_err);
+                }
                 ConnectionError::LocallyClosed => {
                     unreachable!("LocallyClosed isn't generated by packet processing");
                 }
@@ -3570,7 +3550,7 @@ impl Connection {
         }
 
         // Transmit CONNECTION_CLOSE if necessary
-        if let State::Closed { .. } = self.state {
+        if matches!(self.state.as_typ(), StateTyp::Closed) {
             // If there is no PathData for this PathId the packet was for a brand new
             // path. It was a valid packet however, so the remote is valid and we want to
             // send CONNECTION_CLOSE.
@@ -3598,8 +3578,8 @@ impl Connection {
             trace!(%path_id, ?number, "discarding packet for unknown path");
             return Ok(());
         }
-        let state = match self.state {
-            State::Established => {
+        let state = match self.state.as_typ() {
+            StateTyp::Established => {
                 match packet.header.space() {
                     SpaceId::Data => {
                         self.process_payload(now, remote, path_id, number.unwrap(), packet)?
@@ -3613,7 +3593,7 @@ impl Connection {
                 }
                 return Ok(());
             }
-            State::Closed { .. } => {
+            StateTyp::Closed => {
                 for result in frame::Iter::new(packet.payload.freeze())? {
                     let frame = match result {
                         Ok(frame) => frame,
@@ -3631,14 +3611,14 @@ impl Connection {
 
                     if let Frame::Close(_error) = frame {
                         trace!("draining");
-                        self.state = State::Draining { error: None };
+                        self.state.to_draining_clean();
                         break;
                     }
                 }
                 return Ok(());
             }
-            State::Draining { .. } | State::Drained { .. } => return Ok(()),
-            State::Handshake(ref mut state) => state,
+            StateTyp::Draining | StateTyp::Drained => return Ok(()),
+            StateTyp::Handshake => self.state.as_handshake_mut().expect("checked"),
         };
 
         match packet.header {
@@ -3728,7 +3708,7 @@ impl Connection {
                 };
                 *token = packet.payload.freeze().split_to(token_len);
 
-                self.state = State::Handshake(state::Handshake {
+                self.state = State::handshake(state::Handshake {
                     expected_token: Bytes::new(),
                     rem_cid_set: false,
                     client_hello: None,
@@ -3812,7 +3792,7 @@ impl Connection {
                 }
 
                 self.events.push_back(Event::Connected);
-                self.state = State::Established;
+                self.state.to_established();
                 trace!("established");
 
                 // Multipath can only be enabled after the state has reached Established.
@@ -3836,7 +3816,7 @@ impl Connection {
                     self.rem_handshake_cid = rem_cid;
                     self.orig_rem_cid = rem_cid;
                     state.rem_cid_set = true;
-                    self.state = State::Handshake(state);
+                    self.state.to_handshake(state);
                 } else if rem_cid != self.rem_handshake_cid {
                     debug!(
                         "discarding packet with mismatched remote CID: {} != {}",
@@ -3934,9 +3914,7 @@ impl Connection {
                     self.on_path_ack_received(now, packet.header.space(), ack)?;
                 }
                 Frame::Close(reason) => {
-                    self.state = State::Draining {
-                        error: Some(reason.into()),
-                    };
+                    self.state.to_draining(reason.into());
                     return Ok(());
                 }
                 _ => {
@@ -4628,9 +4606,7 @@ impl Connection {
         self.streams.queue_max_stream_id(pending);
 
         if let Some(reason) = close {
-            self.state = State::Draining {
-                error: Some(reason.into()),
-            };
+            self.state.to_draining(reason.into());
             self.close = true;
         }
 
@@ -5829,9 +5805,7 @@ impl Connection {
     /// Terminate the connection instantly, without sending a close packet
     fn kill(&mut self, reason: ConnectionError) {
         self.close_common();
-        self.state = State::Drained {
-            error: Some(reason),
-        };
+        self.state.to_drained(Some(reason));
         self.endpoint_events.push_back(EndpointEventInner::Drained);
     }
 
@@ -6117,10 +6091,13 @@ impl ConnectionSide {
     fn remote_may_migrate(&self, state: &State) -> bool {
         match self {
             Self::Server { server_config } => server_config.migration,
-            Self::Client { .. } => match state {
-                State::Handshake(handshake) => handshake.allow_server_migration,
-                _ => false,
-            },
+            Self::Client { .. } => {
+                if let Some(hs) = state.as_handshake() {
+                    hs.allow_server_migration
+                } else {
+                    false
+                }
+            }
         }
     }
 
@@ -6297,74 +6274,247 @@ pub struct MultipathNotNegotiated {
     _private: (),
 }
 
-#[allow(unreachable_pub)] // fuzzing only
-#[derive(Debug, Clone)]
-pub enum State {
-    Handshake(state::Handshake),
-    Established,
-    Closed {
-        reason: state::Closed,
-        error_read: bool,
-    },
-    Draining {
-        /// Why the connection was lost, if it has been
-        error: Option<ConnectionError>,
-    },
-    /// Waiting for application to call close so we can dispose of the resources
-    Drained {
-        /// Why the connection was lost, if it has been
-        error: Option<ConnectionError>,
-    },
-}
-
-impl State {
-    fn closed<R: Into<Close>>(reason: R) -> Self {
-        Self::Closed {
-            reason: state::Closed {
-                reason: reason.into(),
-            },
-            error_read: false,
-        }
-    }
-
-    fn is_handshake(&self) -> bool {
-        matches!(*self, Self::Handshake(_))
-    }
-
-    fn is_established(&self) -> bool {
-        matches!(*self, Self::Established)
-    }
-
-    fn is_closed(&self) -> bool {
-        matches!(
-            *self,
-            Self::Closed { .. } | Self::Draining { .. } | Self::Drained { .. }
-        )
-    }
-
-    fn is_drained(&self) -> bool {
-        matches!(*self, Self::Drained { .. })
-    }
-
-    fn take_error(&mut self) -> Option<ConnectionError> {
-        match self {
-            Self::Draining { error } => error.take(),
-            Self::Drained { error } => error.take(),
-            Self::Closed { reason, error_read } => {
-                if *error_read {
-                    None
-                } else {
-                    *error_read = true;
-                    Some(reason.clone().reason.into())
-                }
-            }
-            Self::Handshake(_) | Self::Established => None,
-        }
-    }
-}
+use state::{State, StateTyp};
 
 mod state {
     use super::*;
+
+    #[allow(unreachable_pub)] // fuzzing only
+    #[derive(Debug, Clone)]
+    pub struct State {
+        inner: InnerState,
+    }
+
+    impl State {
+        pub(super) fn as_handshake_mut(&mut self) -> Option<&mut state::Handshake> {
+            if let InnerState::Handshake(ref mut hs) = self.inner {
+                Some(hs)
+            } else {
+                None
+            }
+        }
+
+        pub(super) fn as_handshake(&self) -> Option<&state::Handshake> {
+            if let InnerState::Handshake(ref hs) = self.inner {
+                Some(hs)
+            } else {
+                None
+            }
+        }
+
+        pub(super) fn as_closed(&self) -> Option<&Closed> {
+            if let InnerState::Closed {
+                ref remote_reason, ..
+            } = self.inner
+            {
+                Some(remote_reason)
+            } else {
+                None
+            }
+        }
+
+        #[allow(unreachable_pub)] // fuzzing only
+        #[cfg(test)]
+        pub fn established() -> Self {
+            Self {
+                inner: InnerState::Established,
+            }
+        }
+
+        pub(super) fn handshake(handshake: state::Handshake) -> Self {
+            Self {
+                inner: InnerState::Handshake(handshake),
+            }
+        }
+
+        pub(super) fn to_handshake(&mut self, hs: state::Handshake) {
+            self.inner = InnerState::Handshake(hs);
+        }
+
+        pub(super) fn to_established(&mut self) {
+            self.inner = InnerState::Established;
+        }
+
+        pub(super) fn to_drained(&mut self, error: Option<ConnectionError>) {
+            let error = if let Some(error) = error {
+                Some(error)
+            } else {
+                match &mut self.inner {
+                    InnerState::Draining { error } => error.take(),
+                    InnerState::Drained { error } => error.take(),
+                    InnerState::Closed {
+                        remote_reason,
+                        local_reason,
+                        error_read,
+                    } => {
+                        if *error_read {
+                            None
+                        } else {
+                            *error_read = true;
+                            if *local_reason {
+                                Some(ConnectionError::LocallyClosed)
+                            } else {
+                                let error = match remote_reason.clone().reason.into() {
+                                    ConnectionError::ConnectionClosed(close) => {
+                                        if close.error_code
+                                            == TransportErrorCode::PROTOCOL_VIOLATION
+                                        {
+                                            ConnectionError::TransportError(close.error_code.into())
+                                        } else {
+                                            ConnectionError::ConnectionClosed(close)
+                                        }
+                                    }
+                                    e => e,
+                                };
+                                Some(error)
+                            }
+                        }
+                    }
+                    InnerState::Handshake(_) | InnerState::Established => None,
+                }
+            };
+            self.inner = InnerState::Drained { error };
+        }
+
+        pub(super) fn to_draining(&mut self, error: ConnectionError) {
+            self.inner = InnerState::Draining { error: Some(error) };
+        }
+
+        pub(super) fn to_draining_clean(&mut self) {
+            let mut error = None;
+            if let InnerState::Closed { local_reason, .. } = &self.inner {
+                if *local_reason {
+                    error.replace(ConnectionError::LocallyClosed);
+                }
+            }
+            self.inner = InnerState::Draining { error };
+        }
+
+        pub(super) fn to_closed<R: Into<Close>>(&mut self, reason: R) {
+            self.inner = InnerState::Closed {
+                error_read: false,
+                remote_reason: state::Closed {
+                    reason: reason.into(),
+                },
+                local_reason: false,
+            };
+        }
+
+        pub(super) fn to_closed_locally<R: Into<Close>>(&mut self, reason: R) {
+            self.inner = InnerState::Closed {
+                error_read: false,
+                remote_reason: state::Closed {
+                    reason: reason.into(),
+                },
+                local_reason: true,
+            };
+        }
+
+        pub(super) fn is_handshake(&self) -> bool {
+            self.inner.is_handshake()
+        }
+
+        pub(super) fn is_established(&self) -> bool {
+            self.inner.is_established()
+        }
+
+        pub(super) fn is_closed(&self) -> bool {
+            self.inner.is_closed()
+        }
+
+        pub(super) fn is_drained(&self) -> bool {
+            self.inner.is_drained()
+        }
+
+        pub(super) fn take_error(&mut self) -> Option<ConnectionError> {
+            self.inner.take_error()
+        }
+
+        pub(super) fn as_typ(&self) -> StateTyp {
+            match self.inner {
+                InnerState::Handshake(_) => StateTyp::Handshake,
+                InnerState::Established => StateTyp::Established,
+                InnerState::Closed { .. } => StateTyp::Closed,
+                InnerState::Draining { .. } => StateTyp::Draining,
+                InnerState::Drained { .. } => StateTyp::Drained,
+            }
+        }
+    }
+
+    #[allow(unreachable_pub)] // fuzzing only
+    #[derive(Debug, Clone)]
+    pub enum StateTyp {
+        Handshake,
+        Established,
+        Closed,
+        Draining,
+        Drained,
+    }
+
+    #[derive(Debug, Clone)]
+    enum InnerState {
+        Handshake(state::Handshake),
+        Established,
+        Closed {
+            remote_reason: state::Closed,
+            local_reason: bool,
+            error_read: bool,
+        },
+        Draining {
+            /// Why the connection was lost, if it has been
+            error: Option<ConnectionError>,
+        },
+        /// Waiting for application to call close so we can dispose of the resources
+        Drained {
+            /// Why the connection was lost, if it has been
+            error: Option<ConnectionError>,
+        },
+    }
+
+    impl InnerState {
+        fn is_handshake(&self) -> bool {
+            matches!(*self, Self::Handshake(_))
+        }
+
+        fn is_established(&self) -> bool {
+            matches!(*self, Self::Established)
+        }
+
+        fn is_closed(&self) -> bool {
+            matches!(
+                *self,
+                Self::Closed { .. } | Self::Draining { .. } | Self::Drained { .. }
+            )
+        }
+
+        fn is_drained(&self) -> bool {
+            matches!(*self, Self::Drained { .. })
+        }
+
+        fn take_error(&mut self) -> Option<ConnectionError> {
+            match self {
+                Self::Draining { error } => error.take(),
+                Self::Drained { error } => error.take(),
+                Self::Closed {
+                    remote_reason,
+                    local_reason,
+                    error_read,
+                } => {
+                    if *error_read {
+                        None
+                    } else {
+                        *error_read = true;
+                        if *local_reason {
+                            Some(ConnectionError::LocallyClosed)
+                        } else {
+                            Some(remote_reason.clone().reason.into())
+                        }
+                    }
+                }
+                Self::Handshake(_) | Self::Established => None,
+            }
+        }
+    }
 
     #[allow(unreachable_pub)] // fuzzing only
     #[derive(Debug, Clone)]
