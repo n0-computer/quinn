@@ -211,7 +211,7 @@ impl State {
             return Err(Error::NotEnoughAddresses);
         }
 
-        let prev_round_path_ids = std::mem::replace(&mut self.round_path_ids, Default::default());
+        let prev_round_path_ids = std::mem::take(&mut self.round_path_ids);
         self.round = self.round.saturating_add(1u8);
 
         Ok(NatTraversalRound {
