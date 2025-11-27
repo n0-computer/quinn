@@ -145,10 +145,11 @@ fn lifecycle() {
                     Some(Event::ConnectionLost { reason: ConnectionError::ApplicationClosed(
                         ApplicationClose { error_code: VarInt(42), ref reason }
                     )}) if reason == REASON);
-    assert_matches!(pair.client_conn_mut(client_ch).poll(),
-            Some(Event::ConnectionLost {
-                reason: ConnectionError::ConnectionClosed(close)
-            }) if close.error_code == TransportErrorCode::NO_ERROR
+    assert_matches!(
+        pair.client_conn_mut(client_ch).poll(),
+        Some(Event::ConnectionLost {
+            reason: ConnectionError::LocallyClosed
+        })
     );
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
@@ -182,10 +183,11 @@ fn draft_version_compat() {
                     Some(Event::ConnectionLost { reason: ConnectionError::ApplicationClosed(
                         ApplicationClose { error_code: VarInt(42), ref reason }
                     )}) if reason == REASON);
-    assert_matches!(pair.client_conn_mut(client_ch).poll(),
-            Some(Event::ConnectionLost {
-                reason: ConnectionError::ConnectionClosed(close)
-            }) if close.error_code == TransportErrorCode::NO_ERROR
+    assert_matches!(
+        pair.client_conn_mut(client_ch).poll(),
+        Some(Event::ConnectionLost {
+            reason: ConnectionError::LocallyClosed
+        })
     );
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);

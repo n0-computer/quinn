@@ -1782,7 +1782,6 @@ impl Connection {
             match timer {
                 Timer::Conn(timer) => match timer {
                     ConnTimer::Close => {
-                        // TODO: what is the right error?
                         let error = self
                             .state
                             .take_error()
@@ -1796,6 +1795,7 @@ impl Connection {
                                 }
                                 e => e,
                             })
+                            // If we haven't received a close error we fallback to LocallyClosed
                             .unwrap_or(ConnectionError::LocallyClosed);
                         self.state = State::Drained { error: Some(error) };
                         self.endpoint_events.push_back(EndpointEventInner::Drained);
@@ -3629,11 +3629,9 @@ impl Connection {
 
                     self.stats.frame_rx.record(&frame);
 
-                    if let Frame::Close(_) = frame {
+                    if let Frame::Close(_error) = frame {
                         trace!("draining");
-                        self.state = State::Draining {
-                            error: Some(error.into()),
-                        };
+                        self.state = State::Draining { error: None };
                         break;
                     }
                 }
