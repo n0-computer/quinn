@@ -450,8 +450,8 @@ fn reject_self_signed_server_cert() {
     dbg!(&a);
     assert_matches!(
         a,
-        Some(Event::ConnectionLost { reason: ConnectionError::TransportError(ref error)})
-        if error.code == TransportErrorCode::crypto(AlertDescription::UnknownCA.into())
+        Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(ref reason)})
+        if reason.error_code == TransportErrorCode::crypto(AlertDescription::UnknownCA.into())
     );
 }
 
@@ -509,8 +509,8 @@ fn reject_missing_client_cert() {
         Some(Event::HandshakeDataReady)
     );
     assert_matches!(pair.server_conn_mut(server_ch).poll(),
-                    Some(Event::ConnectionLost { reason: ConnectionError::TransportError(ref error)})
-                    if error.code == TransportErrorCode::crypto(AlertDescription::CertificateRequired.into()));
+                    Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(ref close)})
+                    if close.error_code == TransportErrorCode::crypto(AlertDescription::CertificateRequired.into()));
 }
 
 #[test]
