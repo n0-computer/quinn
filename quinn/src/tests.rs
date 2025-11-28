@@ -105,9 +105,7 @@ async fn close_endpoint() {
         .unwrap();
     endpoint.close(0u32.into(), &[]);
     match conn.await {
-        Err(
-            crate::ConnectionError::LocallyClosed | crate::ConnectionError::ApplicationClosed(_),
-        ) => (),
+        Err(crate::ConnectionError::LocallyClosed) => (),
         Err(e) => panic!("unexpected error: {e}"),
         Ok(_) => {
             panic!("unexpected success");

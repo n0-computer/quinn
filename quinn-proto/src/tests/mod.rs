@@ -886,10 +886,8 @@ fn alpn_mismatch() {
     ]))));
 
     pair.drive();
-    let res = pair.client_conn_mut(client_ch).poll();
-    dbg!(&res);
     assert_matches!(
-        res,
+        pair.client_conn_mut(client_ch).poll(),
         Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(err) }) if err.error_code == TransportErrorCode::crypto(0x78)
     );
 }
@@ -1137,12 +1135,11 @@ fn instant_close_1() {
     let mut pair = Pair::default();
     info!("connecting");
     let client_ch = pair.begin_connect(client_config());
-    let reason = Bytes::new();
     pair.client
         .connections
         .get_mut(&client_ch)
         .unwrap()
-        .close(pair.time, VarInt(0), reason);
+        .close(pair.time, VarInt(0), Bytes::new());
     pair.drive();
     let server_ch = pair.server.assert_accept();
     assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
@@ -1165,12 +1162,11 @@ fn instant_close_2() {
     let client_ch = pair.begin_connect(client_config());
     // Unlike `instant_close`, the server sees a valid Initial packet first.
     pair.drive_client();
-    let reason = Bytes::new();
     pair.client
         .connections
         .get_mut(&client_ch)
         .unwrap()
-        .close(pair.time, VarInt(42), reason);
+        .close(pair.time, VarInt(42), Bytes::new());
     pair.drive();
     assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
     let server_ch = pair.server.assert_accept();
