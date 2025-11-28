@@ -145,12 +145,7 @@ fn lifecycle() {
                     Some(Event::ConnectionLost { reason: ConnectionError::ApplicationClosed(
                         ApplicationClose { error_code: VarInt(42), ref reason }
                     )}) if reason == REASON);
-    assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
-        Some(Event::ConnectionLost {
-            reason: ConnectionError::LocallyClosed
-        })
-    );
+    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
     assert_eq!(pair.server.known_connections(), 0);
@@ -183,12 +178,7 @@ fn draft_version_compat() {
                     Some(Event::ConnectionLost { reason: ConnectionError::ApplicationClosed(
                         ApplicationClose { error_code: VarInt(42), ref reason }
                     )}) if reason == REASON);
-    assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
-        Some(Event::ConnectionLost {
-            reason: ConnectionError::LocallyClosed
-        })
-    );
+    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
     assert_eq!(pair.client.known_connections(), 0);
     assert_eq!(pair.client.known_cids(), 0);
     assert_eq!(pair.server.known_connections(), 0);
@@ -448,10 +438,8 @@ fn reject_self_signed_server_cert() {
 
     pair.drive();
 
-    let a = pair.client_conn_mut(client_ch).poll();
-    dbg!(&a);
     assert_matches!(
-        a,
+        pair.client_conn_mut(client_ch).poll(),
         Some(Event::ConnectionLost { reason: ConnectionError::ConnectionClosed(ref reason)})
         if reason.error_code == TransportErrorCode::crypto(AlertDescription::UnknownCA.into())
     );
@@ -1157,12 +1145,7 @@ fn instant_close_1() {
         .close(pair.time, VarInt(0), reason);
     pair.drive();
     let server_ch = pair.server.assert_accept();
-    assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
-        Some(Event::ConnectionLost {
-            reason: ConnectionError::LocallyClosed
-        })
-    );
+    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
         Some(Event::ConnectionLost {
@@ -1189,12 +1172,7 @@ fn instant_close_2() {
         .unwrap()
         .close(pair.time, VarInt(42), reason);
     pair.drive();
-    assert_matches!(
-        pair.client_conn_mut(client_ch).poll(),
-        Some(Event::ConnectionLost {
-            reason: ConnectionError::LocallyClosed
-        })
-    );
+    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
     let server_ch = pair.server.assert_accept();
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),

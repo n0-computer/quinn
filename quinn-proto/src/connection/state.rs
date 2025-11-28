@@ -60,75 +60,99 @@ impl State {
     }
 
     pub(super) fn to_drained(&mut self, error: Option<ConnectionError>) {
-        let error = if let Some(error) = error {
-            Some(error)
+        dbg!(&self, &error);
+        let (error, is_local) = if let Some(error) = error {
+            (Some(error), false)
         } else {
-            match &mut self.inner {
-                InnerState::Draining { error } => error.take(),
-                InnerState::Drained { error } => error.take(),
+            let error = match &mut self.inner {
+                InnerState::Draining { error, .. } => error.take(),
+                InnerState::Drained { .. } => panic!("invalid state transition drained -> drained"),
                 InnerState::Closed {
                     remote_reason,
-                    local_reason,
                     error_read,
+                    ..
                 } => {
                     if *error_read {
                         None
                     } else {
                         *error_read = true;
-                        if *local_reason {
-                            Some(ConnectionError::LocallyClosed)
-                        } else {
-                            let error = match remote_reason.clone().reason.into() {
-                                ConnectionError::ConnectionClosed(close) => {
-                                    if close.error_code == TransportErrorCode::PROTOCOL_VIOLATION {
-                                        ConnectionError::TransportError(close.error_code.into())
-                                    } else {
-                                        ConnectionError::ConnectionClosed(close)
-                                    }
+                        let error = match remote_reason.clone().reason.into() {
+                            ConnectionError::ConnectionClosed(close) => {
+                                if close.error_code == TransportErrorCode::PROTOCOL_VIOLATION {
+                                    ConnectionError::TransportError(close.error_code.into())
+                                } else {
+                                    ConnectionError::ConnectionClosed(close)
                                 }
-                                e => e,
-                            };
-                            Some(error)
-                        }
+                            }
+                            e => e,
+                        };
+                        Some(error)
                     }
                 }
                 InnerState::Handshake(_) | InnerState::Established => None,
-            }
+            };
+            (error, self.is_local_close())
         };
-        self.inner = InnerState::Drained { error };
+        self.inner = InnerState::Drained { error, is_local };
     }
 
-    pub(super) fn to_draining(&mut self, error: ConnectionError) {
-        self.inner = InnerState::Draining { error: Some(error) };
+    pub(super) fn to_draining(&mut self, error: Option<ConnectionError>) {
+        dbg!(&self, &error);
+        assert!(
+            matches!(
+                self.inner,
+                InnerState::Handshake(_) | InnerState::Established | InnerState::Closed { .. }
+            ),
+            "invalid state transition {:?} -> draining",
+            self.as_typ()
+        );
+        let is_local = self.is_local_close();
+        self.inner = InnerState::Draining { error, is_local };
     }
 
-    pub(super) fn to_draining_clean(&mut self) {
-        let mut error = None;
-        if let InnerState::Closed { local_reason, .. } = &self.inner {
-            if *local_reason {
-                error.replace(ConnectionError::LocallyClosed);
-            }
+    fn is_local_close(&self) -> bool {
+        match self.inner {
+            InnerState::Handshake(_) => false,
+            InnerState::Established => false,
+            InnerState::Closed { is_local, .. } => is_local,
+            InnerState::Draining { is_local, .. } => is_local,
+            InnerState::Drained { is_local, .. } => is_local,
         }
-        self.inner = InnerState::Draining { error };
     }
 
     pub(super) fn to_closed<R: Into<Close>>(&mut self, reason: R) {
+        assert!(
+            matches!(
+                self.inner,
+                InnerState::Handshake(_) | InnerState::Established
+            ),
+            "invalid state transition {:?} -> closed",
+            self.as_typ()
+        );
         self.inner = InnerState::Closed {
             error_read: false,
             remote_reason: Closed {
                 reason: reason.into(),
             },
-            local_reason: false,
+            is_local: false,
         };
     }
 
     pub(super) fn to_closed_locally<R: Into<Close>>(&mut self, reason: R) {
+        assert!(
+            matches!(
+                self.inner,
+                InnerState::Handshake(_) | InnerState::Established
+            ),
+            "invalid state transition {:?} -> closed",
+            self.as_typ()
+        );
         self.inner = InnerState::Closed {
             error_read: false,
             remote_reason: Closed {
                 reason: reason.into(),
             },
-            local_reason: true,
+            is_local: true,
         };
     }
 
@@ -153,11 +177,23 @@ impl State {
 
     pub(super) fn take_error(&mut self) -> Option<ConnectionError> {
         match &mut self.inner {
-            InnerState::Draining { error } => error.take(),
-            InnerState::Drained { error } => error.take(),
+            InnerState::Draining { error, is_local } => {
+                if !*is_local {
+                    error.take()
+                } else {
+                    None
+                }
+            }
+            InnerState::Drained { error, is_local } => {
+                if !*is_local {
+                    error.take()
+                } else {
+                    None
+                }
+            }
             InnerState::Closed {
                 remote_reason,
-                local_reason,
+                is_local: local_reason,
                 error_read,
             } => {
                 if *error_read {
@@ -165,7 +201,7 @@ impl State {
                 } else {
                     *error_read = true;
                     if *local_reason {
-                        Some(ConnectionError::LocallyClosed)
+                        None
                     } else {
                         Some(remote_reason.clone().reason.into())
                     }
@@ -205,18 +241,20 @@ enum InnerState {
         /// The reason the remote closed the connection, or the reason we are sending to the remote.
         remote_reason: Closed,
         /// Set to true if we closed the connection locally
-        local_reason: bool,
+        is_local: bool,
         /// Did we read this as error already?
         error_read: bool,
     },
     Draining {
         /// Why the connection was lost, if it has been
         error: Option<ConnectionError>,
+        is_local: bool,
     },
     /// Waiting for application to call close so we can dispose of the resources
     Drained {
         /// Why the connection was lost, if it has been
         error: Option<ConnectionError>,
+        is_local: bool,
     },
 }
 
@@ -256,4 +294,22 @@ pub struct Handshake {
 #[derive(Debug, Clone)]
 pub struct Closed {
     pub(super) reason: Close,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// This makes sure that the assumption of error set if drained holds up.
+    #[test]
+    fn test_always_error_if_drained() {
+        let mut state = State {
+            inner: InnerState::Draining {
+                error: Some(ConnectionError::Reset),
+                is_local: true,
+            },
+        };
+        state.to_drained(None);
+        assert_eq!(state.take_error(), Some(ConnectionError::Reset));
+    }
 }
