@@ -26,7 +26,7 @@ impl State {
         }
     }
 
-    pub(super) fn as_closed(&self) -> Option<&Closed> {
+    pub(super) fn as_closed(&self) -> Option<&Close> {
         if let InnerState::Closed {
             ref remote_reason, ..
         } = self.inner
@@ -51,15 +51,15 @@ impl State {
         }
     }
 
-    pub(super) fn to_handshake(&mut self, hs: Handshake) {
+    pub(super) fn move_to_handshake(&mut self, hs: Handshake) {
         self.inner = InnerState::Handshake(hs);
     }
 
-    pub(super) fn to_established(&mut self) {
+    pub(super) fn move_to_established(&mut self) {
         self.inner = InnerState::Established;
     }
 
-    pub(super) fn to_drained(&mut self, error: Option<ConnectionError>) {
+    pub(super) fn move_to_drained(&mut self, error: Option<ConnectionError>) {
         dbg!(&self, &error);
         let (error, is_local) = if let Some(error) = error {
             (Some(error), false)
@@ -76,7 +76,7 @@ impl State {
                         None
                     } else {
                         *error_read = true;
-                        let error = match remote_reason.clone().reason.into() {
+                        let error = match remote_reason.clone().into() {
                             ConnectionError::ConnectionClosed(close) => {
                                 if close.error_code == TransportErrorCode::PROTOCOL_VIOLATION {
                                     ConnectionError::TransportError(close.error_code.into())
@@ -96,7 +96,7 @@ impl State {
         self.inner = InnerState::Drained { error, is_local };
     }
 
-    pub(super) fn to_draining(&mut self, error: Option<ConnectionError>) {
+    pub(super) fn moved_to_draining(&mut self, error: Option<ConnectionError>) {
         dbg!(&self, &error);
         assert!(
             matches!(
@@ -104,7 +104,7 @@ impl State {
                 InnerState::Handshake(_) | InnerState::Established | InnerState::Closed { .. }
             ),
             "invalid state transition {:?} -> draining",
-            self.as_typ()
+            self.as_type()
         );
         let is_local = self.is_local_close();
         self.inner = InnerState::Draining { error, is_local };
@@ -120,38 +120,34 @@ impl State {
         }
     }
 
-    pub(super) fn to_closed<R: Into<Close>>(&mut self, reason: R) {
+    pub(super) fn move_to_closed<R: Into<Close>>(&mut self, reason: R) {
         assert!(
             matches!(
                 self.inner,
                 InnerState::Handshake(_) | InnerState::Established
             ),
             "invalid state transition {:?} -> closed",
-            self.as_typ()
+            self.as_type()
         );
         self.inner = InnerState::Closed {
             error_read: false,
-            remote_reason: Closed {
-                reason: reason.into(),
-            },
+            remote_reason: reason.into(),
             is_local: false,
         };
     }
 
-    pub(super) fn to_closed_locally<R: Into<Close>>(&mut self, reason: R) {
+    pub(super) fn move_to_closed_local<R: Into<Close>>(&mut self, reason: R) {
         assert!(
             matches!(
                 self.inner,
                 InnerState::Handshake(_) | InnerState::Established
             ),
-            "invalid state transition {:?} -> closed",
-            self.as_typ()
+            "invalid state transition {:?} -> closed (local)",
+            self.as_type()
         );
         self.inner = InnerState::Closed {
             error_read: false,
-            remote_reason: Closed {
-                reason: reason.into(),
-            },
+            remote_reason: reason.into(),
             is_local: true,
         };
     }
@@ -203,7 +199,7 @@ impl State {
                     if *local_reason {
                         None
                     } else {
-                        Some(remote_reason.clone().reason.into())
+                        Some(remote_reason.clone().into())
                     }
                 }
             }
@@ -211,20 +207,20 @@ impl State {
         }
     }
 
-    pub(super) fn as_typ(&self) -> StateTyp {
+    pub(super) fn as_type(&self) -> StateType {
         match self.inner {
-            InnerState::Handshake(_) => StateTyp::Handshake,
-            InnerState::Established => StateTyp::Established,
-            InnerState::Closed { .. } => StateTyp::Closed,
-            InnerState::Draining { .. } => StateTyp::Draining,
-            InnerState::Drained { .. } => StateTyp::Drained,
+            InnerState::Handshake(_) => StateType::Handshake,
+            InnerState::Established => StateType::Established,
+            InnerState::Closed { .. } => StateType::Closed,
+            InnerState::Draining { .. } => StateType::Draining,
+            InnerState::Drained { .. } => StateType::Drained,
         }
     }
 }
 
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
-pub enum StateTyp {
+pub enum StateType {
     Handshake,
     Established,
     Closed,
@@ -239,7 +235,7 @@ enum InnerState {
     // TODO: should this be split into `ClosedLocal` and `ClosedRemote`?
     Closed {
         /// The reason the remote closed the connection, or the reason we are sending to the remote.
-        remote_reason: Closed,
+        remote_reason: Close,
         /// Set to true if we closed the connection locally
         is_local: bool,
         /// Did we read this as error already?
@@ -290,12 +286,6 @@ pub struct Handshake {
     pub(super) allow_server_migration: bool,
 }
 
-#[allow(unreachable_pub)] // fuzzing only
-#[derive(Debug, Clone)]
-pub struct Closed {
-    pub(super) reason: Close,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,7 +299,7 @@ mod tests {
                 is_local: true,
             },
         };
-        state.to_drained(None);
+        state.move_to_drained(None);
         assert_eq!(state.take_error(), Some(ConnectionError::Reset));
     }
 }
