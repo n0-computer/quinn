@@ -1211,7 +1211,8 @@ impl Connection {
                     let max_frame_size = builder.frame_space_remaining();
                     match self.state.as_type() {
                         StateType::Closed => {
-                            let reason = &self.state.as_closed().expect("checked");
+                            let reason: Close =
+                                self.state.as_closed().expect("checked").clone().into();
                             if space_id == SpaceId::Data || reason.is_transport_layer() {
                                 reason.encode(&mut builder.frame_space_mut(), max_frame_size)
                             } else {

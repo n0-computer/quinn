@@ -1,7 +1,9 @@
 use bytes::Bytes;
 
 use crate::frame::Close;
-use crate::{ConnectionError, TransportErrorCode};
+use crate::{
+    ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode,
+};
 
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
@@ -27,7 +29,7 @@ impl State {
         }
     }
 
-    pub(super) fn as_closed(&self) -> Option<&Close> {
+    pub(super) fn as_closed(&self) -> Option<&CloseReason> {
         if let InnerState::Closed {
             ref remote_reason, ..
         } = self.inner
@@ -118,7 +120,7 @@ impl State {
         }
     }
 
-    pub(super) fn move_to_closed<R: Into<Close>>(&mut self, reason: R) {
+    pub(super) fn move_to_closed<R: Into<CloseReason>>(&mut self, reason: R) {
         assert!(
             matches!(
                 self.inner,
@@ -134,7 +136,7 @@ impl State {
         };
     }
 
-    pub(super) fn move_to_closed_local<R: Into<Close>>(&mut self, reason: R) {
+    pub(super) fn move_to_closed_local<R: Into<CloseReason>>(&mut self, reason: R) {
         assert!(
             matches!(
                 self.inner,
@@ -226,12 +228,64 @@ pub(super) enum StateType {
 }
 
 #[derive(Debug, Clone)]
+pub(super) enum CloseReason {
+    TransportError(TransportError),
+    Connection(ConnectionClose),
+    Application(ApplicationClose),
+}
+
+impl From<TransportError> for CloseReason {
+    fn from(x: TransportError) -> Self {
+        Self::TransportError(x)
+    }
+}
+impl From<ConnectionClose> for CloseReason {
+    fn from(x: ConnectionClose) -> Self {
+        Self::Connection(x)
+    }
+}
+impl From<ApplicationClose> for CloseReason {
+    fn from(x: ApplicationClose) -> Self {
+        Self::Application(x)
+    }
+}
+
+impl From<Close> for CloseReason {
+    fn from(value: Close) -> Self {
+        match value {
+            Close::Application(reason) => Self::Application(reason),
+            Close::Connection(reason) => Self::Connection(reason),
+        }
+    }
+}
+
+impl From<CloseReason> for ConnectionError {
+    fn from(value: CloseReason) -> Self {
+        match value {
+            CloseReason::TransportError(err) => Self::TransportError(err),
+            CloseReason::Connection(reason) => Self::ConnectionClosed(reason),
+            CloseReason::Application(reason) => Self::ApplicationClosed(reason),
+        }
+    }
+}
+
+impl From<CloseReason> for Close {
+    fn from(value: CloseReason) -> Self {
+        match value {
+            CloseReason::TransportError(err) => Self::Connection(err.into()),
+            CloseReason::Connection(reason) => Self::Connection(reason),
+            CloseReason::Application(reason) => Self::Application(reason),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 enum InnerState {
     Handshake(Handshake),
     Established,
     Closed {
         /// The reason the remote closed the connection, or the reason we are sending to the remote.
-        remote_reason: Close,
+        remote_reason: CloseReason,
         /// Set to true if we closed the connection locally
         is_local: bool,
         /// Did we read this as error already?
