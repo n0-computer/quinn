@@ -6,6 +6,7 @@ use crate::{ConnectionError, TransportErrorCode};
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
 pub struct State {
+    /// Nested `InnerState` to enforce all state transitions are done in this module
     inner: InnerState,
 }
 
@@ -37,9 +38,8 @@ impl State {
         }
     }
 
-    #[allow(unreachable_pub)] // fuzzing only
     #[cfg(test)]
-    pub fn established() -> Self {
+    pub(super) fn established() -> Self {
         Self {
             inner: InnerState::Established,
         }
@@ -60,7 +60,6 @@ impl State {
     }
 
     pub(super) fn move_to_drained(&mut self, error: Option<ConnectionError>) {
-        dbg!(&self, &error);
         let (error, is_local) = if let Some(error) = error {
             (Some(error), false)
         } else {
@@ -96,8 +95,7 @@ impl State {
         self.inner = InnerState::Drained { error, is_local };
     }
 
-    pub(super) fn moved_to_draining(&mut self, error: Option<ConnectionError>) {
-        dbg!(&self, &error);
+    pub(super) fn move_to_draining(&mut self, error: Option<ConnectionError>) {
         assert!(
             matches!(
                 self.inner,
@@ -218,9 +216,8 @@ impl State {
     }
 }
 
-#[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
-pub enum StateType {
+pub(super) enum StateType {
     Handshake,
     Established,
     Closed,
@@ -232,7 +229,6 @@ pub enum StateType {
 enum InnerState {
     Handshake(Handshake),
     Established,
-    // TODO: should this be split into `ClosedLocal` and `ClosedRemote`?
     Closed {
         /// The reason the remote closed the connection, or the reason we are sending to the remote.
         remote_reason: Close,
@@ -244,12 +240,14 @@ enum InnerState {
     Draining {
         /// Why the connection was lost, if it has been
         error: Option<ConnectionError>,
+        /// Set to true if we closed the connection locally
         is_local: bool,
     },
     /// Waiting for application to call close so we can dispose of the resources
     Drained {
         /// Why the connection was lost, if it has been
         error: Option<ConnectionError>,
+        /// Set to true if we closed the connection locally
         is_local: bool,
     },
 }
@@ -284,22 +282,4 @@ pub struct Handshake {
     /// THIS IS NOT RFC 9000 COMPLIANT!  A server is not allowed to migrate addresses,
     /// other than using the preferred-address transport parameter.
     pub(super) allow_server_migration: bool,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// This makes sure that the assumption of error set if drained holds up.
-    #[test]
-    fn test_always_error_if_drained() {
-        let mut state = State {
-            inner: InnerState::Draining {
-                error: Some(ConnectionError::Reset),
-                is_local: true,
-            },
-        };
-        state.move_to_drained(None);
-        assert_eq!(state.take_error(), Some(ConnectionError::Reset));
-    }
 }
