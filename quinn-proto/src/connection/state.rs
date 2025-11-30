@@ -68,27 +68,19 @@ impl State {
             let error = match &mut self.inner {
                 InnerState::Draining { error, .. } => error.take(),
                 InnerState::Drained { .. } => panic!("invalid state transition drained -> drained"),
-                InnerState::Closed {
-                    remote_reason,
-                    error_read,
-                    ..
-                } => {
-                    if *error_read {
-                        None
-                    } else {
-                        *error_read = true;
-                        let error = match remote_reason.clone().into() {
-                            ConnectionError::ConnectionClosed(close) => {
-                                if close.error_code == TransportErrorCode::PROTOCOL_VIOLATION {
-                                    ConnectionError::TransportError(close.error_code.into())
-                                } else {
-                                    ConnectionError::ConnectionClosed(close)
-                                }
+                InnerState::Closed { error_read, .. } if *error_read => None,
+                InnerState::Closed { remote_reason, .. } => {
+                    let error = match remote_reason.clone().into() {
+                        ConnectionError::ConnectionClosed(close) => {
+                            if close.error_code == TransportErrorCode::PROTOCOL_VIOLATION {
+                                ConnectionError::TransportError(close.error_code.into())
+                            } else {
+                                ConnectionError::ConnectionClosed(close)
                             }
-                            e => e,
-                        };
-                        Some(error)
-                    }
+                        }
+                        e => e,
+                    };
+                    Some(error)
                 }
                 InnerState::Handshake(_) | InnerState::Established => None,
             };
