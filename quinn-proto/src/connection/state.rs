@@ -335,7 +335,7 @@ pub struct Handshake {
     ///
     /// This is only ever set to true if for a client which hasn't yet received an
     /// authenticated handshake packet.  It is set back to false in
-    /// [`Connection::on_packet_authenticated`].
+    /// [`super::Connection::on_packet_authenticated`].
     ///
     /// THIS IS NOT RFC 9000 COMPLIANT!  A server is not allowed to migrate addresses,
     /// other than using the preferred-address transport parameter.
