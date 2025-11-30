@@ -8,7 +8,7 @@ use crate::{
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
 pub struct State {
-    /// Nested `InnerState` to enforce all state transitions are done in this module
+    /// Nested [`InnerState`] to enforce all state transitions are done in this module.
     inner: InnerState,
 }
 
@@ -47,9 +47,9 @@ impl State {
         }
     }
 
-    pub(super) fn handshake(handshake: Handshake) -> Self {
+    pub(super) fn handshake(hs: Handshake) -> Self {
         Self {
-            inner: InnerState::Handshake(handshake),
+            inner: InnerState::Handshake(hs),
         }
     }
 
@@ -61,6 +61,9 @@ impl State {
         self.inner = InnerState::Established;
     }
 
+    /// Moves to a draining state.
+    ///
+    /// Panics if the state was already drained.
     pub(super) fn move_to_drained(&mut self, error: Option<ConnectionError>) {
         let (error, is_local) = if let Some(error) = error {
             (Some(error), false)
@@ -89,6 +92,9 @@ impl State {
         self.inner = InnerState::Drained { error, is_local };
     }
 
+    /// Moves to a draining state.
+    ///
+    /// Panics if the state is already draining or drained.
     pub(super) fn move_to_draining(&mut self, error: Option<ConnectionError>) {
         assert!(
             matches!(
@@ -112,6 +118,9 @@ impl State {
         }
     }
 
+    /// Moves to a closed state after a remote error is received.
+    ///
+    /// Panics if the state is later than established.
     pub(super) fn move_to_closed<R: Into<CloseReason>>(&mut self, reason: R) {
         assert!(
             matches!(
@@ -128,6 +137,9 @@ impl State {
         };
     }
 
+    /// Moves to a closed state after a local error.
+    ///
+    /// Panics if the state is later than established.
     pub(super) fn move_to_closed_local<R: Into<CloseReason>>(&mut self, reason: R) {
         assert!(
             matches!(
@@ -278,22 +290,22 @@ enum InnerState {
     Closed {
         /// The reason the remote closed the connection, or the reason we are sending to the remote.
         remote_reason: CloseReason,
-        /// Set to true if we closed the connection locally
+        /// Set to true if we closed the connection locally.
         is_local: bool,
         /// Did we read this as error already?
         error_read: bool,
     },
     Draining {
-        /// Why the connection was lost, if it has been
+        /// Why the connection was lost, if it has been.
         error: Option<ConnectionError>,
-        /// Set to true if we closed the connection locally
+        /// Set to true if we closed the connection locally.
         is_local: bool,
     },
-    /// Waiting for application to call close so we can dispose of the resources
+    /// Waiting for application to call close so we can dispose of the resources.
     Drained {
-        /// Why the connection was lost, if it has been
+        /// Why the connection was lost, if it has been.
         error: Option<ConnectionError>,
-        /// Set to true if we closed the connection locally
+        /// Set to true if we closed the connection locally.
         is_local: bool,
     },
 }
@@ -301,19 +313,19 @@ enum InnerState {
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
 pub struct Handshake {
-    /// Whether the remote CID has been set by the peer yet
+    /// Whether the remote CID has been set by the peer yet.
     ///
-    /// Always set for servers
+    /// Always set for servers.
     pub(super) rem_cid_set: bool,
     /// Stateless retry token received in the first Initial by a server.
     ///
     /// Must be present in every Initial. Always empty for clients.
     pub(super) expected_token: Bytes,
-    /// First cryptographic message
+    /// First cryptographic message.
     ///
-    /// Only set for clients
+    /// Only set for clients.
     pub(super) client_hello: Option<Bytes>,
-    /// Whether the server address is allowed to migrate
+    /// Whether the server address is allowed to migrate.
     ///
     /// We allow the server to migrate during the handshake as long as we have not
     /// received an authenticated handshake packet: it can send a response from a
