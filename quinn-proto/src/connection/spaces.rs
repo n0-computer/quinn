@@ -208,7 +208,7 @@ impl IndexMut<SpaceId> for [PacketSpace; 3] {
 /// this via [`PacketSpace::for_path`].
 pub(super) struct PacketNumberSpace {
     /// Highest received packet number
-    pub(super) rx_packet: u64,
+    pub(super) rx_packet: Option<u64>,
     /// The packet number of the next packet that will be sent, if any. In the Data space, the
     /// packet number stored here is sometimes skipped by [`PacketNumberFilter`] logic.
     pub(super) next_packet_number: u64,
@@ -267,7 +267,7 @@ impl PacketNumberSpace {
             SpaceId::Data => Some(PacketNumberFilter::new(rng)),
         };
         Self {
-            rx_packet: 0,
+            rx_packet: None,
             next_packet_number: 0,
             largest_acked_packet: None,
             largest_acked_packet_sent: now,
@@ -295,7 +295,7 @@ impl PacketNumberSpace {
             SpaceId::Data => Some(PacketNumberFilter::disabled()),
         };
         Self {
-            rx_packet: 0,
+            rx_packet: None,
             next_packet_number: 0,
             largest_acked_packet: None,
             largest_acked_packet_sent: now,
@@ -324,7 +324,7 @@ impl PacketNumberSpace {
     fn new_default(space_id: SpaceId, path_id: PathId) -> Self {
         error!(?path_id, ?space_id, "PacketNumberSpace created by default");
         Self {
-            rx_packet: 0,
+            rx_packet: None,
             next_packet_number: 0,
             largest_acked_packet: None,
             largest_acked_packet_sent: Instant::now(),
