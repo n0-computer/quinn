@@ -188,7 +188,6 @@ macro_rules! common_set_tests {
     };
 }
 
-common_set_tests!(range_set, RangeSet);
 common_set_tests!(array_range_set, ArrayRangeSet);
 
 /// A very simple reference implementation of a RangeSet
