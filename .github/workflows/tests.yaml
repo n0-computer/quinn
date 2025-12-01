@@ -70,6 +70,12 @@ jobs:
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
 
+      # Go is required for FIPS builds (aws-lc-rs-fips feature)
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
       - name: Select features
         run: |
           case "${{ matrix.features }}" in
@@ -208,6 +214,9 @@ jobs:
       - uses: msys2/setup-msys2@v2
         with:
           release: false
+
+      - name: Install cmake
+        run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
       - name: build tests
         run: |
