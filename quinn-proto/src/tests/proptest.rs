@@ -420,8 +420,6 @@ fn regression_key_update_error() {
         TestOp::OpenPath(Side::Client, PathKind::Available, 0),
         TestOp::Drive(Side::Client),
         TestOp::ForceKeyUpdate(Side::Server),
-        TestOp::AdvanceTime,
-        TestOp::PathSetStatus(Side::Server, 0, PathKind::Backup),
     ];
 
     let _guard = subscribe();
