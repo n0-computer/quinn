@@ -207,7 +207,7 @@ impl IndexMut<SpaceId> for [PacketSpace; 3] {
 /// This contains the data specific to a per-path packet number space.  You should access
 /// this via [`PacketSpace::for_path`].
 pub(super) struct PacketNumberSpace {
-    /// Highest received packet number
+    /// Highest received packet number, if any
     pub(super) rx_packet: Option<u64>,
     /// The packet number of the next packet that will be sent, if any. In the Data space, the
     /// packet number stored here is sometimes skipped by [`PacketNumberFilter`] logic.
