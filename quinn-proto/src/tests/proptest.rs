@@ -350,6 +350,7 @@ fn setup_deterministic_with_multipath(seed: [u8; 32]) -> Pair {
 fn multipath_transport_config() -> TransportConfig {
     let mut transport = TransportConfig::default();
     transport.deterministic_packet_numbers(true);
+    transport.mtu_discovery_config(None); // TODO(matheus23): Disabled for clearer logs. Need to re-enable!
     // enable multipath
     transport.max_concurrent_multipath_paths = NonZeroU32::new(MAX_PATHS);
     transport
@@ -360,8 +361,7 @@ fn random_interaction_multipath(
     #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
     #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
 ) {
-    println!("Another one");
-    // let _guard = subscribe(); // TODO(matheus23): Do this in a way that allows us to discard output from the non-final interaction.
+    let _guard = subscribe(); // TODO(matheus23): Do this in a way that allows us to discard output from the non-final interaction.
     let mut pair = setup_deterministic_with_multipath(seed);
     run_random_interaction(&mut pair, interactions);
 
