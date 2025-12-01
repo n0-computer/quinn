@@ -29,7 +29,7 @@ jobs:
     name: Test aws-lc-rs crypto backend
     if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
     timeout-minutes: 30
-    runs-on: [self-hosted, linux, X64]
+    runs-on: ubuntu-latest
     env:
       RUSTC_WRAPPER: "sccache"
     steps:
@@ -48,10 +48,6 @@ jobs:
     if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
     timeout-minutes: 30
     runs-on: [self-hosted, linux, X64]
-    env:
-      # Required for ring wasm32 compilation
-      CC_wasm32_unknown_unknown: clang
-      AR_wasm32_unknown_unknown: llvm-ar
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable

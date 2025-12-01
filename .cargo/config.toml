@@ -1,6 +1,11 @@
 [target.wasm32-unknown-unknown]
 runner = "wasm-bindgen-test-runner"
-rustflags = ["--cfg", 'getrandom_backend="wasm_js"']
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+linker = "rust-lld"
 
 [target.aarch64-unknown-linux-gnu]
 linker = "aarch64-linux-gnu-gcc"
+
+[env]
+CC_wasm32_unknown_unknown = { value = "clang", force = true }
+AR_wasm32_unknown_unknown = { value = "llvm-ar", force = true }
