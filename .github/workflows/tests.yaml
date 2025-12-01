@@ -216,7 +216,7 @@ jobs:
           release: false
 
       - name: Install cmake
-        run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+        uses: lukka/get-cmake@latest
 
       - name: build tests
         run: |
