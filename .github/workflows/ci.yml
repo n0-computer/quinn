@@ -51,6 +51,7 @@ jobs:
     env:
       CC_wasm32_unknown_unknown: clang
       AR_wasm32_unknown_unknown: llvm-ar
+      RUSTFLAGS: '--cfg getrandom_backend="wasm_js"'
     steps:
       - uses: actions/checkout@v5
 
