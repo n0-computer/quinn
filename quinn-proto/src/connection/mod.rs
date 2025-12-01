@@ -65,7 +65,7 @@ mod packet_crypto;
 use packet_crypto::{PrevCrypto, ZeroRttCrypto};
 
 mod paths;
-pub use paths::{ClosedPath, PathEvent, PathId, PathStatus, RttEstimator};
+pub use paths::{ClosedPath, PathEvent, PathId, PathStatus, RttEstimator, SetPathStatusError};
 use paths::{PathData, PathState};
 
 pub(crate) mod qlog;
@@ -547,7 +547,7 @@ impl Connection {
         remote: SocketAddr,
         initial_status: PathStatus,
         now: Instant,
-    ) -> Result<(PathId, bool), PathError> {
+    ) -> Result<(PathId, bool), OpenPathError> {
         match self
             .paths
             .iter()
@@ -569,12 +569,12 @@ impl Connection {
         remote: SocketAddr,
         initial_status: PathStatus,
         now: Instant,
-    ) -> Result<PathId, PathError> {
+    ) -> Result<PathId, OpenPathError> {
         if !self.is_multipath_negotiated() {
-            return Err(PathError::MultipathNotNegotiated);
+            return Err(OpenPathError::MultipathNotNegotiated);
         }
         if self.side().is_server() {
-            return Err(PathError::ServerSideNotAllowed);
+            return Err(OpenPathError::ServerSideNotAllowed);
         }
 
         let max_abandoned = self.abandoned_paths.iter().max().copied();
@@ -585,18 +585,18 @@ impl Connection {
             .saturating_add(1u8);
 
         if Some(path_id) > self.max_path_id() {
-            return Err(PathError::MaxPathIdReached);
+            return Err(OpenPathError::MaxPathIdReached);
         }
         if path_id > self.remote_max_path_id {
             self.spaces[SpaceId::Data].pending.paths_blocked = true;
-            return Err(PathError::MaxPathIdReached);
+            return Err(OpenPathError::MaxPathIdReached);
         }
         if self.rem_cids.get(&path_id).map(CidQueue::active).is_none() {
             self.spaces[SpaceId::Data]
                 .pending
                 .path_cids_blocked
                 .push(path_id);
-            return Err(PathError::RemoteCidsExhausted);
+            return Err(OpenPathError::RemoteCidsExhausted);
         }
 
         let path = self.ensure_path(path_id, remote, now, None);
@@ -707,8 +707,13 @@ impl Connection {
         &mut self,
         path_id: PathId,
         status: PathStatus,
-    ) -> Result<PathStatus, ClosedPath> {
-        let path = self.path_mut(path_id).ok_or(ClosedPath { _private: () })?;
+    ) -> Result<PathStatus, SetPathStatusError> {
+        if !self.is_multipath_negotiated() {
+            return Err(SetPathStatusError::MultipathNotNegotiated);
+        }
+        let path = self
+            .path_mut(path_id)
+            .ok_or(SetPathStatusError::ClosedPath)?;
         let prev = match path.status.local_update(status) {
             Some(prev) => {
                 self.spaces[SpaceId::Data]
@@ -959,7 +964,7 @@ impl Connection {
         loop {
             // check if there is at least one active CID to use for sending
             let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
-                let err = PathError::RemoteCidsExhausted;
+                let err = OpenPathError::RemoteCidsExhausted;
                 if !self.abandoned_paths.contains(&path_id) {
                     debug!(?err, %path_id, "no active CID for path");
                     self.events.push_back(Event::Path(PathEvent::LocallyClosed {
@@ -1890,7 +1895,7 @@ impl Connection {
 
                             self.events.push_back(Event::Path(PathEvent::LocallyClosed {
                                 id: path_id,
-                                error: PathError::ValidationFailed,
+                                error: OpenPathError::ValidationFailed,
                             }));
                         }
                         PathTimer::Pacing => trace!("pacing timer expired"),
@@ -6245,7 +6250,7 @@ impl From<ConnectionError> for io::Error {
 /// Errors that might trigger a path being closed
 // TODO(@divma): maybe needs to be reworked based on what we want to do with the public API
 #[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
-pub enum PathError {
+pub enum OpenPathError {
     /// The extension was not negotiated with the peer
     #[error("multipath extention not negotiated")]
     MultipathNotNegotiated,

@@ -6,7 +6,8 @@ use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
 use proto::{
-    ClosePathError, ClosedPath, ConnectionError, PathError, PathEvent, PathId, PathStatus, VarInt,
+    ClosePathError, ClosedPath, ConnectionError, OpenPathError, PathEvent, PathId, PathStatus,
+    SetPathStatusError, VarInt,
 };
 use tokio::sync::{oneshot, watch};
 use tokio_stream::{Stream, wrappers::WatchStream};
@@ -22,14 +23,14 @@ enum OpenPathInner {
     ///
     /// This migth fail later on.
     Ongoing {
-        opened: WatchStream<Result<(), PathError>>,
+        opened: WatchStream<Result<(), OpenPathError>>,
         path_id: PathId,
         conn: ConnectionRef,
     },
     /// Opening a path failed immediately
     Rejected {
         /// The error that occurred
-        err: PathError,
+        err: OpenPathError,
     },
     /// The path is already open
     Ready {
@@ -41,7 +42,7 @@ enum OpenPathInner {
 impl OpenPath {
     pub(crate) fn new(
         path_id: PathId,
-        opened: watch::Receiver<Result<(), PathError>>,
+        opened: watch::Receiver<Result<(), OpenPathError>>,
         conn: ConnectionRef,
     ) -> Self {
         Self(OpenPathInner::Ongoing {
@@ -55,7 +56,7 @@ impl OpenPath {
         Self(OpenPathInner::Ready { path_id, conn })
     }
 
-    pub(crate) fn rejected(err: PathError) -> Self {
+    pub(crate) fn rejected(err: OpenPathError) -> Self {
         Self(OpenPathInner::Rejected { err })
     }
 
@@ -75,7 +76,7 @@ impl OpenPath {
 }
 
 impl Future for OpenPath {
-    type Output = Result<Path, PathError>;
+    type Output = Result<Path, OpenPathError>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.get_mut().0 {
             OpenPathInner::Ongoing {
@@ -91,7 +92,7 @@ impl Future for OpenPath {
                     // This only happens if receiving a notification change failed, this means the
                     // sender was dropped. This generally should not happen so we use a transient
                     // error
-                    Poll::Ready(Err(PathError::ValidationFailed))
+                    Poll::Ready(Err(OpenPathError::ValidationFailed))
                 }
             },
             OpenPathInner::Ready {
@@ -129,7 +130,7 @@ impl Path {
     }
 
     /// Sets the [`PathStatus`] of this path.
-    pub fn set_status(&self, status: PathStatus) -> Result<(), ClosedPath> {
+    pub fn set_status(&self, status: PathStatus) -> Result<(), SetPathStatusError> {
         self.conn
             .state
             .lock("set path status")
