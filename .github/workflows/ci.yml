@@ -48,8 +48,17 @@ jobs:
     if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
     timeout-minutes: 30
     runs-on: [self-hosted, linux, X64]
+    env:
+      CC_wasm32_unknown_unknown: clang
+      AR_wasm32_unknown_unknown: llvm-ar
     steps:
       - uses: actions/checkout@v5
+
+      - name: Install LLVM tools for wasm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang lld
+
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup target add wasm32-unknown-unknown
       - uses: actions/setup-node@v4
