@@ -215,8 +215,19 @@ jobs:
         with:
           release: false
 
-      - name: Install cmake
-        uses: lukka/get-cmake@latest
+      # FIPS dependencies for Windows
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install NASM
+        uses: ilammy/setup-nasm@v1
+
+      - name: Setup Perl
+        uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: '5.38'
 
       - name: build tests
         run: |
