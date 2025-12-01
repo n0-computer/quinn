@@ -36,6 +36,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: mozilla-actions/sccache-action@v0.0.9
+      # Go is required for FIPS builds
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
       # Prevent feature unification from selecting *ring* as the crypto provider
       - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path quinn-proto/Cargo.toml --no-default-features --features rustls-aws-lc-rs
       - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path quinn/Cargo.toml --no-default-features --features rustls-aws-lc-rs,runtime-tokio
@@ -126,6 +130,65 @@ jobs:
         run: |
           cargo install --version 3.5.4 cargo-ndk
           cargo ndk --target ${{ matrix.target }} build
+
+  android_emulator_test:
+    name: Android Emulator Tests
+    if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [28]
+        target: [x86_64]
+    env:
+      TARGET: x86_64-linux-android
+      API_LEVEL: ${{ matrix.api-level }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-linux-android
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Android NDK
+        uses: arqu/setup-ndk@main
+        id: setup-ndk
+        with:
+          ndk-version: r23
+          add-to-path: true
+
+      - name: Build tests
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cargo install --version 3.5.4 cargo-ndk
+          cargo ndk --target ${{ env.TARGET }} test --no-run
+
+      - name: Run tests on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          script: .github/workflows/rust-android-run-tests-on-emulator.sh
 
   check_fmt:
     timeout-minutes: 30
