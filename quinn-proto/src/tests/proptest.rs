@@ -383,7 +383,7 @@ fn regression_unset_packet_acked() {
         TestOp::DropInbound(Side::Client),
     ];
 
-    let _guard = subscribe(); // TODO(matheus23): Do this in a way that allows us to discard output from the non-final interaction.
+    let _guard = subscribe();
     let mut pair = setup_deterministic_with_multipath(seed);
     run_random_interaction(&mut pair, interactions);
 
@@ -422,6 +422,25 @@ fn regression_key_update_error() {
         TestOp::ForceKeyUpdate(Side::Server),
         TestOp::AdvanceTime,
         TestOp::PathSetStatus(Side::Server, 0, PathKind::Backup),
+    ];
+
+    let _guard = subscribe();
+    let mut pair = setup_deterministic_with_multipath(seed);
+    run_random_interaction(&mut pair, interactions);
+
+    assert!(!pair.drive_bounded(), "connection never became idle");
+}
+
+#[test]
+fn regression_never_idle() {
+    let seed: [u8; 32] = [
+        172, 221, 115, 106, 31, 22, 213, 3, 199, 6, 128, 220, 47, 215, 159, 233, 97, 21, 254, 207,
+        48, 180, 255, 97, 33, 29, 11, 76, 219, 138, 87, 57,
+    ];
+    let interactions = vec![
+        TestOp::OpenPath(Side::Client, PathKind::Available, 1),
+        TestOp::PathSetStatus(Side::Server, 0, PathKind::Backup),
+        TestOp::ClosePath(Side::Client, 0, 0),
     ];
 
     let _guard = subscribe();

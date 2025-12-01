@@ -499,6 +499,9 @@ impl TestEndpoint {
             }
 
             for (ch, event) in endpoint_events {
+                if !self.connections.contains_key(&ch) {
+                    continue;
+                }
                 if event.is_drained() {
                     // We need to remove drained connections.
                     // Otherwise handle_event will panic.
