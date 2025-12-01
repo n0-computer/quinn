@@ -36,6 +36,7 @@ mod util;
 use util::*;
 
 mod multipath;
+mod proptest;
 mod token;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]

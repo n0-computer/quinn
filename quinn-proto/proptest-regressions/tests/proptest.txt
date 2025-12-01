@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 22921538b17323cbad784d23b2eb44684db61ba9847d78dcbe217517d31c044e # shrinks to input = _RandomInteractionMultipathArgs { seed: [60, 116, 60, 165, 136, 238, 239, 131, 14, 159, 221, 16, 80, 60, 30, 15, 15, 69, 133, 33, 89, 203, 28, 107, 123, 117, 6, 54, 215, 244, 47, 1], interactions: [PathSetStatus(Server, 0, Backup)] }
+cc 8cd907586f22cecb2700773243934812642d38f9b3f25d1e614fd0dc5fd92c0c # shrinks to input = _RandomInteractionMultipathArgs { seed: [41, 24, 232, 72, 136, 73, 31, 115, 14, 101, 61, 219, 30, 168, 130, 122, 120, 238, 6, 130, 117, 84, 250, 190, 50, 237, 14, 167, 60, 5, 140, 149], interactions: [OpenPath(Client, Available, 0), AdvanceTime, Drive(Client), OpenPath(Client, Available, 0)] }
+cc d7a638feff7c15500a130c83be11f316ace90df0a438611e159e358b17d0aacb # shrinks to input = _RandomInteractionMultipathArgs { seed: [68, 93, 15, 237, 88, 31, 93, 255, 246, 51, 203, 224, 20, 124, 107, 163, 143, 43, 193, 187, 208, 54, 158, 239, 190, 82, 198, 62, 91, 51, 53, 226], interactions: [OpenPath(Client, Available, 0), Drive(Client), ForceKeyUpdate(Server), AdvanceTime, PathSetStatus(Server, 0, Backup)] }

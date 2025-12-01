@@ -13,6 +13,7 @@ use std::{
 use assert_matches::assert_matches;
 use bytes::BytesMut;
 use lazy_static::lazy_static;
+use rand::{SeedableRng, rngs::StdRng};
 use rustls::{
     KeyLogFile,
     client::WebPkiServerVerifier,
@@ -30,7 +31,7 @@ pub(super) struct Pair {
     pub(super) server: TestEndpoint,
     pub(super) client: TestEndpoint,
     /// Start time
-    epoch: Instant,
+    pub(super) epoch: Instant,
     /// Current time
     pub(super) time: Instant,
     /// Simulates the maximum size allowed for UDP payloads by the link (packets exceeding this size will be dropped)
@@ -41,10 +42,46 @@ pub(super) struct Pair {
     pub(super) latency: Duration,
     /// Number of spin bit flips
     pub(super) spins: u64,
-    last_spin: bool,
+    pub(super) last_spin: bool,
 }
 
 impl Pair {
+    pub(super) fn default_deterministic(seed: [u8; 32]) -> Self {
+        let mut rng = StdRng::from_seed(seed);
+        let mut client_seed = [0u8; 32];
+        let mut server_seed = [0u8; 32];
+        rng.fill_bytes(&mut client_seed);
+        rng.fill_bytes(&mut server_seed);
+
+        let mut cfg = server_config();
+        let mut transport = TransportConfig::default();
+        transport.deterministic_packet_numbers(true);
+        cfg.transport = Arc::new(transport);
+
+        let mut client_config = EndpointConfig::default();
+        let mut server_config = EndpointConfig::default();
+        client_config.rng_seed(Some(client_seed));
+        server_config.rng_seed(Some(server_seed));
+
+        let server = Endpoint::new(Arc::new(client_config), Some(Arc::new(cfg)), true, None);
+        let client = Endpoint::new(Arc::new(server_config), None, true, None);
+
+        let server_addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 4433);
+        let client_addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 44433);
+        let now = Instant::now();
+        Self {
+            server: TestEndpoint::new(server, server_addr),
+            client: TestEndpoint::new(client, client_addr),
+            epoch: now,
+            time: now,
+            mtu: DEFAULT_MTU,
+            latency: Duration::from_millis(1),
+            spins: 0,
+            last_spin: false,
+            congestion_experienced: false,
+        }
+    }
+
     pub(super) fn default_with_deterministic_pns() -> Self {
         let mut cfg = server_config();
         let mut transport = TransportConfig::default();
@@ -154,7 +191,9 @@ impl Pair {
             if let Some(ref socket) = self.server.socket {
                 socket.send_to(&buffer, packet.destination).unwrap();
             }
-            if self.client.addr == packet.destination {
+            if self.client.addr == packet.destination
+                || self.client.multipath_addrs.contains(&packet.destination)
+            {
                 let ecn = set_congestion_experienced(packet.ecn, self.congestion_experienced);
                 self.client.inbound.push_back((
                     self.time + self.latency,
@@ -183,6 +222,10 @@ impl Pair {
             return false;
         }
 
+        self.advance_time()
+    }
+
+    pub(super) fn advance_time(&mut self) -> bool {
         let client_t = self.client.next_wakeup();
         let server_t = self.server.next_wakeup();
         match min_opt(client_t, server_t) {
@@ -302,6 +345,8 @@ impl Default for Pair {
 pub(super) struct TestEndpoint {
     pub(super) endpoint: Endpoint,
     pub(super) addr: SocketAddr,
+    /// Other addresses that might be used for multipath
+    pub(super) multipath_addrs: Vec<SocketAddr>,
     socket: Option<UdpSocket>,
     timeout: Option<Instant>,
     pub(super) outbound: VecDeque<(Transmit, Bytes)>,
@@ -333,7 +378,7 @@ pub(super) fn validate_incoming(incoming: &Incoming) -> IncomingConnectionBehavi
 }
 
 impl TestEndpoint {
-    fn new(endpoint: Endpoint, addr: SocketAddr) -> Self {
+    pub(super) fn new(endpoint: Endpoint, addr: SocketAddr) -> Self {
         let socket = if env::var_os("SSLKEYLOGFILE").is_some() {
             let socket = UdpSocket::bind(addr).expect("failed to bind UDP socket");
             socket
@@ -346,6 +391,7 @@ impl TestEndpoint {
         Self {
             endpoint,
             addr,
+            multipath_addrs: Vec::new(),
             socket,
             timeout: None,
             outbound: VecDeque::new(),
@@ -467,7 +513,7 @@ impl TestEndpoint {
         min_opt(self.timeout, next_inbound)
     }
 
-    fn is_idle(&self) -> bool {
+    pub(super) fn is_idle(&self) -> bool {
         self.connections.values().all(|x| x.is_idle())
     }
 
