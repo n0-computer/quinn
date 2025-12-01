@@ -224,10 +224,12 @@ jobs:
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
 
-      - name: Setup Perl
-        uses: shogo82148/actions-setup-perl@v1
-        with:
-          perl-version: '5.38'
+      - name: Install Strawberry Perl
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_53822_64bit/strawberry-perl-5.38.2.2-64bit-portable.zip" -OutFile perl.zip
+          Expand-Archive perl.zip -DestinationPath C:\Strawberry
+          echo "C:\Strawberry\perl\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "C:\Strawberry\c\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: build tests
         run: |
