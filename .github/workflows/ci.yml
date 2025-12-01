@@ -47,28 +47,13 @@ jobs:
     name: Build & test wasm32
     if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, X64]
     env:
       # Required for ring wasm32 compilation
       CC_wasm32_unknown_unknown: clang
       AR_wasm32_unknown_unknown: llvm-ar
     steps:
       - uses: actions/checkout@v5
-
-      # Install LLVM/Clang with wasm32 builtins (required for ring)
-      - name: Install LLVM and wasm32 builtins
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm clang lld
-          # Download and install wasm32 builtins from WASI SDK
-          CLANG_VERSION=$(clang --version | grep -oP 'clang version \K\d+')
-          CLANG_LIB_DIR="/usr/lib/llvm-${CLANG_VERSION}/lib/clang/${CLANG_VERSION}/lib"
-          sudo mkdir -p "${CLANG_LIB_DIR}/wasi"
-          curl -L https://github.com/aspect-build/llvm-project/releases/download/aspect-release-17.0.6/wasm32-builtins-17.0.6.tar.xz | \
-            sudo tar -xJf - -C "${CLANG_LIB_DIR}"
-          # Also try the ubuntu package if available
-          sudo apt-get install -y libclang-rt-${CLANG_VERSION}-dev-wasm32 || true
-
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup target add wasm32-unknown-unknown
       - uses: actions/setup-node@v4
