@@ -30,8 +30,6 @@ jobs:
     if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
     timeout-minutes: 30
     runs-on: ubuntu-latest
-    env:
-      RUSTC_WRAPPER: "sccache"
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -51,9 +49,19 @@ jobs:
     name: Build & test wasm32
     if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, X64]
+    env:
+      CC_wasm32_unknown_unknown: clang
+      AR_wasm32_unknown_unknown: llvm-ar
+      RUSTFLAGS: '--cfg getrandom_backend="wasm_js"'
     steps:
       - uses: actions/checkout@v6
+
+      - name: Install LLVM tools for wasm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm clang lld
+
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup target add wasm32-unknown-unknown
       - uses: actions/setup-node@v6
@@ -200,7 +208,7 @@ jobs:
             rustc --version
             echo "===== freebsd-version ====="
             freebsd-version
-            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked --manifest-path fuzz/Cargo.toml && cargo test --locked -p iroh-quinn-udp --benches
+            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p iroh-quinn-udp --benches
 
   test-solaris:
     name: test on solaris
@@ -225,7 +233,7 @@ jobs:
             export PATH=$HOME/.rust_solaris/bin:$PATH
             # Workaround for https://github.com/quinn-rs/quinn/issues/2218
             export CARGO_HTTP_MULTIPLEXING=false
-            cargo build --locked --all-targets && cargo test --locked --manifest-path fuzz/Cargo.toml && cargo test --locked -p iroh-quinn-udp --benches
+            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -p iroh-quinn-udp --benches
 
   test-illumos:
     name: test on illumos
@@ -243,7 +251,20 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           run: |
             . "$HOME/.cargo/env"
-            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked --manifest-path fuzz/Cargo.toml && cargo test --locked -p iroh-quinn-udp --benches
+            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p iroh-quinn-udp --benches
+
+  fuzz_build:
+    name: Fuzz build check
+    if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
+    timeout-minutes: 30
+    runs-on: [self-hosted, linux, X64]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Build fuzz targets
+        run: cargo +nightly fuzz build
 
   features:
     name: Feature powerset check
@@ -251,12 +272,18 @@ jobs:
     timeout-minutes: 60
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+        include:
+          - name: linux
+            runner: [self-hosted, linux, X64]
+          - name: macos
+            runner: [self-hosted, macOS, ARM64]
+          - name: windows
+            runner: [self-hosted, windows, x64]
+    runs-on: ${{ matrix.runner }}
     env:
       RUSTFLAGS: -Dwarnings
       # skip FIPS features outside of Linux
-      SKIP_FEATURES: ${{ matrix.os != 'ubuntu-latest' && 'rustls-aws-lc-rs-fips,aws-lc-rs-fips,__rustls-post-quantum-test' || '' }}
+      SKIP_FEATURES: ${{ matrix.name != 'linux' && 'rustls-aws-lc-rs-fips,aws-lc-rs-fips,__rustls-post-quantum-test' || '' }}
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
