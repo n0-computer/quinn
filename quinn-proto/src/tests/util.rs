@@ -499,6 +499,12 @@ impl TestEndpoint {
             }
 
             for (ch, event) in endpoint_events {
+                if event.is_drained() {
+                    // We need to remove drained connections.
+                    // Otherwise handle_event will panic.
+                    // We will need it to handle *this* event first, though.
+                    self.connections.remove(&ch);
+                }
                 if let Some(event) = self.handle_event(ch, event) {
                     if let Some(conn) = self.connections.get_mut(&ch) {
                         conn.handle_event(event);

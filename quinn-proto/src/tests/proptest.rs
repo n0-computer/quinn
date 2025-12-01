@@ -16,7 +16,8 @@ use test_strategy::{Arbitrary, proptest};
 use tracing::{debug, trace};
 
 use crate::{
-    Endpoint, EndpointConfig, PathId, PathStatus, StreamId, TransportConfig,
+    Connection, ConnectionHandle, Endpoint, EndpointConfig, PathId, PathStatus, StreamId,
+    TransportConfig,
     tests::{DEFAULT_MTU, Pair, TestEndpoint, client_config, server_config, subscribe},
 };
 
@@ -92,17 +93,15 @@ enum StreamOp {
 }
 
 impl StreamOp {
-    fn run(
-        self,
-        conn: &mut crate::Connection,
-        send_streams: &mut Vec<StreamId>,
-        recv_streams: &mut Vec<StreamId>,
-    ) {
+    fn run(self, pair: &mut Pair, state: &mut State) {
+        let Some(conn) = state.conn(pair) else {
+            return;
+        };
         // We generally ignore application-level errors. It's legal to call these APIs, so we do. We don't expect them to work all the time.
         match self {
-            StreamOp::Open(kind) => send_streams.extend(conn.streams().open(kind.into())),
+            StreamOp::Open(kind) => state.send_streams.extend(conn.streams().open(kind.into())),
             StreamOp::Send { stream, num_bytes } => {
-                if let Some(&stream_id) = send_streams.get(stream) {
+                if let Some(&stream_id) = state.send_streams.get(stream) {
                     let data = vec![0; num_bytes];
                     if let Some(bytes) = conn.send_stream(stream_id).write(&data).ok() {
                         trace!(attempted_write = %num_bytes, actually_written = %bytes, "random interaction: Wrote stream bytes");
@@ -110,18 +109,20 @@ impl StreamOp {
                 }
             }
             StreamOp::Finish(stream) => {
-                if let Some(&stream_id) = send_streams.get(stream) {
+                if let Some(&stream_id) = state.send_streams.get(stream) {
                     conn.send_stream(stream_id).finish().ok();
                 }
             }
             StreamOp::Reset(stream, code) => {
-                if let Some(&stream_id) = send_streams.get(stream) {
+                if let Some(&stream_id) = state.send_streams.get(stream) {
                     conn.send_stream(stream_id).reset(code.into()).ok();
                 }
             }
-            StreamOp::Accept(kind) => recv_streams.extend(conn.streams().accept(kind.into())),
+            StreamOp::Accept(kind) => state
+                .recv_streams
+                .extend(conn.streams().accept(kind.into())),
             StreamOp::Receive(stream, ordered) => {
-                if let Some(&stream_id) = recv_streams.get(stream) {
+                if let Some(&stream_id) = state.recv_streams.get(stream) {
                     if let Some(mut chunks) = conn.recv_stream(stream_id).read(ordered).ok() {
                         if let Ok(Some(chunk)) = chunks.next(usize::MAX) {
                             trace!(chunk_len = %chunk.bytes.len(), offset = %chunk.offset, "read from stream");
@@ -130,11 +131,47 @@ impl StreamOp {
                 }
             }
             StreamOp::Stop(stream, code) => {
-                if let Some(&stream_id) = recv_streams.get(stream) {
+                if let Some(&stream_id) = state.recv_streams.get(stream) {
                     conn.recv_stream(stream_id).stop(code.into()).ok();
                 }
             }
         };
+    }
+}
+
+struct State {
+    send_streams: Vec<StreamId>,
+    recv_streams: Vec<StreamId>,
+    path_ids: Vec<PathId>,
+    handle: ConnectionHandle,
+    side: Side,
+}
+
+impl State {
+    fn new(side: Side, handle: ConnectionHandle) -> Self {
+        Self {
+            send_streams: Vec::new(),
+            recv_streams: Vec::new(),
+            path_ids: vec![PathId::ZERO],
+            handle,
+            side,
+        }
+    }
+
+    fn endpoint<'a>(&self, pair: &'a mut Pair) -> &'a mut TestEndpoint {
+        match self.side {
+            Side::Server => &mut pair.server,
+            Side::Client => &mut pair.client,
+        }
+    }
+
+    fn conn<'a>(&self, pair: &'a mut Pair) -> Option<&'a mut Connection> {
+        self.endpoint(pair).connections.get_mut(&self.handle)
+    }
+
+    fn path_from_idx(&self, idx: usize) -> Option<&PathId> {
+        self.path_ids
+            .get(idx.clamp(0, self.path_ids.len().saturating_sub(1)))
     }
 }
 
@@ -146,12 +183,8 @@ fn run_random_interaction(pair: &mut Pair, interactions: Vec<TestOp>) {
     debug!("INTERACTION SETUP FINISHED");
     pair.client_conn_mut(client_ch).panic_on_transport_error();
     pair.server_conn_mut(server_ch).panic_on_transport_error();
-    let mut client_send_streams = Vec::<StreamId>::new();
-    let mut client_recv_streams = Vec::<StreamId>::new();
-    let mut server_send_streams = Vec::<StreamId>::new();
-    let mut server_recv_streams = Vec::<StreamId>::new();
-    let mut client_path_ids = vec![PathId::ZERO];
-    let mut server_path_ids = vec![PathId::ZERO];
+    let mut client = State::new(Side::Client, client_ch);
+    let mut server = State::new(Side::Server, server_ch);
 
     for interaction in interactions {
         debug!(?interaction, "INTERACTION STEP");
@@ -176,91 +209,82 @@ fn run_random_interaction(pair: &mut Pair, interactions: Vec<TestOp>) {
             TestOp::ReorderInbound(Side::Client) => reorder(&mut pair.client.inbound),
             TestOp::ReorderInbound(Side::Server) => reorder(&mut pair.server.inbound),
             TestOp::ForceKeyUpdate(Side::Client) => {
-                pair.client_conn_mut(client_ch).force_key_update()
+                if let Some(conn) = client.conn(pair) {
+                    conn.force_key_update()
+                }
             }
             TestOp::ForceKeyUpdate(Side::Server) => {
-                pair.server_conn_mut(server_ch).force_key_update()
+                if let Some(conn) = server.conn(pair) {
+                    conn.force_key_update()
+                }
             }
             TestOp::OpenPath(side, path_kind, addr) => {
-                let (conn, remote, path_ids) = match side {
-                    Side::Client => (
-                        pair.client_conn_mut(client_ch),
-                        SERVER_ADDRS[addr],
-                        &mut client_path_ids,
-                    ),
-                    Side::Server => (
-                        pair.server_conn_mut(server_ch),
-                        CLIENT_ADDRS[addr],
-                        &mut server_path_ids,
-                    ),
+                let remote = match side {
+                    Side::Client => SERVER_ADDRS[addr],
+                    Side::Server => CLIENT_ADDRS[addr],
                 };
                 let initial_status = match path_kind {
                     PathKind::Available => PathStatus::Available,
                     PathKind::Backup => PathStatus::Backup,
                 };
-                if let Ok(path_id) = conn.open_path(remote, initial_status, now) {
-                    path_ids.push(path_id);
+                let state = match side {
+                    Side::Client => &mut client,
+                    Side::Server => &mut server,
+                };
+                if let Some(conn) = state.conn(pair) {
+                    if let Ok(path_id) = conn.open_path(remote, initial_status, now) {
+                        state.path_ids.push(path_id);
+                    }
                 }
             }
             TestOp::ClosePath(side, path_idx, error_code) => {
-                let (conn, path_ids) = match side {
-                    Side::Client => (pair.client_conn_mut(client_ch), &mut client_path_ids),
-                    Side::Server => (pair.server_conn_mut(server_ch), &mut server_path_ids),
+                let state = match side {
+                    Side::Client => &mut client,
+                    Side::Server => &mut server,
                 };
-                if let Some(&path_id) =
-                    path_ids.get(path_idx.clamp(0, path_ids.len().saturating_sub(1)))
-                {
-                    conn.close_path(now, path_id, error_code.into()).ok();
-                    path_ids.retain(|id| *id != path_id);
+                if let Some(conn) = state.conn(pair) {
+                    if let Some(&path_id) = state.path_from_idx(path_idx) {
+                        conn.close_path(now, path_id, error_code.into()).ok();
+                        state.path_ids.retain(|id| *id != path_id);
+                    }
                 }
             }
             TestOp::PathSetStatus(side, path_idx, status) => {
-                let (conn, path_ids) = match side {
-                    Side::Client => (pair.client_conn_mut(client_ch), &mut client_path_ids),
-                    Side::Server => (pair.server_conn_mut(server_ch), &mut server_path_ids),
+                let state = match side {
+                    Side::Client => &mut client,
+                    Side::Server => &mut server,
                 };
                 let status = match status {
                     PathKind::Available => PathStatus::Available,
                     PathKind::Backup => PathStatus::Backup,
                 };
-                if let Some(&path_id) =
-                    path_ids.get(path_idx.clamp(0, path_ids.len().saturating_sub(1)))
-                {
-                    conn.set_path_status(path_id, status).ok();
+                if let Some(conn) = state.conn(pair) {
+                    if let Some(&path_id) = state.path_from_idx(path_idx) {
+                        conn.set_path_status(path_id, status).ok();
+                    }
                 }
             }
-            TestOp::StreamOp(side, stream_op) => {
-                let (conn, send_streams, recv_streams) = match side {
-                    Side::Client => (
-                        pair.client_conn_mut(client_ch),
-                        &mut client_send_streams,
-                        &mut client_recv_streams,
-                    ),
-                    Side::Server => (
-                        pair.server_conn_mut(server_ch),
-                        &mut server_send_streams,
-                        &mut server_recv_streams,
-                    ),
-                };
-                stream_op.run(conn, send_streams, recv_streams);
-            }
+            TestOp::StreamOp(side, stream_op) => match side {
+                Side::Client => stream_op.run(pair, &mut client),
+                Side::Server => stream_op.run(pair, &mut server),
+            },
         }
 
-        while let Some(event) = pair.client_conn_mut(client_ch).poll() {
+        while let Some(event) = client.conn(pair).and_then(Connection::poll) {
             match event {
                 crate::Event::Path(crate::PathEvent::Abandoned { id, .. })
                 | crate::Event::Path(crate::PathEvent::Closed { id, .. }) => {
-                    client_path_ids.retain(|path_id| *path_id != id);
+                    client.path_ids.retain(|path_id| *path_id != id);
                 }
                 _ => {}
             }
         }
 
-        while let Some(event) = pair.server_conn_mut(server_ch).poll() {
+        while let Some(event) = server.conn(pair).and_then(Connection::poll) {
             match event {
                 crate::Event::Path(crate::PathEvent::Abandoned { id, .. })
                 | crate::Event::Path(crate::PathEvent::Closed { id, .. }) => {
-                    server_path_ids.retain(|path_id| *path_id != id);
+                    server.path_ids.retain(|path_id| *path_id != id);
                 }
                 _ => {}
             }
