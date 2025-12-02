@@ -4,7 +4,10 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     os::windows::io::AsRawSocket,
     ptr,
-    sync::{LazyLock, Mutex},
+    sync::{
+        LazyLock, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Instant,
 };
 
@@ -24,6 +27,7 @@ use crate::{
 #[derive(Debug)]
 pub struct UdpSocketState {
     last_send_error: Mutex<Instant>,
+    max_gso_segments: AtomicUsize,
 }
 
 impl UdpSocketState {
@@ -115,6 +119,7 @@ impl UdpSocketState {
         let now = Instant::now();
         Ok(Self {
             last_send_error: Mutex::new(now.checked_sub(2 * IO_ERROR_LOG_INTERVAL).unwrap_or(now)),
+            max_gso_segments: AtomicUsize::new(*MAX_GSO_SEGMENTS),
         })
     }
 
@@ -152,7 +157,7 @@ impl UdpSocketState {
     /// If you would like to handle these errors yourself, use [`UdpSocketState::try_send`]
     /// instead.
     pub fn send(&self, socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
-        match send(socket, transmit) {
+        match send(self, socket, transmit) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Err(e),
             Err(e) => {
@@ -165,7 +170,7 @@ impl UdpSocketState {
 
     /// Sends a [`Transmit`] on the given socket without any additional error handling.
     pub fn try_send(&self, socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
-        send(socket, transmit)
+        send(self, socket, transmit)
     }
 
     pub fn recv(
@@ -282,7 +287,7 @@ impl UdpSocketState {
     /// while using GSO.
     #[inline]
     pub fn max_gso_segments(&self) -> usize {
-        *MAX_GSO_SEGMENTS
+        self.max_gso_segments.load(Ordering::Relaxed)
     }
 
     /// The number of segments to read when GRO is enabled. Used as a factor to
@@ -325,12 +330,17 @@ impl UdpSocketState {
     }
 }
 
-fn send(socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
+fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
     match send_inner(&socket, transmit) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::InvalidInput && transmit.segment_size.is_some() => {
             // GSO send failed (e.g., on older Windows versions that report GSO support
-            // but fail at send time). Fall back to sending each segment individually.
+            // but fail at send time). Disable GSO for future sends and fall back to
+            // sending each segment individually.
+            if state.max_gso_segments() > 1 {
+                debug!("sendmsg failed with {e}; halting segmentation offload");
+                state.max_gso_segments.store(1, Ordering::Relaxed);
+            }
             let segment_size = transmit.segment_size.unwrap();
             for chunk in transmit.contents.chunks(segment_size) {
                 send_inner(
