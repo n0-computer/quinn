@@ -5,8 +5,6 @@ use std::{
 };
 
 use bytes::BufMut;
-#[cfg(feature = "qlog")]
-use qlog::events::quic::QuicFrame;
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
 
@@ -18,7 +16,7 @@ use crate::{
     Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
     coding::BufMutExt,
     connection::{qlog::QlogSentPacket, stats::FrameStats},
-    frame::{self, FrameStruct, StreamMetaVec},
+    frame::{self, Frame, FrameStruct, StreamMetaVec},
     transport_parameters::TransportParameters,
 };
 
@@ -434,20 +432,13 @@ impl StreamsState {
                 .get_or_create()
                 .reset_stream
                 .push((id, error_code));
-            frame::ResetStream {
+            let frame = frame::ResetStream {
                 id,
                 error_code,
                 final_offset: VarInt::try_from(stream.offset()).expect("impossibly large offset"),
-            }
-            .encode(buf);
-            #[cfg(feature = "qlog")]
-            qlog.frame(QuicFrame::ResetStream {
-                stream_id: id.into(),
-                error_code: error_code.into(),
-                final_size: stream.offset(),
-                length: None,
-                payload_length: None,
-            });
+            };
+            frame.encode(buf);
+            qlog.frame(&Frame::ResetStream(frame));
             stats.reset_stream += 1;
         }
 
@@ -466,13 +457,7 @@ impl StreamsState {
             // can't be relied upon regardless.
             trace!(stream = %frame.id, "STOP_SENDING");
             frame.encode(buf);
-            #[cfg(feature = "qlog")]
-            qlog.frame(QuicFrame::StopSending {
-                stream_id: frame.id.into(),
-                error_code: frame.error_code.into(),
-                length: None,
-                payload_length: None,
-            });
+            qlog.frame(&Frame::StopSending(frame));
             retransmits.get_or_create().stop_sending.push(frame);
             stats.stop_sending += 1;
         }
@@ -497,10 +482,7 @@ impl StreamsState {
             retransmits.get_or_create().max_data = true;
             buf.write(frame::FrameType::MAX_DATA);
             buf.write(max);
-            #[cfg(feature = "qlog")]
-            qlog.frame(QuicFrame::MaxData {
-                maximum: max.into(),
-            });
+            qlog.frame(&Frame::MaxData(max));
             stats.max_data += 1;
         }
 
@@ -532,11 +514,7 @@ impl StreamsState {
             buf.write(frame::FrameType::MAX_STREAM_DATA);
             buf.write(id);
             buf.write_var(max);
-            #[cfg(feature = "qlog")]
-            qlog.frame(QuicFrame::MaxStreamData {
-                stream_id: id.into(),
-                maximum: max,
-            });
+            qlog.frame(&Frame::MaxStreamData { id, offset: max });
             stats.max_stream_data += 1;
         }
 
@@ -557,15 +535,9 @@ impl StreamsState {
                 Dir::Uni => frame::FrameType::MAX_STREAMS_UNI,
                 Dir::Bi => frame::FrameType::MAX_STREAMS_BIDI,
             });
-            buf.write_var(self.max_remote[dir as usize]);
-            #[cfg(feature = "qlog")]
-            qlog.frame(QuicFrame::MaxStreams {
-                maximum: self.max_remote[dir as usize],
-                stream_type: match dir {
-                    Dir::Bi => qlog::events::quic::StreamType::Bidirectional,
-                    Dir::Uni => qlog::events::quic::StreamType::Unidirectional,
-                },
-            });
+            let count = self.max_remote[dir as usize];
+            buf.write_var(count);
+            qlog.frame(&Frame::MaxStreams { dir, count });
             match dir {
                 Dir::Uni => stats.max_streams_uni += 1,
                 Dir::Bi => stats.max_streams_bidi += 1,
@@ -628,14 +600,7 @@ impl StreamsState {
             let meta = frame::StreamMeta { id, offsets, fin };
             trace!(id = %meta.id, off = meta.offsets.start, len = meta.offsets.end - meta.offsets.start, fin = meta.fin, "STREAM");
             meta.encode(encode_length, buf);
-            #[cfg(feature = "qlog")]
-            qlog.frame(QuicFrame::Stream {
-                stream_id: meta.id.into(),
-                offset: meta.offsets.start,
-                length: meta.offsets.end - meta.offsets.start,
-                fin: Some(meta.fin),
-                raw: None,
-            });
+            qlog.frame_stream(&meta);
 
             // The range might not be retrievable in a single `get` if it is
             // stored in noncontiguous fashion. Therefore this loop iterates

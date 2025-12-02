@@ -344,6 +344,7 @@ impl Close {
         matches!(*self, Self::Connection(_))
     }
 
+    #[cfg(feature = "qlog")]
     pub(crate) fn error_code(&self) -> u64 {
         match self {
             Self::Connection(frame) => frame.error_code.into(),
