@@ -438,7 +438,6 @@ impl StreamsState {
                 final_offset: VarInt::try_from(stream.offset()).expect("impossibly large offset"),
             };
             frame.encode(buf);
-            #[cfg(feature = "qlog")]
             qlog.frame(&Frame::ResetStream(frame));
             stats.reset_stream += 1;
         }
@@ -458,7 +457,6 @@ impl StreamsState {
             // can't be relied upon regardless.
             trace!(stream = %frame.id, "STOP_SENDING");
             frame.encode(buf);
-            #[cfg(feature = "qlog")]
             qlog.frame(&Frame::StopSending(frame));
             retransmits.get_or_create().stop_sending.push(frame);
             stats.stop_sending += 1;
@@ -516,7 +514,6 @@ impl StreamsState {
             buf.write(frame::FrameType::MAX_STREAM_DATA);
             buf.write(id);
             buf.write_var(max);
-            #[cfg(feature = "qlog")]
             qlog.frame(&Frame::MaxStreamData { id, offset: max });
             stats.max_stream_data += 1;
         }
@@ -538,12 +535,9 @@ impl StreamsState {
                 Dir::Uni => frame::FrameType::MAX_STREAMS_UNI,
                 Dir::Bi => frame::FrameType::MAX_STREAMS_BIDI,
             });
-            buf.write_var(self.max_remote[dir as usize]);
-            #[cfg(feature = "qlog")]
-            qlog.frame(&Frame::MaxStreams {
-                dir,
-                count: self.max_remote[dir as usize],
-            });
+            let count = self.max_remote[dir as usize];
+            buf.write_var(count);
+            qlog.frame(&Frame::MaxStreams { dir, count });
             match dir {
                 Dir::Uni => stats.max_streams_uni += 1,
                 Dir::Bi => stats.max_streams_bidi += 1,

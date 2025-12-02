@@ -5206,6 +5206,8 @@ impl Connection {
             );
             truncated.encode(buf);
             self.stats.frame_tx.crypto += 1;
+
+            // The clone is cheap but we still cfg it out if qlog is disabled.
             #[cfg(feature = "qlog")]
             qlog.frame(&Frame::Crypto(truncated.clone()));
             sent.retransmits.get_or_create().crypto.push_back(truncated);
