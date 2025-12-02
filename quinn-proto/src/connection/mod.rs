@@ -1487,9 +1487,11 @@ impl Connection {
             return None;
         }
 
+        let destination = self.path_data(path_id).remote;
         trace!(
             segment_size = transmit.segment_size(),
             last_datagram_len = transmit.len() % transmit.segment_size(),
+            ?destination,
             "sending {} bytes in {} datagrams",
             transmit.len(),
             transmit.num_datagrams()
@@ -1502,7 +1504,7 @@ impl Connection {
             .on_sent(transmit.num_datagrams() as u64, transmit.len());
 
         Some(Transmit {
-            destination: self.path_data(path_id).remote,
+            destination,
             size: transmit.len(),
             ecn: if self.path_data(path_id).sending_ecn {
                 Some(EcnCodepoint::Ect0)

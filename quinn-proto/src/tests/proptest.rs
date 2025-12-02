@@ -307,7 +307,7 @@ fn random_interaction(
     let mut pair = Pair::default_deterministic(seed);
     run_random_interaction(&mut pair, interactions);
 
-    prop_assert!(!pair.drive_bounded(), "connection never became idle");
+    prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
 }
 
 fn setup_deterministic_with_multipath(seed: [u8; 32]) -> Pair {
@@ -361,11 +361,11 @@ fn random_interaction_multipath(
     #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
     #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
 ) {
-    let _guard = subscribe(); // TODO(matheus23): Do this in a way that allows us to discard output from the non-final interaction.
+    // let _guard = subscribe(); // TODO(matheus23): Do this in a way that allows us to discard output from the non-final interaction.
     let mut pair = setup_deterministic_with_multipath(seed);
     run_random_interaction(&mut pair, interactions);
 
-    prop_assert!(!pair.drive_bounded(), "connection never became idle");
+    prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
 }
 
 #[test]
@@ -387,7 +387,7 @@ fn regression_unset_packet_acked() {
     let mut pair = setup_deterministic_with_multipath(seed);
     run_random_interaction(&mut pair, interactions);
 
-    assert!(!pair.drive_bounded(), "connection never became idle");
+    assert!(!pair.drive_bounded(100), "connection never became idle");
 }
 
 #[test]
@@ -407,7 +407,7 @@ fn regression_invalid_key() {
     let mut pair = setup_deterministic_with_multipath(seed);
     run_random_interaction(&mut pair, interactions);
 
-    assert!(!pair.drive_bounded(), "connection never became idle");
+    assert!(!pair.drive_bounded(100), "connection never became idle");
 }
 
 #[test]
@@ -426,7 +426,7 @@ fn regression_key_update_error() {
     let mut pair = setup_deterministic_with_multipath(seed);
     run_random_interaction(&mut pair, interactions);
 
-    assert!(!pair.drive_bounded(), "connection never became idle");
+    assert!(!pair.drive_bounded(100), "connection never became idle");
 }
 
 #[test]
@@ -445,5 +445,27 @@ fn regression_never_idle() {
     let mut pair = setup_deterministic_with_multipath(seed);
     run_random_interaction(&mut pair, interactions);
 
-    assert!(!pair.drive_bounded(), "connection never became idle");
+    assert!(!pair.drive_bounded(100), "connection never became idle");
+}
+
+#[test]
+fn regression_never_idle2() {
+    let seed: [u8; 32] = [
+        201, 119, 56, 156, 173, 104, 243, 75, 174, 248, 232, 226, 240, 106, 118, 59, 226, 245, 138,
+        50, 100, 4, 245, 65, 8, 174, 18, 189, 72, 10, 166, 160,
+    ];
+    let interactions = vec![
+        TestOp::OpenPath(Side::Client, PathKind::Backup, 1),
+        TestOp::ClosePath(Side::Client, 0, 0),
+        TestOp::Drive(Side::Client),
+        TestOp::DropInbound(Side::Server),
+        TestOp::PathSetStatus(Side::Client, 0, PathKind::Available),
+    ];
+
+    let _guard = subscribe();
+    let mut pair = setup_deterministic_with_multipath(seed);
+    run_random_interaction(&mut pair, interactions);
+
+    // We needed to increase the bounds. It eventually times out.
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
 }

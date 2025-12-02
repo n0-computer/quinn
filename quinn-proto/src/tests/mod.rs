@@ -2579,7 +2579,7 @@ fn blackhole_after_mtu_change_repairs_itself() {
     let payload = vec![42; 1300];
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
     pair.client_send(client_ch, s).write(&payload).unwrap();
-    let out_of_bounds = pair.drive_bounded();
+    let out_of_bounds = pair.drive_bounded(100);
 
     if out_of_bounds {
         panic!("Connections never reached an idle state");

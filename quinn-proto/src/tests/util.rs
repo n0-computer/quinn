@@ -139,8 +139,8 @@ impl Pair {
     ///
     /// Returns true if the amount of steps exceeds the bounds, because the connections never became
     /// idle
-    pub(super) fn drive_bounded(&mut self) -> bool {
-        for _ in 0..100 {
+    pub(super) fn drive_bounded(&mut self, iters: usize) -> bool {
+        for _ in 0..iters {
             if !self.step() {
                 return false;
             }
@@ -633,8 +633,11 @@ pub(super) fn subscribe() -> tracing::subscriber::DefaultGuard {
         .with_line_number(true)
         .with_writer(|| TestWriter);
     // tracing uses std::time to trace time, which panics in wasm.
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    let builder = builder.without_time();
+    // #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    let builder = builder
+        .without_time()
+        .with_line_number(false)
+        .with_target(false);
     tracing::subscriber::set_default(builder.finish())
 }
 
