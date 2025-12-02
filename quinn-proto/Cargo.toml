@@ -70,12 +70,15 @@ web-time = { workspace = true }
 [dev-dependencies]
 assert_matches = { workspace = true }
 hex-literal = { workspace = true  }
-proptest = { workspace = true }
 rand_pcg = "0.9"
 rcgen = { workspace = true }
-test-strategy = { workspace = true }
 tracing-subscriber = { workspace = true }
 wasm-bindgen-test = { workspace = true }
+
+# proptest does not support running in Wasm
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
+proptest = { workspace = true }
+test-strategy = { workspace = true }
 
 [lints.rust]
 # https://rust-fuzz.github.io/book/cargo-fuzz/guide.html#cfgfuzzing
