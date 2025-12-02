@@ -230,16 +230,15 @@ impl QlogSentPacket {
 
     /// Adds a frame by pushing a [`Frame`].
     ///
-    /// Takes a [`QuicFrame`]. To add frames that are not available in [`QuicFrame`], use [`Self::unknown_frame`].
-    ///
-    /// This function is only available if the `qlog` feature is enabled, because constructing a [`QuicFrame`] may involve
-    /// calculations which shouldn't be performed if the `qlog` feature is disabled.
+    /// This is a no-op if the `qlog` feature is not enabled.
     pub(crate) fn frame(&mut self, frame: &Frame) {
         #[cfg(feature = "qlog")]
         self.frame_raw(frame.to_qlog())
     }
 
     /// Adds a PADDING frame.
+    ///
+    /// This is a no-op if the `qlog` feature is not enabled.
     pub(crate) fn frame_padding(&mut self, count: usize) {
         #[cfg(feature = "qlog")]
         self.frame_raw(QuicFrame::Padding {
@@ -249,6 +248,8 @@ impl QlogSentPacket {
     }
 
     /// Adds an ACK frame.
+    ///
+    /// This is a no-op if the `qlog` feature is not enabled.
     pub(crate) fn frame_ack(
         &mut self,
         delay: u64,
@@ -273,6 +274,8 @@ impl QlogSentPacket {
     }
 
     /// Adds a PATH_ACK frame.
+    ///
+    /// This is a no-op if the `qlog` feature is not enabled.
     pub(crate) fn frame_path_ack(
         &mut self,
         _path_id: PathId,
@@ -286,6 +289,8 @@ impl QlogSentPacket {
     }
 
     /// Adds a DATAGRAM frame.
+    ///
+    /// This is a no-op if the `qlog` feature is not enabled.
     pub(crate) fn frame_datagram(&mut self, len: u64) {
         #[cfg(feature = "qlog")]
         self.frame_raw(QuicFrame::Datagram {
@@ -295,6 +300,8 @@ impl QlogSentPacket {
     }
 
     /// Adds a STREAM frame.
+    ///
+    /// This is a no-op if the `qlog` feature is not enabled.
     pub(crate) fn frame_stream(&mut self, meta: &StreamMeta) {
         #[cfg(feature = "qlog")]
         self.frame_raw(QuicFrame::Stream {
@@ -307,8 +314,6 @@ impl QlogSentPacket {
     }
 
     /// Adds a frame by pushing a [`QuicFrame`].
-    ///
-    /// Takes a [`QuicFrame`]. To add frames that are not available in [`QuicFrame`], use [`Self::unknown_frame`].
     ///
     /// This function is only available if the `qlog` feature is enabled, because constructing a [`QuicFrame`] may involve
     /// calculations which shouldn't be performed if the `qlog` feature is disabled.
