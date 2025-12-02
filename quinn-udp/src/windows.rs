@@ -418,7 +418,7 @@ fn send(socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
     match rc {
         0 => Ok(()),
         _ => {
-            let err = io::Error::las_os_error();
+            let err = io::Error::last_os_error();
             if err.kind() == io::ErrorKind::InvalidInput && transmit.segment_size.is_some() {
                 // GSO send failed. Some older versions of Windows report GSO support but
                 // fail on sending. Disable GSO for future sends. Existing GSO transmits may
