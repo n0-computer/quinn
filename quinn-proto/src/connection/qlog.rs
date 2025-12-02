@@ -9,10 +9,6 @@
 // Function bodies in this module are regularly cfg'd out
 #![allow(unused_variables)]
 
-use std::net::{IpAddr, SocketAddr};
-#[cfg(feature = "qlog")]
-use std::sync::{Arc, Mutex};
-
 #[cfg(feature = "qlog")]
 use std::sync::{Arc, Mutex};
 use std::{
