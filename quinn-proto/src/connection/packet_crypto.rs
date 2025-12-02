@@ -84,13 +84,14 @@ pub(super) fn decrypt_packet_body(
     let space = packet.header.space();
 
     if path_id != PathId::ZERO && space != SpaceId::Data {
-        // do not try to decrypt ilegal multipath packets
+        // do not try to decrypt illegal multipath packets
         return Err(Some(TransportError::PROTOCOL_VIOLATION(
             "multipath packet on non Data packet number space",
         )));
     }
-    // Packets that do not belong to known path ids are valid as long as they can be decrypted. In
-    // this case we assume the initial packet number
+    // Packets that do not belong to known path ids are valid as long as they can be decrypted.
+    // If we didn't have a path, that's for the purposes of this function equivalent to not
+    // having received packets on that path yet. So both of these cases are represented by `None`.
     let rx_packet = spaces[space]
         .path_space(path_id)
         .and_then(|space| space.rx_packet);
@@ -154,7 +155,7 @@ pub(super) fn decrypt_packet_body(
         // is fine.
         let invalid_packet_number = rx_packet.is_some_and(|rx_packet| number <= rx_packet);
         if invalid_packet_number || prev_crypto.is_some_and(|x| x.update_unacked) {
-            trace!(?number, ?rx_packet, ?path_id, "crypto update failed");
+            trace!(?number, ?rx_packet, %path_id, "crypto update failed");
             return Err(Some(TransportError::KEY_UPDATE_ERROR("")));
         }
     }

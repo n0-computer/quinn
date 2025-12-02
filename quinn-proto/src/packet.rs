@@ -99,7 +99,7 @@ impl PartialDecode {
     }
 
     /// The destination connection ID of the packet
-    pub fn dst_cid(&self) -> &ConnectionId {
+    pub fn dst_cid(&self) -> ConnectionId {
         self.plain_header.dst_cid()
     }
 
@@ -475,6 +475,17 @@ impl Header {
             VersionNegotiate { .. } => false,
         }
     }
+
+    #[cfg(feature = "qlog")]
+    pub(crate) fn src_cid(&self) -> Option<ConnectionId> {
+        match self {
+            Self::Initial(initial_header) => Some(initial_header.src_cid),
+            Self::Long { src_cid, .. } => Some(*src_cid),
+            Self::Retry { src_cid, .. } => Some(*src_cid),
+            Self::Short { .. } => None,
+            Self::VersionNegotiate { src_cid, .. } => Some(*src_cid),
+        }
+    }
 }
 
 pub(crate) struct PartialEncode {
@@ -572,14 +583,14 @@ impl ProtectedHeader {
     }
 
     /// The destination Connection ID of the packet
-    pub fn dst_cid(&self) -> &ConnectionId {
+    pub fn dst_cid(&self) -> ConnectionId {
         use ProtectedHeader::*;
         match self {
-            Initial(header) => &header.dst_cid,
-            Long { dst_cid, .. } => dst_cid,
-            Retry { dst_cid, .. } => dst_cid,
-            Short { dst_cid, .. } => dst_cid,
-            VersionNegotiate { dst_cid, .. } => dst_cid,
+            Initial(header) => header.dst_cid,
+            &Long { dst_cid, .. } => dst_cid,
+            &Retry { dst_cid, .. } => dst_cid,
+            &Short { dst_cid, .. } => dst_cid,
+            &VersionNegotiate { dst_cid, .. } => dst_cid,
         }
     }
 
