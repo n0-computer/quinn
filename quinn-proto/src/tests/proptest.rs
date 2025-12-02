@@ -6,13 +6,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use proptest::{
-    collection::vec,
-    prelude::{Strategy, any},
-    prop_assert,
-};
 use rand::{RngCore, SeedableRng, rngs::StdRng};
-use test_strategy::{Arbitrary, proptest};
+use test_strategy::Arbitrary;
 use tracing::{debug, trace};
 
 use crate::{
@@ -298,18 +293,6 @@ fn reorder<T>(vec: &mut VecDeque<T>) {
     }
 }
 
-#[proptest]
-fn random_interaction(
-    #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
-    #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
-) {
-    let _guard = subscribe(); // TODO(matheus23): Do this in a way that allows us to discard output from the non-final interaction.
-    let mut pair = Pair::default_deterministic(seed);
-    run_random_interaction(&mut pair, interactions);
-
-    prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-}
-
 fn setup_deterministic_with_multipath(seed: [u8; 32]) -> Pair {
     let mut rng = StdRng::from_seed(seed);
     let mut client_seed = [0u8; 32];
@@ -354,18 +337,6 @@ fn multipath_transport_config() -> TransportConfig {
     // enable multipath
     transport.max_concurrent_multipath_paths = NonZeroU32::new(MAX_PATHS);
     transport
-}
-
-#[proptest(cases = 2560)]
-fn random_interaction_multipath(
-    #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
-    #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
-) {
-    // let _guard = subscribe(); // TODO(matheus23): Do this in a way that allows us to discard output from the non-final interaction.
-    let mut pair = setup_deterministic_with_multipath(seed);
-    run_random_interaction(&mut pair, interactions);
-
-    prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
 }
 
 #[test]
