@@ -415,7 +415,21 @@ fn send(socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
 
     match rc {
         0 => Ok(()),
-        _ => Err(io::Error::last_os_error()),
+        _ => {
+            let err = io::Error::las_os_error();
+            if err.kind() == io::ErrorKind::InvalidInput && transmit.segment_size.is_some() {
+                // GSO send failed. Some older versions of Windows report GSO support but
+                // fail on sending. Disable GSO for future sends. Existing GSO transmits may
+                // already be in the pipeline, so we need to tolerate additional failures.
+                if state.max_gso_segments() > 1 {
+                    crate::log::info!("WSASendMsg failed with {err}; halting segmentation offload");
+                    state
+                        .max_gso_segments
+                        .store(1, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+            Err(err)
+        }
     }
 }
 
