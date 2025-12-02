@@ -166,7 +166,6 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         let max_size = buffer.datagram_max_offset() - tag_len;
         debug_assert!(max_size >= min_size);
 
-        #[cfg(feature = "qlog")]
         qlog.header(
             &header,
             Some(exact_number),
@@ -317,7 +316,6 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
 
         let packet_len = self.buf.len() - encode_start;
         trace!(size = %packet_len, short_header = %self.short_header, "wrote packet");
-        #[cfg(feature = "qlog")]
         qlog.finalize(packet_len);
         conn.config.qlog_sink.emit_packet_sent(conn, qlog, now);
         (packet_len, pad)

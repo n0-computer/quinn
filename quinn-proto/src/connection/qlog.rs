@@ -1,5 +1,17 @@
+//! Implements support for emitting qlog events.
+//!
+//! This uses the [`qlog`] crate to emit qlog events. The qlog crate, and thus this implementation,
+//! is currently based on [draft-ietf-quic-qlog-main-schema-02] an [draft-ietf-quic-qlog-quic-events-05].
+//!
+//! [draft-ietf-quic-qlog-main-schema-02]: https://www.ietf.org/archive/id/draft-ietf-quic-qlog-main-schema-02.html
+//! [draft-ietf-quic-qlog-quic-events-05]: https://www.ietf.org/archive/id/draft-ietf-quic-qlog-quic-events-05.html
+
 // Function bodies in this module are regularly cfg'd out
 #![allow(unused_variables)]
+
+use std::net::{IpAddr, SocketAddr};
+#[cfg(feature = "qlog")]
+use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "qlog")]
 use std::sync::{Arc, Mutex};
@@ -12,6 +24,7 @@ use std::{
 use qlog::{
     events::{
         Event, EventData, RawInfo,
+        connectivity::ConnectionStarted,
         quic::{
             PacketHeader, PacketLost, PacketLostTrigger, PacketReceived, PacketSent, PacketType,
             QuicFrame, StreamType,
@@ -22,15 +35,12 @@ use qlog::{
 #[cfg(feature = "qlog")]
 use tracing::warn;
 
+#[cfg(feature = "qlog")]
+use crate::FrameType;
 use crate::{
     Connection, ConnectionId, Instant,
     connection::{PathData, SentPacket},
-    packet::SpaceId,
-};
-#[cfg(feature = "qlog")]
-use crate::{
-    FrameType,
-    packet::{Header, Packet},
+    packet::{Header, SpaceId},
 };
 
 /// Shareable handle to a single qlog output stream
@@ -82,8 +92,6 @@ impl QlogSink {
     ) {
         #[cfg(feature = "qlog")]
         {
-            use qlog::events::connectivity::ConnectionStarted;
-
             let Some(stream) = self.stream.as_ref() else {
                 return;
             };
@@ -197,14 +205,15 @@ impl QlogSink {
     }
 }
 
+/// Info about a sent packet. Zero-sized struct if `qlog` feature is not enabled.
 #[derive(Default)]
 pub(crate) struct QlogSentPacket {
     #[cfg(feature = "qlog")]
     inner: PacketSent,
 }
 
-#[cfg(feature = "qlog")]
 impl QlogSentPacket {
+    /// Sets data from the packet header.
     pub(crate) fn header(
         &mut self,
         header: &Header,
@@ -212,26 +221,47 @@ impl QlogSentPacket {
         space: SpaceId,
         is_0rtt: bool,
     ) {
-        self.inner.header.scid = header.src_cid().map(encode_cid);
-        self.inner.header.dcid = Some(encode_cid(header.dst_cid()));
-        self.inner.header.packet_number = pn;
-        self.inner.header.packet_type = packet_type(space, is_0rtt);
+        #[cfg(feature = "qlog")]
+        {
+            self.inner.header.scid = header.src_cid().map(stringify_cid);
+            self.inner.header.dcid = Some(stringify_cid(header.dst_cid()));
+            self.inner.header.packet_number = pn;
+            self.inner.header.packet_type = packet_type(space, is_0rtt);
+        }
     }
 
+    /// Adds a frame.
+    ///
+    /// Takes a [`QuicFrame`]. To add frames that are not available in [`QuicFrame`], use [`Self::unknown_frame`].
+    ///
+    /// This function is only available if the `qlog` feature is enabled, because constructing a [`QuicFrame`] may involve
+    /// calculations which shouldn't be performed if the `qlog` feature is disabled.
+    #[cfg(feature = "qlog")]
     pub(crate) fn frame(&mut self, frame: QuicFrame) {
         self.inner.frames.get_or_insert_default().push(frame);
     }
 
+    /// Adds a frame that is not yet supported by the [`qlog`] crate.
+    ///
+    /// Use this for frames that are not part of the [`QuicFrame`] enum.
+    ///
+    /// This function is only available if the `qlog` feature is enabled.
+    #[cfg(feature = "qlog")]
     pub(crate) fn unknown_frame(&mut self, frame: &FrameType) {
         let ty = frame.to_u64();
         self.frame(unknown_frame(frame))
     }
 
+    /// Finalizes the packet by setting the final packet length (after encryption).
     pub(super) fn finalize(&mut self, len: usize) {
-        self.inner.header.length = Some(len as u16);
+        #[cfg(feature = "qlog")]
+        {
+            self.inner.header.length = Some(len as u16);
+        }
     }
 }
 
+/// Info about a received packet. Zero-sized struct if `qlog` feature is not enabled.
 pub(crate) struct QlogRecvPacket {
     #[cfg(feature = "qlog")]
     inner: PacketReceived,
@@ -239,33 +269,56 @@ pub(crate) struct QlogRecvPacket {
     padding: usize,
 }
 
-#[cfg(not(feature = "qlog"))]
 impl QlogRecvPacket {
-    pub(crate) fn new(_len: usize) -> Self {
-        Self {}
-    }
-}
-
-#[cfg(feature = "qlog")]
-impl QlogRecvPacket {
+    /// Creates a new [`QlogRecvPacket`]. Noop if `qlog` feature is not enabled.
+    ///
+    /// `len` is the packet's full length (before decryption).
     pub(crate) fn new(len: usize) -> Self {
-        let mut this = Self {
-            inner: Default::default(),
-            padding: 0,
+        #[cfg(not(feature = "qlog"))]
+        let this = Self {};
+
+        #[cfg(feature = "qlog")]
+        let this = {
+            let mut this = Self {
+                inner: Default::default(),
+                padding: 0,
+            };
+            this.inner.header.length = Some(len as u16);
+            this
         };
-        this.inner.header.length = Some(len as u16);
+
         this
     }
 
-    pub(crate) fn header(&mut self, packet: &Packet, pn: Option<u64>) {
-        let header = &packet.header;
-        let is_0rtt = !packet.header.is_1rtt();
-        self.inner.header.scid = header.src_cid().map(encode_cid);
-        self.inner.header.dcid = Some(encode_cid(header.dst_cid()));
-        self.inner.header.packet_number = pn;
-        self.inner.header.packet_type = packet_type(header.space(), is_0rtt);
+    /// Adds info from the packet header.
+    pub(crate) fn header(&mut self, header: &Header, pn: Option<u64>) {
+        #[cfg(feature = "qlog")]
+        {
+            let is_0rtt = !header.is_1rtt();
+            self.inner.header.scid = header.src_cid().map(stringify_cid);
+            self.inner.header.dcid = Some(stringify_cid(header.dst_cid()));
+            self.inner.header.packet_number = pn;
+            self.inner.header.packet_type = packet_type(header.space(), is_0rtt);
+        }
     }
 
+    /// Adds a frame.
+    pub(crate) fn frame(&mut self, frame: &crate::Frame) {
+        #[cfg(feature = "qlog")]
+        {
+            if matches!(frame, crate::Frame::Padding) {
+                self.padding += 1;
+            } else {
+                self.emit_padding();
+                self.inner
+                    .frames
+                    .get_or_insert_default()
+                    .push(frame.to_qlog())
+            }
+        }
+    }
+
+    #[cfg(feature = "qlog")]
     fn emit_padding(&mut self) {
         if self.padding > 0 {
             self.inner
@@ -276,18 +329,6 @@ impl QlogRecvPacket {
                     payload_length: self.padding as u32,
                 });
             self.padding = 0;
-        }
-    }
-
-    pub(crate) fn frame(&mut self, frame: &crate::Frame) {
-        if matches!(frame, crate::Frame::Padding) {
-            self.padding += 1;
-        } else {
-            self.emit_padding();
-            self.inner
-                .frames
-                .get_or_insert_default()
-                .push(frame.to_qlog())
         }
     }
 }
@@ -308,6 +349,7 @@ fn unknown_frame(frame: &FrameType) -> QuicFrame {
 
 #[cfg(feature = "qlog")]
 impl crate::Frame {
+    /// Converts a [`crate::Frame`] into a [`QuicFrame`].
     fn to_qlog(&self) -> QuicFrame {
         use qlog::events::quic::AckedRanges;
 
@@ -415,7 +457,7 @@ impl crate::Frame {
                 raw: None,
             },
             Self::HandshakeDone => QuicFrame::HandshakeDone,
-            // Extensions and unsupported frames → Unknown
+            // Extensions and unsupported frames.
             Self::AckFrequency(_)
             | Self::ImmediateAck
             | Self::ObservedAddr(_)
@@ -461,6 +503,6 @@ fn packet_type(space: SpaceId, is_0rtt: bool) -> PacketType {
 }
 
 #[cfg(feature = "qlog")]
-fn encode_cid(cid: ConnectionId) -> String {
+fn stringify_cid(cid: ConnectionId) -> String {
     format!("{cid}")
 }

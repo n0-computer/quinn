@@ -3244,8 +3244,7 @@ impl Connection {
         let packet: Packet = packet.into();
 
         let mut qlog = QlogRecvPacket::new(len);
-        #[cfg(feature = "qlog")]
-        qlog.header(&packet, Some(packet_number));
+        qlog.header(&packet.header, Some(packet_number));
 
         self.process_decrypted_packet(
             now,
@@ -3584,8 +3583,7 @@ impl Connection {
                 }
             }
             Ok((packet, number)) => {
-                #[cfg(feature = "qlog")]
-                qlog.header(&packet, number);
+                qlog.header(&packet.header, number);
                 let span = match number {
                     Some(pn) => trace_span!("recv", space = ?packet.header.space(), pn),
                     None => trace_span!("recv", space = ?packet.header.space()),
@@ -3748,7 +3746,6 @@ impl Connection {
                             continue;
                         }
                     };
-                    #[cfg(feature = "qlog")]
                     qlog.frame(&frame);
 
                     if let Frame::Padding = frame {
@@ -4042,7 +4039,6 @@ impl Connection {
         let mut ack_eliciting = false;
         for result in frame::Iter::new(packet.payload.freeze())? {
             let frame = result?;
-            #[cfg(feature = "qlog")]
             qlog.frame(&frame);
             let span = match frame {
                 Frame::Padding => continue,
@@ -4113,7 +4109,6 @@ impl Connection {
         let mut migration_observed_addr = None;
         for result in frame::Iter::new(payload)? {
             let frame = result?;
-            #[cfg(feature = "qlog")]
             qlog.frame(&frame);
             let span = match frame {
                 Frame::Padding => continue,
