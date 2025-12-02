@@ -1476,7 +1476,7 @@ impl PathBackup {
 
 /* Nat traversal frames */
 
-/// Conjuction of the information contained in the add address frames
+/// Conjunction of the information contained in the add address frames
 /// ([`FrameType::ADD_IPV4_ADDRESS`], [`FrameType::ADD_IPV6_ADDRESS`]).
 #[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
 // TODO(@divma): remove
@@ -1564,7 +1564,7 @@ impl AddAddress {
     }
 }
 
-/// Conjuction of the information contained in the reach out frames
+/// Conjunction of the information contained in the reach out frames
 /// ([`FrameType::REACH_OUT_AT_IPV4`], [`FrameType::REACH_OUT_AT_IPV6`])
 #[derive(Debug, PartialEq, Eq, Clone)]
 // TODO(@divma): remove
