@@ -4,8 +4,8 @@ default-members = ["quinn", "quinn-proto", "quinn-udp", "bench", "perf"]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.85"
-edition = "2024"
+rust-version = "1.83"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/quinn-rs/quinn"
 keywords = ["quic"]
@@ -26,7 +26,7 @@ fastbloom = "0.14"
 futures-io = "0.3.19"
 getrandom = { version = "0.3", default-features = false }
 hdrhistogram = { version = "7.2", default-features = false }
-hex-literal = "1"
+hex-literal = "0.4"
 identity-hash = "0.1.0"
 lru-slab = "0.1.2"
 log = "0.4"
