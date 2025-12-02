@@ -272,6 +272,7 @@ impl QlogSentPacket {
         });
     }
 
+    /// Adds a PATH_ACK frame.
     pub(crate) fn frame_path_ack(
         &mut self,
         _path_id: PathId,
@@ -279,6 +280,7 @@ impl QlogSentPacket {
         _ranges: &ArrayRangeSet,
         _ecn: Option<&EcnCounts>,
     ) {
+        // TODO: Add proper support for this frame once we have multipath support in qlog.
         #[cfg(feature = "qlog")]
         self.frame_raw(unknown_frame(&FrameType::PATH_ACK))
     }
