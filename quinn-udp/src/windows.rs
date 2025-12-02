@@ -4,7 +4,10 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     os::windows::io::AsRawSocket,
     ptr,
-    sync::{LazyLock, Mutex},
+    sync::{
+        LazyLock, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Instant,
 };
 
@@ -425,9 +428,7 @@ fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>)
                 // already be in the pipeline, so we need to tolerate additional failures.
                 if state.max_gso_segments() > 1 {
                     crate::log::info!("WSASendMsg failed with {err}; halting segmentation offload");
-                    state
-                        .max_gso_segments
-                        .store(1, std::sync::atomic::Ordering::Relaxed);
+                    state.max_gso_segments.store(1, Ordering::Relaxed);
                 }
             }
             Err(err)
