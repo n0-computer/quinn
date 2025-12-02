@@ -326,17 +326,15 @@ impl UdpSocketState {
 }
 
 fn send(socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
-    match send_inner(socket, transmit) {
+    match send_inner(&socket, transmit) {
         Ok(()) => Ok(()),
-        Err(e)
-            if e.kind() == io::ErrorKind::InvalidInput && transmit.segment_size.is_some() =>
-        {
+        Err(e) if e.kind() == io::ErrorKind::InvalidInput && transmit.segment_size.is_some() => {
             // GSO send failed (e.g., on older Windows versions that report GSO support
             // but fail at send time). Fall back to sending each segment individually.
             let segment_size = transmit.segment_size.unwrap();
             for chunk in transmit.contents.chunks(segment_size) {
                 send_inner(
-                    socket,
+                    &socket,
                     &Transmit {
                         destination: transmit.destination,
                         ecn: transmit.ecn,
@@ -352,7 +350,7 @@ fn send(socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
     }
 }
 
-fn send_inner(socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
+fn send_inner(socket: &UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
     // we cannot use [`socket2::sendmsg()`] and [`socket2::MsgHdr`] as we do not have access
     // to the inner field which holds the WSAMSG
     let mut ctrl_buf = cmsg::Aligned([0; CMSG_LEN]);
