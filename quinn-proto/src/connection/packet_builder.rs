@@ -1,6 +1,4 @@
 use bytes::{BufMut, Bytes};
-#[cfg(feature = "qlog")]
-use qlog::events::quic::QuicFrame;
 use rand::Rng;
 use tracing::{debug, trace, trace_span};
 
@@ -281,11 +279,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             let padding = self.min_size - self.buf.len();
             trace!("PADDING * {}", padding);
             self.buf.put_bytes(0, padding);
-            #[cfg(feature = "qlog")]
-            qlog.frame(QuicFrame::Padding {
-                length: Some(padding as u32),
-                payload_length: padding as u32,
-            });
+            qlog.frame_padding(padding);
         }
 
         let space = &conn.spaces[self.space];

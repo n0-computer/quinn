@@ -34,9 +34,11 @@ use tracing::warn;
 #[cfg(feature = "qlog")]
 use crate::FrameType;
 use crate::{
-    Connection, ConnectionId, Instant,
+    Connection, ConnectionId, Frame, Instant, PathId,
     connection::{PathData, SentPacket},
+    frame::{EcnCounts, StreamMeta},
     packet::{Header, SpaceId},
+    range_set::ArrayRangeSet,
 };
 
 /// Shareable handle to a single qlog output stream
@@ -226,26 +228,97 @@ impl QlogSentPacket {
         }
     }
 
-    /// Adds a frame.
+    /// Adds a frame by pushing a [`Frame`].
+    ///
+    /// Takes a [`QuicFrame`]. To add frames that are not available in [`QuicFrame`], use [`Self::unknown_frame`].
+    ///
+    /// This function is only available if the `qlog` feature is enabled, because constructing a [`QuicFrame`] may involve
+    /// calculations which shouldn't be performed if the `qlog` feature is disabled.
+    pub(crate) fn frame(&mut self, frame: &Frame) {
+        #[cfg(feature = "qlog")]
+        self.frame_raw(frame.to_qlog())
+    }
+
+    /// Adds a PADDING frame.
+    pub(crate) fn frame_padding(&mut self, count: usize) {
+        #[cfg(feature = "qlog")]
+        self.frame_raw(QuicFrame::Padding {
+            raw: Some(RawInfo {
+                length: Some(count as u64),
+                payload_length: Some(count as u64),
+                data: None,
+            }),
+        });
+    }
+
+    /// Adds an ACK frame.
+    pub(crate) fn frame_ack(
+        &mut self,
+        delay: u64,
+        ranges: &ArrayRangeSet,
+        ecn: Option<&EcnCounts>,
+    ) {
+        #[cfg(feature = "qlog")]
+        self.frame_raw(QuicFrame::Ack {
+            ack_delay: Some(delay as f32),
+            acked_ranges: Some(AckedRanges::Double(
+                ranges
+                    .iter()
+                    .map(|range| (range.start, range.end))
+                    .collect(),
+            )),
+            ect1: ecn.map(|e| e.ect1),
+            ect0: ecn.map(|e| e.ect0),
+            ce: ecn.map(|e| e.ce),
+            raw: None,
+        });
+    }
+
+    pub(crate) fn frame_path_ack(
+        &mut self,
+        _path_id: PathId,
+        _delay: u64,
+        _ranges: &ArrayRangeSet,
+        _ecn: Option<&EcnCounts>,
+    ) {
+        #[cfg(feature = "qlog")]
+        self.frame_raw(unknown_frame(&FrameType::PATH_ACK))
+    }
+
+    /// Adds a DATAGRAM frame.
+    pub(crate) fn frame_datagram(&mut self, len: u64) {
+        #[cfg(feature = "qlog")]
+        self.frame_raw(QuicFrame::Datagram {
+            raw: Some(RawInfo {
+                length: Some(len),
+                ..Default::default()
+            }),
+        });
+    }
+
+    /// Adds a STREAM frame.
+    pub(crate) fn frame_stream(&mut self, meta: &StreamMeta) {
+        #[cfg(feature = "qlog")]
+        self.frame_raw(QuicFrame::Stream {
+            stream_id: meta.id.into(),
+            offset: Some(meta.offsets.start),
+            fin: Some(meta.fin),
+            raw: Some(RawInfo {
+                length: Some(meta.offsets.end - meta.offsets.start),
+                ..Default::default()
+            }),
+        });
+    }
+
+    /// Adds a frame by pushing a [`QuicFrame`].
     ///
     /// Takes a [`QuicFrame`]. To add frames that are not available in [`QuicFrame`], use [`Self::unknown_frame`].
     ///
     /// This function is only available if the `qlog` feature is enabled, because constructing a [`QuicFrame`] may involve
     /// calculations which shouldn't be performed if the `qlog` feature is disabled.
     #[cfg(feature = "qlog")]
-    pub(crate) fn frame(&mut self, frame: QuicFrame) {
+    fn frame_raw(&mut self, frame: QuicFrame) {
         self.inner.frames.get_or_insert_default().push(frame);
-    }
-
-    /// Adds a frame that is not yet supported by the [`qlog`] crate.
-    ///
-    /// Use this for frames that are not part of the [`QuicFrame`] enum.
-    ///
-    /// This function is only available if the `qlog` feature is enabled.
-    #[cfg(feature = "qlog")]
-    pub(crate) fn unknown_frame(&mut self, frame: &FrameType) {
-        let ty = frame.to_u64();
-        self.frame(unknown_frame(frame))
     }
 
     /// Finalizes the packet by setting the final packet length (after encryption).
@@ -299,7 +372,7 @@ impl QlogRecvPacket {
     }
 
     /// Adds a frame.
-    pub(crate) fn frame(&mut self, frame: &crate::Frame) {
+    pub(crate) fn frame(&mut self, frame: &Frame) {
         #[cfg(feature = "qlog")]
         {
             if matches!(frame, crate::Frame::Padding) {
