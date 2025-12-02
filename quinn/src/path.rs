@@ -23,14 +23,14 @@ enum OpenPathInner {
     ///
     /// This might fail later on.
     Ongoing {
-        opened: WatchStream<Result<(), OpenPathError>>,
+        opened: WatchStream<Result<(), PathError>>,
         path_id: PathId,
         conn: ConnectionRef,
     },
     /// Opening a path failed immediately
     Rejected {
         /// The error that occurred
-        err: OpenPathError,
+        err: PathError,
     },
     /// The path is already open
     Ready {
@@ -42,7 +42,7 @@ enum OpenPathInner {
 impl OpenPath {
     pub(crate) fn new(
         path_id: PathId,
-        opened: watch::Receiver<Result<(), OpenPathError>>,
+        opened: watch::Receiver<Result<(), PathError>>,
         conn: ConnectionRef,
     ) -> Self {
         Self(OpenPathInner::Ongoing {
@@ -56,7 +56,7 @@ impl OpenPath {
         Self(OpenPathInner::Ready { path_id, conn })
     }
 
-    pub(crate) fn rejected(err: OpenPathError) -> Self {
+    pub(crate) fn rejected(err: PathError) -> Self {
         Self(OpenPathInner::Rejected { err })
     }
 
@@ -76,7 +76,7 @@ impl OpenPath {
 }
 
 impl Future for OpenPath {
-    type Output = Result<Path, OpenPathError>;
+    type Output = Result<Path, PathError>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.get_mut().0 {
             OpenPathInner::Ongoing {
@@ -92,7 +92,7 @@ impl Future for OpenPath {
                     // This only happens if receiving a notification change failed, this means the
                     // sender was dropped. This generally should not happen so we use a transient
                     // error
-                    Poll::Ready(Err(OpenPathError::ValidationFailed))
+                    Poll::Ready(Err(PathError::ValidationFailed))
                 }
             },
             OpenPathInner::Ready {

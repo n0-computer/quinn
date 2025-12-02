@@ -564,7 +564,7 @@ impl Connection {
         remote: SocketAddr,
         initial_status: PathStatus,
         now: Instant,
-    ) -> Result<(PathId, bool), OpenPathError> {
+    ) -> Result<(PathId, bool), PathError> {
         match self
             .paths
             .iter()
@@ -586,12 +586,12 @@ impl Connection {
         remote: SocketAddr,
         initial_status: PathStatus,
         now: Instant,
-    ) -> Result<PathId, OpenPathError> {
+    ) -> Result<PathId, PathError> {
         if !self.is_multipath_negotiated() {
-            return Err(OpenPathError::MultipathNotNegotiated);
+            return Err(PathError::MultipathNotNegotiated);
         }
         if self.side().is_server() {
-            return Err(OpenPathError::ServerSideNotAllowed);
+            return Err(PathError::ServerSideNotAllowed);
         }
 
         let max_abandoned = self.abandoned_paths.iter().max().copied();
@@ -602,18 +602,18 @@ impl Connection {
             .saturating_add(1u8);
 
         if Some(path_id) > self.max_path_id() {
-            return Err(OpenPathError::MaxPathIdReached);
+            return Err(PathError::MaxPathIdReached);
         }
         if path_id > self.remote_max_path_id {
             self.spaces[SpaceId::Data].pending.paths_blocked = true;
-            return Err(OpenPathError::MaxPathIdReached);
+            return Err(PathError::MaxPathIdReached);
         }
         if self.rem_cids.get(&path_id).map(CidQueue::active).is_none() {
             self.spaces[SpaceId::Data]
                 .pending
                 .path_cids_blocked
                 .push(path_id);
-            return Err(OpenPathError::RemoteCidsExhausted);
+            return Err(PathError::RemoteCidsExhausted);
         }
 
         let path = self.ensure_path(path_id, remote, now, None);
@@ -981,7 +981,7 @@ impl Connection {
         loop {
             // check if there is at least one active CID to use for sending
             let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
-                let err = OpenPathError::RemoteCidsExhausted;
+                let err = PathError::RemoteCidsExhausted;
                 if !self.abandoned_paths.contains(&path_id) {
                     debug!(?err, %path_id, "no active CID for path");
                     self.events.push_back(Event::Path(PathEvent::LocallyClosed {
@@ -1948,7 +1948,7 @@ impl Connection {
 
                             self.events.push_back(Event::Path(PathEvent::LocallyClosed {
                                 id: path_id,
-                                error: OpenPathError::ValidationFailed,
+                                error: PathError::ValidationFailed,
                             }));
                         }
                         PathTimer::Pacing => trace!("pacing timer expired"),
@@ -6425,7 +6425,7 @@ impl From<ConnectionError> for io::Error {
 /// Errors that might trigger a path being closed
 // TODO(@divma): maybe needs to be reworked based on what we want to do with the public API
 #[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
-pub enum OpenPathError {
+pub enum PathError {
     /// The extension was not negotiated with the peer
     #[error("multipath extension not negotiated")]
     MultipathNotNegotiated,

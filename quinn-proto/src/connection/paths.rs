@@ -5,7 +5,7 @@ use thiserror::Error;
 use tracing::{debug, trace};
 
 use super::{
-    OpenPathError, PathStats,
+    PathError, PathStats,
     mtud::MtuDiscovery,
     pacing::Pacer,
     spaces::{PacketNumberSpace, SentPacket},
@@ -797,7 +797,7 @@ pub enum PathEvent {
         /// Path for which the error occurred
         id: PathId,
         /// The error that occurred
-        error: OpenPathError,
+        error: PathError,
     },
     /// The remote changed the status of the path
     ///
