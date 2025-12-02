@@ -24,6 +24,7 @@ use crate::{
 #[derive(Debug)]
 pub struct UdpSocketState {
     last_send_error: Mutex<Instant>,
+    max_gso_segments: AtomicUsize,
 }
 
 impl UdpSocketState {
@@ -115,6 +116,7 @@ impl UdpSocketState {
         let now = Instant::now();
         Ok(Self {
             last_send_error: Mutex::new(now.checked_sub(2 * IO_ERROR_LOG_INTERVAL).unwrap_or(now)),
+            max_gso_segments: AtomicUsize::new(*MAX_GSO_SEGMENTS),
         })
     }
 
@@ -282,7 +284,7 @@ impl UdpSocketState {
     /// while using GSO.
     #[inline]
     pub fn max_gso_segments(&self) -> usize {
-        *MAX_GSO_SEGMENTS
+        self.max_gso_segments.load(Ordering::Relaxed)
     }
 
     /// The number of segments to read when GRO is enabled. Used as a factor to
