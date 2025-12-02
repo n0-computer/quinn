@@ -19,7 +19,7 @@ use rustls::{
     client::WebPkiServerVerifier,
     pki_types::{CertificateDer, PrivateKeyDer},
 };
-use tracing::{info_span, trace};
+use tracing::{info_span, trace, warn};
 
 use super::crypto::rustls::{QuicClientConfig, QuicServerConfig, configured_provider};
 use super::*;
@@ -167,13 +167,22 @@ impl Pair {
             if let Some(ref socket) = self.client.socket {
                 socket.send_to(&buffer, packet.destination).unwrap();
             }
-            if self.server.addr == packet.destination {
+            if self.server.addr == packet.destination
+                || self.server.multipath_addrs.contains(&packet.destination)
+            {
                 let ecn = set_congestion_experienced(packet.ecn, self.congestion_experienced);
                 self.server.inbound.push_back((
                     self.time + self.latency,
                     ecn,
                     buffer.as_ref().into(),
                 ));
+            } else {
+                warn!(
+                    ?packet.destination,
+                    ?self.client.addr,
+                    ?self.client.multipath_addrs,
+                    "packet from server to client lost"
+                );
             }
         }
     }
@@ -200,6 +209,13 @@ impl Pair {
                     ecn,
                     buffer.as_ref().into(),
                 ));
+            } else {
+                warn!(
+                    ?packet.destination,
+                    ?self.client.addr,
+                    ?self.client.multipath_addrs,
+                    "packet from server to client lost"
+                );
             }
         }
     }
