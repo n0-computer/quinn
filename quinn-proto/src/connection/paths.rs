@@ -833,7 +833,7 @@ pub enum SetPathStatusError {
 
 /// Error indicating that a path has not been opened or has already been abandoned
 #[derive(Debug, Default, Error, Clone, PartialEq, Eq)]
-#[error("multipath not negotiated")]
+#[error("closed path")]
 pub struct ClosedPath {
     pub(super) _private: (),
 }
