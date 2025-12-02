@@ -170,7 +170,7 @@ impl UdpSocketState {
 
     /// Sends a [`Transmit`] on the given socket without any additional error handling.
     pub fn try_send(&self, socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
-        send(socket, transmit)
+        send(self, socket, transmit)
     }
 
     pub fn recv(
