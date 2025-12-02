@@ -1321,7 +1321,7 @@ impl AckFrequency {
 
 /* Address Discovery https://datatracker.ietf.org/doc/draft-seemann-quic-address-discovery/ */
 
-/// Conjuction of the information contained in the address discovery frames
+/// Conjunction of the information contained in the address discovery frames
 /// ([`FrameType::OBSERVED_IPV4_ADDR`], [`FrameType::OBSERVED_IPV6_ADDR`]).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct ObservedAddr {
@@ -1377,7 +1377,7 @@ impl ObservedAddr {
 
     /// Reads the frame contents from the buffer.
     ///
-    /// Should only be called when the fram type has been identified as
+    /// Should only be called when the frame type has been identified as
     /// [`FrameType::OBSERVED_IPV4_ADDR`] or [`FrameType::OBSERVED_IPV6_ADDR`].
     pub(crate) fn read<R: Buf>(bytes: &mut R, is_ipv6: bool) -> coding::Result<Self> {
         let seq_no = bytes.get()?;
