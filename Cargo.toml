@@ -24,7 +24,7 @@ crc = "3"
 directories-next = "2"
 fastbloom = "0.14"
 futures-io = "0.3.19"
-getrandom = { version = "0.3", default-features = false, features = ["wasm_js"] }
+getrandom = { version = "0.3", default-features = false }
 hdrhistogram = { version = "7.2", default-features = false }
 hex-literal = "1"
 identity-hash = "0.1.0"
