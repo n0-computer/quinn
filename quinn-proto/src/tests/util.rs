@@ -12,6 +12,7 @@ use std::{
 
 use assert_matches::assert_matches;
 use bytes::BytesMut;
+use rand::{SeedableRng, rngs::StdRng};
 use rustls::{
     KeyLogFile,
     client::WebPkiServerVerifier,
