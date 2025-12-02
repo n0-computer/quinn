@@ -22,8 +22,8 @@ use qlog::{
         Event, EventData, RawInfo,
         connectivity::ConnectionStarted,
         quic::{
-            PacketHeader, PacketLost, PacketLostTrigger, PacketReceived, PacketSent, PacketType,
-            QuicFrame, StreamType,
+            AckedRanges, PacketHeader, PacketLost, PacketLostTrigger, PacketReceived, PacketSent,
+            PacketType, QuicFrame, StreamType,
         },
     },
     streamer::QlogStreamer,
@@ -243,11 +243,8 @@ impl QlogSentPacket {
     pub(crate) fn frame_padding(&mut self, count: usize) {
         #[cfg(feature = "qlog")]
         self.frame_raw(QuicFrame::Padding {
-            raw: Some(RawInfo {
-                length: Some(count as u64),
-                payload_length: Some(count as u64),
-                data: None,
-            }),
+            length: Some(count as u32),
+            payload_length: count as u32,
         });
     }
 
@@ -270,7 +267,8 @@ impl QlogSentPacket {
             ect1: ecn.map(|e| e.ect1),
             ect0: ecn.map(|e| e.ect0),
             ce: ecn.map(|e| e.ce),
-            raw: None,
+            length: None,
+            payload_length: None,
         });
     }
 
@@ -289,10 +287,8 @@ impl QlogSentPacket {
     pub(crate) fn frame_datagram(&mut self, len: u64) {
         #[cfg(feature = "qlog")]
         self.frame_raw(QuicFrame::Datagram {
-            raw: Some(RawInfo {
-                length: Some(len),
-                ..Default::default()
-            }),
+            length: len,
+            raw: None,
         });
     }
 
@@ -301,12 +297,10 @@ impl QlogSentPacket {
         #[cfg(feature = "qlog")]
         self.frame_raw(QuicFrame::Stream {
             stream_id: meta.id.into(),
-            offset: Some(meta.offsets.start),
+            offset: meta.offsets.start,
             fin: Some(meta.fin),
-            raw: Some(RawInfo {
-                length: Some(meta.offsets.end - meta.offsets.start),
-                ..Default::default()
-            }),
+            length: meta.offsets.end - meta.offsets.start,
+            raw: None,
         });
     }
 
