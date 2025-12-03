@@ -5,7 +5,7 @@ use tracing::trace;
 /// Implements Datagram Packetization Layer Path Maximum Transmission Unit Discovery
 ///
 /// See [`MtuDiscoveryConfig`] for details
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct MtuDiscovery {
     /// Detected MTU for the path
     current_mtu: u16,
@@ -373,7 +373,7 @@ impl SearchState {
 ///
 /// When the number of suspicious loss bursts exceeds [`BLACK_HOLE_THRESHOLD`], we judge the
 /// evidence for an MTU black hole to be sufficient.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct BlackHoleDetector {
     /// Packet loss bursts currently considered suspicious
     suspicious_loss_bursts: Vec<LossBurst>,
@@ -513,12 +513,12 @@ impl BlackHoleDetector {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct LossBurst {
     smallest_packet_size: u16,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct CurrentLossBurst {
     smallest_packet_size: u16,
     latest_non_probe: u64,
