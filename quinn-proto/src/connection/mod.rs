@@ -2971,7 +2971,12 @@ impl Connection {
             if path.mtud.black_hole_detected(now) {
                 path.congestion.on_mtu_update(path.mtud.current_mtu());
                 if let Some(max_datagram_size) = self.datagrams().max_size() {
-                    self.datagrams.drop_oversized(max_datagram_size);
+                    if self.datagrams.drop_oversized(max_datagram_size)
+                        && self.datagrams.send_blocked
+                    {
+                        self.datagrams.send_blocked = false;
+                        self.events.push_back(Event::DatagramsUnblocked);
+                    }
                 }
                 self.path_stats
                     .entry(path_id)
