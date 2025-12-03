@@ -806,6 +806,7 @@ fn transport_error(code: TransportErrorCode) -> (Option<quic::TransportError>, O
     (transport_error, code)
 }
 
+#[cfg(feature = "qlog")]
 fn fmt_tuple_id(path_id: u64) -> String {
     format!("p{path_id}")
 }
