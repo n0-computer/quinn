@@ -6,7 +6,8 @@ use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
 use proto::{
-    ClosePathError, ClosedPath, ConnectionError, PathError, PathEvent, PathId, PathStatus, VarInt,
+    ClosePathError, ClosedPath, ConnectionError, PathError, PathEvent, PathId, PathStatus,
+    SetPathStatusError, VarInt,
 };
 use tokio::sync::{oneshot, watch};
 use tokio_stream::{Stream, wrappers::WatchStream};
@@ -20,7 +21,7 @@ pub struct OpenPath(OpenPathInner);
 enum OpenPathInner {
     /// Opening a path in underway
     ///
-    /// This migth fail later on.
+    /// This might fail later on.
     Ongoing {
         opened: WatchStream<Result<(), PathError>>,
         path_id: PathId,
@@ -129,7 +130,7 @@ impl Path {
     }
 
     /// Sets the [`PathStatus`] of this path.
-    pub fn set_status(&self, status: PathStatus) -> Result<(), ClosedPath> {
+    pub fn set_status(&self, status: PathStatus) -> Result<(), SetPathStatusError> {
         self.conn
             .state
             .lock("set path status")

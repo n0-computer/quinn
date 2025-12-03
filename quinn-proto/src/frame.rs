@@ -39,6 +39,11 @@ impl FrameType {
             None
         }
     }
+
+    #[cfg(feature = "qlog")]
+    pub(crate) fn to_u64(self) -> u64 {
+        self.0
+    }
 }
 
 impl coding::Codec for FrameType {
@@ -337,6 +342,14 @@ impl Close {
 
     pub(crate) fn is_transport_layer(&self) -> bool {
         matches!(*self, Self::Connection(_))
+    }
+
+    #[cfg(feature = "qlog")]
+    pub(crate) fn error_code(&self) -> u64 {
+        match self {
+            Self::Connection(frame) => frame.error_code.into(),
+            Self::Application(frame) => frame.error_code.into(),
+        }
     }
 }
 
@@ -1321,7 +1334,7 @@ impl AckFrequency {
 
 /* Address Discovery https://datatracker.ietf.org/doc/draft-seemann-quic-address-discovery/ */
 
-/// Conjuction of the information contained in the address discovery frames
+/// Conjunction of the information contained in the address discovery frames
 /// ([`FrameType::OBSERVED_IPV4_ADDR`], [`FrameType::OBSERVED_IPV6_ADDR`]).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct ObservedAddr {
@@ -1377,7 +1390,7 @@ impl ObservedAddr {
 
     /// Reads the frame contents from the buffer.
     ///
-    /// Should only be called when the fram type has been identified as
+    /// Should only be called when the frame type has been identified as
     /// [`FrameType::OBSERVED_IPV4_ADDR`] or [`FrameType::OBSERVED_IPV6_ADDR`].
     pub(crate) fn read<R: Buf>(bytes: &mut R, is_ipv6: bool) -> coding::Result<Self> {
         let seq_no = bytes.get()?;
@@ -1476,7 +1489,7 @@ impl PathBackup {
 
 /* Nat traversal frames */
 
-/// Conjuction of the information contained in the add address frames
+/// Conjunction of the information contained in the add address frames
 /// ([`FrameType::ADD_IPV4_ADDRESS`], [`FrameType::ADD_IPV6_ADDRESS`]).
 #[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
 // TODO(@divma): remove
@@ -1564,7 +1577,7 @@ impl AddAddress {
     }
 }
 
-/// Conjuction of the information contained in the reach out frames
+/// Conjunction of the information contained in the reach out frames
 /// ([`FrameType::REACH_OUT_AT_IPV4`], [`FrameType::REACH_OUT_AT_IPV6`])
 #[derive(Debug, PartialEq, Eq, Clone)]
 // TODO(@divma): remove
