@@ -24,6 +24,7 @@ use qlog::{
         quic::{
             self, AckedRanges, ConnectionStarted, ErrorSpace, PacketHeader, PacketLost,
             PacketLostTrigger, PacketReceived, PacketSent, PacketType, QuicFrame, StreamType,
+            TupleAssigned,
         },
     },
     streamer::QlogStreamer,
@@ -49,9 +50,22 @@ pub struct QlogStream(pub(crate) Arc<Mutex<QlogStreamer>>);
 #[cfg(feature = "qlog")]
 impl QlogStream {
     fn emit_event(&self, initial_dst_cid: ConnectionId, event: EventData, now: Instant) {
+        self.emit_event_with_tuple_id(initial_dst_cid, event, now, None);
+    }
+
+    fn emit_event_with_tuple_id(
+        &self,
+        initial_dst_cid: ConnectionId,
+        event: EventData,
+        now: Instant,
+        tuple: Option<String>,
+    ) {
         // Time will be overwritten by `add_event_with_instant`
         let mut event = Event::with_time(0.0, event);
         event.group_id = Some(initial_dst_cid.to_string());
+        if let Some(tuple) = tuple {
+            event.ex_data.insert("tuple".to_string(), tuple.into());
+        }
 
         let mut qlog_streamer = self.0.lock().unwrap();
         if let Err(e) = qlog_streamer.add_event_with_instant(event, now) {
@@ -97,8 +111,12 @@ impl QlogSink {
             stream.emit_event(
                 initial_dst_cid,
                 EventData::ConnectionStarted(ConnectionStarted {
-                    local: tuple_endpoint_info(local_ip, None, loc_cid),
-                    remote: tuple_endpoint_info(Some(remote.ip()), Some(remote.port()), rem_cid),
+                    local: tuple_endpoint_info(local_ip, None, Some(loc_cid)),
+                    remote: tuple_endpoint_info(
+                        Some(remote.ip()),
+                        Some(remote.port()),
+                        Some(rem_cid),
+                    ),
                 }),
                 now,
             );
@@ -162,16 +180,45 @@ impl QlogSink {
         }
     }
 
+    pub(super) fn emit_new_path(
+        &self,
+        initial_dst_cid: ConnectionId,
+        path_id: PathId,
+        remote: SocketAddr,
+        now: Instant,
+    ) {
+        #[cfg(feature = "qlog")]
+        {
+            let Some(stream) = self.stream.as_ref() else {
+                return;
+            };
+            let tuple_id = fmt_tuple_id(path_id.as_u32() as u64);
+            let event = TupleAssigned {
+                tuple_id,
+                tuple_local: None,
+                tuple_remote: Some(tuple_endpoint_info(
+                    Some(remote.ip()),
+                    Some(remote.port()),
+                    None,
+                )),
+            };
+
+            stream.emit_event(initial_dst_cid, EventData::TupleAssigned(event), now);
+        }
+    }
+
     pub(super) fn emit_packet_sent(&self, conn: &Connection, packet: QlogSentPacket, now: Instant) {
         #[cfg(feature = "qlog")]
         {
             let Some(stream) = self.stream.as_ref() else {
                 return;
             };
-            stream.emit_event(
+            let tuple_id = packet.inner.header.path_id.map(fmt_tuple_id);
+            stream.emit_event_with_tuple_id(
                 conn.initial_dst_cid,
                 EventData::PacketSent(packet.inner),
                 now,
+                tuple_id,
             );
         }
     }
@@ -189,8 +236,14 @@ impl QlogSink {
             };
             let mut packet = packet;
             packet.emit_padding();
+            let tuple_id = packet.inner.header.path_id.map(fmt_tuple_id);
             let event = packet.inner;
-            stream.emit_event(conn.initial_dst_cid, EventData::PacketReceived(event), now);
+            stream.emit_event_with_tuple_id(
+                conn.initial_dst_cid,
+                EventData::PacketReceived(event),
+                now,
+                tuple_id,
+            );
         }
     }
 }
@@ -691,7 +744,7 @@ fn stringify_cid(cid: ConnectionId) -> String {
 fn tuple_endpoint_info(
     ip: Option<IpAddr>,
     port: Option<u16>,
-    cid: ConnectionId,
+    cid: Option<ConnectionId>,
 ) -> TupleEndpointInfo {
     let (ip_v4, port_v4, ip_v6, port_v6) = match ip {
         Some(addr) => match addr {
@@ -705,7 +758,7 @@ fn tuple_endpoint_info(
         port_v4,
         ip_v6,
         port_v6,
-        connection_ids: Some(vec![cid.to_string()]),
+        connection_ids: cid.map(|cid| vec![cid.to_string()]),
     }
 }
 
@@ -751,4 +804,8 @@ fn transport_error(code: TransportErrorCode) -> (Option<quic::TransportError>, O
         Some(_) => None,
     };
     (transport_error, code)
+}
+
+fn fmt_tuple_id(path_id: u64) -> String {
+    format!("p{path_id}")
 }

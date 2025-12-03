@@ -473,6 +473,9 @@ impl Connection {
             local_ip,
             this.initial_dst_cid,
         );
+        this.config
+            .qlog_sink
+            .emit_new_path(this.initial_dst_cid, PathId::ZERO, remote, now);
         this
     }
 
@@ -845,6 +848,9 @@ impl Connection {
         self.spaces[SpaceId::Data]
             .number_spaces
             .insert(path_id, pn_space);
+        self.config
+            .qlog_sink
+            .emit_new_path(self.initial_dst_cid, path_id, remote, now);
         &mut path.data
     }
 
