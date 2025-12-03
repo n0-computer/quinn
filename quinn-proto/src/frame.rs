@@ -39,6 +39,11 @@ impl FrameType {
             None
         }
     }
+
+    #[cfg(feature = "qlog")]
+    pub(crate) fn to_u64(self) -> u64 {
+        self.0
+    }
 }
 
 impl coding::Codec for FrameType {
@@ -150,12 +155,12 @@ frame_types! {
     MAX_PATH_ID = 0x15228c0c,
     PATHS_BLOCKED = 0x15228c0d,
     PATH_CIDS_BLOCKED = 0x15228c0e,
-    // NAT TRAVERSAL
-    ADD_IPV4_ADDRESS = 0x3d7e90,
-    ADD_IPV6_ADDRESS = 0x3d7e91,
-    PUNCH_IPV4_ADDR = 0x3d7e92,
-    PUNCH_IPV6_ADDR = 0x3d7e93,
-    REMOVE_ADDRESS = 0x3d7e94,
+    // IROH'S NAT TRAVERSAL
+    ADD_IPV4_ADDRESS = 0x3d7f90,
+    ADD_IPV6_ADDRESS = 0x3d7f91,
+    REACH_OUT_AT_IPV4 = 0x3d7f92,
+    REACH_OUT_AT_IPV6 = 0x3d7f93,
+    REMOVE_ADDRESS = 0x3d7f94,
 }
 
 const STREAM_TYS: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
@@ -195,7 +200,7 @@ pub(crate) enum Frame {
     PathsBlocked(PathsBlocked),
     PathCidsBlocked(PathCidsBlocked),
     AddAddress(AddAddress),
-    PunchMeNow(PunchMeNow),
+    ReachOut(ReachOut),
     RemoveAddress(RemoveAddress),
 }
 
@@ -247,7 +252,7 @@ impl Frame {
             PathsBlocked(_) => FrameType::PATHS_BLOCKED,
             PathCidsBlocked(_) => FrameType::PATH_CIDS_BLOCKED,
             AddAddress(ref frame) => frame.get_type(),
-            PunchMeNow(ref frame) => frame.get_type(),
+            ReachOut(ref frame) => frame.get_type(),
             RemoveAddress(_) => self::RemoveAddress::TYPE,
         }
     }
@@ -337,6 +342,14 @@ impl Close {
 
     pub(crate) fn is_transport_layer(&self) -> bool {
         matches!(*self, Self::Connection(_))
+    }
+
+    #[cfg(feature = "qlog")]
+    pub(crate) fn error_code(&self) -> u64 {
+        match self {
+            Self::Connection(frame) => frame.error_code.into(),
+            Self::Application(frame) => frame.error_code.into(),
+        }
     }
 }
 
@@ -985,10 +998,10 @@ impl Iter {
                 let add_address = AddAddress::read(&mut self.bytes, is_ipv6)?;
                 Frame::AddAddress(add_address)
             }
-            FrameType::PUNCH_IPV4_ADDR | FrameType::PUNCH_IPV6_ADDR => {
-                let is_ipv6 = ty == FrameType::PUNCH_IPV6_ADDR;
-                let punch_me = PunchMeNow::read(&mut self.bytes, is_ipv6)?;
-                Frame::PunchMeNow(punch_me)
+            FrameType::REACH_OUT_AT_IPV4 | FrameType::REACH_OUT_AT_IPV6 => {
+                let is_ipv6 = ty == FrameType::REACH_OUT_AT_IPV6;
+                let reach_out = ReachOut::read(&mut self.bytes, is_ipv6)?;
+                Frame::ReachOut(reach_out)
             }
             FrameType::REMOVE_ADDRESS => {
                 Frame::RemoveAddress(RemoveAddress::read(&mut self.bytes)?)
@@ -1321,7 +1334,7 @@ impl AckFrequency {
 
 /* Address Discovery https://datatracker.ietf.org/doc/draft-seemann-quic-address-discovery/ */
 
-/// Conjuction of the information contained in the address discovery frames
+/// Conjunction of the information contained in the address discovery frames
 /// ([`FrameType::OBSERVED_IPV4_ADDR`], [`FrameType::OBSERVED_IPV6_ADDR`]).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct ObservedAddr {
@@ -1377,7 +1390,7 @@ impl ObservedAddr {
 
     /// Reads the frame contents from the buffer.
     ///
-    /// Should only be called when the fram type has been identified as
+    /// Should only be called when the frame type has been identified as
     /// [`FrameType::OBSERVED_IPV4_ADDR`] or [`FrameType::OBSERVED_IPV6_ADDR`].
     pub(crate) fn read<R: Buf>(bytes: &mut R, is_ipv6: bool) -> coding::Result<Self> {
         let seq_no = bytes.get()?;
@@ -1476,9 +1489,9 @@ impl PathBackup {
 
 /* Nat traversal frames */
 
-/// Conjuction of the information contained in the add address frames
+/// Conjunction of the information contained in the add address frames
 /// ([`FrameType::ADD_IPV4_ADDRESS`], [`FrameType::ADD_IPV6_ADDRESS`]).
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
 // TODO(@divma): remove
 #[allow(dead_code)]
 pub(crate) struct AddAddress {
@@ -1502,12 +1515,8 @@ impl AddAddress {
     }
     .size();
 
-    pub(crate) const fn new(remote: std::net::SocketAddr, seq_no: VarInt) -> Self {
-        Self {
-            ip: remote.ip(),
-            port: remote.port(),
-            seq_no,
-        }
+    pub(crate) const fn new((ip, port): (IpAddr, u16), seq_no: VarInt) -> Self {
+        Self { ip, port, seq_no }
     }
 
     /// Get the [`FrameType`] for this frame.
@@ -1560,21 +1569,22 @@ impl AddAddress {
 
     /// Give the [`SocketAddr`] encoded in the frame
     pub(crate) fn socket_addr(&self) -> SocketAddr {
-        (self.ip, self.port).into()
+        self.ip_port().into()
+    }
+
+    pub(crate) fn ip_port(&self) -> (IpAddr, u16) {
+        (self.ip, self.port)
     }
 }
 
-/// Conjuction of the information contained in the punch me now frames
-/// ([`FrameType::PUNCH_IPV4_ADDR`], [`FrameType::PUNCH_IPV6_ADDR`])
+/// Conjunction of the information contained in the reach out frames
+/// ([`FrameType::REACH_OUT_AT_IPV4`], [`FrameType::REACH_OUT_AT_IPV6`])
 #[derive(Debug, PartialEq, Eq, Clone)]
-// TODO(@divma): remove. Beg the draft people for a better name
+// TODO(@divma): remove
 #[allow(dead_code)]
-pub(crate) struct PunchMeNow {
+pub(crate) struct ReachOut {
     /// The sequence number of the NAT Traversal attempts
-    // TODO(@divma): type assumed, spec is un-spec-ific
     pub(crate) round: VarInt,
-    /// The sequence number of the address that was paired with this address
-    pub(crate) paired_with: VarInt,
     /// Address to use
     pub(crate) ip: IpAddr,
     /// Port to use with this address
@@ -1583,35 +1593,25 @@ pub(crate) struct PunchMeNow {
 
 // TODO(@divma): remove
 #[allow(dead_code)]
-impl PunchMeNow {
+impl ReachOut {
     /// Smallest number of bytes this type of frame is guaranteed to fit within
     pub(crate) const SIZE_BOUND: usize = Self {
         round: VarInt::MAX,
-        paired_with: VarInt::MAX,
         ip: IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
         port: u16::MAX,
     }
     .size();
 
-    pub(crate) const fn new(
-        round: VarInt,
-        paired_with: VarInt,
-        local_addr: std::net::SocketAddr,
-    ) -> Self {
-        Self {
-            round,
-            paired_with,
-            ip: local_addr.ip(),
-            port: local_addr.port(),
-        }
+    pub(crate) const fn new(round: VarInt, (ip, port): (IpAddr, u16)) -> Self {
+        Self { round, ip, port }
     }
 
     /// Get the [`FrameType`] for this frame
     pub(crate) const fn get_type(&self) -> FrameType {
         if self.ip.is_ipv6() {
-            FrameType::PUNCH_IPV6_ADDR
+            FrameType::REACH_OUT_AT_IPV6
         } else {
-            FrameType::PUNCH_IPV4_ADDR
+            FrameType::REACH_OUT_AT_IPV4
         }
     }
 
@@ -1619,17 +1619,15 @@ impl PunchMeNow {
     pub(crate) const fn size(&self) -> usize {
         let type_size = VarInt(self.get_type().0).size();
         let round_bytes = self.round.size();
-        let paired_with_bytes = self.paired_with.size();
         let ip_bytes = if self.ip.is_ipv6() { 16 } else { 4 };
         let port_bytes = 2;
-        type_size + round_bytes + paired_with_bytes + ip_bytes + port_bytes
+        type_size + round_bytes + ip_bytes + port_bytes
     }
 
     /// Unconditionally write this frame to `buf`
     pub(crate) fn write<W: BufMut>(&self, buf: &mut W) {
         buf.write(self.get_type());
         buf.write(self.round);
-        buf.write(self.paired_with);
         match self.ip {
             IpAddr::V4(ipv4_addr) => {
                 buf.write(ipv4_addr);
@@ -1644,22 +1642,16 @@ impl PunchMeNow {
     /// Read the frame contents from the buffer
     ///
     /// Should only be called when the frame type has been identified as
-    /// [`FrameType::PUNCH_IPV4_ADDR`] or [`FrameType::PUNCH_IPV6_ADDR`].
+    /// [`FrameType::REACH_OUT_AT_IPV4`] or [`FrameType::REACH_OUT_AT_IPV6`].
     pub(crate) fn read<R: Buf>(bytes: &mut R, is_ipv6: bool) -> coding::Result<Self> {
         let round = bytes.get()?;
-        let paired_with = bytes.get()?;
         let ip = if is_ipv6 {
             IpAddr::V6(bytes.get()?)
         } else {
             IpAddr::V4(bytes.get()?)
         };
         let port = bytes.get()?;
-        Ok(Self {
-            round,
-            paired_with,
-            ip,
-            port,
-        })
+        Ok(Self { round, ip, port })
     }
 
     /// Give the [`SocketAddr`] encoded in the frame
@@ -1669,7 +1661,7 @@ impl PunchMeNow {
 }
 
 /// Frame signaling an address is no longer being advertised
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
 // TODO(@divma): remove
 #[allow(dead_code)]
 pub(crate) struct RemoveAddress {
@@ -1976,18 +1968,17 @@ mod test {
 
     /// Test that encoding and decoding [`AddAddress`] produces the same result
     #[test]
-    fn test_punch_me_now_roundrip() {
-        let punch_me = PunchMeNow {
+    fn test_reach_out_roundrip() {
+        let reach_out = ReachOut {
             round: VarInt(42),
-            paired_with: VarInt(24),
             ip: std::net::Ipv6Addr::LOCALHOST.into(),
             port: 4242,
         };
-        let mut buf = Vec::with_capacity(punch_me.size());
-        punch_me.write(&mut buf);
+        let mut buf = Vec::with_capacity(reach_out.size());
+        reach_out.write(&mut buf);
 
         assert_eq!(
-            punch_me.size(),
+            reach_out.size(),
             buf.len(),
             "expected written bytes and actual size differ"
         );
@@ -1995,7 +1986,7 @@ mod test {
         let mut decoded = frames(buf);
         assert_eq!(decoded.len(), 1);
         match decoded.pop().expect("non empty") {
-            Frame::PunchMeNow(decoded) => assert_eq!(decoded, punch_me),
+            Frame::ReachOut(decoded) => assert_eq!(decoded, reach_out),
             x => panic!("incorrect frame {x:?}"),
         }
     }

@@ -25,6 +25,8 @@ const MAX_PATHS: u32 = 3;
 fn multipath_pair() -> (Pair, ConnectionHandle, ConnectionHandle) {
     let multipath_transport_cfg = Arc::new(TransportConfig {
         max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
+        // Assume a low-latency connection so pacing doesn't interfere with the test
+        initial_rtt: Duration::from_millis(10),
         ..TransportConfig::default()
     });
     let server_cfg = Arc::new(ServerConfig {
@@ -50,6 +52,8 @@ fn non_zero_length_cids() {
     let _guard = subscribe();
     let multipath_transport_cfg = Arc::new(TransportConfig {
         max_concurrent_multipath_paths: NonZeroU32::new(3 as _),
+        // Assume a low-latency connection so pacing doesn't interfere with the test
+        initial_rtt: Duration::from_millis(10),
         ..TransportConfig::default()
     });
     let server_cfg = Arc::new(ServerConfig {
@@ -197,6 +201,8 @@ fn multipath_cid_rotation() {
     let server_cfg = ServerConfig {
         transport: Arc::new(TransportConfig {
             max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
+            // Assume a low-latency connection so pacing doesn't interfere with the test
+            initial_rtt: Duration::from_millis(10),
             ..TransportConfig::default()
         }),
         ..server_config()
@@ -217,6 +223,8 @@ fn multipath_cid_rotation() {
     let client_cfg = ClientConfig {
         transport: Arc::new(TransportConfig {
             max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
+            // Assume a low-latency connection so pacing doesn't interfere with the test
+            initial_rtt: Duration::from_millis(10),
             ..TransportConfig::default()
         }),
         ..client_config()
@@ -306,6 +314,8 @@ fn issue_max_path_id() {
     // We enable multipath but initially do not allow any paths to be opened.
     let multipath_transport_cfg = Arc::new(TransportConfig {
         max_concurrent_multipath_paths: NonZeroU32::new(1),
+        // Assume a low-latency connection so pacing doesn't interfere with the test
+        initial_rtt: Duration::from_millis(10),
         ..TransportConfig::default()
     });
     let server_cfg = Arc::new(ServerConfig {
@@ -320,6 +330,8 @@ fn issue_max_path_id() {
     // The client is allowed to create more paths immediately.
     let client_multipath_transport_cfg = Arc::new(TransportConfig {
         max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
+        // Assume a low-latency connection so pacing doesn't interfere with the test
+        initial_rtt: Duration::from_millis(10),
         ..TransportConfig::default()
     });
     let client_cfg = ClientConfig {
@@ -348,6 +360,82 @@ fn issue_max_path_id() {
     pair.server_conn_mut(server_ch)
         .set_max_concurrent_paths(Instant::now(), NonZeroU32::new(MAX_PATHS).unwrap())
         .unwrap();
+    pair.drive();
+    let stats = pair.server_conn_mut(server_ch).stats();
+
+    // Server should have sent MAX_PATH_ID and new CIDs
+    server_path_new_cids += (MAX_PATHS as u64 - 1) * CidQueue::LEN as u64;
+    assert_eq!(stats.frame_tx.max_path_id, 1);
+    assert_eq!(stats.frame_tx.new_connection_id, server_new_cids);
+    assert_eq!(stats.frame_tx.path_new_connection_id, server_path_new_cids);
+
+    // Client should have sent CIDs for new paths
+    client_path_new_cids += (MAX_PATHS as u64 - 1) * CidQueue::LEN as u64;
+    assert_eq!(stats.frame_rx.new_connection_id, client_new_cids);
+    assert_eq!(stats.frame_rx.path_new_connection_id, client_path_new_cids);
+}
+
+/// A copy of [`issue_max_path_id`], but reordering the `MAX_PATH_ID` frame
+/// that's sent from the server to the client, so that some `NEW_CONNECTION_ID`
+/// frames arrive with higher path IDs than the most recently received
+/// `MAX_PATH_ID` frame on the client side.
+#[test]
+fn issue_max_path_id_reordered() {
+    let _guard = subscribe();
+
+    // We enable multipath but initially do not allow any paths to be opened.
+    let multipath_transport_cfg = Arc::new(TransportConfig {
+        max_concurrent_multipath_paths: NonZeroU32::new(1),
+        // Assume a low-latency connection so pacing doesn't interfere with the test
+        initial_rtt: Duration::from_millis(10),
+        ..TransportConfig::default()
+    });
+    let server_cfg = Arc::new(ServerConfig {
+        transport: multipath_transport_cfg.clone(),
+        ..server_config()
+    });
+    let server = Endpoint::new(Default::default(), Some(server_cfg), true, None);
+    let client = Endpoint::new(Default::default(), None, true, None);
+
+    let mut pair = Pair::new_from_endpoint(client, server);
+
+    // The client is allowed to create more paths immediately.
+    let client_multipath_transport_cfg = Arc::new(TransportConfig {
+        max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
+        // Assume a low-latency connection so pacing doesn't interfere with the test
+        initial_rtt: Duration::from_millis(10),
+        ..TransportConfig::default()
+    });
+    let client_cfg = ClientConfig {
+        transport: client_multipath_transport_cfg,
+        ..client_config()
+    };
+    let (_client_ch, server_ch) = pair.connect_with(client_cfg);
+    pair.drive();
+    info!("connected");
+
+    // Server should only have sent NEW_CONNECTION_ID frames for now.
+    let server_new_cids = CidQueue::LEN as u64 - 1;
+    let mut server_path_new_cids = 0;
+    let stats = pair.server_conn_mut(server_ch).stats();
+    assert_eq!(stats.frame_tx.max_path_id, 0);
+    assert_eq!(stats.frame_tx.new_connection_id, server_new_cids);
+    assert_eq!(stats.frame_tx.path_new_connection_id, server_path_new_cids);
+
+    // Client should have sent PATH_NEW_CONNECTION_ID frames for PathId::ZERO.
+    let client_new_cids = 0;
+    let mut client_path_new_cids = CidQueue::LEN as u64;
+    assert_eq!(stats.frame_rx.new_connection_id, client_new_cids);
+    assert_eq!(stats.frame_rx.path_new_connection_id, client_path_new_cids);
+
+    // Server increases MAX_PATH_ID, but we reorder the frame
+    pair.server_conn_mut(server_ch)
+        .set_max_concurrent_paths(Instant::now(), NonZeroU32::new(MAX_PATHS).unwrap())
+        .unwrap();
+    pair.drive_server();
+    // reorder the frames on the incoming side
+    let p = pair.client.inbound.pop_front().unwrap();
+    pair.client.inbound.push_back(p);
     pair.drive();
     let stats = pair.server_conn_mut(server_ch).stats();
 
@@ -576,7 +664,7 @@ fn per_path_observed_address() {
     assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
     assert_matches!(conn.poll(), None);
 
-    // simulate a rebind on thte client
+    // simulate a rebind on the client
     pair.client_conn_mut(client_ch).local_address_changed();
     pair.client
         .addr

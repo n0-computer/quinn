@@ -2,6 +2,7 @@ use std::{
     cmp,
     collections::{BTreeMap, BTreeSet, VecDeque},
     mem,
+    net::IpAddr,
     ops::{Bound, Index, IndexMut},
 };
 
@@ -12,7 +13,11 @@ use tracing::{error, trace};
 use super::{PathId, assembler::Assembler};
 use crate::{
     Dir, Duration, Instant, SocketAddr, StreamId, TransportError, TransportErrorCode, VarInt,
-    connection::StreamsState, crypto::Keys, frame, packet::SpaceId, range_set::ArrayRangeSet,
+    connection::StreamsState,
+    crypto::Keys,
+    frame::{self, AddAddress, RemoveAddress},
+    packet::SpaceId,
+    range_set::ArrayRangeSet,
     shared::IssuedCid,
 };
 
@@ -202,8 +207,8 @@ impl IndexMut<SpaceId> for [PacketSpace; 3] {
 /// This contains the data specific to a per-path packet number space.  You should access
 /// this via [`PacketSpace::for_path`].
 pub(super) struct PacketNumberSpace {
-    /// Highest received packet number
-    pub(super) rx_packet: u64,
+    /// Highest received packet number, if any
+    pub(super) rx_packet: Option<u64>,
     /// The packet number of the next packet that will be sent, if any. In the Data space, the
     /// packet number stored here is sometimes skipped by [`PacketNumberFilter`] logic.
     pub(super) next_packet_number: u64,
@@ -217,6 +222,9 @@ pub(super) struct PacketNumberSpace {
     /// Transmitted but not acked
     // We use a BTreeMap here so we can efficiently query by range on ACK and for loss detection
     pub(super) sent_packets: BTreeMap<u64, SentPacket>,
+    /// Packets that were deemed lost
+    // Older packets are regularly removed in `Connection::drain_lost_packets`.
+    pub(super) lost_packets: BTreeMap<u64, LostPacket>,
     /// Number of explicit congestion notification codepoints seen on incoming packets
     pub(super) ecn_counters: frame::EcnCounts,
     /// Recent ECN counters sent by the peer in ACK frames
@@ -262,13 +270,14 @@ impl PacketNumberSpace {
             SpaceId::Data => Some(PacketNumberFilter::new(rng)),
         };
         Self {
-            rx_packet: 0,
+            rx_packet: None,
             next_packet_number: 0,
             largest_acked_packet: None,
             largest_acked_packet_sent: now,
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
             sent_packets: BTreeMap::new(),
+            lost_packets: BTreeMap::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -290,13 +299,14 @@ impl PacketNumberSpace {
             SpaceId::Data => Some(PacketNumberFilter::disabled()),
         };
         Self {
-            rx_packet: 0,
+            rx_packet: None,
             next_packet_number: 0,
             largest_acked_packet: None,
             largest_acked_packet_sent: now,
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
             sent_packets: BTreeMap::new(),
+            lost_packets: BTreeMap::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -317,15 +327,16 @@ impl PacketNumberSpace {
     /// PacketNumberSpace.  While the space will work it will not skip packet numbers to
     /// protect against eaget ack attacks.
     fn new_default(space_id: SpaceId, path_id: PathId) -> Self {
-        error!(?path_id, ?space_id, "PacketNumberSpace created by default");
+        error!(%path_id, ?space_id, "PacketNumberSpace created by default");
         Self {
-            rx_packet: 0,
+            rx_packet: None,
             next_packet_number: 0,
             largest_acked_packet: None,
             largest_acked_packet_sent: Instant::now(),
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
             sent_packets: BTreeMap::new(),
+            lost_packets: BTreeMap::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -507,6 +518,13 @@ pub(super) struct SentPacket {
     pub(super) stream_frames: frame::StreamMetaVec,
 }
 
+/// Represents one or more packets that are deemed lost.
+#[derive(Debug)]
+pub(super) struct LostPacket {
+    /// The time the packet was sent.
+    pub(super) time_sent: Instant,
+}
+
 /// Retransmittable data queue
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Default, Clone)]
@@ -551,6 +569,20 @@ pub struct Retransmits {
     pub(super) path_status: BTreeSet<PathId>,
     /// If a PATH_CIDS_BLOCKED frame needs to be sent for a path
     pub(super) path_cids_blocked: Vec<PathId>,
+
+    // Nat traversal data
+    /// Addresses to report in `ADD_ADDRESS` frames
+    pub(super) add_address: BTreeSet<AddAddress>,
+    /// Address IDs to remove in `REMOVE_ADDRESS` frames
+    pub(super) remove_address: BTreeSet<RemoveAddress>,
+    /// Round and local addresses to advertise in `REACH_OUT` frames
+    pub(super) reach_out: Option<(VarInt, Vec<(IpAddr, u16)>)>,
+    /// Round of the nat traversal rand data that are pending
+    ///
+    /// This is only used for bitwise operations on the pending data.
+    pub(super) hole_punch_round: VarInt,
+    /// Remote addresses to which random data needs to be sent
+    pub(super) hole_punch_to: Vec<(IpAddr, u16)>,
 }
 
 impl Retransmits {
@@ -574,6 +606,10 @@ impl Retransmits {
             && self.path_status.is_empty()
             && !self.max_path_id
             && !self.paths_blocked
+            && self.add_address.is_empty()
+            && self.remove_address.is_empty()
+            && self.reach_out.is_none()
+            && self.hole_punch_to.is_empty()
     }
 }
 
@@ -600,6 +636,26 @@ impl ::std::ops::BitOrAssign for Retransmits {
         self.path_abandon.append(&mut rhs.path_abandon);
         self.max_path_id |= rhs.max_path_id;
         self.paths_blocked |= rhs.paths_blocked;
+        self.add_address.extend(rhs.add_address.iter().copied());
+        self.remove_address
+            .extend(rhs.remove_address.iter().copied());
+        // if there are two rounds, prefer the most recent reach out set
+        let lhs_round = self.reach_out.as_ref().map(|(round, _)| *round);
+        let rhs_round = rhs.reach_out.as_ref().map(|(round, _)| *round);
+        match (lhs_round, rhs_round) {
+            (None, Some(_)) => self.reach_out = rhs.reach_out.clone(),
+            (Some(lhs_round), Some(rhs_round)) if rhs_round > lhs_round => {
+                self.reach_out = rhs.reach_out.clone()
+            }
+            _ => {}
+        }
+
+        if self.hole_punch_round < rhs.hole_punch_round {
+            self.hole_punch_round = rhs.hole_punch_round;
+            self.hole_punch_to = rhs.hole_punch_to.clone();
+        } else if self.hole_punch_round == rhs.hole_punch_round {
+            self.hole_punch_to.extend_from_slice(&rhs.hole_punch_to);
+        }
     }
 }
 

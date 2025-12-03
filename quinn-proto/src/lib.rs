@@ -46,7 +46,8 @@ pub use crate::connection::{
     Chunk, Chunks, ClosePathError, ClosedPath, ClosedStream, Connection, ConnectionError,
     ConnectionStats, Datagrams, Event, FinishError, FrameStats, PathError, PathEvent, PathId,
     PathStats, PathStatus, ReadError, ReadableError, RecvStream, RttEstimator, SendDatagramError,
-    SendStream, ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError, Written,
+    SendStream, SetPathStatusError, ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError,
+    Written,
 };
 #[cfg(feature = "qlog")]
 pub use connection::qlog::QlogStream;
@@ -57,12 +58,12 @@ pub use rustls;
 mod config;
 #[cfg(doc)]
 pub use config::DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED;
-#[cfg(feature = "qlog")]
-pub use config::QlogConfig;
 pub use config::{
     AckFrequencyConfig, ClientConfig, ConfigError, EndpointConfig, IdleTimeout, MtuDiscoveryConfig,
     ServerConfig, StdSystemTime, TimeSource, TransportConfig, ValidationTokenConfig,
 };
+#[cfg(feature = "qlog")]
+pub use config::{QlogConfig, VantagePointType};
 
 pub mod crypto;
 
@@ -102,6 +103,8 @@ mod address_discovery;
 
 mod token_memory_cache;
 pub use token_memory_cache::TokenMemoryCache;
+
+pub mod iroh_hp;
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
@@ -327,7 +330,7 @@ pub struct Transmit {
 //
 
 /// The maximum number of CIDs we bother to issue per path
-const LOC_CID_COUNT: u64 = 8;
+const LOC_CID_COUNT: u64 = 12;
 const RESET_TOKEN_SIZE: usize = 16;
 const MAX_CID_SIZE: usize = 20;
 const MIN_INITIAL_SIZE: u16 = 1200;
