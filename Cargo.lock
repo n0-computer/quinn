@@ -1676,7 +1676,7 @@ dependencies = [
 [[package]]
 name = "n0-qlog"
 version = "0.15.2"
-source = "git+https://github.com/n0-computer/n0-qlog?branch=qlog-11-address-discovery#e9adb631bd9a3c17d7d17e2bfa9a5143c0861d04"
+source = "git+https://github.com/n0-computer/n0-qlog?branch=qlog-11-nat-traversal#49fbcee97ae08b0a698fbd1a51d0bae99124fc0b"
 dependencies = [
  "serde",
  "serde_json",

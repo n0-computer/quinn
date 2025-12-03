@@ -39,11 +39,6 @@ impl FrameType {
             None
         }
     }
-
-    #[cfg(feature = "qlog")]
-    pub(crate) fn to_u64(self) -> u64 {
-        self.0
-    }
 }
 
 impl coding::Codec for FrameType {

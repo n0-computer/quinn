@@ -39,7 +39,7 @@ use crate::{
     range_set::ArrayRangeSet,
 };
 #[cfg(feature = "qlog")]
-use crate::{FrameType, TransportErrorCode, frame::Close};
+use crate::{TransportErrorCode, frame::Close};
 
 /// Shareable handle to a single qlog output stream
 #[cfg(feature = "qlog")]
@@ -418,19 +418,6 @@ impl QlogRecvPacket {
 }
 
 #[cfg(feature = "qlog")]
-fn unknown_frame(frame: &FrameType) -> QuicFrame {
-    let ty = frame.to_u64();
-    QuicFrame::Unknown {
-        frame_type_bytes: Some(ty),
-        raw: Some(RawInfo {
-            length: None,
-            payload_length: None,
-            data: Some(format!("{frame}")),
-        }),
-    }
-}
-
-#[cfg(feature = "qlog")]
 impl Frame {
     /// Converts a [`crate::Frame`] into a [`QuicFrame`].
     pub(crate) fn to_qlog(&self) -> QuicFrame {
@@ -637,10 +624,33 @@ impl Frame {
                 port: f.port,
                 raw: None,
             },
-            // Extensions and unsupported frames.
-            Self::AddAddress(_) | Self::ReachOut(_) | Self::RemoveAddress(_) => {
-                unknown_frame(&self.ty())
-            }
+            Self::AddAddress(f) => QuicFrame::AddAddress {
+                sequence_number: f.seq_no.into_inner(),
+                ip_v4: match f.ip {
+                    IpAddr::V4(ipv4_addr) => Some(ipv4_addr.to_string()),
+                    IpAddr::V6(ipv6_addr) => None,
+                },
+                ip_v6: match f.ip {
+                    IpAddr::V4(ipv4_addr) => None,
+                    IpAddr::V6(ipv6_addr) => Some(ipv6_addr.to_string()),
+                },
+                port: f.port,
+            },
+            Self::ReachOut(f) => QuicFrame::ReachOut {
+                round: f.round.into_inner(),
+                ip_v4: match f.ip {
+                    IpAddr::V4(ipv4_addr) => Some(ipv4_addr.to_string()),
+                    IpAddr::V6(ipv6_addr) => None,
+                },
+                ip_v6: match f.ip {
+                    IpAddr::V4(ipv4_addr) => None,
+                    IpAddr::V6(ipv6_addr) => Some(ipv6_addr.to_string()),
+                },
+                port: f.port,
+            },
+            Self::RemoveAddress(f) => QuicFrame::RemoveAddress {
+                sequence_number: f.seq_no.into_inner(),
+            },
         }
     }
 }
