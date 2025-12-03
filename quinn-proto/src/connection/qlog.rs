@@ -1,10 +1,10 @@
 //! Implements support for emitting qlog events.
 //!
-//! This uses the [`qlog`] crate to emit qlog events. The qlog crate, and thus this implementation,
-//! is currently based on [draft-ietf-quic-qlog-main-schema-02] an [draft-ietf-quic-qlog-quic-events-05].
+//! This uses the [`n0-qlog`] crate to emit qlog events. The n0-qlog crate, and thus this implementation,
+//! is currently based on [draft-ietf-quic-qlog-main-schema-13] an [draft-ietf-quic-qlog-quic-events-12].
 //!
-//! [draft-ietf-quic-qlog-main-schema-02]: https://www.ietf.org/archive/id/draft-ietf-quic-qlog-main-schema-02.html
-//! [draft-ietf-quic-qlog-quic-events-05]: https://www.ietf.org/archive/id/draft-ietf-quic-qlog-quic-events-05.html
+//! [draft-ietf-quic-qlog-main-schema-13]: https://www.ietf.org/archive/id/draft-ietf-quic-qlog-main-schema-13.html
+//! [draft-ietf-quic-qlog-quic-events-12]: https://www.ietf.org/archive/id/draft-ietf-quic-qlog-quic-events-12.html
 
 // Function bodies in this module are regularly cfg'd out
 #![allow(unused_variables)]
@@ -18,11 +18,12 @@ use std::{
 
 #[cfg(feature = "qlog")]
 use qlog::{
+    HexSlice, TokenType,
     events::{
-        Event, EventData, RawInfo, TupleEndpointInfo,
+        ApplicationError, ConnectionClosedFrameError, Event, EventData, RawInfo, TupleEndpointInfo,
         quic::{
-            AckedRanges, ConnectionStarted, PacketHeader, PacketLost, PacketLostTrigger,
-            PacketReceived, PacketSent, PacketType, QuicFrame, StreamType,
+            self, AckedRanges, ConnectionStarted, ErrorSpace, PacketHeader, PacketLost,
+            PacketLostTrigger, PacketReceived, PacketSent, PacketType, QuicFrame, StreamType,
         },
     },
     streamer::QlogStreamer,
@@ -30,8 +31,7 @@ use qlog::{
 #[cfg(feature = "qlog")]
 use tracing::warn;
 
-#[cfg(feature = "qlog")]
-use crate::FrameType;
+use crate::frame::Close;
 use crate::{
     Connection, ConnectionId, Frame, Instant, PathId,
     connection::{PathData, SentPacket},
@@ -39,6 +39,8 @@ use crate::{
     packet::{Header, SpaceId},
     range_set::ArrayRangeSet,
 };
+#[cfg(feature = "qlog")]
+use crate::{FrameType, TransportErrorCode};
 
 /// Shareable handle to a single qlog output stream
 #[cfg(feature = "qlog")]
@@ -433,8 +435,6 @@ fn unknown_frame(frame: &FrameType) -> QuicFrame {
 impl Frame {
     /// Converts a [`crate::Frame`] into a [`QuicFrame`].
     pub(crate) fn to_qlog(&self) -> QuicFrame {
-        use qlog::events::{ApplicationError, quic::AckedRanges};
-
         match self {
             Self::Padding => QuicFrame::Padding {
                 raw: Some(RawInfo {
@@ -444,16 +444,16 @@ impl Frame {
                 }),
             },
             Self::Ping => QuicFrame::Ping { raw: None },
-            Self::Ack(ack) => QuicFrame::Ack {
-                ack_delay: Some(ack.delay as f32),
+            Self::Ack(f) => QuicFrame::Ack {
+                ack_delay: Some(f.delay as f32),
                 acked_ranges: Some(AckedRanges::Double(
-                    ack.iter()
+                    f.iter()
                         .map(|range| (*range.start(), *range.end()))
                         .collect(),
                 )),
-                ect1: ack.ecn.as_ref().map(|e| e.ect1),
-                ect0: ack.ecn.as_ref().map(|e| e.ect0),
-                ce: ack.ecn.as_ref().map(|e| e.ce),
+                ect1: f.ecn.as_ref().map(|e| e.ect1),
+                ect0: f.ecn.as_ref().map(|e| e.ect0),
+                ce: f.ecn.as_ref().map(|e| e.ce),
                 raw: None,
             },
             Self::ResetStream(f) => QuicFrame::ResetStream {
@@ -469,28 +469,25 @@ impl Frame {
                 error: ApplicationError::Unknown,
                 raw: None,
             },
-            Self::Crypto(c) => QuicFrame::Crypto {
-                offset: c.offset,
+            Self::Crypto(f) => QuicFrame::Crypto {
+                offset: f.offset,
                 raw: Some(RawInfo {
-                    length: Some(c.data.len() as u64),
+                    length: Some(f.data.len() as u64),
                     ..Default::default()
                 }),
             },
-            Self::NewToken(t) => {
-                use ::qlog;
-                QuicFrame::NewToken {
-                    token: qlog::Token {
-                        ty: Some(::qlog::TokenType::Retry),
-                        raw: Some(qlog::events::RawInfo {
-                            data: qlog::HexSlice::maybe_string(Some(&t.token)),
-                            length: Some(t.token.len() as u64),
-                            payload_length: None,
-                        }),
-                        details: None,
-                    },
-                    raw: None,
-                }
-            }
+            Self::NewToken(f) => QuicFrame::NewToken {
+                token: qlog::Token {
+                    ty: Some(TokenType::Retry),
+                    raw: Some(RawInfo {
+                        data: HexSlice::maybe_string(Some(&f.token)),
+                        length: Some(f.token.len() as u64),
+                        payload_length: None,
+                    }),
+                    details: None,
+                },
+                raw: None,
+            },
             Self::Stream(s) => QuicFrame::Stream {
                 stream_id: s.id.into(),
                 offset: Some(s.offset),
@@ -532,29 +529,45 @@ impl Frame {
                 sequence_number: f.sequence,
                 retire_prior_to: f.retire_prior_to,
                 connection_id_length: Some(f.id.len() as u8),
-                connection_id: format!("{}", f.id),
-                stateless_reset_token: Some(format!("{}", f.reset_token)),
+                connection_id: f.id.to_string(),
+                stateless_reset_token: Some(f.reset_token.to_string()),
                 raw: None,
             },
             Self::RetireConnectionId(f) => QuicFrame::RetireConnectionId {
                 sequence_number: f.sequence,
                 raw: None,
             },
-            Self::PathChallenge(_) => QuicFrame::PathChallenge {
-                data: None,
+            Self::PathChallenge(token) => QuicFrame::PathChallenge {
+                data: Some(token.to_string()),
                 raw: None,
             },
-            Self::PathResponse(_) => QuicFrame::PathResponse {
-                data: None,
+            Self::PathResponse(token) => QuicFrame::PathResponse {
+                data: Some(token.to_string()),
                 raw: None,
             },
-            Self::Close(close) => QuicFrame::ConnectionClose {
-                error_space: None,
-                error: None,
-                error_code: Some(close.error_code()),
-                reason: None,
-                reason_bytes: None,
-                trigger_frame_type: None,
+            Self::Close(close) => match close {
+                Close::Connection(f) => {
+                    let (error, error_code) = transport_error(f.error_code);
+                    let error = error.map(|transport_error| {
+                        ConnectionClosedFrameError::TransportError(transport_error)
+                    });
+                    QuicFrame::ConnectionClose {
+                        error_space: Some(ErrorSpace::TransportError),
+                        error,
+                        error_code,
+                        reason: String::from_utf8(f.reason.to_vec()).ok(),
+                        reason_bytes: None,
+                        trigger_frame_type: None,
+                    }
+                }
+                Close::Application(f) => QuicFrame::ConnectionClose {
+                    error_space: Some(ErrorSpace::ApplicationError),
+                    error: None,
+                    error_code: Some(f.error_code.into_inner()),
+                    reason: String::from_utf8(f.reason.to_vec()).ok(),
+                    reason_bytes: None,
+                    trigger_frame_type: None,
+                },
             },
             Self::Datagram(d) => QuicFrame::Datagram {
                 raw: Some(RawInfo {
@@ -667,4 +680,48 @@ fn tuple_endpoint_info(
         port_v6,
         connection_ids: Some(vec![cid.to_string()]),
     }
+}
+
+#[cfg(feature = "qlog")]
+fn transport_error(code: TransportErrorCode) -> (Option<quic::TransportError>, Option<u64>) {
+    let transport_error = match code {
+        TransportErrorCode::NO_ERROR => Some(quic::TransportError::NoError),
+        TransportErrorCode::INTERNAL_ERROR => Some(quic::TransportError::InternalError),
+        TransportErrorCode::CONNECTION_REFUSED => Some(quic::TransportError::ConnectionRefused),
+        TransportErrorCode::FLOW_CONTROL_ERROR => Some(quic::TransportError::FlowControlError),
+        TransportErrorCode::STREAM_LIMIT_ERROR => Some(quic::TransportError::StreamLimitError),
+        TransportErrorCode::STREAM_STATE_ERROR => Some(quic::TransportError::StreamStateError),
+        TransportErrorCode::FINAL_SIZE_ERROR => Some(quic::TransportError::FinalSizeError),
+        TransportErrorCode::FRAME_ENCODING_ERROR => Some(quic::TransportError::FrameEncodingError),
+        TransportErrorCode::TRANSPORT_PARAMETER_ERROR => {
+            Some(quic::TransportError::TransportParameterError)
+        }
+        TransportErrorCode::CONNECTION_ID_LIMIT_ERROR => {
+            Some(quic::TransportError::ConnectionIdLimitError)
+        }
+        TransportErrorCode::PROTOCOL_VIOLATION => Some(quic::TransportError::ProtocolViolation),
+        TransportErrorCode::INVALID_TOKEN => Some(quic::TransportError::InvalidToken),
+        TransportErrorCode::APPLICATION_ERROR => Some(quic::TransportError::ApplicationError),
+        TransportErrorCode::CRYPTO_BUFFER_EXCEEDED => {
+            Some(quic::TransportError::CryptoBufferExceeded)
+        }
+        TransportErrorCode::KEY_UPDATE_ERROR => Some(quic::TransportError::KeyUpdateError),
+        TransportErrorCode::AEAD_LIMIT_REACHED => Some(quic::TransportError::AeadLimitReached),
+        TransportErrorCode::NO_VIABLE_PATH => Some(quic::TransportError::NoViablePath),
+        // multipath
+        TransportErrorCode::APPLICATION_ABANDON => {
+            Some(quic::TransportError::ApplicationAbandonPath)
+        }
+        TransportErrorCode::RESOURCE_LIMIT_REACHED => {
+            Some(quic::TransportError::PathResourceLimitReached)
+        }
+        TransportErrorCode::UNSTABLE_INTERFACE => Some(quic::TransportError::PathUnstableOrPoor),
+        TransportErrorCode::NO_CID_AVAILABLE => Some(quic::TransportError::NoCidsAvailableForPath),
+        _ => None,
+    };
+    let code = match transport_error {
+        None => Some(code.into()),
+        Some(_) => None,
+    };
+    (transport_error, code)
 }
