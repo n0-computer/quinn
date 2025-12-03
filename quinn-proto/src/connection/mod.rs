@@ -676,7 +676,14 @@ impl Connection {
     /// Will panic if the path_id does not reference any known path.
     #[track_caller]
     fn path_data(&self, path_id: PathId) -> &PathData {
-        &self.paths.get(&path_id).expect("known path").data
+        if let Some(data) = self.paths.get(&path_id) {
+            &data.data
+        } else {
+            panic!(
+                "unknown path: {path_id}, currently known paths: {:?}",
+                self.paths.keys().collect::<Vec<_>>()
+            );
+        }
     }
 
     /// Gets a reference to the [`PathData`] for a [`PathId`]
@@ -2196,16 +2203,15 @@ impl Connection {
     }
 
     /// Current best estimate of this connection's latency (round-trip-time)
-    pub fn rtt(&self) -> Duration {
+    pub fn rtt(&self, path_id: PathId) -> Option<Duration> {
         // this should return at worst the same that the poll_transmit logic would use
         // TODO(@divma): wrong
-        self.path_data(PathId::ZERO).rtt.get()
+        self.path(path_id).map(|d| d.rtt.get())
     }
 
     /// Current state of this connection's congestion controller, for debugging purposes
-    pub fn congestion_state(&self) -> &dyn Controller {
-        // TODO(@divma): same as everything, wrong
-        self.path_data(PathId::ZERO).congestion.as_ref()
+    pub fn congestion_state(&self, path_id: PathId) -> Option<&dyn Controller> {
+        self.path(path_id).map(|d| d.congestion.as_ref())
     }
 
     /// Resets path-specific settings.
@@ -2218,14 +2224,11 @@ impl Connection {
     /// state of these subsystems is no longer valid or optimal. In this case it might be
     /// faster or reduce loss to settle on optimal values by restarting from the initial
     /// configuration in the [`TransportConfig`].
-    pub fn path_changed(&mut self, now: Instant) {
-        // TODO(@divma): evaluate how this is used
-        // wrong call in the multipath case anyhow
-        self.paths
-            .get_mut(&PathId::ZERO)
-            .expect("this might fail")
-            .data
-            .reset(now, &self.config);
+    pub fn path_changed(&mut self, path_id: PathId, now: Instant) -> bool {
+        let config = self.config.clone(); // :/
+        self.path_mut(path_id)
+            .map(|d| d.reset(now, &config))
+            .is_some()
     }
 
     /// Modify the number of remotely initiated streams that may be concurrently open
