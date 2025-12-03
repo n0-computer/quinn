@@ -225,7 +225,7 @@ pub(super) struct PacketNumberSpace {
     pub(super) sent_packets: PacketBuf<SentPacket>,
     /// Packets that were deemed lost
     // Older packets are regularly removed in `Connection::drain_lost_packets`.
-    pub(super) lost_packets: BTreeMap<u64, LostPacket>,
+    pub(super) lost_packets: PacketBuf<LostPacket>,
     /// Number of explicit congestion notification codepoints seen on incoming packets
     pub(super) ecn_counters: frame::EcnCounts,
     /// Recent ECN counters sent by the peer in ACK frames
@@ -278,7 +278,7 @@ impl PacketNumberSpace {
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
             sent_packets: PacketBuf::new(),
-            lost_packets: BTreeMap::new(),
+            lost_packets: PacketBuf::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -307,7 +307,7 @@ impl PacketNumberSpace {
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
             sent_packets: PacketBuf::new(),
-            lost_packets: BTreeMap::new(),
+            lost_packets: PacketBuf::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -337,7 +337,7 @@ impl PacketNumberSpace {
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
             sent_packets: PacketBuf::new(),
-            lost_packets: BTreeMap::new(),
+            lost_packets: PacketBuf::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
