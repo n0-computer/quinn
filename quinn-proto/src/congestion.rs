@@ -92,7 +92,7 @@ pub trait Controller: Send + Sync + std::fmt::Debug {
 }
 
 /// Common congestion controller metrics
-#[derive(Default)]
+#[derive(Default, Debug)]
 #[non_exhaustive]
 pub struct ControllerMetrics {
     /// Congestion window (bytes)
