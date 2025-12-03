@@ -343,14 +343,6 @@ impl Close {
     pub(crate) fn is_transport_layer(&self) -> bool {
         matches!(*self, Self::Connection(_))
     }
-
-    #[cfg(feature = "qlog")]
-    pub(crate) fn error_code(&self) -> u64 {
-        match self {
-            Self::Connection(frame) => frame.error_code.into(),
-            Self::Application(frame) => frame.error_code.into(),
-        }
-    }
 }
 
 impl From<TransportError> for Close {

@@ -31,7 +31,6 @@ use qlog::{
 #[cfg(feature = "qlog")]
 use tracing::warn;
 
-use crate::frame::Close;
 use crate::{
     Connection, ConnectionId, Frame, Instant, PathId,
     connection::{PathData, SentPacket},
@@ -40,7 +39,7 @@ use crate::{
     range_set::ArrayRangeSet,
 };
 #[cfg(feature = "qlog")]
-use crate::{FrameType, TransportErrorCode};
+use crate::{FrameType, TransportErrorCode, frame::Close};
 
 /// Shareable handle to a single qlog output stream
 #[cfg(feature = "qlog")]
@@ -617,13 +616,31 @@ impl Frame {
                 maximum_path_id: id.0.as_u32().into(),
                 raw: None,
             },
+            Self::AckFrequency(f) => QuicFrame::AckFrequency {
+                sequence_number: f.sequence.into_inner(),
+                ack_eliciting_threshold: f.ack_eliciting_threshold.into_inner(),
+                requested_max_ack_delay: f.request_max_ack_delay.into_inner(),
+                reordering_threshold: f.reordering_threshold.into_inner(),
+                raw: None,
+            },
+            Self::ImmediateAck => QuicFrame::ImmediateAck { raw: None },
+            Self::ObservedAddr(f) => QuicFrame::ObservedAddress {
+                sequence_number: f.seq_no.into_inner(),
+                ip_v4: match f.ip {
+                    IpAddr::V4(ipv4_addr) => Some(ipv4_addr.to_string()),
+                    IpAddr::V6(ipv6_addr) => None,
+                },
+                ip_v6: match f.ip {
+                    IpAddr::V4(ipv4_addr) => None,
+                    IpAddr::V6(ipv6_addr) => Some(ipv6_addr.to_string()),
+                },
+                port: f.port,
+                raw: None,
+            },
             // Extensions and unsupported frames.
-            Self::AckFrequency(_)
-            | Self::ImmediateAck
-            | Self::ObservedAddr(_)
-            | Self::AddAddress(_)
-            | Self::ReachOut(_)
-            | Self::RemoveAddress(_) => unknown_frame(&self.ty()),
+            Self::AddAddress(_) | Self::ReachOut(_) | Self::RemoveAddress(_) => {
+                unknown_frame(&self.ty())
+            }
         }
     }
 }
