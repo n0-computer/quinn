@@ -21,6 +21,8 @@ use crate::{
     },
 };
 
+const MAX_PATHS: u32 = 3;
+
 const CLIENT_ADDRS: [SocketAddr; MAX_PATHS as usize] = [
     SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 44433u16),
     SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 44434u16),
@@ -31,7 +33,6 @@ const SERVER_ADDRS: [SocketAddr; MAX_PATHS as usize] = [
     SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 4434u16),
     SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 4435u16),
 ];
-const MAX_PATHS: u32 = 3;
 
 fn setup_deterministic_with_multipath(seed: [u8; 32], routes: RoutingTable) -> Pair {
     let mut rng = StdRng::from_seed(seed);
@@ -53,8 +54,8 @@ fn setup_deterministic_with_multipath(seed: [u8; 32], routes: RoutingTable) -> P
     let client = Endpoint::new(Arc::new(client_config), None, true, None);
 
     let now = Instant::now();
-    let server = TestEndpoint::new(server, SERVER_ADDRS[0]);
-    let client = TestEndpoint::new(client, CLIENT_ADDRS[0]);
+    let server = TestEndpoint::new(server, routes.server_addr(0).unwrap());
+    let client = TestEndpoint::new(client, routes.client_addr(0).unwrap());
     Pair {
         server,
         client,
@@ -88,11 +89,46 @@ fn random_interaction(
 }
 
 #[proptest(cases = 256)]
-fn random_interaction_with_multipath(
+fn random_interaction_with_multipath_simple_routing(
     #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
     #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
 ) {
     let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
+    let mut pair = setup_deterministic_with_multipath(seed, routes);
+    run_random_interaction(&mut pair, interactions, multipath_transport_config());
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+}
+
+fn routing_table() -> impl Strategy<Value = RoutingTable> {
+    (vec(0..=5usize, 0..=4), vec(0..=5usize, 0..=4)).prop_map(|(client_offsets, server_offsets)| {
+        let mut client_addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 44433u16);
+        let mut server_addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 4433u16);
+        let mut client_routes = vec![(client_addr, 0)];
+        let mut server_routes = vec![(server_addr, 0)];
+        for (idx, &offset) in client_offsets.iter().enumerate() {
+            let other_idx = idx.saturating_sub(offset);
+            let server_idx = other_idx.clamp(0, server_offsets.len());
+            client_routes.push((client_addr, server_idx));
+            client_addr.set_port(client_addr.port() + 1);
+        }
+        for (idx, &offset) in server_offsets.iter().enumerate() {
+            let other_idx = idx.saturating_sub(offset);
+            let client_idx = other_idx.clamp(0, client_offsets.len());
+            server_routes.push((server_addr, client_idx));
+            server_addr.set_port(server_addr.port() + 1);
+        }
+
+        RoutingTable::from_routes(client_routes, server_routes)
+    })
+}
+
+#[proptest(cases = 256)]
+fn random_interaction_with_multipath_complex_routing(
+    #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
+    #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
+    #[strategy(routing_table())] routes: RoutingTable,
+) {
     let mut pair = setup_deterministic_with_multipath(seed, routes);
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 

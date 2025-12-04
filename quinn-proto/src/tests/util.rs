@@ -845,6 +845,7 @@ impl TokenLog for SimpleTokenLog {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(super) struct RoutingTable {
     client_routes: Vec<(SocketAddr, usize)>,
     server_routes: Vec<(SocketAddr, usize)>,
