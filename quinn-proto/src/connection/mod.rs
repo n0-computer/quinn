@@ -1455,10 +1455,10 @@ impl Connection {
             path_id = *self.paths.first_key_value().expect("one path must exist").0;
             let probe_data = loop {
                 let active_cid = self.rem_cids.get(&path_id).map(CidQueue::active);
-                let elegible = self.path_data(path_id).validated
+                let eligible = self.path_data(path_id).validated
                     && !self.path_data(path_id).is_validating_path()
                     && !self.abandoned_paths.contains(&path_id);
-                let probe_size = elegible
+                let probe_size = eligible
                     .then(|| {
                         let next_pn = self.spaces[SpaceId::Data]
                             .for_path(path_id)
