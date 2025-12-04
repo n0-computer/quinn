@@ -24,8 +24,8 @@ use qlog::{
         quic::{
             self, AckedRanges, AddressDiscoveryRole, ConnectionStarted, ErrorSpace, PacketHeader,
             PacketLost, PacketLostTrigger, PacketReceived, PacketSent, PacketType,
-            ParametersRestored, ParametersSet, PreferredAddress, QuicFrame, StreamType,
-            TransportInitiator, TupleAssigned,
+            ParametersRestored, ParametersSet, PreferredAddress, QlogTimerType, QuicFrame,
+            StreamType, TimerEventType, TimerType, TimerUpdated, TransportInitiator, TupleAssigned,
         },
     },
     streamer::QlogStreamer,
@@ -35,14 +35,18 @@ use tracing::warn;
 
 use crate::{
     Connection, ConnectionId, Frame, Instant, PathId,
-    connection::{PathData, SentPacket},
+    connection::{PathData, SentPacket, timer::Timer},
     frame::{EcnCounts, StreamMeta},
     packet::{Header, SpaceId},
     range_set::ArrayRangeSet,
     transport_parameters::TransportParameters,
 };
 #[cfg(feature = "qlog")]
-use crate::{QlogConfig, Side, TransportErrorCode, frame::Close};
+use crate::{
+    QlogConfig, Side, TransportErrorCode,
+    connection::timer::{ConnTimer, PathTimer},
+    frame::Close,
+};
 
 /// Shareable handle to a single qlog output stream
 #[cfg(feature = "qlog")]
@@ -281,6 +285,101 @@ impl QlogSink {
             stream.emit_event_with_tuple_id(EventData::PacketReceived(event), now, tuple_id);
         }
     }
+
+    #[cfg(feature = "qlog")]
+    fn emit_timer(&self, timer: Timer, op: TimerOp, now: Instant) {
+        let Some(stream) = self.stream.as_ref() else {
+            return;
+        };
+
+        let timer_type: Option<TimerType> = match timer {
+            Timer::Conn(conn_timer) => match conn_timer {
+                ConnTimer::Idle => Some(QlogTimerType::IdleTimeout.into()),
+                ConnTimer::Close => Some(TimerType::custom("close")),
+                ConnTimer::KeyDiscard => None,
+                ConnTimer::KeepAlive => None,
+                ConnTimer::PushNewCid => None,
+            },
+            Timer::PerPath(_, path_timer) => match path_timer {
+                PathTimer::LossDetection => Some(QlogTimerType::LossTimeout.into()),
+                PathTimer::PathIdle => Some(TimerType::custom("path_idle")),
+                PathTimer::PathValidation => Some(QlogTimerType::PathValidation.into()),
+                PathTimer::PathChallengeLost => Some(TimerType::custom("path_challenge_lost")),
+                PathTimer::PathOpen => Some(TimerType::custom("path_open")),
+                PathTimer::PathKeepAlive => None,
+                PathTimer::Pacing => None,
+                PathTimer::MaxAckDelay => Some(QlogTimerType::Ack.into()),
+                PathTimer::PathAbandoned => Some(TimerType::custom("path_abandoned")),
+                PathTimer::PathNotAbandoned => Some(TimerType::custom("path_not_abandoned")),
+            },
+        };
+
+        let Some(timer_type) = timer_type else {
+            return;
+        };
+
+        let delta = match op {
+            TimerOp::Set(instant) => instant
+                .checked_duration_since(now)
+                .map(|dur| dur.as_secs_f32() * 1000.),
+            _ => None,
+        };
+        let path_id = match timer {
+            Timer::Conn(_) => None,
+            Timer::PerPath(path_id, _) => Some(path_id.as_u32() as u64),
+        };
+
+        let event_type = match op {
+            TimerOp::Set(_) => TimerEventType::Set,
+            TimerOp::Expire => TimerEventType::Expired,
+            TimerOp::Cancelled => TimerEventType::Cancelled,
+        };
+
+        let event = TimerUpdated {
+            path_id,
+            timer_type: Some(timer_type),
+            timer_id: None,
+            packet_number_space: None,
+            event_type,
+            delta,
+        };
+        stream.emit_event(EventData::TimerUpdated(event), now);
+    }
+
+    pub(super) fn with_time(&self, now: Instant) -> QlogSinkWithTime<'_> {
+        QlogSinkWithTime { sink: self, now }
+    }
+}
+
+#[cfg_attr(not(feature = "qlog"), allow(unused))]
+pub(super) struct QlogSinkWithTime<'a> {
+    sink: &'a QlogSink,
+    now: Instant,
+}
+
+impl<'a> QlogSinkWithTime<'a> {
+    pub(super) fn emit_timer_stop(&self, timer: Timer) {
+        #[cfg(feature = "qlog")]
+        self.sink.emit_timer(timer, TimerOp::Cancelled, self.now)
+    }
+
+    pub(super) fn emit_timer_set(&self, timer: Timer, expire_at: Instant) {
+        #[cfg(feature = "qlog")]
+        self.sink
+            .emit_timer(timer, TimerOp::Set(expire_at), self.now)
+    }
+
+    pub(super) fn emit_timer_expire(&self, timer: Timer) {
+        #[cfg(feature = "qlog")]
+        self.sink.emit_timer(timer, TimerOp::Expire, self.now)
+    }
+}
+
+#[cfg(feature = "qlog")]
+enum TimerOp {
+    Set(Instant),
+    Expire,
+    Cancelled,
 }
 
 /// Info about a sent packet. Zero-sized struct if `qlog` feature is not enabled.
