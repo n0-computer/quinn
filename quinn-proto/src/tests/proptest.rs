@@ -6,8 +6,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+use proptest::{
+    collection::vec,
+    prelude::{Strategy, any},
+};
 use rand::{RngCore, SeedableRng, rngs::StdRng};
-use test_strategy::Arbitrary;
+use test_strategy::{Arbitrary, proptest};
 use tracing::{debug, trace};
 
 use crate::{
@@ -334,11 +338,31 @@ fn setup_deterministic_with_multipath(seed: [u8; 32]) -> Pair {
 
 fn multipath_transport_config() -> TransportConfig {
     let mut transport = TransportConfig::default();
-    transport.deterministic_packet_numbers(true);
-    transport.mtu_discovery_config(None); // TODO(matheus23): Disabled for clearer logs. Need to re-enable!
     // enable multipath
     transport.max_concurrent_multipath_paths = NonZeroU32::new(MAX_PATHS);
     transport
+}
+
+#[proptest(cases = 256)]
+fn random_interaction(
+    #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
+    #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
+) {
+    let mut pair = Pair::default_deterministic(seed);
+    run_random_interaction(&mut pair, interactions);
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+}
+
+#[proptest(cases = 256)]
+fn random_interaction_with_multipath(
+    #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
+    #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
+) {
+    let mut pair = setup_deterministic_with_multipath(seed);
+    run_random_interaction(&mut pair, interactions);
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
 }
 
 #[test]
