@@ -520,8 +520,9 @@ impl TestEndpoint {
             }
 
             for (ch, event) in endpoint_events {
-                if self.drained_connections.contains(&ch) {
-                    // calling self.endpoint.handle_event with a drained connection panics
+                if !event.is_drained() && self.drained_connections.contains(&ch) {
+                    // Calling self.endpoint.handle_event with a drained connection panics.
+                    // For some reason, some tests rely on the fact that the drained event is handled twice?
                     continue;
                 }
                 if event.is_drained() {
@@ -636,8 +637,11 @@ pub(super) fn subscribe() -> tracing::subscriber::DefaultGuard {
         .with_line_number(true)
         .with_writer(|| TestWriter);
     // tracing uses std::time to trace time, which panics in wasm.
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    let builder = builder.without_time();
+    // #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    let builder = builder
+        .without_time()
+        .with_line_number(false)
+        .with_target(false);
     tracing::subscriber::set_default(builder.finish())
 }
 
