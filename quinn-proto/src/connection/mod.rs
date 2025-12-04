@@ -6118,7 +6118,10 @@ impl Connection {
 
     /// Get the currently advertised nat traversal addresses by the server
     pub fn get_remote_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
-        Ok(self.iroh_hp.client_side()?.get_remote_nat_traversal_addresses())
+        Ok(self
+            .iroh_hp
+            .client_side()?
+            .get_remote_nat_traversal_addresses())
     }
 
     /// Initiates a new nat traversal round

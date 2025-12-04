@@ -132,7 +132,6 @@ impl ClientState {
     /// initiated, the previous one is cancelled, and paths that have not been opened should be
     /// closed.
     pub(crate) fn initiate_nat_traversal_round(&mut self) -> Result<NatTraversalRound, Error> {
-
         if self.local_addresses.is_empty() {
             return Err(Error::NotEnoughAddresses);
         }
