@@ -841,7 +841,7 @@ fn fmt_tuple_id(path_id: u64) -> String {
 
 #[cfg(feature = "qlog")]
 impl TransportParameters {
-    fn to_qlog(&self, initiator: TransportInitiator) -> ParametersSet {
+    fn to_qlog(self, initiator: TransportInitiator) -> ParametersSet {
         ParametersSet {
             initiator: Some(initiator),
             resumption_allowed: None,
@@ -883,7 +883,7 @@ impl TransportParameters {
         }
     }
 
-    fn to_qlog_restored(&self) -> ParametersRestored {
+    fn to_qlog_restored(self) -> ParametersRestored {
         ParametersRestored {
             disable_active_migration: Some(self.disable_active_migration),
             max_idle_timeout: Some(self.max_idle_timeout.into()),
@@ -921,7 +921,7 @@ impl From<&crate::transport_parameters::PreferredAddress> for PreferredAddress {
         let connection_id = value.connection_id.to_string();
         let stateless_reset_token = value.stateless_reset_token.to_string();
 
-        PreferredAddress {
+        Self {
             ip_v4,
             ip_v6,
             port_v4,
@@ -934,7 +934,7 @@ impl From<&crate::transport_parameters::PreferredAddress> for PreferredAddress {
 
 #[cfg(feature = "qlog")]
 impl crate::address_discovery::Role {
-    fn to_qlog(&self) -> Option<AddressDiscoveryRole> {
+    fn to_qlog(self) -> Option<AddressDiscoveryRole> {
         match self {
             Self::SendOnly => Some(AddressDiscoveryRole::SendOnly),
             Self::ReceiveOnly => Some(AddressDiscoveryRole::ReceiveOnly),
