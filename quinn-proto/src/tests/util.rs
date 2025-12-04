@@ -42,6 +42,7 @@ pub(super) struct Pair {
     /// Number of spin bit flips
     pub(super) spins: u64,
     pub(super) last_spin: bool,
+    pub(super) routes: Option<RoutingTable>,
 }
 
 impl Pair {
@@ -78,6 +79,7 @@ impl Pair {
             spins: 0,
             last_spin: false,
             congestion_experienced: false,
+            routes: None,
         }
     }
 
@@ -121,6 +123,7 @@ impl Pair {
             spins: 0,
             last_spin: false,
             congestion_experienced: false,
+            routes: None,
         }
     }
 
@@ -151,7 +154,7 @@ impl Pair {
     pub(super) fn drive_client(&mut self) {
         let span = info_span!("client");
         let _guard = span.enter();
-        self.client.drive(self.time, self.server.addr);
+        self.client.drive(self.time);
         for (packet, buffer) in self.client.outbound.drain(..) {
             let packet_size = packet_size(&packet, &buffer);
             if packet_size > self.mtu {
@@ -166,22 +169,20 @@ impl Pair {
             if let Some(ref socket) = self.client.socket {
                 socket.send_to(&buffer, packet.destination).unwrap();
             }
-            if self.server.addr == packet.destination
-                || self.server.multipath_addrs.contains(&packet.destination)
-            {
+            let client_addr = match &self.routes {
+                Some(table) => table.resolve_client_to_server(packet.destination),
+                None => (self.server.addr == packet.destination).then_some(self.client.addr),
+            };
+            if let Some(client_addr) = client_addr {
                 let ecn = set_congestion_experienced(packet.ecn, self.congestion_experienced);
                 self.server.inbound.push_back((
                     self.time + self.latency,
                     ecn,
                     buffer.as_ref().into(),
+                    client_addr,
                 ));
             } else {
-                warn!(
-                    ?packet.destination,
-                    ?self.client.addr,
-                    ?self.client.multipath_addrs,
-                    "packet from server to client lost"
-                );
+                warn!(?packet.destination, "packet from server to client lost");
             }
         }
     }
@@ -189,7 +190,7 @@ impl Pair {
     pub(super) fn drive_server(&mut self) {
         let span = info_span!("server");
         let _guard = span.enter();
-        self.server.drive(self.time, self.client.addr);
+        self.server.drive(self.time);
         for (packet, buffer) in self.server.outbound.drain(..) {
             let packet_size = packet_size(&packet, &buffer);
             if packet_size > self.mtu {
@@ -199,22 +200,20 @@ impl Pair {
             if let Some(ref socket) = self.server.socket {
                 socket.send_to(&buffer, packet.destination).unwrap();
             }
-            if self.client.addr == packet.destination
-                || self.client.multipath_addrs.contains(&packet.destination)
-            {
+            let server_addr = match &self.routes {
+                Some(table) => table.resolve_server_to_client(packet.destination),
+                None => (self.client.addr == packet.destination).then_some(self.server.addr),
+            };
+            if let Some(server_addr) = server_addr {
                 let ecn = set_congestion_experienced(packet.ecn, self.congestion_experienced);
                 self.client.inbound.push_back((
                     self.time + self.latency,
                     ecn,
                     buffer.as_ref().into(),
+                    server_addr,
                 ));
             } else {
-                warn!(
-                    ?packet.destination,
-                    ?self.client.addr,
-                    ?self.client.multipath_addrs,
-                    "packet from server to client lost"
-                );
+                warn!(?packet.destination, "packet from server to client lost");
             }
         }
     }
@@ -368,13 +367,11 @@ impl Default for Pair {
 pub(super) struct TestEndpoint {
     pub(super) endpoint: Endpoint,
     pub(super) addr: SocketAddr,
-    /// Other addresses that might be used for multipath
-    pub(super) multipath_addrs: Vec<SocketAddr>,
     socket: Option<UdpSocket>,
     timeout: Option<Instant>,
     pub(super) outbound: VecDeque<(Transmit, Bytes)>,
     delayed: VecDeque<(Transmit, Bytes)>,
-    pub(super) inbound: VecDeque<(Instant, Option<EcnCodepoint>, BytesMut)>,
+    pub(super) inbound: VecDeque<(Instant, Option<EcnCodepoint>, BytesMut, SocketAddr)>,
     pub(super) accepted: Option<Result<ConnectionHandle, ConnectionError>>,
     pub(super) connections: HashMap<ConnectionHandle, Connection>,
     conn_events: HashMap<ConnectionHandle, VecDeque<ConnectionEvent>>,
@@ -414,7 +411,6 @@ impl TestEndpoint {
         Self {
             endpoint,
             addr,
-            multipath_addrs: Vec::new(),
             socket,
             timeout: None,
             outbound: VecDeque::new(),
@@ -430,12 +426,12 @@ impl TestEndpoint {
         }
     }
 
-    pub(super) fn drive(&mut self, now: Instant, remote: SocketAddr) {
-        self.drive_incoming(now, remote);
+    pub(super) fn drive(&mut self, now: Instant) {
+        self.drive_incoming(now);
         self.drive_outgoing(now);
     }
 
-    pub(super) fn drive_incoming(&mut self, now: Instant, remote: SocketAddr) {
+    pub(super) fn drive_incoming(&mut self, now: Instant) {
         if let Some(ref socket) = self.socket {
             loop {
                 let mut buf = [0; 8192];
@@ -448,7 +444,7 @@ impl TestEndpoint {
         let mut buf = Vec::with_capacity(buffer_size);
 
         while self.inbound.front().is_some_and(|x| x.0 <= now) {
-            let (recv_time, ecn, packet) = self.inbound.pop_front().unwrap();
+            let (recv_time, ecn, packet, remote) = self.inbound.pop_front().unwrap();
             if let Some(event) = self
                 .endpoint
                 .handle(recv_time, remote, None, ecn, packet, &mut buf)
@@ -842,5 +838,58 @@ impl TokenLog for SimpleTokenLog {
         } else {
             Err(TokenReuseError)
         }
+    }
+}
+
+pub(super) struct RoutingTable {
+    client_routes: Vec<(SocketAddr, usize)>,
+    server_routes: Vec<(SocketAddr, usize)>,
+}
+
+impl RoutingTable {
+    pub(super) fn simple_symmetric(
+        client_addrs: impl IntoIterator<Item = SocketAddr>,
+        server_addrs: impl IntoIterator<Item = SocketAddr>,
+    ) -> Self {
+        let mut client_routes = Vec::new();
+        let mut server_routes = Vec::new();
+
+        for (idx, (client_addr, server_addr)) in
+            client_addrs.into_iter().zip(server_addrs).enumerate()
+        {
+            client_routes.push((client_addr, idx));
+            server_routes.push((server_addr, idx));
+        }
+
+        Self {
+            client_routes,
+            server_routes,
+        }
+    }
+
+    /// Returns the client address a server would see on an incoming packet if
+    /// sent to given server address.
+    ///
+    /// Returns none if the packet would not find a route and get lost.
+    fn resolve_client_to_server(&self, server_addr: SocketAddr) -> Option<SocketAddr> {
+        let (_, client_addr_idx) = self
+            .server_routes
+            .iter()
+            .find(|(addr, _)| *addr == server_addr)?;
+        let (client_addr, _) = self.client_routes.get(*client_addr_idx)?;
+        Some(*client_addr)
+    }
+
+    /// Returns the server address a client would see on an incoming packet if
+    /// sent to given client address.
+    ///
+    /// Returns none if the packet would not find a route and get lost.
+    fn resolve_server_to_client(&self, client_addr: SocketAddr) -> Option<SocketAddr> {
+        let (_, server_addr_idx) = self
+            .client_routes
+            .iter()
+            .find(|(addr, _)| *addr == client_addr)?;
+        let (server_addr, _) = self.server_routes.get(*server_addr_idx)?;
+        Some(*server_addr)
     }
 }

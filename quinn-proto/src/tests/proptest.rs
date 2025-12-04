@@ -13,7 +13,9 @@ use tracing::{debug, trace};
 use crate::{
     Connection, ConnectionHandle, Endpoint, EndpointConfig, PathId, PathStatus, StreamId,
     TransportConfig,
-    tests::{DEFAULT_MTU, Pair, TestEndpoint, client_config, server_config, subscribe},
+    tests::{
+        DEFAULT_MTU, Pair, RoutingTable, TestEndpoint, client_config, server_config, subscribe,
+    },
 };
 
 const CLIENT_ADDRS: [SocketAddr; MAX_PATHS as usize] = [
@@ -313,10 +315,9 @@ fn setup_deterministic_with_multipath(seed: [u8; 32]) -> Pair {
     let client = Endpoint::new(Arc::new(client_config), None, true, None);
 
     let now = Instant::now();
-    let mut server = TestEndpoint::new(server, SERVER_ADDRS[0]);
-    let mut client = TestEndpoint::new(client, CLIENT_ADDRS[0]);
-    server.multipath_addrs = SERVER_ADDRS.into();
-    client.multipath_addrs = CLIENT_ADDRS.into();
+    let server = TestEndpoint::new(server, SERVER_ADDRS[0]);
+    let client = TestEndpoint::new(client, CLIENT_ADDRS[0]);
+    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
     Pair {
         server,
         client,
@@ -327,6 +328,7 @@ fn setup_deterministic_with_multipath(seed: [u8; 32]) -> Pair {
         spins: 0,
         last_spin: false,
         congestion_experienced: false,
+        routes: Some(routes),
     }
 }
 
