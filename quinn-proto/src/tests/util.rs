@@ -374,6 +374,7 @@ pub(super) struct TestEndpoint {
     pub(super) inbound: VecDeque<(Instant, Option<EcnCodepoint>, BytesMut, SocketAddr)>,
     pub(super) accepted: Option<Result<ConnectionHandle, ConnectionError>>,
     pub(super) connections: HashMap<ConnectionHandle, Connection>,
+    pub(super) drained_connections: HashSet<ConnectionHandle>,
     conn_events: HashMap<ConnectionHandle, VecDeque<ConnectionEvent>>,
     pub(super) captured_packets: Vec<Vec<u8>>,
     pub(super) capture_inbound_packets: bool,
@@ -418,6 +419,7 @@ impl TestEndpoint {
             inbound: VecDeque::new(),
             accepted: None,
             connections: HashMap::default(),
+            drained_connections: HashSet::default(),
             conn_events: HashMap::default(),
             captured_packets: Vec::new(),
             capture_inbound_packets: false,
@@ -518,14 +520,12 @@ impl TestEndpoint {
             }
 
             for (ch, event) in endpoint_events {
-                if !self.connections.contains_key(&ch) {
+                if self.drained_connections.contains(&ch) {
+                    // calling self.endpoint.handle_event with a drained connection panics
                     continue;
                 }
                 if event.is_drained() {
-                    // We need to remove drained connections.
-                    // Otherwise handle_event will panic.
-                    // We will need it to handle *this* event first, though.
-                    self.connections.remove(&ch);
+                    self.drained_connections.insert(ch);
                 }
                 if let Some(event) = self.handle_event(ch, event) {
                     if let Some(conn) = self.connections.get_mut(&ch) {
