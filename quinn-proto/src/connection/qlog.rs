@@ -63,9 +63,7 @@ impl QlogStream {
         // Time will be overwritten by `add_event_with_instant`
         let mut event = Event::with_time(0.0, event);
         event.group_id = Some(initial_dst_cid.to_string());
-        if let Some(tuple) = tuple {
-            event.ex_data.insert("tuple".to_string(), tuple.into());
-        }
+        event.tuple = tuple;
 
         let mut qlog_streamer = self.0.lock().unwrap();
         if let Err(e) = qlog_streamer.add_event_with_instant(event, now) {

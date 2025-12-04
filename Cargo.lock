@@ -1676,12 +1676,13 @@ dependencies = [
 [[package]]
 name = "n0-qlog"
 version = "0.15.2"
-source = "git+https://github.com/n0-computer/n0-qlog?branch=qlog-11-nat-traversal#49fbcee97ae08b0a698fbd1a51d0bae99124fc0b"
+source = "git+https://github.com/n0-computer/n0-qlog?branch=main#e021c703ab92d5bf345efb1fc08d23793d294441"
 dependencies = [
  "serde",
  "serde_json",
  "serde_with",
  "smallvec",
+ "strum",
 ]
 
 [[package]]
@@ -2405,6 +2406,27 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "strum"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "subtle"
