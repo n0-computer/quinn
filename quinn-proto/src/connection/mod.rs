@@ -864,13 +864,19 @@ impl Connection {
         max_datagrams: usize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
-        if let Some(address) = self.spaces[SpaceId::Data].pending.hole_punch_to.pop() {
-            trace!(dst = ?address, "RAND_DATA packet");
-            buf.reserve_exact(8); // send 8 bytes of random data
-            let tmp: [u8; 8] = self.rng.random();
-            buf.put_slice(&tmp);
+        if let Some(probing) = self
+            .iroh_hp
+            .server_side_mut()
+            .ok()
+            .and_then(iroh_hp::ServerState::next_probe)
+        {
+            let destination = probing.remote();
+            trace!(%destination, "RAND_DATA packet");
+            let token: u64 = self.rng.random();
+            buf.put_u64(token);
+            probing.finish(token);
             return Some(Transmit {
-                destination: address.into(),
+                destination,
                 ecn: None,
                 size: 8,
                 segment_size: None,

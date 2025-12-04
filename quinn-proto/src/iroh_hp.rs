@@ -220,7 +220,7 @@ pub(crate) struct ServerState {
     /// rounds.
     round: VarInt,
     /// Addresses to which PATH_CHALLENGES need to be sent.
-    pending_probes: FxHashSet<(IpAddr, u16)>,
+    pending_probes: FxHashSet<IpPort>,
     /// Sent PATH_CHALLENGES for this round.
     ///
     /// This is used to validate the remotes assigned to each token.
@@ -285,6 +285,35 @@ impl ServerState {
         }
         self.pending_probes.insert((ip, port));
         Ok(())
+    }
+
+    pub(crate) fn next_probe(&mut self) -> Option<ServerProbing<'_>> {
+        self.pending_probes
+            .iter()
+            .next()
+            .copied()
+            .map(|remote| ServerProbing {
+                remote,
+                pending_probes: &mut self.pending_probes,
+                active_probes: &mut self.active_probes,
+            })
+    }
+}
+
+pub(crate) struct ServerProbing<'a> {
+    remote: IpPort,
+    pending_probes: &'a mut FxHashSet<IpPort>,
+    active_probes: &'a mut IntMap<u64, IpPort>,
+}
+
+impl<'a> ServerProbing<'a> {
+    pub(crate) fn finish(self, token: u64) {
+        self.pending_probes.remove(&self.remote);
+        self.active_probes.insert(token, self.remote);
+    }
+
+    pub(crate) fn remote(&self) -> SocketAddr {
+        self.remote.into()
     }
 }
 
