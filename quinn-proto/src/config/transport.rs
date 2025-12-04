@@ -1,21 +1,16 @@
+#[cfg(feature = "qlog")]
+use std::io;
 use std::{
     fmt,
+    net::SocketAddr,
     num::{NonZeroU8, NonZeroU32},
     sync::Arc,
+    time::Instant,
 };
-#[cfg(feature = "qlog")]
-use std::{io, sync::Mutex, time::Instant};
 
-#[cfg(feature = "qlog")]
-pub use qlog::VantagePointType;
-#[cfg(feature = "qlog")]
-use qlog::streamer::QlogStreamer;
-
-#[cfg(feature = "qlog")]
-use crate::QlogStream;
 use crate::{
-    Duration, INITIAL_MTU, MAX_UDP_PAYLOAD, VarInt, VarIntBoundsExceeded, address_discovery,
-    congestion, connection::qlog::QlogSink,
+    ConnectionId, Duration, INITIAL_MTU, MAX_UDP_PAYLOAD, Side, VarInt, VarIntBoundsExceeded,
+    address_discovery, congestion, connection::qlog::QlogSink,
 };
 
 /// When multipath is required and has not been explicitly enabled, this value will be used for
@@ -87,7 +82,8 @@ pub struct TransportConfig {
 
     pub(crate) max_remote_nat_traversal_addresses: Option<NonZeroU8>,
 
-    pub(crate) qlog_sink: QlogSink,
+    #[cfg(feature = "qlog")]
+    pub(crate) qlog_factory: Option<Arc<dyn QlogFactory>>,
 }
 
 impl TransportConfig {
@@ -472,9 +468,37 @@ impl TransportConfig {
 
     /// qlog capture configuration to use for a particular connection
     #[cfg(feature = "qlog")]
-    pub fn qlog_stream(&mut self, stream: Option<QlogStream>) -> &mut Self {
-        self.qlog_sink = stream.into();
+    pub fn qlog_factory(&mut self, factory: Arc<dyn QlogFactory>) -> &mut Self {
+        self.qlog_factory = Some(factory);
         self
+    }
+
+    #[cfg_attr(not(feature = "qlog"), allow(unused))]
+    pub(crate) fn create_qlog_sink(
+        &self,
+        side: Side,
+        remote: SocketAddr,
+        initial_dst_cid: ConnectionId,
+        now: Instant,
+    ) -> QlogSink {
+        #[cfg(not(feature = "qlog"))]
+        let sink = QlogSink::default();
+
+        #[cfg(feature = "qlog")]
+        let sink = {
+            if let Some(config) = self
+                .qlog_factory
+                .as_ref()
+                .map(|factory| factory.for_connection(side, remote, initial_dst_cid, now))
+                .flatten()
+            {
+                QlogSink::new(config, initial_dst_cid, side, now)
+            } else {
+                QlogSink::default()
+            }
+        };
+
+        sink
     }
 }
 
@@ -528,7 +552,8 @@ impl Default for TransportConfig {
             // nat traversal disabled by default
             max_remote_nat_traversal_addresses: None,
 
-            qlog_sink: QlogSink::default(),
+            #[cfg(feature = "qlog")]
+            qlog_factory: None,
         }
     }
 }
@@ -566,7 +591,8 @@ impl fmt::Debug for TransportConfig {
             default_path_max_idle_timeout,
             default_path_keep_alive_interval,
             max_remote_nat_traversal_addresses,
-            qlog_sink,
+            #[cfg(feature = "qlog")]
+            qlog_factory,
         } = self;
         let mut s = fmt.debug_struct("TransportConfig");
 
@@ -613,9 +639,8 @@ impl fmt::Debug for TransportConfig {
                 "max_remote_nat_traversal_addresses",
                 max_remote_nat_traversal_addresses,
             );
-        if cfg!(feature = "qlog") {
-            s.field("qlog_stream", &qlog_sink.is_enabled());
-        }
+        #[cfg(feature = "qlog")]
+        s.field("qlog_factory", &qlog_factory.is_some());
 
         s.finish_non_exhaustive()
     }
@@ -699,22 +724,40 @@ impl Default for AckFrequencyConfig {
     }
 }
 
+#[cfg(feature = "qlog")]
+/// Creates a [`QlogConfig`] for connections.
+pub trait QlogFactory: Send + Sync + 'static {
+    /// Returns a [`QlogConfig`] if this connection should be recorded.
+    ///
+    /// If `None` is returned, the connection will not be recorded.
+    fn for_connection(
+        &self,
+        side: Side,
+        remote: SocketAddr,
+        initial_dst_cid: ConnectionId,
+        now: Instant,
+    ) -> Option<QlogConfig>;
+}
+
 /// Configuration for qlog trace logging
 #[cfg(feature = "qlog")]
 pub struct QlogConfig {
-    writer: Option<Box<dyn io::Write + Send + Sync>>,
-    title: Option<String>,
-    description: Option<String>,
-    start_time: Instant,
-    vantage_point: qlog::VantagePoint,
+    pub(crate) writer: Box<dyn io::Write + Send + Sync>,
+    pub(crate) title: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) start_time: Option<Instant>,
 }
 
 #[cfg(feature = "qlog")]
 impl QlogConfig {
     /// Where to write a qlog `TraceSeq`
-    pub fn writer(&mut self, writer: Box<dyn io::Write + Send + Sync>) -> &mut Self {
-        self.writer = Some(writer);
-        self
+    pub fn new(writer: Box<dyn io::Write + Send + Sync>) -> Self {
+        Self {
+            writer,
+            title: None,
+            description: None,
+            start_time: None,
+        }
     }
 
     /// Title to record in the qlog capture
@@ -731,67 +774,8 @@ impl QlogConfig {
 
     /// Epoch qlog event times are recorded relative to
     pub fn start_time(&mut self, start_time: Instant) -> &mut Self {
-        self.start_time = start_time;
+        self.start_time = Some(start_time);
         self
-    }
-
-    /// Vantage point for this trace
-    pub fn vantage_point(
-        &mut self,
-        vantage_point: VantagePointType,
-        name: Option<String>,
-    ) -> &mut Self {
-        self.vantage_point.name = name;
-        self.vantage_point.ty = vantage_point;
-        self
-    }
-
-    /// Construct the [`QlogStream`] described by this configuration
-    pub fn into_stream(self) -> Option<QlogStream> {
-        use tracing::warn;
-
-        let writer = self.writer?;
-        let trace = qlog::TraceSeq::new(
-            self.title.clone(),
-            self.description.clone(),
-            None,
-            Some(self.vantage_point),
-            vec![],
-        );
-
-        let mut streamer = QlogStreamer::new(
-            self.title,
-            self.description,
-            self.start_time,
-            trace,
-            qlog::events::EventImportance::Extra,
-            writer,
-        );
-
-        match streamer.start_log() {
-            Ok(()) => Some(QlogStream(Arc::new(Mutex::new(streamer)))),
-            Err(e) => {
-                warn!("could not initialize endpoint qlog streamer: {e}");
-                None
-            }
-        }
-    }
-}
-
-#[cfg(feature = "qlog")]
-impl Default for QlogConfig {
-    fn default() -> Self {
-        Self {
-            writer: None,
-            title: None,
-            description: None,
-            start_time: Instant::now(),
-            vantage_point: qlog::VantagePoint {
-                name: None,
-                ty: qlog::VantagePointType::Unknown,
-                flow: None,
-            },
-        }
     }
 }
 

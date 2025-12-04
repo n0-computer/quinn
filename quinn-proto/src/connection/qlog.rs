@@ -18,7 +18,7 @@ use std::{
 
 #[cfg(feature = "qlog")]
 use qlog::{
-    HexSlice, TokenType,
+    CommonFields, HexSlice, TokenType, VantagePoint,
     events::{
         ApplicationError, ConnectionClosedFrameError, Event, EventData, RawInfo, TupleEndpointInfo,
         quic::{
@@ -42,31 +42,64 @@ use crate::{
     transport_parameters::TransportParameters,
 };
 #[cfg(feature = "qlog")]
-use crate::{TransportErrorCode, frame::Close};
+use crate::{QlogConfig, Side, TransportErrorCode, frame::Close};
 
 /// Shareable handle to a single qlog output stream
 #[cfg(feature = "qlog")]
 #[derive(Clone)]
-pub struct QlogStream(pub(crate) Arc<Mutex<QlogStreamer>>);
+pub(crate) struct QlogStream(Arc<Mutex<QlogStreamer>>);
 
 #[cfg(feature = "qlog")]
 impl QlogStream {
-    fn emit_event(&self, initial_dst_cid: ConnectionId, event: EventData, now: Instant) {
-        self.emit_event_with_tuple_id(initial_dst_cid, event, now, None);
+    pub(crate) fn new(
+        config: QlogConfig,
+        initial_dst_cid: ConnectionId,
+        side: crate::Side,
+        now: Instant,
+    ) -> Result<Self, qlog::Error> {
+        let vantage_point = VantagePoint {
+            name: None,
+            ty: match side {
+                Side::Client => qlog::VantagePointType::Client,
+                Side::Server => qlog::VantagePointType::Server,
+            },
+            flow: None,
+        };
+
+        let mut common_fields = CommonFields::default();
+        common_fields.group_id = Some(initial_dst_cid.to_string());
+
+        let trace = qlog::TraceSeq::new(
+            config.title.clone(),
+            config.description.clone(),
+            Some(common_fields),
+            Some(vantage_point),
+            vec![],
+        );
+
+        let start_time = config.start_time.unwrap_or(now);
+
+        let mut streamer = QlogStreamer::new(
+            config.title,
+            config.description,
+            start_time,
+            trace,
+            qlog::events::EventImportance::Extra,
+            config.writer,
+        );
+
+        streamer.start_log()?;
+        Ok(Self(Arc::new(Mutex::new(streamer))))
     }
 
-    fn emit_event_with_tuple_id(
-        &self,
-        initial_dst_cid: ConnectionId,
-        event: EventData,
-        now: Instant,
-        tuple: Option<String>,
-    ) {
+    fn emit_event(&self, event: EventData, now: Instant) {
+        self.emit_event_with_tuple_id(event, now, None);
+    }
+
+    fn emit_event_with_tuple_id(&self, event: EventData, now: Instant, tuple: Option<String>) {
         // Time will be overwritten by `add_event_with_instant`
         let mut event = Event::with_time(0.0, event);
-        event.group_id = Some(initial_dst_cid.to_string());
         event.tuple = tuple;
-
         let mut qlog_streamer = self.0.lock().unwrap();
         if let Err(e) = qlog_streamer.add_event_with_instant(event, now) {
             warn!("could not emit qlog event: {e}");
@@ -82,15 +115,17 @@ pub(crate) struct QlogSink {
 }
 
 impl QlogSink {
-    pub(crate) fn is_enabled(&self) -> bool {
-        #[cfg(feature = "qlog")]
-        {
-            self.stream.is_some()
-        }
-        #[cfg(not(feature = "qlog"))]
-        {
-            false
-        }
+    #[cfg(feature = "qlog")]
+    pub(crate) fn new(
+        config: QlogConfig,
+        initial_dst_cid: ConnectionId,
+        side: Side,
+        now: Instant,
+    ) -> Self {
+        let stream = QlogStream::new(config, initial_dst_cid, side, now)
+            .inspect_err(|err| warn!("failed to initialize qlog streamer: {err}"))
+            .ok();
+        Self { stream }
     }
 
     pub(crate) fn emit_connection_started(
@@ -100,7 +135,6 @@ impl QlogSink {
         rem_cid: ConnectionId,
         remote: SocketAddr,
         local_ip: Option<IpAddr>,
-        initial_dst_cid: ConnectionId,
         transport_params: &TransportParameters,
     ) {
         #[cfg(feature = "qlog")]
@@ -109,7 +143,6 @@ impl QlogSink {
                 return;
             };
             stream.emit_event(
-                initial_dst_cid,
                 EventData::ConnectionStarted(ConnectionStarted {
                     local: tuple_endpoint_info(local_ip, None, Some(loc_cid)),
                     remote: tuple_endpoint_info(
@@ -123,17 +156,11 @@ impl QlogSink {
 
             let params = transport_params.to_qlog(TransportInitiator::Local);
             let event = EventData::ParametersSet(params);
-            stream.emit_event(initial_dst_cid, event, now);
+            stream.emit_event(event, now);
         }
     }
 
-    pub(super) fn emit_recovery_metrics(
-        &self,
-        path_id: PathId,
-        path: &mut PathData,
-        now: Instant,
-        initial_dst_cid: ConnectionId,
-    ) {
+    pub(super) fn emit_recovery_metrics(&self, path_id: PathId, path: &mut PathData, now: Instant) {
         #[cfg(feature = "qlog")]
         {
             let Some(stream) = self.stream.as_ref() else {
@@ -144,7 +171,7 @@ impl QlogSink {
                 return;
             };
 
-            stream.emit_event(initial_dst_cid, EventData::MetricsUpdated(metrics), now);
+            stream.emit_event(EventData::MetricsUpdated(metrics), now);
         }
     }
 
@@ -155,7 +182,6 @@ impl QlogSink {
         loss_delay: Duration,
         space: SpaceId,
         now: Instant,
-        initial_dst_cid: ConnectionId,
     ) {
         #[cfg(feature = "qlog")]
         {
@@ -180,7 +206,7 @@ impl QlogSink {
                 is_mtu_probe_packet: None,
             };
 
-            stream.emit_event(initial_dst_cid, EventData::PacketLost(event), now);
+            stream.emit_event(EventData::PacketLost(event), now);
         }
     }
 
@@ -192,7 +218,7 @@ impl QlogSink {
             };
             let params = conn.peer_params.to_qlog_restored();
             let event = EventData::ParametersRestored(params);
-            stream.emit_event(conn.initial_dst_cid, event, now);
+            stream.emit_event(event, now);
         }
     }
 
@@ -204,17 +230,11 @@ impl QlogSink {
             };
             let params = conn.peer_params.to_qlog(TransportInitiator::Remote);
             let event = EventData::ParametersSet(params);
-            stream.emit_event(conn.initial_dst_cid, event, now);
+            stream.emit_event(event, now);
         }
     }
 
-    pub(super) fn emit_new_path(
-        &self,
-        initial_dst_cid: ConnectionId,
-        path_id: PathId,
-        remote: SocketAddr,
-        now: Instant,
-    ) {
+    pub(super) fn emit_new_path(&self, path_id: PathId, remote: SocketAddr, now: Instant) {
         #[cfg(feature = "qlog")]
         {
             let Some(stream) = self.stream.as_ref() else {
@@ -231,32 +251,22 @@ impl QlogSink {
                 )),
             };
 
-            stream.emit_event(initial_dst_cid, EventData::TupleAssigned(event), now);
+            stream.emit_event(EventData::TupleAssigned(event), now);
         }
     }
 
-    pub(super) fn emit_packet_sent(&self, conn: &Connection, packet: QlogSentPacket, now: Instant) {
+    pub(super) fn emit_packet_sent(&self, packet: QlogSentPacket, now: Instant) {
         #[cfg(feature = "qlog")]
         {
             let Some(stream) = self.stream.as_ref() else {
                 return;
             };
             let tuple_id = packet.inner.header.path_id.map(fmt_tuple_id);
-            stream.emit_event_with_tuple_id(
-                conn.initial_dst_cid,
-                EventData::PacketSent(packet.inner),
-                now,
-                tuple_id,
-            );
+            stream.emit_event_with_tuple_id(EventData::PacketSent(packet.inner), now, tuple_id);
         }
     }
 
-    pub(super) fn emit_packet_received(
-        &self,
-        conn: &Connection,
-        packet: QlogRecvPacket,
-        now: Instant,
-    ) {
+    pub(super) fn emit_packet_received(&self, packet: QlogRecvPacket, now: Instant) {
         #[cfg(feature = "qlog")]
         {
             let Some(stream) = self.stream.as_ref() else {
@@ -266,12 +276,7 @@ impl QlogSink {
             packet.emit_padding();
             let tuple_id = packet.inner.header.path_id.map(fmt_tuple_id);
             let event = packet.inner;
-            stream.emit_event_with_tuple_id(
-                conn.initial_dst_cid,
-                EventData::PacketReceived(event),
-                now,
-                tuple_id,
-            );
+            stream.emit_event_with_tuple_id(EventData::PacketReceived(event), now, tuple_id);
         }
     }
 }
@@ -743,13 +748,6 @@ impl From<crate::Dir> for StreamType {
             crate::Dir::Bi => Self::Bidirectional,
             crate::Dir::Uni => Self::Unidirectional,
         }
-    }
-}
-
-#[cfg(feature = "qlog")]
-impl From<Option<QlogStream>> for QlogSink {
-    fn from(stream: Option<QlogStream>) -> Self {
-        Self { stream }
     }
 }
 

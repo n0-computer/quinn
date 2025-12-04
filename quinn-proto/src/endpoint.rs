@@ -830,13 +830,15 @@ impl Endpoint {
         let side = side_args.side();
         let pref_addr_cid = side_args.pref_addr_cid();
 
-        transport_config.qlog_sink.emit_connection_started(
+        let qlog =
+            transport_config.create_qlog_sink(side_args.side(), addresses.remote, init_cid, now);
+
+        qlog.emit_connection_started(
             now,
             loc_cid,
             rem_cid,
             addresses.remote,
             addresses.local_ip,
-            init_cid,
             params,
         );
 
@@ -855,6 +857,7 @@ impl Endpoint {
             self.allow_mtud,
             rng_seed,
             side_args,
+            qlog,
         );
 
         let mut path_cids = PathLocalCids::default();

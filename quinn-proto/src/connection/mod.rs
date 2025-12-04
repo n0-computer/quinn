@@ -26,7 +26,7 @@ use crate::{
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     connection::{
-        qlog::{QlogRecvPacket, QlogSentPacket},
+        qlog::{QlogRecvPacket, QlogSentPacket, QlogSink},
         spaces::LostPacket,
         timer::{ConnTimer, PathTimer},
     },
@@ -315,6 +315,7 @@ pub struct Connection {
     abandoned_paths: FxHashSet<PathId>,
 
     iroh_hp: iroh_hp::State,
+    qlog: QlogSink,
 }
 
 impl Connection {
@@ -333,6 +334,7 @@ impl Connection {
         allow_mtud: bool,
         rng_seed: [u8; 32],
         side_args: SideArgs,
+        qlog: QlogSink,
     ) -> Self {
         let pref_addr_cid = side_args.pref_addr_cid();
         let path_validated = side_args.path_validated();
@@ -456,6 +458,7 @@ impl Connection {
 
             // iroh's nat traversal
             iroh_hp: Default::default(),
+            qlog,
         };
         if path_validated {
             this.on_path_validated(PathId::ZERO);
@@ -465,9 +468,7 @@ impl Connection {
             this.write_crypto();
             this.init_0rtt(now);
         }
-        this.config
-            .qlog_sink
-            .emit_new_path(this.initial_dst_cid, PathId::ZERO, remote, now);
+        this.qlog.emit_new_path(PathId::ZERO, remote, now);
         this
     }
 
@@ -840,9 +841,7 @@ impl Connection {
         self.spaces[SpaceId::Data]
             .number_spaces
             .insert(path_id, pn_space);
-        self.config
-            .qlog_sink
-            .emit_new_path(self.initial_dst_cid, path_id, remote, now);
+        self.qlog.emit_new_path(path_id, remote, now);
         &mut path.data
     }
 
@@ -1438,11 +1437,10 @@ impl Connection {
             );
         }
 
-        self.config.qlog_sink.emit_recovery_metrics(
+        self.qlog.emit_recovery_metrics(
             path_id,
             &mut self.paths.get_mut(&path_id).unwrap().data,
             now,
-            self.initial_dst_cid,
         );
 
         self.app_limited = transmit.is_empty() && !congestion_blocked;
@@ -1788,12 +1786,8 @@ impl Connection {
                 }
 
                 if let Some(path) = self.paths.get_mut(&path_id) {
-                    self.config.qlog_sink.emit_recovery_metrics(
-                        path_id,
-                        &mut path.data,
-                        now,
-                        self.initial_dst_cid,
-                    );
+                    self.qlog
+                        .emit_recovery_metrics(path_id, &mut path.data, now);
                 }
 
                 if was_anti_amplification_blocked {
@@ -1895,11 +1889,10 @@ impl Connection {
                         }
                         PathTimer::LossDetection => {
                             self.on_loss_detection_timeout(now, path_id);
-                            self.config.qlog_sink.emit_recovery_metrics(
+                            self.qlog.emit_recovery_metrics(
                                 path_id,
                                 &mut self.paths.get_mut(&path_id).unwrap().data,
                                 now,
-                                self.initial_dst_cid,
                             );
                         }
                         PathTimer::PathValidation => {
@@ -2827,14 +2820,8 @@ impl Connection {
                 let Some(info) = self.spaces[pn_space].for_path(path_id).take(packet) else {
                     continue;
                 };
-                self.config.qlog_sink.emit_packet_lost(
-                    packet,
-                    &info,
-                    loss_delay,
-                    pn_space,
-                    now,
-                    self.initial_dst_cid,
-                );
+                self.qlog
+                    .emit_packet_lost(packet, &info, loss_delay, pn_space, now);
                 self.paths
                     .get_mut(&path_id)
                     .unwrap()
@@ -3237,16 +3224,15 @@ impl Connection {
             packet,
             &mut qlog,
         )?;
-        self.config.qlog_sink.emit_packet_received(self, qlog, now);
+        self.qlog.emit_packet_received(qlog, now);
         if let Some(data) = remaining {
             self.handle_coalesced(now, remote, path_id, ecn, data);
         }
 
-        self.config.qlog_sink.emit_recovery_metrics(
+        self.qlog.emit_recovery_metrics(
             path_id,
             &mut self.paths.get_mut(&path_id).unwrap().data,
             now,
-            self.initial_dst_cid,
         );
 
         Ok(())
@@ -3276,9 +3262,7 @@ impl Connection {
                         ..params
                     };
                     self.set_peer_params(params);
-                    self.config
-                        .qlog_sink
-                        .emit_peer_transport_params_restored(self, now);
+                    self.qlog.emit_peer_transport_params_restored(self, now);
                 }
                 Err(e) => {
                     error!("session ticket has malformed transport parameters: {}", e);
@@ -3581,12 +3565,12 @@ impl Connection {
                     .map(|pns| &mut pns.dedup);
                 if number.zip(dedup).is_some_and(|(n, d)| d.insert(n)) {
                     debug!("discarding possible duplicate packet");
-                    self.config.qlog_sink.emit_packet_received(self, qlog, now);
+                    self.qlog.emit_packet_received(qlog, now);
                     return;
                 } else if self.state.is_handshake() && packet.header.is_short() {
                     // TODO: SHOULD buffer these to improve reordering tolerance.
                     trace!("dropping short packet during handshake");
-                    self.config.qlog_sink.emit_packet_received(self, qlog, now);
+                    self.qlog.emit_packet_received(qlog, now);
                     return;
                 } else {
                     if let Header::Initial(InitialHeader { ref token, .. }) = packet.header {
@@ -3596,7 +3580,7 @@ impl Connection {
                                 // packets can be spoofed, so we discard rather than killing the
                                 // connection.
                                 warn!("discarding Initial with invalid retry token");
-                                self.config.qlog_sink.emit_packet_received(self, qlog, now);
+                                self.qlog.emit_packet_received(qlog, now);
                                 return;
                             }
                         }
@@ -3628,7 +3612,7 @@ impl Connection {
                     let res = self
                         .process_decrypted_packet(now, remote, path_id, number, packet, &mut qlog);
 
-                    self.config.qlog_sink.emit_packet_received(self, qlog, now);
+                    self.qlog.emit_packet_received(qlog, now);
                     res
                 }
             }
@@ -5625,9 +5609,7 @@ impl Connection {
         }
 
         self.set_peer_params(params);
-        self.config
-            .qlog_sink
-            .emit_peer_transport_params_received(self, now);
+        self.qlog.emit_peer_transport_params_received(self, now);
 
         Ok(())
     }
