@@ -313,25 +313,25 @@ impl State {
 
     pub(crate) fn client_side(&self) -> Result<&ClientState, Error> {
         match self {
-            State::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            State::ClientSide(client_side) => Ok(client_side),
-            State::ServerSide(_) => Err(Error::WrongConnectionSide),
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(client_side) => Ok(client_side),
+            Self::ServerSide(_) => Err(Error::WrongConnectionSide),
         }
     }
 
     pub(crate) fn client_side_mut(&mut self) -> Result<&mut ClientState, Error> {
         match self {
-            State::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            State::ClientSide(client_side) => Ok(client_side),
-            State::ServerSide(_) => Err(Error::WrongConnectionSide),
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(client_side) => Ok(client_side),
+            Self::ServerSide(_) => Err(Error::WrongConnectionSide),
         }
     }
 
     pub(crate) fn server_side_mut(&mut self) -> Result<&mut ServerState, Error> {
         match self {
-            State::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            State::ClientSide(_) => Err(Error::WrongConnectionSide),
-            State::ServerSide(server_side) => Ok(server_side),
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(_) => Err(Error::WrongConnectionSide),
+            Self::ServerSide(server_side) => Ok(server_side),
         }
     }
 
@@ -347,12 +347,12 @@ impl State {
         address: SocketAddr,
     ) -> Result<Option<AddAddress>, Error> {
         match self {
-            State::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            State::ClientSide(client_state) => {
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(client_state) => {
                 client_state.add_local_address((address.ip(), address.port()))?;
                 Ok(None)
             }
-            State::ServerSide(server_state) => {
+            Self::ServerSide(server_state) => {
                 server_state.add_local_address((address.ip(), address.port()))
             }
         }
@@ -370,25 +370,25 @@ impl State {
     ) -> Result<Option<RemoveAddress>, Error> {
         let address = &(address.ip(), address.port());
         match self {
-            State::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            State::ClientSide(client_state) => {
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(client_state) => {
                 client_state.remove_local_address(address);
                 Ok(None)
             }
-            State::ServerSide(server_state) => Ok(server_state.remove_local_address(address)),
+            Self::ServerSide(server_state) => Ok(server_state.remove_local_address(address)),
         }
     }
 
     pub(crate) fn get_local_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, Error> {
         match self {
-            State::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            State::ClientSide(client_state) => Ok(client_state
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(client_state) => Ok(client_state
                 .local_addresses
                 .iter()
                 .copied()
                 .map(Into::into)
                 .collect()),
-            State::ServerSide(server_state) => Ok(server_state
+            Self::ServerSide(server_state) => Ok(server_state
                 .local_addresses
                 .keys()
                 .copied()
