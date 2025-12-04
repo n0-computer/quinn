@@ -388,6 +388,7 @@ impl Endpoint {
                 token_store: config.token_store,
                 server_name: server_name.into(),
             },
+            &params,
         );
         Ok((ch, conn))
     }
@@ -656,6 +657,7 @@ impl Endpoint {
                 pref_addr_cid,
                 path_validated: remote_address_validated,
             },
+            &params,
         );
         self.index.insert_initial(dst_cid, ch);
 
@@ -820,11 +822,24 @@ impl Endpoint {
         tls: Box<dyn crypto::Session>,
         transport_config: Arc<TransportConfig>,
         side_args: SideArgs,
+        // Only used for qlog.
+        params: &TransportParameters,
     ) -> Connection {
         let mut rng_seed = [0; 32];
         self.rng.fill_bytes(&mut rng_seed);
         let side = side_args.side();
         let pref_addr_cid = side_args.pref_addr_cid();
+
+        transport_config.qlog_sink.emit_connection_started(
+            now,
+            loc_cid,
+            rem_cid,
+            addresses.remote,
+            addresses.local_ip,
+            init_cid,
+            params,
+        );
+
         let conn = Connection::new(
             self.config.clone(),
             transport_config,

@@ -463,16 +463,8 @@ impl Connection {
         if side.is_client() {
             // Kick off the connection
             this.write_crypto();
-            this.init_0rtt();
+            this.init_0rtt(now);
         }
-        this.config.qlog_sink.emit_connection_started(
-            now,
-            loc_cid,
-            rem_cid,
-            remote,
-            local_ip,
-            this.initial_dst_cid,
-        );
         this.config
             .qlog_sink
             .emit_new_path(this.initial_dst_cid, PathId::ZERO, remote, now);
@@ -3260,7 +3252,7 @@ impl Connection {
         Ok(())
     }
 
-    fn init_0rtt(&mut self) {
+    fn init_0rtt(&mut self, now: Instant) {
         let (header, packet) = match self.crypto.early_crypto() {
             Some(x) => x,
             None => return,
@@ -3284,6 +3276,9 @@ impl Connection {
                         ..params
                     };
                     self.set_peer_params(params);
+                    self.config
+                        .qlog_sink
+                        .emit_peer_transport_params_restored(self, now);
                 }
                 Err(e) => {
                     error!("session ticket has malformed transport parameters: {}", e);
@@ -3920,7 +3915,7 @@ impl Connection {
                         self.endpoint_events
                             .push_back(EndpointEventInner::ResetToken(path_id, remote, token));
                     }
-                    self.handle_peer_params(params, loc_cid, rem_cid)?;
+                    self.handle_peer_params(params, loc_cid, rem_cid, now)?;
                     self.issue_first_cids(now);
                 } else {
                     // Server-only
@@ -3980,9 +3975,9 @@ impl Connection {
                                 reason: "transport parameters missing".into(),
                                 crypto: None,
                             })?;
-                    self.handle_peer_params(params, loc_cid, rem_cid)?;
+                    self.handle_peer_params(params, loc_cid, rem_cid, now)?;
                     self.issue_first_cids(now);
-                    self.init_0rtt();
+                    self.init_0rtt(now);
                 }
                 Ok(())
             }
@@ -5612,6 +5607,7 @@ impl Connection {
         params: TransportParameters,
         loc_cid: ConnectionId,
         rem_cid: ConnectionId,
+        now: Instant,
     ) -> Result<(), TransportError> {
         if Some(self.orig_rem_cid) != params.initial_src_cid
             || (self.side.is_client()
@@ -5629,6 +5625,9 @@ impl Connection {
         }
 
         self.set_peer_params(params);
+        self.config
+            .qlog_sink
+            .emit_peer_transport_params_received(self, now);
 
         Ok(())
     }

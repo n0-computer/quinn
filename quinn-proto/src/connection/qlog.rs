@@ -22,9 +22,10 @@ use qlog::{
     events::{
         ApplicationError, ConnectionClosedFrameError, Event, EventData, RawInfo, TupleEndpointInfo,
         quic::{
-            self, AckedRanges, ConnectionStarted, ErrorSpace, PacketHeader, PacketLost,
-            PacketLostTrigger, PacketReceived, PacketSent, PacketType, QuicFrame, StreamType,
-            TupleAssigned,
+            self, AckedRanges, AddressDiscoveryRole, ConnectionStarted, ErrorSpace, PacketHeader,
+            PacketLost, PacketLostTrigger, PacketReceived, PacketSent, PacketType,
+            ParametersRestored, ParametersSet, PreferredAddress, QuicFrame, StreamType,
+            TransportInitiator, TupleAssigned,
         },
     },
     streamer::QlogStreamer,
@@ -38,6 +39,7 @@ use crate::{
     frame::{EcnCounts, StreamMeta},
     packet::{Header, SpaceId},
     range_set::ArrayRangeSet,
+    transport_parameters::TransportParameters,
 };
 #[cfg(feature = "qlog")]
 use crate::{TransportErrorCode, frame::Close};
@@ -91,7 +93,7 @@ impl QlogSink {
         }
     }
 
-    pub(super) fn emit_connection_started(
+    pub(crate) fn emit_connection_started(
         &self,
         now: Instant,
         loc_cid: ConnectionId,
@@ -99,13 +101,13 @@ impl QlogSink {
         remote: SocketAddr,
         local_ip: Option<IpAddr>,
         initial_dst_cid: ConnectionId,
+        transport_params: &TransportParameters,
     ) {
         #[cfg(feature = "qlog")]
         {
             let Some(stream) = self.stream.as_ref() else {
                 return;
             };
-            // TODO: Review fields. The standard has changed since.
             stream.emit_event(
                 initial_dst_cid,
                 EventData::ConnectionStarted(ConnectionStarted {
@@ -118,6 +120,10 @@ impl QlogSink {
                 }),
                 now,
             );
+
+            let params = transport_params.to_qlog(TransportInitiator::Local);
+            let event = EventData::ParametersSet(params);
+            stream.emit_event(initial_dst_cid, event, now);
         }
     }
 
@@ -175,6 +181,30 @@ impl QlogSink {
             };
 
             stream.emit_event(initial_dst_cid, EventData::PacketLost(event), now);
+        }
+    }
+
+    pub(super) fn emit_peer_transport_params_restored(&self, conn: &Connection, now: Instant) {
+        #[cfg(feature = "qlog")]
+        {
+            let Some(stream) = self.stream.as_ref() else {
+                return;
+            };
+            let params = conn.peer_params.to_qlog_restored();
+            let event = EventData::ParametersRestored(params);
+            stream.emit_event(conn.initial_dst_cid, event, now);
+        }
+    }
+
+    pub(super) fn emit_peer_transport_params_received(&self, conn: &Connection, now: Instant) {
+        #[cfg(feature = "qlog")]
+        {
+            let Some(stream) = self.stream.as_ref() else {
+                return;
+            };
+            let params = conn.peer_params.to_qlog(TransportInitiator::Remote);
+            let event = EventData::ParametersSet(params);
+            stream.emit_event(conn.initial_dst_cid, event, now);
         }
     }
 
@@ -807,4 +837,109 @@ fn transport_error(code: TransportErrorCode) -> (Option<quic::TransportError>, O
 #[cfg(feature = "qlog")]
 fn fmt_tuple_id(path_id: u64) -> String {
     format!("p{path_id}")
+}
+
+#[cfg(feature = "qlog")]
+impl TransportParameters {
+    fn to_qlog(&self, initiator: TransportInitiator) -> ParametersSet {
+        ParametersSet {
+            initiator: Some(initiator),
+            resumption_allowed: None,
+            early_data_enabled: None,
+            tls_cipher: None,
+            original_destination_connection_id: self
+                .original_dst_cid
+                .as_ref()
+                .map(ToString::to_string),
+            initial_source_connection_id: self.initial_src_cid.as_ref().map(ToString::to_string),
+            retry_source_connection_id: self.retry_src_cid.as_ref().map(ToString::to_string),
+            stateless_reset_token: self.stateless_reset_token.as_ref().map(ToString::to_string),
+            disable_active_migration: Some(self.disable_active_migration),
+            max_idle_timeout: Some(self.max_idle_timeout.into()),
+            max_udp_payload_size: Some(self.max_udp_payload_size.into()),
+            ack_delay_exponent: Some(self.ack_delay_exponent.into()),
+            max_ack_delay: Some(self.max_ack_delay.into()),
+            active_connection_id_limit: Some(self.active_connection_id_limit.into()),
+            initial_max_data: Some(self.initial_max_data.into()),
+            initial_max_stream_data_bidi_local: Some(
+                self.initial_max_stream_data_bidi_local.into(),
+            ),
+            initial_max_stream_data_bidi_remote: Some(
+                self.initial_max_stream_data_bidi_remote.into(),
+            ),
+            initial_max_stream_data_uni: Some(self.initial_max_stream_data_uni.into()),
+            initial_max_streams_bidi: Some(self.initial_max_streams_bidi.into()),
+            initial_max_streams_uni: Some(self.initial_max_streams_uni.into()),
+            preferred_address: self.preferred_address.as_ref().map(Into::into),
+            min_ack_delay: self.min_ack_delay.map(Into::into),
+            address_discovery: self.address_discovery_role.to_qlog(),
+            initial_max_path_id: self.initial_max_path_id.map(|p| p.as_u32() as u64),
+            max_remote_nat_traversal_addresses: self
+                .max_remote_nat_traversal_addresses
+                .map(|v| u64::from(v.get())),
+            max_datagram_frame_size: self.max_datagram_frame_size.map(Into::into),
+            grease_quic_bit: Some(self.grease_quic_bit),
+            unknown_parameters: Default::default(),
+        }
+    }
+
+    fn to_qlog_restored(&self) -> ParametersRestored {
+        ParametersRestored {
+            disable_active_migration: Some(self.disable_active_migration),
+            max_idle_timeout: Some(self.max_idle_timeout.into()),
+            max_udp_payload_size: Some(self.max_udp_payload_size.into()),
+            active_connection_id_limit: Some(self.active_connection_id_limit.into()),
+            initial_max_data: Some(self.initial_max_data.into()),
+            initial_max_stream_data_bidi_local: Some(
+                self.initial_max_stream_data_bidi_local.into(),
+            ),
+            initial_max_stream_data_bidi_remote: Some(
+                self.initial_max_stream_data_bidi_remote.into(),
+            ),
+            initial_max_stream_data_uni: Some(self.initial_max_stream_data_uni.into()),
+            initial_max_streams_bidi: Some(self.initial_max_streams_bidi.into()),
+            initial_max_streams_uni: Some(self.initial_max_streams_uni.into()),
+            max_datagram_frame_size: self.max_datagram_frame_size.map(Into::into),
+            grease_quic_bit: Some(self.grease_quic_bit),
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl From<&crate::transport_parameters::PreferredAddress> for PreferredAddress {
+    fn from(value: &crate::transport_parameters::PreferredAddress) -> Self {
+        let port_v4 = value.address_v4.map(|addr| addr.port()).unwrap_or_default();
+        let port_v6 = value.address_v6.map(|addr| addr.port()).unwrap_or_default();
+        let ip_v4 = value
+            .address_v4
+            .map(|addr| addr.ip().to_string())
+            .unwrap_or_default();
+        let ip_v6 = value
+            .address_v6
+            .map(|addr| addr.ip().to_string())
+            .unwrap_or_default();
+        let connection_id = value.connection_id.to_string();
+        let stateless_reset_token = value.stateless_reset_token.to_string();
+
+        PreferredAddress {
+            ip_v4,
+            ip_v6,
+            port_v4,
+            port_v6,
+            connection_id,
+            stateless_reset_token,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl crate::address_discovery::Role {
+    fn to_qlog(&self) -> Option<AddressDiscoveryRole> {
+        match self {
+            Self::SendOnly => Some(AddressDiscoveryRole::SendOnly),
+            Self::ReceiveOnly => Some(AddressDiscoveryRole::ReceiveOnly),
+            Self::Both => Some(AddressDiscoveryRole::Both),
+            Self::Disabled => None,
+        }
+    }
 }
