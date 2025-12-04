@@ -851,6 +851,22 @@ pub(super) struct RoutingTable {
 }
 
 impl RoutingTable {
+    pub(super) fn from_routes(
+        client_routes: Vec<(SocketAddr, usize)>,
+        server_routes: Vec<(SocketAddr, usize)>,
+    ) -> Self {
+        for (_, idx) in client_routes.iter() {
+            assert!(*idx < server_routes.len(), "routing table corrupt");
+        }
+        for (_, idx) in server_routes.iter() {
+            assert!(*idx < client_routes.len(), "routing table corrupt");
+        }
+        Self {
+            client_routes,
+            server_routes,
+        }
+    }
+
     pub(super) fn simple_symmetric(
         client_addrs: impl IntoIterator<Item = SocketAddr>,
         server_addrs: impl IntoIterator<Item = SocketAddr>,
@@ -895,5 +911,27 @@ impl RoutingTable {
             .find(|(addr, _)| *addr == client_addr)?;
         let (server_addr, _) = self.server_routes.get(*server_addr_idx)?;
         Some(*server_addr)
+    }
+
+    /// Adds a new route from an existing server address (identified by index) to a new client address.
+    pub(super) fn add_client_route(&mut self, client_addr: SocketAddr, server_addr_idx: usize) {
+        assert!(server_addr_idx < self.server_routes.len());
+        self.client_routes.push((client_addr, server_addr_idx));
+    }
+
+    /// Adds a new route from an existing client address (identified by index) to a new server address.
+    pub(super) fn add_server_route(&mut self, server_addr: SocketAddr, client_addr_idx: usize) {
+        assert!(client_addr_idx < self.client_routes.len());
+        self.server_routes.push((server_addr, client_addr_idx));
+    }
+
+    pub(super) fn client_addr(&self, idx: usize) -> Option<SocketAddr> {
+        let (addr, _) = self.client_routes.get(idx)?;
+        Some(*addr)
+    }
+
+    pub(super) fn server_addr(&self, idx: usize) -> Option<SocketAddr> {
+        let (addr, _) = self.server_routes.get(idx)?;
+        Some(*addr)
     }
 }
