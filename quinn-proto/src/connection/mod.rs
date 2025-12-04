@@ -4674,44 +4674,10 @@ impl Connection {
                         }
                     };
 
-                    match server_state.handle_reach_out(reach_out) {
-                        Ok(None) => {
-                            // no action required here
-                        }
-                        Ok(Some(info)) => {
-                            let iroh_hp::RandDataNeeded {
-                                ip,
-                                port,
-                                round,
-                                is_new_round,
-                            } = info;
-                            if is_new_round {
-                                // TODO(@divma): this depends on round starting on 1 right now,
-                                // because the round should be greater to the default one, which is
-                                // zero
-                                self.spaces[SpaceId::Data].pending.hole_punch_round = round;
-                                self.spaces[SpaceId::Data].pending.hole_punch_to.clear();
-                            }
-
-                            self.spaces[SpaceId::Data]
-                                .pending
-                                .hole_punch_to
-                                .push((ip, port));
-                        }
-                        Err(iroh_hp::Error::WrongConnectionSide) => {
-                            return Err(TransportError::PROTOCOL_VIOLATION(
-                                "server sent REACH_OUT frames for nat traversal",
-                            ));
-                        }
-                        Err(iroh_hp::Error::TooManyAddresses) => {
-                            return Err(TransportError::PROTOCOL_VIOLATION(
-                                "client exceeded allowed REACH_OUT frames for this round",
-                            ));
-                        }
-                        Err(error) => {
-                            warn!(%error,"error handling REACH_OUT frame");
-                            // TODO(@divma): check if this is reachable
-                        }
+                    if let Err(err) = server_state.handle_reach_out(reach_out) {
+                        return Err(TransportError::PROTOCOL_VIOLATION(format!(
+                            "Nat traversal(REACH_OUT): {err}"
+                        )));
                     }
                 }
             }
