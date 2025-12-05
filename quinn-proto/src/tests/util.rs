@@ -637,11 +637,8 @@ pub(super) fn subscribe() -> tracing::subscriber::DefaultGuard {
         .with_line_number(true)
         .with_writer(|| TestWriter);
     // tracing uses std::time to trace time, which panics in wasm.
-    // #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    let builder = builder
-        .without_time()
-        .with_line_number(false)
-        .with_target(false);
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    let builder = builder.without_time();
     tracing::subscriber::set_default(builder.finish())
 }
 
