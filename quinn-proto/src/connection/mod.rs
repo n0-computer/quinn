@@ -4076,6 +4076,17 @@ impl Connection {
             ack_eliciting |= frame.is_ack_eliciting();
 
             // Process frames
+            if frame.is_multipath_frame() && packet.header.space() != SpaceId::Data {
+                // See also https://www.ietf.org/archive/id/draft-ietf-quic-multipath-17.html#section-4-1:
+                // > All frames defined in this document MUST only be sent in 1-RTT packets.
+                // > If an endpoint receives a multipath-specific frame in a different packet type, it MUST close the
+                // > connection with an error of type PROTOCOL_VIOLATION.
+                return Err(TransportError::PROTOCOL_VIOLATION(format!(
+                    "{} must be send in 1RTT space",
+                    frame.ty()
+                )));
+            }
+
             match frame {
                 Frame::Padding | Frame::Ping => {}
                 Frame::Crypto(frame) => {
@@ -4182,6 +4193,7 @@ impl Connection {
                     is_probing_packet = false;
                 }
             }
+
             match frame {
                 Frame::Crypto(frame) => {
                     self.read_crypto(SpaceId::Data, &frame, payload_len)?;

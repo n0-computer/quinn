@@ -263,6 +263,19 @@ impl Frame {
             Self::Ack(_) | Self::PathAck(_) | Self::Padding | Self::Close(_)
         )
     }
+
+    pub(crate) fn is_multipath_frame(&self) -> bool {
+        matches!(
+            *self,
+            Self::PathAck(_)
+                | Self::PathAbandon(_)
+                | Self::PathBackup(_)
+                | Self::PathAvailable(_)
+                | Self::MaxPathId(_)
+                | Self::PathsBlocked(_)
+                | Self::PathCidsBlocked(_)
+        )
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
