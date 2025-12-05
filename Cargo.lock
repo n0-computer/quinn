@@ -2398,9 +2398,9 @@ dependencies = [
 
 [[package]]
 name = "sorted-index-buffer"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6dd48f59ffbab18adffc51941659d20aeb547c555f255a9831076efaf63fc1d"
+checksum = "2d96a9d278ef78c991bf2faabd578b41199037846ff96fbb093f84bb50adaa00"
 
 [[package]]
 name = "stable_deref_trait"
