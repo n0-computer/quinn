@@ -2807,6 +2807,14 @@ impl Connection {
         self.paths.remove(&path_id);
         self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
 
+        // Cleanup pending CIDs for this path
+        self.spaces[SpaceId::Data]
+            .pending
+            .new_cids
+            .retain(|cid| cid.path_id != path_id);
+
+        // TODO: cleanup other path data in Retransmits
+
         let path_stats = self.path_stats.remove(&path_id).unwrap_or_default();
         self.events.push_back(
             PathEvent::Abandoned {
@@ -4362,10 +4370,20 @@ impl Connection {
                         Some(cid_state) => {
                             let allow_more_cids = cid_state
                                 .on_cid_retirement(sequence, self.peer_params.issue_cids_limit())?;
+                            let path_id = path_id.unwrap_or_default();
+
+                            // If the path has closed, we do not issue more CIDs for this path
+                            // For details see  https://www.ietf.org/archive/id/draft-ietf-quic-multipath-17.html#section-3.2.2
+                            // > an endpoint SHOULD provide new connection IDs for that path, if still open, using PATH_NEW_CONNECTION_ID frames.
+                            let has_path = self.paths.get(&path_id).is_some();
+
+                            tracing::info!(%path_id, allow_more_cids, has_path, "allow more cids after retiring");
+                            let allow_more_cids = allow_more_cids && has_path;
+
                             self.endpoint_events
                                 .push_back(EndpointEventInner::RetireConnectionId(
                                     now,
-                                    path_id.unwrap_or_default(),
+                                    path_id,
                                     sequence,
                                     allow_more_cids,
                                 ));
@@ -5406,10 +5424,8 @@ impl Connection {
                 .local_cid_state
                 .get(&issued.path_id)
                 .map(|cid_state| cid_state.retire_prior_to())
-                .unwrap_or_else(|| {
-                    error!(path_id = ?issued.path_id, "Missing local CID state");
-                    0
-                });
+                .expect("missing local CID state");
+
             let cid_path_id = match is_multipath_negotiated {
                 true => {
                     trace!(
