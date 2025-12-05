@@ -4072,10 +4072,9 @@ impl Connection {
                 // > All frames defined in this document MUST only be sent in 1-RTT packets.
                 // > If an endpoint receives a multipath-specific frame in a different packet type, it MUST close the
                 // > connection with an error of type PROTOCOL_VIOLATION.
-                return Err(TransportError::PROTOCOL_VIOLATION(format!(
-                    "{} must be send in 1RTT space",
-                    frame.ty()
-                )));
+                return Err(TransportError::PROTOCOL_VIOLATION(
+                    "illegal frame type in handshake",
+                ));
             }
 
             match frame {
@@ -4168,7 +4167,17 @@ impl Connection {
                             "illegal frame type in 0-RTT",
                         ));
                     }
-                    _ => {}
+                    _ => {
+                        if frame.is_multipath_frame() {
+                            // See also https://www.ietf.org/archive/id/draft-ietf-quic-multipath-17.html#section-4-1:
+                            // > All frames defined in this document MUST only be sent in 1-RTT packets.
+                            // > If an endpoint receives a multipath-specific frame in a different packet type, it MUST close the
+                            // > connection with an error of type PROTOCOL_VIOLATION.
+                            return Err(TransportError::PROTOCOL_VIOLATION(
+                                "illegal frame type in 0-RTT",
+                            ));
+                        }
+                    }
                 }
             }
             ack_eliciting |= frame.is_ack_eliciting();
