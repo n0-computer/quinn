@@ -48,6 +48,7 @@ use crate::{VarInt, connection::ConnectionRef};
 /// [`WriteError::Stopped`]: crate::WriteError::Stopped
 /// [`id`]: RecvStream::id
 /// [`Connection::accept_bi`]: crate::Connection::accept_bi
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug)]
 pub struct RecvStream {
     conn: ConnectionRef,
@@ -469,6 +470,7 @@ impl Future for ReadToEnd<'_> {
 }
 
 /// Errors from [`RecvStream::read_to_end`]
+// IROH API STABILITY: This enum is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ReadToEndError {
     /// An error occurred during reading
@@ -522,6 +524,7 @@ impl Drop for RecvStream {
 }
 
 /// Errors that arise from reading from a stream.
+// IROH API STABILITY: This enum is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ReadError {
     /// The peer abandoned transmitting data on this stream
@@ -582,6 +585,7 @@ impl From<ReadError> for io::Error {
 }
 
 /// Errors that arise while waiting for a stream to be reset
+// IROH API STABILITY: This enum is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ResetError {
     /// The connection was lost
@@ -655,6 +659,7 @@ impl Future for ReadExact<'_> {
 }
 
 /// Errors that arise from reading from a stream.
+// IROH API STABILITY: This enum is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ReadExactError {
     /// The stream finished before all bytes were read

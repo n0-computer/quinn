@@ -174,6 +174,7 @@ pub const DEFAULT_SUPPORTED_VERSIONS: &[u32] = &[
 ];
 
 /// Whether an endpoint was the initiator of a connection
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Side {
@@ -208,6 +209,7 @@ impl ops::Not for Side {
 }
 
 /// Whether a stream communicates data in both directions or only from the initiator
+// IROH API STABILITY: This enum is used in the public iroh API, be careful not to make breaking changes.
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Dir {
@@ -234,6 +236,7 @@ impl fmt::Display for Dir {
 }
 
 /// Identifier for a stream within a particular connection
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct StreamId(u64);

@@ -13,6 +13,7 @@ use crate::{
 /// # Note
 ///
 /// The `PartialEq` implementation for this type performs comparison on the `code` field only
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Error {
@@ -73,6 +74,7 @@ impl From<Code> for Error {
 }
 
 /// Transport-level error code
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Code(u64);
 

@@ -632,6 +632,7 @@ impl fmt::Debug for TransportConfig {
 /// The defaults produce behavior slightly different than the behavior without this extension,
 /// because they change the way reordered packets are handled (see
 /// [`AckFrequencyConfig::reordering_threshold`] for details).
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Clone, Debug)]
 pub struct AckFrequencyConfig {
     pub(crate) ack_eliciting_threshold: VarInt,
@@ -856,6 +857,7 @@ impl Default for QlogConfig {
 /// There is no guarantee that the MTU on the path between A and B is the same as the MTU of the
 /// path between B and A. Therefore, each peer in the connection needs to run MTU discovery
 /// independently in order to discover the path's MTU.
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Clone, Debug)]
 pub struct MtuDiscoveryConfig {
     pub(crate) interval: Duration,
@@ -933,6 +935,7 @@ impl Default for MtuDiscoveryConfig {
 /// # Ok(())
 /// # }
 /// ```
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Default, Copy, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct IdleTimeout(VarInt);
 

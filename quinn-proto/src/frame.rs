@@ -21,6 +21,7 @@ use crate::{
 use arbitrary::Arbitrary;
 
 /// A QUIC frame type
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct FrameType(u64);
 
@@ -405,6 +406,7 @@ impl From<ApplicationClose> for Close {
 }
 
 /// Reason given by the transport for closing the connection
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionClose {
     /// Class of error as encoded in the specification
@@ -457,6 +459,7 @@ impl ConnectionClose {
 }
 
 /// Reason given by an application for closing the connection
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplicationClose {
     /// Application-specific reason code

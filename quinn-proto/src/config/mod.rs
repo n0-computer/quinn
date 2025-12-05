@@ -196,6 +196,7 @@ impl Default for EndpointConfig {
 /// Parameters governing incoming connections
 ///
 /// Default values should be suitable for most internet applications.
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Clone)]
 pub struct ServerConfig {
     /// Transport configuration to use for incoming connections
@@ -480,6 +481,7 @@ impl fmt::Debug for ServerConfig {
 ///
 /// These tokens should not be confused with "stateless reset tokens," which are similarly named
 /// but entirely unrelated.
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Clone)]
 pub struct ValidationTokenConfig {
     pub(crate) lifetime: Duration,
@@ -683,6 +685,7 @@ impl From<VarIntBoundsExceeded> for ConfigError {
 /// Object to get current [`SystemTime`]
 ///
 /// This exists to allow system time to be mocked in tests, or wherever else desired.
+// IROH API STABILITY: This trait is used in the public iroh API, be careful not to make breaking changes.
 pub trait TimeSource: Send + Sync {
     /// Get [`SystemTime::now()`](SystemTime::now) or the mocked equivalent
     fn now(&self) -> SystemTime;

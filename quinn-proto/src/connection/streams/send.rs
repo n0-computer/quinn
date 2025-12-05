@@ -244,6 +244,7 @@ pub(super) trait BytesSource {
 }
 
 /// Indicates how many bytes and chunks had been transferred in a write operation
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Written {
     /// The amount of bytes which had been written

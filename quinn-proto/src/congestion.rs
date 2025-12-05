@@ -14,6 +14,7 @@ pub use cubic::{Cubic, CubicConfig};
 pub use new_reno::{NewReno, NewRenoConfig};
 
 /// Common interface for different congestion controllers
+// IROH API STABILITY: This trait is used in the public iroh API, be careful not to make breaking changes.
 pub trait Controller: Send + Sync {
     /// One or more packets were just sent
     #[allow(unused_variables)]
@@ -92,6 +93,7 @@ pub trait Controller: Send + Sync {
 }
 
 /// Common congestion controller metrics
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Default)]
 #[non_exhaustive]
 pub struct ControllerMetrics {
@@ -104,6 +106,7 @@ pub struct ControllerMetrics {
 }
 
 /// Constructs controllers on demand
+// IROH API STABILITY: This trait is used in the public iroh API, be careful not to make breaking changes.
 pub trait ControllerFactory {
     /// Construct a fresh `Controller`
     fn build(self: Arc<Self>, now: Instant, current_mtu: u16) -> Box<dyn Controller>;

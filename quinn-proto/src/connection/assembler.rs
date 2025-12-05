@@ -222,6 +222,7 @@ impl Assembler {
 }
 
 /// A chunk of data from the receive stream
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Chunk {
     /// The offset in the stream

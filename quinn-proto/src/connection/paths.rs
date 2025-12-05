@@ -531,6 +531,7 @@ impl RecoveryMetrics {
 }
 
 /// RTT estimation for a particular network path
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Copy, Clone)]
 pub struct RttEstimator {
     /// The most recent RTT measurement made when receiving an ack for a previously unacked packet

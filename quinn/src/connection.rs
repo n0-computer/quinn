@@ -936,6 +936,7 @@ impl Connection {
 
 pin_project! {
     /// Future produced by [`Connection::open_uni`]
+    // IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
     pub struct OpenUni<'a> {
         conn: &'a ConnectionRef,
         #[pin]
@@ -954,6 +955,7 @@ impl Future for OpenUni<'_> {
 
 pin_project! {
     /// Future produced by [`Connection::open_bi`]
+    // IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
     pub struct OpenBi<'a> {
         conn: &'a ConnectionRef,
         #[pin]
@@ -1002,6 +1004,7 @@ fn poll_open<'a>(
 
 pin_project! {
     /// Future produced by [`Connection::accept_uni`]
+    // IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
     pub struct AcceptUni<'a> {
         conn: &'a ConnectionRef,
         #[pin]
@@ -1021,6 +1024,7 @@ impl Future for AcceptUni<'_> {
 
 pin_project! {
     /// Future produced by [`Connection::accept_bi`]
+    // IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
     pub struct AcceptBi<'a> {
         conn: &'a ConnectionRef,
         #[pin]
@@ -1070,6 +1074,7 @@ fn poll_accept<'a>(
 
 pin_project! {
     /// Future produced by [`Connection::read_datagram`]
+    // IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
     pub struct ReadDatagram<'a> {
         conn: &'a ConnectionRef,
         #[pin]
@@ -1285,6 +1290,7 @@ pub(crate) struct ConnectionInner {
 ///
 /// This contains a weak reference to the connection so will not itself keep the connection
 /// alive.
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Clone)]
 pub struct WeakConnectionHandle(Weak<ConnectionInner>);
 
@@ -1720,6 +1726,7 @@ fn wake_all_notify(wakers: &mut FxHashMap<StreamId, Arc<Notify>>) {
 }
 
 /// Errors that can arise when sending a datagram
+// IROH API STABILITY: This enum is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Error, Clone, Eq, PartialEq)]
 pub enum SendDatagramError {
     /// The peer does not support receiving datagram frames

@@ -28,6 +28,7 @@ use crate::{
 /// > additional information about clients to further narrow applicability or reuse.
 ///
 /// `TokenLog` pertains only to tokens provided in NEW_TOKEN frames.
+// IROH API STABILITY: This trait is used in the public iroh API, be careful not to make breaking changes.
 pub trait TokenLog: Send + Sync {
     /// Record that the token was used and, ideally, return a token reuse error if the token may
     /// have been already used previously
@@ -64,9 +65,11 @@ pub trait TokenLog: Send + Sync {
 }
 
 /// Error for when a validation token may have been reused
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 pub struct TokenReuseError;
 
 /// Null implementation of [`TokenLog`], which never accepts tokens
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 pub struct NoneTokenLog;
 
 impl TokenLog for NoneTokenLog {

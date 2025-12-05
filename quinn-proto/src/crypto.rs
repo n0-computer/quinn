@@ -121,6 +121,7 @@ pub trait ClientConfig: Send + Sync {
 }
 
 /// Server-side configuration for the crypto protocol
+// IROH API STABILITY: This trait is used in the public iroh API, be careful not to make breaking changes.
 pub trait ServerConfig: Send + Sync {
     /// Create the initial set of keys given the client's initial destination ConnectionId
     fn initial_keys(&self, version: u32, dst_cid: ConnectionId)
@@ -185,16 +186,19 @@ pub trait HmacKey: Send + Sync {
 /// Error returned by [Session::export_keying_material].
 ///
 /// This error occurs if the requested output length is too large.
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ExportKeyingMaterialError;
 
 /// A pseudo random key for HKDF
+// IROH API STABILITY: This trait is used in the public iroh API, be careful not to make breaking changes.
 pub trait HandshakeTokenKey: Send + Sync {
     /// Derive AEAD using hkdf
     fn aead_from_hkdf(&self, random_bytes: &[u8]) -> Box<dyn AeadKey>;
 }
 
 /// A key for sealing data with AEAD-based algorithms
+// IROH API STABILITY: This trait is used in the public iroh API, be careful not to make breaking changes.
 pub trait AeadKey {
     /// Method for sealing message `data`
     fn seal(&self, data: &mut Vec<u8>, additional_data: &[u8]) -> Result<(), CryptoError>;
@@ -207,10 +211,12 @@ pub trait AeadKey {
 }
 
 /// Generic crypto errors
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug)]
 pub struct CryptoError;
 
 /// Error indicating that the specified QUIC version is not supported
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug)]
 pub struct UnsupportedVersion;
 

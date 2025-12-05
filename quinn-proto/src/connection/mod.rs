@@ -6351,6 +6351,7 @@ impl SideArgs {
 }
 
 /// Reasons why a connection might be lost
+// IROH API STABILITY: This enum is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ConnectionError {
     /// The peer doesn't implement any supported version

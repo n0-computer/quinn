@@ -509,6 +509,7 @@ impl ShouldTransmit {
 }
 
 /// Error indicating that a stream has not been opened or has already been finished or reset
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Default, Error, Clone, PartialEq, Eq)]
 #[error("closed stream")]
 pub struct ClosedStream {

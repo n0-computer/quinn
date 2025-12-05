@@ -6,6 +6,7 @@ use crate::{Dir, Duration, frame::Frame};
 /// Statistics about UDP datagrams transmitted or received on a connection
 ///
 /// All QUIC packets are carried by UDP datagrams. Hence, these statistics cover all traffic on a connection.
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Default, Debug, Copy, Clone)]
 #[non_exhaustive]
 pub struct UdpStats {
@@ -28,6 +29,7 @@ impl UdpStats {
 }
 
 /// Number of frames transmitted or received of each frame type
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Default, Copy, Clone)]
 #[non_exhaustive]
 #[allow(missing_docs)]
@@ -174,6 +176,7 @@ impl std::fmt::Debug for FrameStats {
 }
 
 /// Statistics related to a transmission path
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PathStats {
@@ -201,6 +204,7 @@ pub struct PathStats {
 }
 
 /// Connection statistics
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct ConnectionStats {

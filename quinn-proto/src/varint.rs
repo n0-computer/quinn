@@ -13,6 +13,7 @@ use arbitrary::Arbitrary;
 /// Values of this type are suitable for encoding as QUIC variable-length integer.
 // It would be neat if we could express to Rust that the top two bits are available for use as enum
 // discriminants
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct VarInt(pub(crate) u64);
 
@@ -143,6 +144,7 @@ impl<'arbitrary> Arbitrary<'arbitrary> for VarInt {
 }
 
 /// Error returned when constructing a `VarInt` from a value >= 2^62
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Error)]
 #[error("value too large for varint encoding")]
 pub struct VarIntBoundsExceeded;

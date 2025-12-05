@@ -1323,6 +1323,7 @@ pub struct AcceptError {
 }
 
 /// Error for attempting to retry an [`Incoming`] which already bears a token from a previous retry
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Error)]
 #[error("retry() with validated Incoming")]
 pub struct RetryError(Box<Incoming>);

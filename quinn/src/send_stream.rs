@@ -30,6 +30,7 @@ use crate::{
 ///
 /// [`reset()`]: SendStream::reset
 /// [`finish()`]: SendStream::finish
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug)]
 pub struct SendStream {
     conn: ConnectionRef,
@@ -365,6 +366,7 @@ impl Drop for SendStream {
 }
 
 /// Errors that arise from writing to a stream
+// IROH API STABILITY: This enum is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum WriteError {
     /// The peer is no longer accepting data on this stream
@@ -416,6 +418,7 @@ impl From<WriteError> for io::Error {
 }
 
 /// Errors that arise while monitoring for a send stream stop from the peer
+// IROH API STABILITY: This enum is used in the public iroh API, be careful not to make breaking changes.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum StoppedError {
     /// The connection was lost

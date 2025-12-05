@@ -22,6 +22,7 @@ use crate::{Duration, SystemTime, TokenLog, TokenReuseError, UNIX_EPOCH};
 /// each of the two periods currently non-expired tokens could expire in. As such, turns over
 /// filters as time goes on to avoid bloom filter false positive rate increasing infinitely over
 /// time.
+// IROH API STABILITY: This struct is used in the public iroh API, be careful not to make breaking changes.
 pub struct BloomTokenLog(Mutex<State>);
 
 impl BloomTokenLog {
