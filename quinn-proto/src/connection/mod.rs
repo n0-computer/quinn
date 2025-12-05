@@ -867,13 +867,19 @@ impl Connection {
         max_datagrams: usize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
-        if let Some(address) = self.spaces[SpaceId::Data].pending.hole_punch_to.pop() {
-            trace!(dst = ?address, "RAND_DATA packet");
-            buf.reserve_exact(8); // send 8 bytes of random data
-            let tmp: [u8; 8] = self.rng.random();
-            buf.put_slice(&tmp);
+        if let Some(probing) = self
+            .iroh_hp
+            .server_side_mut()
+            .ok()
+            .and_then(iroh_hp::ServerState::next_probe)
+        {
+            let destination = probing.remote();
+            trace!(%destination, "RAND_DATA packet");
+            let token: u64 = self.rng.random();
+            buf.put_u64(token);
+            probing.finish(token);
             return Some(Transmit {
-                destination: address.into(),
+                destination,
                 ecn: None,
                 size: 8,
                 segment_size: None,
@@ -1110,7 +1116,8 @@ impl Connection {
                         trace!(
                             ?space_id,
                             %path_id,
-                            "nothing to send on path, no more paths"
+                            next_path_id=?None::<PathId>,
+                            "nothing to send on path"
                         );
                         break;
                     }
@@ -1203,7 +1210,7 @@ impl Connection {
                 // especially important with ack delay, since the peer might not
                 // have gotten any other ACK for the data earlier on.
                 let mut sent_frames = SentFrames::default();
-                let is_multipath_enabled = self.is_multipath_negotiated();
+                let is_multipath_negotiated = self.is_multipath_negotiated();
                 for path_id in self.spaces[space_id]
                     .number_spaces
                     .iter()
@@ -1211,17 +1218,14 @@ impl Connection {
                     .map(|(&path_id, _)| path_id)
                     .collect::<Vec<_>>()
                 {
-                    debug_assert!(
-                        is_multipath_enabled || path_id == PathId::ZERO,
-                        "Only PathId::ZERO allowed without multipath (have {path_id:?})"
-                    );
                     Self::populate_acks(
                         now,
                         self.receiving_ecn,
                         &mut sent_frames,
                         path_id,
+                        space_id,
                         &mut self.spaces[space_id],
-                        is_multipath_enabled,
+                        is_multipath_negotiated,
                         &mut builder.frame_space_mut(),
                         &mut self.stats,
                         &mut qlog,
@@ -1453,21 +1457,48 @@ impl Connection {
         self.app_limited = transmit.is_empty() && !congestion_blocked;
 
         // Send MTU probe if necessary
-        // TODO(multipath): We need to send MTUD probes on all paths.  But because of how
-        //    the loop is written now we only send an MTUD probe on the last open path.
         if transmit.is_empty() && self.state.is_established() {
-            if let Some(active_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) {
-                let space_id = SpaceId::Data;
-                let next_pn = self.spaces[space_id].for_path(path_id).peek_tx_number();
-                let probe_size = self
-                    .path_data_mut(path_id)
-                    .mtud
-                    .poll_transmit(now, next_pn)?;
-
+            path_id = *self.paths.first_key_value().expect("one path must exist").0;
+            let probe_data = loop {
+                // We MTU probe all paths for which all of the following is true:
+                // - We have an active destination CID for the path.
+                // - The remote address *and* path are validated.
+                // - The path is not abandoned.
+                // - The MTU Discovery subsystem wants to probe the path.
+                let active_cid = self.rem_cids.get(&path_id).map(CidQueue::active);
+                let eligible = self.path_data(path_id).validated
+                    && !self.path_data(path_id).is_validating_path()
+                    && !self.abandoned_paths.contains(&path_id);
+                let probe_size = eligible
+                    .then(|| {
+                        let next_pn = self.spaces[SpaceId::Data]
+                            .for_path(path_id)
+                            .peek_tx_number();
+                        self.path_data_mut(path_id).mtud.poll_transmit(now, next_pn)
+                    })
+                    .flatten();
+                match (active_cid, probe_size) {
+                    (Some(active_cid), Some(probe_size)) => {
+                        // Let's send an MTUD probe!
+                        break Some((active_cid, probe_size));
+                    }
+                    _ => {
+                        // Find the next path to check if it needs an MTUD probe.
+                        match self.paths.keys().find(|&&next| next > path_id) {
+                            Some(next) => {
+                                path_id = *next;
+                                continue;
+                            }
+                            None => break None,
+                        }
+                    }
+                }
+            };
+            if let Some((active_cid, probe_size)) = probe_data {
+                // We are definitely sending a DPLPMTUD probe.
                 debug_assert_eq!(transmit.num_datagrams(), 0);
                 transmit.start_new_datagram_with_size(probe_size as usize);
 
-                debug_assert_eq!(transmit.datagram_start_offset(), 0);
                 let mut qlog = QlogSentPacket::default();
                 let mut builder = PacketBuilder::new(
                     now,
@@ -4041,6 +4072,12 @@ impl Connection {
             ack_eliciting |= frame.is_ack_eliciting();
 
             // Process frames
+            if frame.is_1rtt() && packet.header.space() != SpaceId::Data {
+                return Err(TransportError::PROTOCOL_VIOLATION(
+                    "illegal frame type in handshake",
+                ));
+            }
+
             match frame {
                 Frame::Padding | Frame::Ping => {}
                 Frame::Crypto(frame) => {
@@ -4131,7 +4168,13 @@ impl Connection {
                             "illegal frame type in 0-RTT",
                         ));
                     }
-                    _ => {}
+                    _ => {
+                        if frame.is_1rtt() {
+                            return Err(TransportError::PROTOCOL_VIOLATION(
+                                "illegal frame type in 0-RTT",
+                            ));
+                        }
+                    }
                 }
             }
             ack_eliciting |= frame.is_ack_eliciting();
@@ -4147,6 +4190,7 @@ impl Connection {
                     is_probing_packet = false;
                 }
             }
+
             match frame {
                 Frame::Crypto(frame) => {
                     self.read_crypto(SpaceId::Data, &frame, payload_len)?;
@@ -4213,6 +4257,7 @@ impl Connection {
                         // mark the path as open from the application perspective now that Opened
                         // event has been queued
                         if !std::mem::replace(&mut path.data.open, true) {
+                            trace!("path opened");
                             if let Some(observed) = path.data.last_observed_addr_report.as_ref() {
                                 self.events.push_back(Event::Path(PathEvent::ObservedAddr {
                                     id: path_id,
@@ -4679,44 +4724,10 @@ impl Connection {
                         }
                     };
 
-                    match server_state.handle_reach_out(reach_out) {
-                        Ok(None) => {
-                            // no action required here
-                        }
-                        Ok(Some(info)) => {
-                            let iroh_hp::RandDataNeeded {
-                                ip,
-                                port,
-                                round,
-                                is_new_round,
-                            } = info;
-                            if is_new_round {
-                                // TODO(@divma): this depends on round starting on 1 right now,
-                                // because the round should be greater to the default one, which is
-                                // zero
-                                self.spaces[SpaceId::Data].pending.hole_punch_round = round;
-                                self.spaces[SpaceId::Data].pending.hole_punch_to.clear();
-                            }
-
-                            self.spaces[SpaceId::Data]
-                                .pending
-                                .hole_punch_to
-                                .push((ip, port));
-                        }
-                        Err(iroh_hp::Error::WrongConnectionSide) => {
-                            return Err(TransportError::PROTOCOL_VIOLATION(
-                                "server sent REACH_OUT frames for nat traversal",
-                            ));
-                        }
-                        Err(iroh_hp::Error::TooManyAddresses) => {
-                            return Err(TransportError::PROTOCOL_VIOLATION(
-                                "client exceeded allowed REACH_OUT frames for this round",
-                            ));
-                        }
-                        Err(error) => {
-                            warn!(%error,"error handling REACH_OUT frame");
-                            // TODO(@divma): check if this is reachable
-                        }
+                    if let Err(err) = server_state.handle_reach_out(reach_out) {
+                        return Err(TransportError::PROTOCOL_VIOLATION(format!(
+                            "Nat traversal(REACH_OUT): {err}"
+                        )));
                     }
                 }
             }
@@ -5028,6 +5039,7 @@ impl Connection {
 
         // ACK
         // TODO(flub): Should this sends acks for this path anyway?
+
         if !path_exclusive_only {
             for path_id in space
                 .number_spaces
@@ -5036,15 +5048,12 @@ impl Connection {
                 .map(|(&path_id, _)| path_id)
                 .collect::<Vec<_>>()
             {
-                debug_assert!(
-                    is_multipath_negotiated || path_id == PathId::ZERO,
-                    "Only PathId::ZERO allowed without multipath (have {path_id:?})"
-                );
                 Self::populate_acks(
                     now,
                     self.receiving_ecn,
                     &mut sent,
                     path_id,
+                    space_id,
                     space,
                     is_multipath_negotiated,
                     buf,
@@ -5095,7 +5104,7 @@ impl Connection {
             path.challenges_sent.insert(token, now);
             sent.non_retransmits = true;
             sent.requires_padding = true;
-            trace!("PATH_CHALLENGE {:08x}", token);
+            trace!(%token, "PATH_CHALLENGE");
             buf.write(frame::FrameType::PATH_CHALLENGE);
             buf.write(token);
             qlog.frame(&Frame::PathChallenge(token));
@@ -5140,7 +5149,7 @@ impl Connection {
             if let Some(token) = path.path_responses.pop_on_path(path.remote) {
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
-                trace!("PATH_RESPONSE {:08x}", token);
+                trace!(?token, "PATH_RESPONSE");
                 buf.write(frame::FrameType::PATH_RESPONSE);
                 buf.write(token);
                 qlog.frame(&Frame::PathResponse(token));
@@ -5547,14 +5556,26 @@ impl Connection {
         receiving_ecn: bool,
         sent: &mut SentFrames,
         path_id: PathId,
+        space_id: SpaceId,
         space: &mut PacketSpace,
-        send_path_acks: bool,
+        is_multipath_negotiated: bool,
         buf: &mut impl BufMut,
         stats: &mut ConnectionStats,
         #[allow(unused)] qlog: &mut QlogSentPacket,
     ) {
         // 0-RTT packets must never carry acks (which would have to be of handshake packets)
         debug_assert!(space.crypto.is_some(), "tried to send ACK in 0-RTT");
+
+        debug_assert!(
+            is_multipath_negotiated || path_id == PathId::ZERO,
+            "Only PathId::ZERO allowed without multipath (have {path_id:?})"
+        );
+        if is_multipath_negotiated {
+            debug_assert!(
+                space_id == SpaceId::Data || path_id == PathId::ZERO,
+                "path acks must be sent in 1RTT space (have {space_id:?})"
+            );
+        }
 
         let pns = space.for_path(path_id);
         let ranges = pns.pending_acks.ranges();
@@ -5573,7 +5594,7 @@ impl Connection {
         let ack_delay_exp = TransportParameters::default().ack_delay_exponent;
         let delay = delay_micros >> ack_delay_exp.into_inner();
 
-        if send_path_acks {
+        if is_multipath_negotiated && space_id == SpaceId::Data {
             if !ranges.is_empty() {
                 trace!("PATH_ACK {path_id:?} {ranges:?}, Delay = {delay_micros}us");
                 frame::PathAck::encode(path_id, delay as _, ranges, ecn, buf);
@@ -5933,8 +5954,8 @@ impl Connection {
 
     /// Returns the detected maximum udp payload size for the current path
     #[cfg(test)]
-    pub(crate) fn path_mtu(&self) -> u16 {
-        self.path_data(PathId::ZERO).current_mtu()
+    pub(crate) fn path_mtu(&self, path_id: PathId) -> u16 {
+        self.path_data(path_id).current_mtu()
     }
 
     /// Triggers path validation on all paths
