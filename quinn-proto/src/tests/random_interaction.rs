@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bytes::Bytes;
 use proptest::prelude::Strategy;
 use test_strategy::Arbitrary;
 use tracing::{debug, trace};
@@ -34,6 +35,7 @@ pub(super) enum TestOp {
         #[strategy(path_status())] PathStatus,
     ),
     StreamOp(Side, StreamOp),
+    CloseConn(Side, u32),
 }
 
 fn path_status() -> impl Strategy<Value = PathStatus> {
@@ -160,6 +162,15 @@ impl TestOp {
                 Side::Client => stream_op.run(pair, client),
                 Side::Server => stream_op.run(pair, server),
             },
+            Self::CloseConn(side, error_code) => {
+                let state = match side {
+                    Side::Server => client,
+                    Side::Client => server,
+                };
+                if let Some(conn) = state.conn(pair) {
+                    conn.close(now, error_code.into(), Bytes::new());
+                }
+            }
         }
     }
 }
