@@ -1453,7 +1453,7 @@ impl State {
                     self.inner.local_address_changed();
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
-                    self.inner.handle_event(event);
+                    let _ = self.inner.handle_event(event);
                 }
                 Poll::Ready(Some(ConnectionEvent::Close { reason, error_code })) => {
                     self.close(error_code, reason, shared);

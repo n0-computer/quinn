@@ -671,7 +671,8 @@ impl Endpoint {
                 trace!(id = ch.0, icid = %dst_cid, "new connection");
 
                 for event in incoming_buffer.datagrams {
-                    conn.handle_event(ConnectionEvent(ConnectionEventInner::Datagram(event)))
+                    let _ =
+                        conn.handle_event(ConnectionEvent(ConnectionEventInner::Datagram(event)));
                 }
 
                 Ok((ch, conn))

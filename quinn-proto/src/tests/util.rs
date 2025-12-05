@@ -380,6 +380,7 @@ pub(super) struct TestEndpoint {
     pub(super) capture_inbound_packets: bool,
     pub(super) handle_incoming: Box<dyn FnMut(&Incoming) -> IncomingConnectionBehavior>,
     pub(super) waiting_incoming: Vec<Incoming>,
+    pub(super) panic_on_transport_error: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -425,6 +426,7 @@ impl TestEndpoint {
             capture_inbound_packets: false,
             handle_incoming: Box::new(|_| IncomingConnectionBehavior::Accept),
             waiting_incoming: Vec::new(),
+            panic_on_transport_error: false,
         }
     }
 
@@ -500,7 +502,12 @@ impl TestEndpoint {
 
                 for (_, mut events) in self.conn_events.drain() {
                     for event in events.drain(..) {
-                        conn.handle_event(event);
+                        let result = conn.handle_event(event);
+                        if self.panic_on_transport_error {
+                            if let Err(err @ ConnectionError::TransportError(_)) = result {
+                                panic!("Unexpected transport error: {err}");
+                            }
+                        }
                     }
                 }
 
@@ -530,7 +537,12 @@ impl TestEndpoint {
                 }
                 if let Some(event) = self.handle_event(ch, event) {
                     if let Some(conn) = self.connections.get_mut(&ch) {
-                        conn.handle_event(event);
+                        let result = conn.handle_event(event);
+                        if self.panic_on_transport_error {
+                            if let Err(err @ ConnectionError::TransportError(_)) = result {
+                                panic!("Unexpected transport error: {err}");
+                            }
+                        }
                     }
                 }
             }

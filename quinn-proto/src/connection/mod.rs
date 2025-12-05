@@ -315,9 +315,6 @@ pub struct Connection {
     abandoned_paths: FxHashSet<PathId>,
 
     iroh_hp: iroh_hp::State,
-
-    #[cfg(test)]
-    panic_on_transport_error: bool,
 }
 
 impl Connection {
@@ -459,9 +456,6 @@ impl Connection {
 
             // iroh's nat traversal
             iroh_hp: Default::default(),
-
-            #[cfg(test)]
-            panic_on_transport_error: false,
         };
         if path_validated {
             this.on_path_validated(PathId::ZERO);
@@ -1745,7 +1739,7 @@ impl Connection {
     /// Will execute protocol logic upon receipt of a connection event, in turn preparing signals
     /// (including application `Event`s, `EndpointEvent`s and outgoing datagrams) that should be
     /// extracted through the relevant methods.
-    pub fn handle_event(&mut self, event: ConnectionEvent) {
+    pub fn handle_event(&mut self, event: ConnectionEvent) -> Result<(), ConnectionError> {
         use ConnectionEventInner::*;
         match event.0 {
             Datagram(DatagramConnectionEvent {
@@ -1769,7 +1763,7 @@ impl Connection {
                             path_remote = ?self.path(path_id).map(|p| p.remote),
                             "discarding packet from unrecognized peer"
                         );
-                        return;
+                        return Ok(());
                     }
                 }
 
@@ -1783,7 +1777,7 @@ impl Connection {
                 self.stats.udp_rx.bytes += first_decode.len() as u64;
                 let data_len = first_decode.len();
 
-                self.handle_decode(now, remote, path_id, ecn, first_decode);
+                let result = self.handle_decode(now, remote, path_id, ecn, first_decode);
                 // The current `path` might have changed inside `handle_decode` since the packet
                 // could have triggered a migration. The packet might also belong to an unknown
                 // path and have been rejected. Make sure the data received is accounted for the
@@ -1812,6 +1806,7 @@ impl Connection {
                     // the server's first flight is lost.
                     self.set_loss_detection_timer(now, path_id);
                 }
+                result
             }
             NewIdentifiers(ids, now, cid_len, cid_lifetime) => {
                 let path_id = ids.first().map(|issued| issued.path_id).unwrap_or_default();
@@ -1827,6 +1822,7 @@ impl Connection {
                 });
                 // Always update Timer::PushNewCid
                 self.reset_cid_retirement();
+                Ok(())
             }
         }
     }
@@ -3462,7 +3458,7 @@ impl Connection {
             ) {
                 Ok((partial_decode, rest)) => {
                     remaining = rest;
-                    self.handle_decode(now, remote, path_id, ecn, partial_decode);
+                    let _ = self.handle_decode(now, remote, path_id, ecn, partial_decode);
                 }
                 Err(e) => {
                     trace!("malformed header: {}", e);
@@ -3479,7 +3475,7 @@ impl Connection {
         path_id: PathId,
         ecn: Option<EcnCodepoint>,
         partial_decode: PartialDecode,
-    ) {
+    ) -> Result<(), ConnectionError> {
         let qlog = QlogRecvPacket::new(partial_decode.len());
         if let Some(decoded) = packet_crypto::unprotect_header(
             partial_decode,
@@ -3495,8 +3491,9 @@ impl Connection {
                 decoded.packet,
                 decoded.stateless_reset,
                 qlog,
-            );
+            )?;
         }
+        Ok(())
     }
 
     fn handle_packet(
@@ -3508,7 +3505,7 @@ impl Connection {
         packet: Option<Packet>,
         stateless_reset: bool,
         mut qlog: QlogRecvPacket,
-    ) {
+    ) -> Result<(), ConnectionError> {
         self.stats.udp_rx.ios += 1;
         if let Some(ref packet) = packet {
             trace!(
@@ -3523,7 +3520,7 @@ impl Connection {
         if self.is_handshaking() {
             if path_id != PathId::ZERO {
                 debug!(%remote, %path_id, "discarding multipath packet during handshake");
-                return;
+                return Ok(());
             }
             if remote != self.path_data_mut(path_id).remote {
                 if let Some(hs) = self.state.as_handshake() {
@@ -3532,11 +3529,11 @@ impl Connection {
                         self.path_data_mut(path_id).remote = remote;
                     } else {
                         debug!("discarding packet with unexpected remote during handshake");
-                        return;
+                        return Ok(());
                     }
                 } else {
                     debug!("discarding packet with unexpected remote during handshake");
-                    return;
+                    return Ok(());
                 }
             }
         }
@@ -3572,7 +3569,7 @@ impl Connection {
                 if self.authentication_failures > integrity_limit {
                     Err(TransportError::AEAD_LIMIT_REACHED("integrity limit violated").into())
                 } else {
-                    return;
+                    return Ok(());
                 }
             }
             Ok((packet, number)) => {
@@ -3589,12 +3586,12 @@ impl Connection {
                 if number.zip(dedup).is_some_and(|(n, d)| d.insert(n)) {
                     debug!("discarding possible duplicate packet");
                     self.config.qlog_sink.emit_packet_received(self, qlog, now);
-                    return;
+                    return Ok(());
                 } else if self.state.is_handshake() && packet.header.is_short() {
                     // TODO: SHOULD buffer these to improve reordering tolerance.
                     trace!("dropping short packet during handshake");
                     self.config.qlog_sink.emit_packet_received(self, qlog, now);
-                    return;
+                    return Ok(());
                 } else {
                     if let Header::Initial(InitialHeader { ref token, .. }) = packet.header {
                         if let Some(hs) = self.state.as_handshake() {
@@ -3604,7 +3601,7 @@ impl Connection {
                                 // connection.
                                 warn!("discarding Initial with invalid retry token");
                                 self.config.qlog_sink.emit_packet_received(self, qlog, now);
-                                return;
+                                return Ok(());
                             }
                         }
                     }
@@ -3642,7 +3639,7 @@ impl Connection {
         };
 
         // State transitions for error cases
-        if let Err(conn_err) = result {
+        if let Err(conn_err) = result.clone() {
             match conn_err {
                 ConnectionError::ApplicationClosed(reason) => self.state.move_to_closed(reason),
                 ConnectionError::ConnectionClosed(reason) => self.state.move_to_closed(reason),
@@ -3657,10 +3654,6 @@ impl Connection {
                     unreachable!("timeouts aren't generated by packet processing");
                 }
                 ConnectionError::TransportError(err) => {
-                    #[cfg(test)]
-                    if self.panic_on_transport_error {
-                        panic!("transport error in connection: {err}");
-                    }
                     debug!("closing connection due to transport error: {}", err);
                     self.state.move_to_closed(err);
                 }
@@ -3701,6 +3694,7 @@ impl Connection {
                 .unwrap_or(remote);
             self.close = remote == path_remote;
         }
+        result
     }
 
     fn process_decrypted_packet(
@@ -5808,11 +5802,6 @@ impl Connection {
         self.spaces[self.highest_space]
             .for_path(path_id)
             .immediate_ack_pending = true;
-    }
-
-    #[cfg(test)]
-    pub(crate) fn panic_on_transport_error(&mut self) {
-        self.panic_on_transport_error = true;
     }
 
     /// Decodes a packet, returning its decrypted payload, so it can be inspected in tests
