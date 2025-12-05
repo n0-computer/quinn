@@ -2344,7 +2344,11 @@ impl Connection {
         let mut newly_acked = ArrayRangeSet::new();
         for range in ack.iter() {
             self.spaces[space].for_path(path).check_ack(range.clone())?;
-            for (pn, _) in self.spaces[space].for_path(path).sent_packets.iter_range(range) {
+            for (pn, _) in self.spaces[space]
+                .for_path(path)
+                .sent_packets
+                .iter_range(range)
+            {
                 newly_acked.insert_one(pn);
             }
         }
@@ -2812,8 +2816,12 @@ impl Connection {
         // OnPacketsLost
         if let Some(largest_lost) = lost_packets.last().cloned() {
             let old_bytes_in_flight = self.path_data_mut(path_id).in_flight.bytes;
-            let largest_lost_sent =
-                self.spaces[pn_space].for_path(path_id).sent_packets.get(largest_lost).unwrap().time_sent;
+            let largest_lost_sent = self.spaces[pn_space]
+                .for_path(path_id)
+                .sent_packets
+                .get(largest_lost)
+                .unwrap()
+                .time_sent;
             let path_stats = self.path_stats.entry(path_id).or_default();
             path_stats.lost_packets += lost_packets.len() as u64;
             path_stats.lost_bytes += size_of_lost_packets;
