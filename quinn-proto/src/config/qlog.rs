@@ -142,7 +142,7 @@ impl QlogFactory for QlogFileFactory {
 
         let name = {
             let timestamp = SystemTime::now()
-                .checked_sub(Instant::now().duration_since(now.into()))?
+                .checked_sub(Instant::now().duration_since(now))?
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .ok()?
                 .as_millis();
