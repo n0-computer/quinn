@@ -5,12 +5,11 @@ use std::{
     net::SocketAddr,
     num::{NonZeroU8, NonZeroU32},
     sync::Arc,
-    time::Instant,
 };
 
 use crate::{
-    ConnectionId, Duration, INITIAL_MTU, MAX_UDP_PAYLOAD, Side, VarInt, VarIntBoundsExceeded,
-    address_discovery, congestion, connection::qlog::QlogSink,
+    ConnectionId, Duration, INITIAL_MTU, Instant, MAX_UDP_PAYLOAD, Side, VarInt,
+    VarIntBoundsExceeded, address_discovery, congestion, connection::qlog::QlogSink,
 };
 
 /// When multipath is required and has not been explicitly enabled, this value will be used for
