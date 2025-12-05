@@ -36,6 +36,8 @@ pub(super) enum TestOp {
     ),
     StreamOp(Side, StreamOp),
     CloseConn(Side, u32),
+    AddHpAddr(Side, #[strategy(0..3usize)] usize),
+    InitiateHpRound(Side),
 }
 
 fn path_status() -> impl Strategy<Value = PathStatus> {
@@ -114,8 +116,8 @@ impl TestOp {
             Self::OpenPath(side, initial_status, addr) => {
                 let routes = pair.routes.as_ref()?;
                 let remote = match side {
-                    Side::Client => routes.client_addr(addr)?,
-                    Side::Server => routes.server_addr(addr)?,
+                    Side::Client => routes.server_addr(addr)?,
+                    Side::Server => routes.client_addr(addr)?,
                 };
                 let state = match side {
                     Side::Client => client,
@@ -156,6 +158,28 @@ impl TestOp {
                 };
                 let conn = state.conn(pair)?;
                 conn.close(now, error_code.into(), Bytes::new());
+            }
+            Self::AddHpAddr(side, addr_idx) => {
+                let routes = pair.routes.as_ref()?;
+                let address = match side {
+                    Side::Client => routes.client_addr(addr_idx)?,
+                    Side::Server => routes.server_addr(addr_idx)?,
+                };
+                let state = match side {
+                    Side::Client => client,
+                    Side::Server => server,
+                };
+                let conn = state.conn(pair)?;
+                conn.add_nat_traversal_address(address).ok();
+            }
+            Self::InitiateHpRound(side) => {
+                let state = match side {
+                    Side::Client => client,
+                    Side::Server => server,
+                };
+                let conn = state.conn(pair)?;
+                let addrs = conn.initiate_nat_traversal_round(now).ok()?;
+                trace!(?addrs, "initiating NAT Traversal");
             }
         }
         Some(())
