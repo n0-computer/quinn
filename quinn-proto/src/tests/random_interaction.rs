@@ -81,7 +81,7 @@ pub(super) struct State {
 }
 
 impl TestOp {
-    fn run(self: TestOp, pair: &mut Pair, client: &mut State, server: &mut State) {
+    fn run(self: TestOp, pair: &mut Pair, client: &mut State, server: &mut State) -> Option<()> {
         let now = pair.time;
         match self {
             Self::Drive(Side::Client) => pair.drive_client(),
@@ -101,124 +101,103 @@ impl TestOp {
                 pair.server.inbound.clear();
             }
             Self::ReorderInbound(Side::Client) => {
-                if let Some(item) = pair.client.inbound.pop_front() {
-                    pair.client.inbound.push_back(item);
-                }
+                let item = pair.client.inbound.pop_front()?;
+                pair.client.inbound.push_back(item);
             }
             Self::ReorderInbound(Side::Server) => {
-                if let Some(item) = pair.server.inbound.pop_front() {
-                    pair.server.inbound.push_back(item);
-                }
+                let item = pair.server.inbound.pop_front()?;
+                pair.server.inbound.push_back(item);
             }
-            Self::ForceKeyUpdate(Side::Client) => {
-                if let Some(conn) = client.conn(pair) {
-                    conn.force_key_update()
-                }
-            }
-            Self::ForceKeyUpdate(Side::Server) => {
-                if let Some(conn) = server.conn(pair) {
-                    conn.force_key_update()
-                }
-            }
+            Self::ForceKeyUpdate(Side::Client) => client.conn(pair)?.force_key_update(),
+
+            Self::ForceKeyUpdate(Side::Server) => server.conn(pair)?.force_key_update(),
             Self::OpenPath(side, initial_status, addr) => {
-                if let Some(routes) = &pair.routes {
-                    if let Some(remote) = match side {
-                        Side::Client => routes.client_addr(addr),
-                        Side::Server => routes.server_addr(addr),
-                    } {
-                        let state = match side {
-                            Side::Client => client,
-                            Side::Server => server,
-                        };
-                        if let Some(conn) = state.conn(pair) {
-                            conn.open_path(remote, initial_status, now).ok();
-                        }
-                    }
-                }
+                let routes = pair.routes.as_ref()?;
+                let remote = match side {
+                    Side::Client => routes.client_addr(addr)?,
+                    Side::Server => routes.server_addr(addr)?,
+                };
+                let state = match side {
+                    Side::Client => client,
+                    Side::Server => server,
+                };
+                let conn = state.conn(pair)?;
+                conn.open_path(remote, initial_status, now).ok();
             }
             Self::ClosePath(side, path_idx, error_code) => {
                 let state = match side {
                     Side::Client => client,
                     Side::Server => server,
                 };
-                if let Some(conn) = state.conn(pair) {
-                    if let Some(path_id) = get_path_id(conn, path_idx) {
-                        conn.close_path(now, path_id, error_code.into()).ok();
-                    }
-                }
+                let conn = state.conn(pair)?;
+                let path_id = get_path_id(conn, path_idx)?;
+                conn.close_path(now, path_id, error_code.into()).ok();
             }
             Self::PathSetStatus(side, path_idx, status) => {
                 let state = match side {
                     Side::Client => client,
                     Side::Server => server,
                 };
-                if let Some(conn) = state.conn(pair) {
-                    if let Some(path_id) = get_path_id(conn, path_idx) {
-                        conn.set_path_status(path_id, status).ok();
-                    }
-                }
+                let conn = state.conn(pair)?;
+                let path_id = get_path_id(conn, path_idx)?;
+                conn.set_path_status(path_id, status).ok();
             }
-            Self::StreamOp(side, stream_op) => match side {
-                Side::Client => stream_op.run(pair, client),
-                Side::Server => stream_op.run(pair, server),
-            },
+            Self::StreamOp(side, stream_op) => {
+                let state = match side {
+                    Side::Client => client,
+                    Side::Server => server,
+                };
+                stream_op.run(pair, state);
+            }
             Self::CloseConn(side, error_code) => {
                 let state = match side {
                     Side::Server => client,
                     Side::Client => server,
                 };
-                if let Some(conn) = state.conn(pair) {
-                    conn.close(now, error_code.into(), Bytes::new());
-                }
+                let conn = state.conn(pair)?;
+                conn.close(now, error_code.into(), Bytes::new());
             }
         }
+        Some(())
     }
 }
 
 impl StreamOp {
-    fn run(self, pair: &mut Pair, state: &mut State) {
-        let Some(conn) = state.conn(pair) else {
-            return;
-        };
+    fn run(self, pair: &mut Pair, state: &mut State) -> Option<()> {
+        let conn = state.conn(pair)?;
         // We generally ignore application-level errors. It's legal to call these APIs, so we do. We don't expect them to work all the time.
         match self {
             Self::Open(kind) => state.send_streams.extend(conn.streams().open(kind.into())),
             Self::Send { stream, num_bytes } => {
-                if let Some(&stream_id) = state.send_streams.get(stream) {
-                    let data = vec![0; num_bytes];
-                    if let Some(bytes) = conn.send_stream(stream_id).write(&data).ok() {
-                        trace!(attempted_write = %num_bytes, actually_written = %bytes, "random interaction: Wrote stream bytes");
-                    }
-                }
+                let stream_id = state.send_streams.get(stream)?;
+                let data = vec![0; num_bytes];
+                let bytes = conn.send_stream(*stream_id).write(&data).ok()?;
+                trace!(attempted_write = %num_bytes, actually_written = %bytes, "random interaction: Wrote stream bytes");
             }
             Self::Finish(stream) => {
-                if let Some(&stream_id) = state.send_streams.get(stream) {
-                    conn.send_stream(stream_id).finish().ok();
-                }
+                let stream_id = state.send_streams.get(stream)?;
+                conn.send_stream(*stream_id).finish().ok();
             }
             Self::Reset(stream, code) => {
-                if let Some(&stream_id) = state.send_streams.get(stream) {
-                    conn.send_stream(stream_id).reset(code.into()).ok();
-                }
+                let stream_id = state.send_streams.get(stream)?;
+                conn.send_stream(*stream_id).reset(code.into()).ok();
             }
             Self::Accept(kind) => state
                 .recv_streams
                 .extend(conn.streams().accept(kind.into())),
             Self::Receive(stream, ordered) => {
-                if let Some(&stream_id) = state.recv_streams.get(stream) {
-                    if let Some(mut chunks) = conn.recv_stream(stream_id).read(ordered).ok() {
-                        if let Ok(Some(chunk)) = chunks.next(usize::MAX) {
-                            trace!(chunk_len = %chunk.bytes.len(), offset = %chunk.offset, "read from stream");
-                        }
-                    }
-                }
+                let stream_id = state.recv_streams.get(stream)?;
+                let mut recv_stream = conn.recv_stream(*stream_id);
+                let mut chunks = recv_stream.read(ordered).ok()?;
+                let chunk = chunks.next(usize::MAX).ok()??;
+                trace!(chunk_len = %chunk.bytes.len(), offset = %chunk.offset, "read from stream");
             }
             Self::Stop(stream, code) => {
-                if let Some(&stream_id) = state.recv_streams.get(stream) {
-                    conn.recv_stream(stream_id).stop(code.into()).ok();
-                }
+                let stream_id = state.recv_streams.get(stream)?;
+                conn.recv_stream(*stream_id).stop(code.into()).ok();
             }
         };
+        Some(())
     }
 }
 
