@@ -1211,16 +1211,7 @@ impl Connection {
                 for path_id in self.spaces[space_id]
                     .number_spaces
                     .iter()
-                    .filter(|(&path_id, pns)| {
-                        let can_send_acks = if is_multipath_negotiated {
-                            // Path acks are only sent in data packets
-                            space_id == SpaceId::Data || path_id == PathId::ZERO
-                        } else {
-                            true
-                        };
-
-                        can_send_acks && !pns.pending_acks.ranges().is_empty()
-                    })
+                    .filter(|(_, pns)| !pns.pending_acks.ranges().is_empty())
                     .map(|(&path_id, _)| path_id)
                     .collect::<Vec<_>>()
                 {
@@ -5047,16 +5038,7 @@ impl Connection {
             for path_id in space
                 .number_spaces
                 .iter_mut()
-                .filter(|(&path_id, pns)| {
-                    let can_send_acks = if is_multipath_negotiated {
-                        // Path acks are only sent in data packets
-                        space_id == SpaceId::Data || path_id == PathId::ZERO
-                    } else {
-                        true
-                    };
-
-                    can_send_acks && pns.pending_acks.can_send()
-                })
+                .filter(|(_, pns)| pns.pending_acks.can_send())
                 .map(|(&path_id, _)| path_id)
                 .collect::<Vec<_>>()
             {
