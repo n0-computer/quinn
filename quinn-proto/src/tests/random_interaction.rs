@@ -74,7 +74,6 @@ fn stream_dir() -> impl Strategy<Value = Dir> {
 pub(super) struct State {
     send_streams: Vec<StreamId>,
     recv_streams: Vec<StreamId>,
-    path_ids: Vec<PathId>,
     handle: ConnectionHandle,
     side: Side,
 }
@@ -131,7 +130,6 @@ impl State {
         Self {
             send_streams: Vec::new(),
             recv_streams: Vec::new(),
-            path_ids: vec![PathId::ZERO],
             handle,
             side,
         }
@@ -147,11 +145,13 @@ impl State {
     fn conn<'a>(&self, pair: &'a mut Pair) -> Option<&'a mut Connection> {
         self.endpoint(pair).connections.get_mut(&self.handle)
     }
+}
 
-    fn path_from_idx(&self, idx: usize) -> Option<&PathId> {
-        self.path_ids
-            .get(idx.clamp(0, self.path_ids.len().saturating_sub(1)))
-    }
+fn get_path_id(conn: &mut Connection, idx: usize) -> Option<PathId> {
+    let paths = conn.paths();
+    paths
+        .get(idx.clamp(0, paths.len().saturating_sub(1)))
+        .copied()
 }
 
 pub(super) fn run_random_interaction(
@@ -212,9 +212,7 @@ pub(super) fn run_random_interaction(
                             Side::Server => &mut server,
                         };
                         if let Some(conn) = state.conn(pair) {
-                            if let Ok(path_id) = conn.open_path(remote, initial_status, now) {
-                                state.path_ids.push(path_id);
-                            }
+                            conn.open_path(remote, initial_status, now).ok();
                         }
                     }
                 }
@@ -225,9 +223,8 @@ pub(super) fn run_random_interaction(
                     Side::Server => &mut server,
                 };
                 if let Some(conn) = state.conn(pair) {
-                    if let Some(&path_id) = state.path_from_idx(path_idx) {
+                    if let Some(path_id) = get_path_id(conn, path_idx) {
                         conn.close_path(now, path_id, error_code.into()).ok();
-                        state.path_ids.retain(|id| *id != path_id);
                     }
                 }
             }
@@ -237,7 +234,7 @@ pub(super) fn run_random_interaction(
                     Side::Server => &mut server,
                 };
                 if let Some(conn) = state.conn(pair) {
-                    if let Some(&path_id) = state.path_from_idx(path_idx) {
+                    if let Some(path_id) = get_path_id(conn, path_idx) {
                         conn.set_path_status(path_id, status).ok();
                     }
                 }
@@ -246,26 +243,6 @@ pub(super) fn run_random_interaction(
                 Side::Client => stream_op.run(pair, &mut client),
                 Side::Server => stream_op.run(pair, &mut server),
             },
-        }
-
-        while let Some(event) = client.conn(pair).and_then(Connection::poll) {
-            match event {
-                crate::Event::Path(crate::PathEvent::Abandoned { id, .. })
-                | crate::Event::Path(crate::PathEvent::Closed { id, .. }) => {
-                    client.path_ids.retain(|path_id| *path_id != id);
-                }
-                _ => {}
-            }
-        }
-
-        while let Some(event) = server.conn(pair).and_then(Connection::poll) {
-            match event {
-                crate::Event::Path(crate::PathEvent::Abandoned { id, .. })
-                | crate::Event::Path(crate::PathEvent::Closed { id, .. }) => {
-                    server.path_ids.retain(|path_id| *path_id != id);
-                }
-                _ => {}
-            }
         }
     }
 }
