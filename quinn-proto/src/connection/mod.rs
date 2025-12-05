@@ -2204,31 +2204,12 @@ impl Connection {
 
     /// Current best estimate of this connection's latency (round-trip-time)
     pub fn rtt(&self, path_id: PathId) -> Option<Duration> {
-        // this should return at worst the same that the poll_transmit logic would use
-        // TODO(@divma): wrong
         self.path(path_id).map(|d| d.rtt.get())
     }
 
     /// Current state of this connection's congestion controller, for debugging purposes
     pub fn congestion_state(&self, path_id: PathId) -> Option<&dyn Controller> {
         self.path(path_id).map(|d| d.congestion.as_ref())
-    }
-
-    /// Resets path-specific settings.
-    ///
-    /// This will force-reset several subsystems related to a specific network path.
-    /// Currently this is the congestion controller, round-trip estimator, and the MTU
-    /// discovery.
-    ///
-    /// This is useful when it is known the underlying network path has changed and the old
-    /// state of these subsystems is no longer valid or optimal. In this case it might be
-    /// faster or reduce loss to settle on optimal values by restarting from the initial
-    /// configuration in the [`TransportConfig`].
-    pub fn path_changed(&mut self, path_id: PathId, now: Instant) -> bool {
-        let config = self.config.clone(); // :/
-        self.path_mut(path_id)
-            .map(|d| d.reset(now, &config))
-            .is_some()
     }
 
     /// Modify the number of remotely initiated streams that may be concurrently open

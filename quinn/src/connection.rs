@@ -1300,29 +1300,6 @@ impl WeakConnectionHandle {
             .upgrade()
             .map(|inner| Connection(ConnectionRef::from_arc(inner)))
     }
-
-    /// Resets path-specific state.
-    ///
-    /// This resets several subsystems keeping state for a specific network path.  It is
-    /// useful if it is known that the underlying network path changed substantially.
-    ///
-    /// Currently resets:
-    /// - RTT Estimator
-    /// - Congestion Controller
-    /// - MTU Discovery
-    ///
-    /// # Returns
-    ///
-    /// `true` if the connection still existed and the congestion controller state was
-    /// reset.  `false` otherwise.
-    pub fn network_path_changed(&self, path_id: PathId) -> bool {
-        if let Some(inner) = self.0.upgrade() {
-            let mut inner_state = inner.state.lock("reset-congestion-state");
-            inner_state.inner.path_changed(path_id, Instant::now())
-        } else {
-            false
-        }
-    }
 }
 
 #[derive(Debug, Default)]
