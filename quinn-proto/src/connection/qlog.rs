@@ -9,6 +9,8 @@
 // Function bodies in this module are regularly cfg'd out
 #![allow(unused_variables)]
 
+#[cfg(not(feature = "qlog"))]
+use std::marker::PhantomData;
 #[cfg(feature = "qlog")]
 use std::sync::{Arc, Mutex};
 use std::{
@@ -301,7 +303,7 @@ impl QlogSink {
                 ConnTimer::Idle => Some(QlogTimerType::IdleTimeout.into()),
                 ConnTimer::Close => Some(TimerType::custom("close")),
                 ConnTimer::KeyDiscard => Some(TimerType::custom("key_discard")),
-                ConnTimer::KeepAlive => None,
+                ConnTimer::KeepAlive => Some(TimerType::custom("keep_alive")),
                 ConnTimer::PushNewCid => Some(TimerType::custom("push_new_cid")),
             },
             Timer::PerPath(_, path_timer) => match path_timer {
@@ -310,8 +312,8 @@ impl QlogSink {
                 PathTimer::PathValidation => Some(QlogTimerType::PathValidation.into()),
                 PathTimer::PathChallengeLost => Some(TimerType::custom("path_challenge_lost")),
                 PathTimer::PathOpen => Some(TimerType::custom("path_open")),
-                PathTimer::PathKeepAlive => None,
-                PathTimer::Pacing => None,
+                PathTimer::PathKeepAlive => Some(TimerType::custom("path_keep_alive")),
+                PathTimer::Pacing => Some(TimerType::custom("pacing")),
                 PathTimer::MaxAckDelay => Some(QlogTimerType::Ack.into()),
                 PathTimer::PathAbandoned => Some(TimerType::custom("path_abandoned")),
                 PathTimer::PathNotAbandoned => Some(TimerType::custom("path_not_abandoned")),
@@ -356,15 +358,24 @@ impl QlogSink {
     /// `now` timestamp, to not have to pass the latter separately as an additional argument just
     /// for qlog support.
     pub(super) fn with_time(&self, now: Instant) -> QlogSinkWithTime<'_> {
-        QlogSinkWithTime { sink: self, now }
+        #[cfg(feature = "qlog")]
+        let s = QlogSinkWithTime { sink: self, now };
+        #[cfg(not(feature = "qlog"))]
+        let s = QlogSinkWithTime {
+            _phantom: PhantomData,
+        };
+        s
     }
 }
 
 /// A [`QlogSink`] with a `now` timestamp.
-#[cfg_attr(not(feature = "qlog"), allow(unused))]
 pub(super) struct QlogSinkWithTime<'a> {
+    #[cfg(feature = "qlog")]
     sink: &'a QlogSink,
+    #[cfg(feature = "qlog")]
     now: Instant,
+    #[cfg(not(feature = "qlog"))]
+    _phantom: PhantomData<&'a ()>,
 }
 
 impl<'a> QlogSinkWithTime<'a> {

@@ -1834,8 +1834,7 @@ impl Connection {
     /// `Instant` that was output by `poll_timeout`; however spurious extra calls will simply
     /// no-op and therefore are safe.
     pub fn handle_timeout(&mut self, now: Instant) {
-        while let Some((timer, _time)) = self.timers.expire_before(now) {
-            self.qlog.with_time(now).emit_timer_expire(timer);
+        while let Some((timer, _time)) = self.timers.expire_before(now, &self.qlog) {
             // TODO(@divma): remove `at` when the unicorn is born
             trace!(?timer, at=?now, "timeout");
             match timer {
