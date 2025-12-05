@@ -314,7 +314,7 @@ pub struct Connection {
     //    paths.  Or a set together with a minimum.  Or something.
     abandoned_paths: FxHashSet<PathId>,
 
-    iroh_hp: Option<iroh_hp::State>,
+    iroh_hp: iroh_hp::State,
 }
 
 impl Connection {
@@ -455,7 +455,7 @@ impl Connection {
             abandoned_paths: Default::default(),
 
             // iroh's nat traversal
-            iroh_hp: None,
+            iroh_hp: Default::default(),
         };
         if path_validated {
             this.on_path_validated(PathId::ZERO);
@@ -864,13 +864,19 @@ impl Connection {
         max_datagrams: usize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
-        if let Some(address) = self.spaces[SpaceId::Data].pending.hole_punch_to.pop() {
-            trace!(dst = ?address, "RAND_DATA packet");
-            buf.reserve_exact(8); // send 8 bytes of random data
-            let tmp: [u8; 8] = self.rng.random();
-            buf.put_slice(&tmp);
+        if let Some(probing) = self
+            .iroh_hp
+            .server_side_mut()
+            .ok()
+            .and_then(iroh_hp::ServerState::next_probe)
+        {
+            let destination = probing.remote();
+            trace!(%destination, "RAND_DATA packet");
+            let token: u64 = self.rng.random();
+            buf.put_u64(token);
+            probing.finish(token);
             return Some(Transmit {
-                destination: address.into(),
+                destination,
                 ecn: None,
                 size: 8,
                 segment_size: None,
@@ -1107,7 +1113,8 @@ impl Connection {
                         trace!(
                             ?space_id,
                             %path_id,
-                            "nothing to send on path, no more paths"
+                            next_path_id=?None::<PathId>,
+                            "nothing to send on path"
                         );
                         break;
                     }
@@ -1450,21 +1457,48 @@ impl Connection {
         self.app_limited = transmit.is_empty() && !congestion_blocked;
 
         // Send MTU probe if necessary
-        // TODO(multipath): We need to send MTUD probes on all paths.  But because of how
-        //    the loop is written now we only send an MTUD probe on the last open path.
         if transmit.is_empty() && self.state.is_established() {
-            if let Some(active_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) {
-                let space_id = SpaceId::Data;
-                let next_pn = self.spaces[space_id].for_path(path_id).peek_tx_number();
-                let probe_size = self
-                    .path_data_mut(path_id)
-                    .mtud
-                    .poll_transmit(now, next_pn)?;
-
+            path_id = *self.paths.first_key_value().expect("one path must exist").0;
+            let probe_data = loop {
+                // We MTU probe all paths for which all of the following is true:
+                // - We have an active destination CID for the path.
+                // - The remote address *and* path are validated.
+                // - The path is not abandoned.
+                // - The MTU Discovery subsystem wants to probe the path.
+                let active_cid = self.rem_cids.get(&path_id).map(CidQueue::active);
+                let eligible = self.path_data(path_id).validated
+                    && !self.path_data(path_id).is_validating_path()
+                    && !self.abandoned_paths.contains(&path_id);
+                let probe_size = eligible
+                    .then(|| {
+                        let next_pn = self.spaces[SpaceId::Data]
+                            .for_path(path_id)
+                            .peek_tx_number();
+                        self.path_data_mut(path_id).mtud.poll_transmit(now, next_pn)
+                    })
+                    .flatten();
+                match (active_cid, probe_size) {
+                    (Some(active_cid), Some(probe_size)) => {
+                        // Let's send an MTUD probe!
+                        break Some((active_cid, probe_size));
+                    }
+                    _ => {
+                        // Find the next path to check if it needs an MTUD probe.
+                        match self.paths.keys().find(|&&next| next > path_id) {
+                            Some(next) => {
+                                path_id = *next;
+                                continue;
+                            }
+                            None => break None,
+                        }
+                    }
+                }
+            };
+            if let Some((active_cid, probe_size)) = probe_data {
+                // We are definitely sending a DPLPMTUD probe.
                 debug_assert_eq!(transmit.num_datagrams(), 0);
                 transmit.start_new_datagram_with_size(probe_size as usize);
 
-                debug_assert_eq!(transmit.datagram_start_offset(), 0);
                 let mut qlog = QlogSentPacket::default();
                 let mut builder = PacketBuilder::new(
                     now,
@@ -4215,6 +4249,7 @@ impl Connection {
                         // mark the path as open from the application perspective now that Opened
                         // event has been queued
                         if !std::mem::replace(&mut path.data.open, true) {
+                            trace!("path opened");
                             if let Some(observed) = path.data.last_observed_addr_report.as_ref() {
                                 self.events.push_back(Event::Path(PathEvent::ObservedAddr {
                                     id: path_id,
@@ -4628,16 +4663,13 @@ impl Connection {
                     }
                 }
                 Frame::AddAddress(addr) => {
-                    let Some(hp_state) = self.iroh_hp.as_mut() else {
-                        return Err(TransportError::PROTOCOL_VIOLATION(
-                            "received ADD_ADDRESS frame when iroh's nat traversal was not negotiated",
-                        ));
-                    };
-
-                    let Ok(mut client_state) = hp_state.client_side() else {
-                        return Err(TransportError::PROTOCOL_VIOLATION(
-                            "client sent ADD_ADDRESS frame",
-                        ));
+                    let client_state = match self.iroh_hp.client_side_mut() {
+                        Ok(state) => state,
+                        Err(err) => {
+                            return Err(TransportError::PROTOCOL_VIOLATION(format!(
+                                "Nat traversal(ADD_ADDRESS): {err}"
+                            )));
+                        }
                     };
 
                     if !client_state.check_remote_address(&addr) {
@@ -4654,23 +4686,19 @@ impl Connection {
                             }
                         }
                         Err(e) => {
-                            warn!(?e, "failed to add remote address")
+                            warn!(%e, "failed to add remote address")
                         }
                     }
                 }
                 Frame::RemoveAddress(addr) => {
-                    let Some(hp_state) = self.iroh_hp.as_mut() else {
-                        return Err(TransportError::PROTOCOL_VIOLATION(
-                            "received REMOVE_ADDRESS frame when iroh's nat traversal was not negotiated",
-                        ));
+                    let client_state = match self.iroh_hp.client_side_mut() {
+                        Ok(state) => state,
+                        Err(err) => {
+                            return Err(TransportError::PROTOCOL_VIOLATION(format!(
+                                "Nat traversal(REMOVE_ADDRESS): {err}"
+                            )));
+                        }
                     };
-
-                    let Ok(mut client_state) = hp_state.client_side() else {
-                        return Err(TransportError::PROTOCOL_VIOLATION(
-                            "client sent REMOVE_ADDRESS frame",
-                        ));
-                    };
-
                     if let Some(removed_addr) = client_state.remove_remote_address(addr) {
                         self.events
                             .push_back(Event::NatTraversal(iroh_hp::Event::AddressRemoved(
@@ -4679,50 +4707,19 @@ impl Connection {
                     }
                 }
                 Frame::ReachOut(reach_out) => {
-                    let Some(hp_state) = self.iroh_hp.as_mut() else {
-                        return Err(TransportError::PROTOCOL_VIOLATION(
-                            "received REACH_OUT frame when iroh's nat traversal was not negotiated",
-                        ));
+                    let server_state = match self.iroh_hp.server_side_mut() {
+                        Ok(state) => state,
+                        Err(err) => {
+                            return Err(TransportError::PROTOCOL_VIOLATION(format!(
+                                "Nat traversal(REACH_OUT): {err}"
+                            )));
+                        }
                     };
 
-                    match hp_state.handle_reach_out(reach_out) {
-                        Ok(None) => {
-                            // no action required here
-                        }
-                        Ok(Some(info)) => {
-                            let iroh_hp::RandDataNeeded {
-                                ip,
-                                port,
-                                round,
-                                is_new_round,
-                            } = info;
-                            if is_new_round {
-                                // TODO(@divma): this depends on round starting on 1 right now,
-                                // because the round should be greater to the default one, which is
-                                // zero
-                                self.spaces[SpaceId::Data].pending.hole_punch_round = round;
-                                self.spaces[SpaceId::Data].pending.hole_punch_to.clear();
-                            }
-
-                            self.spaces[SpaceId::Data]
-                                .pending
-                                .hole_punch_to
-                                .push((ip, port));
-                        }
-                        Err(iroh_hp::Error::WrongConnectionSide) => {
-                            return Err(TransportError::PROTOCOL_VIOLATION(
-                                "server sent REACH_OUT frames for nat traversal",
-                            ));
-                        }
-                        Err(iroh_hp::Error::TooManyAddresses) => {
-                            return Err(TransportError::PROTOCOL_VIOLATION(
-                                "client exceeded allowed REACH_OUT frames for this round",
-                            ));
-                        }
-                        Err(error) => {
-                            warn!(%error,"error handling REACH_OUT frame");
-                            // TODO(@divma): check if this is reachable
-                        }
+                    if let Err(err) = server_state.handle_reach_out(reach_out) {
+                        return Err(TransportError::PROTOCOL_VIOLATION(format!(
+                            "Nat traversal(REACH_OUT): {err}"
+                        )));
                     }
                 }
             }
@@ -5101,7 +5098,7 @@ impl Connection {
             path.challenges_sent.insert(token, now);
             sent.non_retransmits = true;
             sent.requires_padding = true;
-            trace!("PATH_CHALLENGE {:08x}", token);
+            trace!(%token, "PATH_CHALLENGE");
             buf.write(frame::FrameType::PATH_CHALLENGE);
             buf.write(token);
             qlog.frame(&Frame::PathChallenge(token));
@@ -5146,7 +5143,7 @@ impl Connection {
             if let Some(token) = path.path_responses.pop_on_path(path.remote) {
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
-                trace!("PATH_RESPONSE {:08x}", token);
+                trace!(?token, "PATH_RESPONSE");
                 buf.write(frame::FrameType::PATH_RESPONSE);
                 buf.write(token);
                 qlog.frame(&Frame::PathResponse(token));
@@ -5684,11 +5681,8 @@ impl Connection {
             {
                 let max_local_addresses = max_remotely_allowed_remote_addresses.get();
                 let max_remote_addresses = max_locally_allowed_remote_addresses.get();
-                self.iroh_hp = Some(iroh_hp::State::new(
-                    max_remote_addresses,
-                    max_local_addresses,
-                    self.side(),
-                ));
+                self.iroh_hp =
+                    iroh_hp::State::new(max_remote_addresses, max_local_addresses, self.side());
                 debug!(
                     %max_remote_addresses, %max_local_addresses,
                     "iroh hole punching negotiated"
@@ -5937,8 +5931,8 @@ impl Connection {
 
     /// Returns the detected maximum udp payload size for the current path
     #[cfg(test)]
-    pub(crate) fn path_mtu(&self) -> u16 {
-        self.path_data(PathId::ZERO).current_mtu()
+    pub(crate) fn path_mtu(&self, path_id: PathId) -> u16 {
+        self.path_data(path_id).current_mtu()
     }
 
     /// Triggers path validation on all paths
@@ -6102,17 +6096,8 @@ impl Connection {
     }
 
     /// Add addresses the local endpoint considers are reachable for nat traversal
-    ///
-    /// If adding any address fails, an error is returned. Previous addresses might have been
-    /// added.
-    // TODO(@divma): this combined api has the issue that an error does not mean nothing was done
     pub fn add_nat_traversal_address(&mut self, address: SocketAddr) -> Result<(), iroh_hp::Error> {
-        let hp_state = self
-            .iroh_hp
-            .as_mut()
-            .ok_or(iroh_hp::Error::ExtensionNotNegotiated)?;
-
-        if let Some(added) = hp_state.add_local_address(address)? {
+        if let Some(added) = self.iroh_hp.add_local_address(address)? {
             self.spaces[SpaceId::Data].pending.add_address.insert(added);
         };
         Ok(())
@@ -6125,38 +6110,26 @@ impl Connection {
         &mut self,
         address: SocketAddr,
     ) -> Result<(), iroh_hp::Error> {
-        let is_server = self.side().is_server();
-        let hp_state = self
-            .iroh_hp
-            .as_mut()
-            .ok_or(iroh_hp::Error::ExtensionNotNegotiated)?;
-        if let Some(removed) = hp_state.remove_local_address(address) {
-            if is_server {
-                self.spaces[SpaceId::Data]
-                    .pending
-                    .remove_address
-                    .insert(removed);
-            }
+        if let Some(removed) = self.iroh_hp.remove_local_address(address)? {
+            self.spaces[SpaceId::Data]
+                .pending
+                .remove_address
+                .insert(removed);
         }
         Ok(())
     }
 
     /// Get the current local nat traversal addresses
     pub fn get_local_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
-        let hp_state = self
-            .iroh_hp
-            .as_ref()
-            .ok_or(iroh_hp::Error::ExtensionNotNegotiated)?;
-        Ok(hp_state.get_local_nat_traversal_addresses())
+        self.iroh_hp.get_local_nat_traversal_addresses()
     }
 
     /// Get the currently advertised nat traversal addresses by the server
     pub fn get_remote_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
-        let hp_state = self
+        Ok(self
             .iroh_hp
-            .as_ref()
-            .ok_or(iroh_hp::Error::ExtensionNotNegotiated)?;
-        hp_state.get_remote_nat_traversal_addresses()
+            .client_side()?
+            .get_remote_nat_traversal_addresses())
     }
 
     /// Initiates a new nat traversal round
@@ -6170,16 +6143,13 @@ impl Connection {
         &mut self,
         now: Instant,
     ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
-        let hp_state = self
-            .iroh_hp
-            .as_mut()
-            .ok_or(iroh_hp::Error::ExtensionNotNegotiated)?;
+        let client_state = self.iroh_hp.client_side_mut()?;
         let iroh_hp::NatTraversalRound {
             new_round,
             reach_out_at,
             addresses_to_probe,
             prev_round_path_ids,
-        } = hp_state.initiate_nat_traversal_round()?;
+        } = client_state.initiate_nat_traversal_round()?;
 
         self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
 
@@ -6229,10 +6199,10 @@ impl Connection {
             }
         }
 
-        let hp_state = self.iroh_hp.as_mut().expect("previously validated");
-        hp_state
-            .set_round_path_ids(path_ids)
-            .expect("connection side validated");
+        self.iroh_hp
+            .client_side_mut()
+            .expect("connection side validated")
+            .set_round_path_ids(path_ids);
 
         Ok(probed_addresses)
     }
