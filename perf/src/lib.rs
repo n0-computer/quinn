@@ -128,7 +128,7 @@ impl CommonOpt {
 
         #[cfg(feature = "qlog")]
         if let Some(qlog_dir) = &self.qlog_dir {
-            std::fs::create_dir_all(&qlog_dir)?;
+            std::fs::create_dir_all(qlog_dir)?;
             struct Factory {
                 dir: PathBuf,
                 name: String,

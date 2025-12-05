@@ -66,8 +66,10 @@ impl QlogStream {
             flow: None,
         };
 
-        let mut common_fields = CommonFields::default();
-        common_fields.group_id = Some(initial_dst_cid.to_string());
+        let common_fields = CommonFields {
+            group_id: Some(initial_dst_cid.to_string()),
+            ..Default::default()
+        };
 
         let trace = qlog::TraceSeq::new(
             config.title.clone(),

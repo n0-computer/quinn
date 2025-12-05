@@ -492,8 +492,7 @@ impl TransportConfig {
             if let Some(config) = self
                 .qlog_factory
                 .as_ref()
-                .map(|factory| factory.for_connection(side, remote, initial_dst_cid, now))
-                .flatten()
+                .and_then(|factory| factory.for_connection(side, remote, initial_dst_cid, now))
             {
                 QlogSink::new(config, initial_dst_cid, side, now)
             } else {
