@@ -2,7 +2,6 @@ use std::{
     net::{IpAddr, Ipv6Addr, SocketAddr},
     num::NonZeroU32,
     sync::Arc,
-    time::{Duration, Instant},
 };
 
 use proptest::{
@@ -10,14 +9,12 @@ use proptest::{
     prelude::{Strategy, any},
     prop_assert,
 };
-use rand::{RngCore, SeedableRng, rngs::StdRng};
 use test_strategy::proptest;
 
 use crate::{
-    ConnectionClose, ConnectionError, Endpoint, EndpointConfig, PathStatus, TransportConfig,
-    TransportErrorCode,
+    ConnectionClose, ConnectionError, PathStatus, TransportConfig, TransportErrorCode,
     tests::{
-        DEFAULT_MTU, Pair, RoutingTable, TestEndpoint,
+        Pair, RoutingTable,
         random_interaction::{Side, TestOp, run_random_interaction},
         server_config, subscribe,
     },
@@ -37,46 +34,25 @@ const SERVER_ADDRS: [SocketAddr; MAX_PATHS as usize] = [
 ];
 
 fn setup_deterministic_with_multipath(seed: [u8; 32], routes: RoutingTable) -> Pair {
-    let mut rng = StdRng::from_seed(seed);
-    let mut client_seed = [0u8; 32];
-    let mut server_seed = [0u8; 32];
-    rng.fill_bytes(&mut client_seed);
-    rng.fill_bytes(&mut server_seed);
+    let mut pair = Pair::seeded(seed);
 
     let mut cfg = server_config();
     let transport = multipath_transport_config();
     cfg.transport = Arc::new(transport);
+    pair.server.endpoint.set_server_config(Some(Arc::new(cfg)));
 
-    let mut client_config = EndpointConfig::default();
-    let mut server_config = EndpointConfig::default();
-    client_config.rng_seed(Some(client_seed));
-    server_config.rng_seed(Some(server_seed));
-
-    let server = Endpoint::new(Arc::new(server_config), Some(Arc::new(cfg)), true, None);
-    let client = Endpoint::new(Arc::new(client_config), None, true, None);
-
-    let now = Instant::now();
-    let server = TestEndpoint::new(server, routes.server_addr(0).unwrap());
-    let client = TestEndpoint::new(client, routes.client_addr(0).unwrap());
-    Pair {
-        server,
-        client,
-        epoch: now,
-        time: now,
-        mtu: DEFAULT_MTU,
-        latency: Duration::from_millis(1),
-        spins: 0,
-        last_spin: false,
-        congestion_experienced: false,
-        routes: Some(routes),
-    }
+    pair.client.addr = routes.client_addr(0).unwrap();
+    pair.server.addr = routes.server_addr(0).unwrap();
+    pair.routes = Some(routes);
+    pair
 }
 
 fn multipath_transport_config() -> TransportConfig {
-    let mut transport = TransportConfig::default();
-    // enable multipath
-    transport.max_concurrent_multipath_paths = NonZeroU32::new(MAX_PATHS);
-    transport
+    TransportConfig {
+        // enable multipath
+        max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
+        ..Default::default()
+    }
 }
 
 #[proptest(cases = 256)]
@@ -84,7 +60,7 @@ fn random_interaction(
     #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
     #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
 ) {
-    let mut pair = Pair::default_deterministic(seed);
+    let mut pair = Pair::seeded(seed);
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config());
 

@@ -30,7 +30,7 @@ pub(super) struct Pair {
     pub(super) server: TestEndpoint,
     pub(super) client: TestEndpoint,
     /// Start time
-    pub(super) epoch: Instant,
+    epoch: Instant,
     /// Current time
     pub(super) time: Instant,
     /// Simulates the maximum size allowed for UDP payloads by the link (packets exceeding this size will be dropped)
@@ -41,12 +41,15 @@ pub(super) struct Pair {
     pub(super) latency: Duration,
     /// Number of spin bit flips
     pub(super) spins: u64,
-    pub(super) last_spin: bool,
+    /// The routing table used for resolving addresses observed for incoming packets
+    /// and determining whether they should get lost.
     pub(super) routes: Option<RoutingTable>,
+    last_spin: bool,
 }
 
 impl Pair {
-    pub(super) fn default_deterministic(seed: [u8; 32]) -> Self {
+    /// Creates an endpoint pair that'll run deterministically with hardcoded addresses.
+    pub(super) fn seeded(seed: [u8; 32]) -> Self {
         let mut rng = StdRng::from_seed(seed);
         let mut client_seed = [0u8; 32];
         let mut server_seed = [0u8; 32];
@@ -374,7 +377,7 @@ pub(super) struct TestEndpoint {
     pub(super) inbound: VecDeque<(Instant, Option<EcnCodepoint>, BytesMut, SocketAddr)>,
     pub(super) accepted: Option<Result<ConnectionHandle, ConnectionError>>,
     pub(super) connections: HashMap<ConnectionHandle, Connection>,
-    pub(super) drained_connections: HashSet<ConnectionHandle>,
+    drained_connections: HashSet<ConnectionHandle>,
     conn_events: HashMap<ConnectionHandle, VecDeque<ConnectionEvent>>,
     pub(super) captured_packets: Vec<Vec<u8>>,
     pub(super) capture_inbound_packets: bool,
@@ -399,7 +402,7 @@ pub(super) fn validate_incoming(incoming: &Incoming) -> IncomingConnectionBehavi
 }
 
 impl TestEndpoint {
-    pub(super) fn new(endpoint: Endpoint, addr: SocketAddr) -> Self {
+    fn new(endpoint: Endpoint, addr: SocketAddr) -> Self {
         let socket = if env::var_os("SSLKEYLOGFILE").is_some() {
             let socket = UdpSocket::bind(addr).expect("failed to bind UDP socket");
             socket

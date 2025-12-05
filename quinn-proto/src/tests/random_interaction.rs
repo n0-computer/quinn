@@ -83,7 +83,7 @@ pub(super) struct State {
 }
 
 impl TestOp {
-    fn run(self: TestOp, pair: &mut Pair, client: &mut State, server: &mut State) -> Option<()> {
+    fn run(self, pair: &mut Pair, client: &mut State, server: &mut State) -> Option<()> {
         let now = pair.time;
         match self {
             Self::Drive(Side::Client) => pair.drive_client(),
@@ -191,7 +191,7 @@ impl StreamOp {
         let conn = state.conn(pair)?;
         // We generally ignore application-level errors. It's legal to call these APIs, so we do. We don't expect them to work all the time.
         match self {
-            Self::Open(kind) => state.send_streams.extend(conn.streams().open(kind.into())),
+            Self::Open(kind) => state.send_streams.extend(conn.streams().open(kind)),
             Self::Send { stream, num_bytes } => {
                 let stream_id = state.send_streams.get(stream)?;
                 let data = vec![0; num_bytes];
@@ -206,9 +206,7 @@ impl StreamOp {
                 let stream_id = state.send_streams.get(stream)?;
                 conn.send_stream(*stream_id).reset(code.into()).ok();
             }
-            Self::Accept(kind) => state
-                .recv_streams
-                .extend(conn.streams().accept(kind.into())),
+            Self::Accept(kind) => state.recv_streams.extend(conn.streams().accept(kind)),
             Self::Receive(stream, ordered) => {
                 let stream_id = state.recv_streams.get(stream)?;
                 let mut recv_stream = conn.recv_stream(*stream_id);
