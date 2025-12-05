@@ -11,8 +11,8 @@ use tracing::info;
 use crate::tests::util::{CLIENT_PORTS, SERVER_PORTS};
 use crate::{
     ClientConfig, ClosePathError, ConnectionHandle, ConnectionId, ConnectionIdGenerator, Endpoint,
-    EndpointConfig, Instant, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator,
-    ServerConfig, TransportConfig, cid_queue::CidQueue,
+    EndpointConfig, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator, ServerConfig,
+    TransportConfig, cid_queue::CidQueue,
 };
 use crate::{Event, PathError, PathEvent};
 
