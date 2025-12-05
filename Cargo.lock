@@ -1433,7 +1433,6 @@ dependencies = [
  "hex-literal",
  "identity-hash",
  "lru-slab",
- "packet-buf",
  "qlog",
  "rand",
  "rand_pcg",
@@ -1444,6 +1443,7 @@ dependencies = [
  "rustls-pki-types",
  "rustls-platform-verifier",
  "slab",
+ "sorted-index-buffer",
  "thiserror 2.0.17",
  "tinyvec",
  "tracing",
@@ -1750,11 +1750,6 @@ name = "openssl-probe"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
-
-[[package]]
-name = "packet-buf"
-version = "0.1.0"
-source = "git+https://github.com/rklaehn/packet-buf#d1a50a225d61a685bc3c6385b4896b896d8ae5ce"
 
 [[package]]
 name = "parking"
@@ -2400,6 +2395,12 @@ dependencies = [
  "libc",
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "sorted-index-buffer"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6dd48f59ffbab18adffc51941659d20aeb547c555f255a9831076efaf63fc1d"
 
 [[package]]
 name = "stable_deref_trait"

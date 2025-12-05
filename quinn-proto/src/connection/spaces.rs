@@ -6,7 +6,7 @@ use std::{
     ops::{Bound, Index, IndexMut},
 };
 
-use packet_buf::PacketBuf;
+use sorted_index_buffer::SortedIndexBuffer;
 use rand::Rng;
 use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::{error, trace};
@@ -222,10 +222,10 @@ pub(super) struct PacketNumberSpace {
     pub(super) unacked_non_ack_eliciting_tail: u64,
     /// Transmitted but not acked
     // We use a BTreeMap here so we can efficiently query by range on ACK and for loss detection
-    pub(super) sent_packets: PacketBuf<SentPacket>,
+    pub(super) sent_packets: SortedIndexBuffer<SentPacket>,
     /// Packets that were deemed lost
     // Older packets are regularly removed in `Connection::drain_lost_packets`.
-    pub(super) lost_packets: PacketBuf<LostPacket>,
+    pub(super) lost_packets: SortedIndexBuffer<LostPacket>,
     /// Number of explicit congestion notification codepoints seen on incoming packets
     pub(super) ecn_counters: frame::EcnCounts,
     /// Recent ECN counters sent by the peer in ACK frames
@@ -277,8 +277,8 @@ impl PacketNumberSpace {
             largest_acked_packet_sent: now,
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
-            sent_packets: PacketBuf::new(),
-            lost_packets: PacketBuf::new(),
+            sent_packets: SortedIndexBuffer::new(),
+            lost_packets: SortedIndexBuffer::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -306,8 +306,8 @@ impl PacketNumberSpace {
             largest_acked_packet_sent: now,
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
-            sent_packets: PacketBuf::new(),
-            lost_packets: PacketBuf::new(),
+            sent_packets: SortedIndexBuffer::new(),
+            lost_packets: SortedIndexBuffer::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -336,8 +336,8 @@ impl PacketNumberSpace {
             largest_acked_packet_sent: Instant::now(),
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
-            sent_packets: PacketBuf::new(),
-            lost_packets: PacketBuf::new(),
+            sent_packets: SortedIndexBuffer::new(),
+            lost_packets: SortedIndexBuffer::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
