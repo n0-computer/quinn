@@ -1,10 +1,11 @@
 use std::{collections::VecDeque, sync::Arc};
 
+use proptest::prelude::Strategy;
 use test_strategy::Arbitrary;
 use tracing::{debug, trace};
 
 use crate::{
-    Connection, ConnectionHandle, PathId, PathStatus, StreamId, TransportConfig,
+    Connection, ConnectionHandle, Dir, PathId, PathStatus, StreamId, TransportConfig,
     tests::{Pair, TestEndpoint, client_config},
 };
 
@@ -21,29 +22,33 @@ pub(super) enum TestOp {
     DropInbound(Side),
     ReorderInbound(Side),
     ForceKeyUpdate(Side),
-    OpenPath(Side, PathKind, #[strategy(0..3usize)] usize),
+    OpenPath(
+        Side,
+        #[strategy(path_status())] PathStatus,
+        #[strategy(0..3usize)] usize,
+    ),
     ClosePath(Side, #[strategy(0..3usize)] usize, u32),
-    PathSetStatus(Side, #[strategy(0..3usize)] usize, PathKind),
+    PathSetStatus(
+        Side,
+        #[strategy(0..3usize)] usize,
+        #[strategy(path_status())] PathStatus,
+    ),
     StreamOp(Side, StreamOp),
 }
 
-#[derive(Debug, Clone, Copy, Arbitrary)]
-pub(super) enum PathKind {
-    Available,
-    Backup,
-}
-
-#[derive(Debug, Clone, Copy, Arbitrary)]
-pub(super) enum StreamKind {
-    Uni,
-    Bi,
+fn path_status() -> impl Strategy<Value = PathStatus> {
+    (0..=1).prop_map(|n| match n {
+        0 => PathStatus::Available,
+        1 => PathStatus::Backup,
+        _ => unreachable!(),
+    })
 }
 
 /// We *basically* only operate with 3 streams concurrently at the moment
 /// (even though more might be opened at a time).
 #[derive(Debug, Clone, Copy, Arbitrary)]
 pub(super) enum StreamOp {
-    Open(StreamKind),
+    Open(#[strategy(stream_dir())] Dir),
     Send {
         #[strategy(0..3usize)]
         stream: usize,
@@ -53,9 +58,17 @@ pub(super) enum StreamOp {
     Finish(#[strategy(0..3usize)] usize),
     Reset(#[strategy(0..3usize)] usize, u32),
 
-    Accept(StreamKind),
+    Accept(#[strategy(stream_dir())] Dir),
     Receive(#[strategy(0..3usize)] usize, bool),
     Stop(#[strategy(0..3usize)] usize, u32),
+}
+
+fn stream_dir() -> impl Strategy<Value = Dir> {
+    (0..=1).prop_map(|n| match n {
+        0 => Dir::Uni,
+        1 => Dir::Bi,
+        _ => unreachable!(),
+    })
 }
 
 pub(super) struct State {
@@ -64,15 +77,6 @@ pub(super) struct State {
     path_ids: Vec<PathId>,
     handle: ConnectionHandle,
     side: Side,
-}
-
-impl From<StreamKind> for crate::Dir {
-    fn from(value: StreamKind) -> Self {
-        match value {
-            StreamKind::Bi => Self::Bi,
-            StreamKind::Uni => Self::Uni,
-        }
-    }
 }
 
 impl StreamOp {
@@ -197,16 +201,12 @@ pub(super) fn run_random_interaction(
                     conn.force_key_update()
                 }
             }
-            TestOp::OpenPath(side, path_kind, addr) => {
+            TestOp::OpenPath(side, initial_status, addr) => {
                 if let Some(routes) = &pair.routes {
                     if let Some(remote) = match side {
                         Side::Client => routes.client_addr(addr),
                         Side::Server => routes.server_addr(addr),
                     } {
-                        let initial_status = match path_kind {
-                            PathKind::Available => PathStatus::Available,
-                            PathKind::Backup => PathStatus::Backup,
-                        };
                         let state = match side {
                             Side::Client => &mut client,
                             Side::Server => &mut server,
@@ -235,10 +235,6 @@ pub(super) fn run_random_interaction(
                 let state = match side {
                     Side::Client => &mut client,
                     Side::Server => &mut server,
-                };
-                let status = match status {
-                    PathKind::Available => PathStatus::Available,
-                    PathKind::Backup => PathStatus::Backup,
                 };
                 if let Some(conn) = state.conn(pair) {
                     if let Some(&path_id) = state.path_from_idx(path_idx) {

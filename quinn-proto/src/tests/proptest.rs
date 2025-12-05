@@ -13,10 +13,10 @@ use rand::{RngCore, SeedableRng, rngs::StdRng};
 use test_strategy::proptest;
 
 use crate::{
-    Endpoint, EndpointConfig, TransportConfig,
+    Endpoint, EndpointConfig, PathStatus, TransportConfig,
     tests::{
         DEFAULT_MTU, Pair, RoutingTable, TestEndpoint,
-        random_interaction::{PathKind, Side, TestOp, run_random_interaction},
+        random_interaction::{Side, TestOp, run_random_interaction},
         server_config, subscribe,
     },
 };
@@ -153,7 +153,7 @@ fn regression_unset_packet_acked() {
         89, 203, 28, 107, 123, 117, 6, 54, 215, 244, 47, 1,
     ];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathKind::Available, 0),
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
         TestOp::ClosePath(Side::Client, 0, 0),
         TestOp::Drive(Side::Client),
         TestOp::AdvanceTime,
@@ -176,10 +176,10 @@ fn regression_invalid_key() {
         117, 84, 250, 190, 50, 237, 14, 167, 60, 5, 140, 149,
     ];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathKind::Available, 0),
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
         TestOp::AdvanceTime,
         TestOp::Drive(Side::Client),
-        TestOp::OpenPath(Side::Client, PathKind::Available, 0),
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
     ];
 
     let _guard = subscribe();
@@ -197,7 +197,7 @@ fn regression_key_update_error() {
         208, 54, 158, 239, 190, 82, 198, 62, 91, 51, 53, 226,
     ];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathKind::Available, 0),
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
         TestOp::Drive(Side::Client),
         TestOp::ForceKeyUpdate(Side::Server),
     ];
@@ -217,8 +217,8 @@ fn regression_never_idle() {
         48, 180, 255, 97, 33, 29, 11, 76, 219, 138, 87, 57,
     ];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathKind::Available, 1),
-        TestOp::PathSetStatus(Side::Server, 0, PathKind::Backup),
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
+        TestOp::PathSetStatus(Side::Server, 0, PathStatus::Backup),
         TestOp::ClosePath(Side::Client, 0, 0),
     ];
 
@@ -237,11 +237,11 @@ fn regression_never_idle2() {
         50, 100, 4, 245, 65, 8, 174, 18, 189, 72, 10, 166, 160,
     ];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathKind::Backup, 1),
+        TestOp::OpenPath(Side::Client, PathStatus::Backup, 1),
         TestOp::ClosePath(Side::Client, 0, 0),
         TestOp::Drive(Side::Client),
         TestOp::DropInbound(Side::Server),
-        TestOp::PathSetStatus(Side::Client, 0, PathKind::Available),
+        TestOp::PathSetStatus(Side::Client, 0, PathStatus::Available),
     ];
 
     let _guard = subscribe();
