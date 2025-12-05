@@ -1454,6 +1454,11 @@ impl Connection {
         if transmit.is_empty() && self.state.is_established() {
             path_id = *self.paths.first_key_value().expect("one path must exist").0;
             let probe_data = loop {
+                // We MTU probe all paths for which all of the following is true:
+                // - We have an active destination CID for the path.
+                // - The remote address *and* path are validated.
+                // - The path is not abandoned.
+                // - The MTU Discovery subsystem wants to probe the path.
                 let active_cid = self.rem_cids.get(&path_id).map(CidQueue::active);
                 let eligible = self.path_data(path_id).validated
                     && !self.path_data(path_id).is_validating_path()
