@@ -1675,8 +1675,9 @@ dependencies = [
 
 [[package]]
 name = "n0-qlog"
-version = "0.15.2"
-source = "git+https://github.com/n0-computer/n0-qlog?branch=main#e021c703ab92d5bf345efb1fc08d23793d294441"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "227d9ae7ef1e74f3e9f3e3503b06b58ff507ce754efdc29e4a44af74ad300cc3"
 dependencies = [
  "serde",
  "serde_json",
