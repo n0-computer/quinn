@@ -4365,18 +4365,17 @@ impl Connection {
                     if let Some(ref path_id) = path_id {
                         span.record("path", tracing::field::debug(&path_id));
                     }
-                    match self.local_cid_state.get_mut(&path_id.unwrap_or_default()) {
+                    let path_id = path_id.unwrap_or_default();
+                    match self.local_cid_state.get_mut(&path_id) {
                         None => error!(?path_id, "RETIRE_CONNECTION_ID for unknown path"),
                         Some(cid_state) => {
                             let allow_more_cids = cid_state
                                 .on_cid_retirement(sequence, self.peer_params.issue_cids_limit())?;
-                            let path_id = path_id.unwrap_or_default();
 
                             // If the path has closed, we do not issue more CIDs for this path
                             // For details see  https://www.ietf.org/archive/id/draft-ietf-quic-multipath-17.html#section-3.2.2
                             // > an endpoint SHOULD provide new connection IDs for that path, if still open, using PATH_NEW_CONNECTION_ID frames.
-                            let has_path = self.paths.get(&path_id).is_some();
-
+                            let has_path = !self.abandoned_paths.contains(&path_id);
                             tracing::info!(%path_id, allow_more_cids, has_path, "allow more cids after retiring");
                             let allow_more_cids = allow_more_cids && has_path;
 
