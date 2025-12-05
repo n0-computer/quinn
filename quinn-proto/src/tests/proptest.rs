@@ -83,8 +83,6 @@ fn random_interaction(
     #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
 ) {
     let mut pair = Pair::default_deterministic(seed);
-    pair.client.panic_on_transport_error = true;
-    pair.server.panic_on_transport_error = true;
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
@@ -97,8 +95,6 @@ fn random_interaction_with_multipath_simple_routing(
 ) {
     let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
     let mut pair = setup_deterministic_with_multipath(seed, routes);
-    pair.client.panic_on_transport_error = true;
-    pair.server.panic_on_transport_error = true;
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
@@ -134,8 +130,6 @@ fn random_interaction_with_multipath_complex_routing(
     #[strategy(routing_table())] routes: RoutingTable,
 ) {
     let mut pair = setup_deterministic_with_multipath(seed, routes);
-    pair.client.panic_on_transport_error = true;
-    pair.server.panic_on_transport_error = true;
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
@@ -170,8 +164,6 @@ fn regression_unset_packet_acked() {
     let _guard = subscribe();
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
-    pair.client.panic_on_transport_error = true;
-    pair.server.panic_on_transport_error = true;
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
@@ -193,8 +185,6 @@ fn regression_invalid_key() {
     let _guard = subscribe();
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
-    pair.client.panic_on_transport_error = true;
-    pair.server.panic_on_transport_error = true;
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
@@ -215,8 +205,6 @@ fn regression_key_update_error() {
     let _guard = subscribe();
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
-    pair.client.panic_on_transport_error = true;
-    pair.server.panic_on_transport_error = true;
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
@@ -237,8 +225,6 @@ fn regression_never_idle() {
     let _guard = subscribe();
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
-    pair.client.panic_on_transport_error = true;
-    pair.server.panic_on_transport_error = true;
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
@@ -261,8 +247,6 @@ fn regression_never_idle2() {
     let _guard = subscribe();
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
-    pair.client.panic_on_transport_error = true;
-    pair.server.panic_on_transport_error = true;
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     // We needed to increase the bounds. It eventually times out.

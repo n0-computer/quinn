@@ -117,7 +117,7 @@ fn version_negotiate_client() {
         &mut buf,
     );
     if let Some(DatagramEvent::ConnectionEvent(_, event)) = opt_event {
-        let _ = client_ch.handle_event(event);
+        client_ch.handle_event(event);
     }
     assert_matches!(
         client_ch.poll(),
