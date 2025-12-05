@@ -61,7 +61,7 @@ pub use config::{
     ServerConfig, StdSystemTime, TimeSource, TransportConfig, ValidationTokenConfig,
 };
 #[cfg(feature = "qlog")]
-pub use config::{QlogConfig, QlogFactory};
+pub use config::{QlogConfig, QlogFactory, QlogFileFactory};
 
 pub mod crypto;
 

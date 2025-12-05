@@ -1,15 +1,9 @@
-use std::{io, net::SocketAddr, num::ParseIntError, str::FromStr, sync::Arc, time::Duration};
 #[cfg(feature = "qlog")]
-use std::{
-    io::BufWriter,
-    path::PathBuf,
-    time::{Instant, SystemTime, UNIX_EPOCH},
-};
+use std::path::PathBuf;
+use std::{io, net::SocketAddr, num::ParseIntError, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-#[cfg(feature = "qlog")]
-use quinn::QlogConfig;
 use quinn::{
     AckFrequencyConfig, TransportConfig, VarInt,
     congestion::{self, ControllerFactory},
@@ -87,6 +81,8 @@ pub struct CommonOpt {
     #[clap(long, default_value = "1472")]
     pub max_udp_payload_size: u16,
     /// qlog output directory
+    ///
+    /// Alternatively you can set the `QLOGDIR` environment variable.
     #[cfg(feature = "qlog")]
     #[clap(long = "qlog")]
     pub qlog_dir: Option<PathBuf>,
@@ -128,40 +124,9 @@ impl CommonOpt {
 
         #[cfg(feature = "qlog")]
         if let Some(qlog_dir) = &self.qlog_dir {
-            std::fs::create_dir_all(qlog_dir)?;
-            struct Factory {
-                dir: PathBuf,
-                name: String,
-            }
-            impl quinn::QlogFactory for Factory {
-                fn for_connection(
-                    &self,
-                    side: quinn::Side,
-                    _remote: SocketAddr,
-                    initial_dst_cid: quinn::ConnectionId,
-                    now: std::time::Instant,
-                ) -> Option<QlogConfig> {
-                    let timestamp = {
-                        SystemTime::now()
-                            .checked_sub(Instant::now().duration_since(now))?
-                            .duration_since(UNIX_EPOCH)
-                            .ok()?
-                            .as_millis()
-                    };
-                    let name = format!(
-                        "{name}-{timestamp}-{side:?}-{initial_dst_cid}.qlog",
-                        name = self.name
-                    );
-                    let path = self.dir.join(name);
-                    let file = std::fs::File::create(path).ok()?;
-                    let writer = BufWriter::new(file);
-                    Some(QlogConfig::new(Box::new(writer)))
-                }
-            }
-            transport.qlog_factory(Arc::new(Factory {
-                dir: qlog_dir.clone(),
-                name: name.to_string(),
-            }));
+            transport.qlog_from_path(qlog_dir, name);
+        } else {
+            transport.qlog_from_env(name);
         }
 
         Ok(transport)

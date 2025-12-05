@@ -1,5 +1,5 @@
 #[cfg(feature = "qlog")]
-use std::io;
+use std::path::Path;
 use std::{
     fmt,
     net::SocketAddr,
@@ -11,6 +11,8 @@ use crate::{
     ConnectionId, Duration, INITIAL_MTU, Instant, MAX_UDP_PAYLOAD, Side, VarInt,
     VarIntBoundsExceeded, address_discovery, congestion, connection::qlog::QlogSink,
 };
+#[cfg(feature = "qlog")]
+use crate::{QlogFactory, QlogFileFactory};
 
 /// When multipath is required and has not been explicitly enabled, this value will be used for
 /// [`TransportConfig::max_concurrent_multipath_paths`].
@@ -465,7 +467,7 @@ impl TransportConfig {
         self
     }
 
-    /// Configures qlog capturing.
+    /// Configures qlog capturing by setting a [`QlogFactory`].
     ///
     /// This assigns a [`QlogFactory`] that produces qlog capture configurations for
     /// individual connections.
@@ -475,7 +477,31 @@ impl TransportConfig {
         self
     }
 
-    #[cfg_attr(not(feature = "qlog"), allow(unused))]
+    /// Configures qlog capturing through the `QLOGDIR` environment variable.
+    ///
+    /// This uses [`QlogFileFactory::from_env`] to create a factory to write qlog traces
+    /// into the directory set through the `QLOGDIR` environment variable.
+    ///
+    /// If `QLOGDIR` is not set, no traces will be written. If `QLOGDIR` is set to a path
+    /// that does not exist, it will be created.
+    ///
+    /// The files will be prefixed with `prefix`.
+    #[cfg(feature = "qlog")]
+    pub fn qlog_from_env(&mut self, prefix: &str) -> &mut Self {
+        self.qlog_factory(Arc::new(QlogFileFactory::from_env().with_prefix(prefix)))
+    }
+
+    /// Configures qlog capturing into a directory.
+    ///
+    /// This uses [`QlogFileFactory`] to create a factory to write qlog traces into
+    /// the specified directory.  The files will be prefixed with `prefix`.
+    #[cfg(feature = "qlog")]
+    pub fn qlog_from_path(&mut self, path: impl AsRef<Path>, prefix: &str) -> &mut Self {
+        self.qlog_factory(Arc::new(
+            QlogFileFactory::new(path.as_ref().to_owned()).with_prefix(prefix),
+        ))
+    }
+
     pub(crate) fn create_qlog_sink(
         &self,
         side: Side,
@@ -484,7 +510,10 @@ impl TransportConfig {
         now: Instant,
     ) -> QlogSink {
         #[cfg(not(feature = "qlog"))]
-        let sink = QlogSink::default();
+        let sink = {
+            let _ = (side, remote, initial_dst_cid, now);
+            QlogSink::default()
+        };
 
         #[cfg(feature = "qlog")]
         let sink = {
@@ -722,72 +751,6 @@ impl Default for AckFrequencyConfig {
             max_ack_delay: None,
             reordering_threshold: VarInt(2),
         }
-    }
-}
-
-#[cfg(feature = "qlog")]
-/// Constructs a [`QlogConfig`] for individual connections.
-///
-/// This is set via [`TransportConfig::qlog_factory`].
-pub trait QlogFactory: Send + Sync + 'static {
-    /// Returns a [`QlogConfig`] for a connection, if logging should be enabled.
-    ///
-    /// If `None` is returned, qlog capture is disabled for the connection.
-    fn for_connection(
-        &self,
-        side: Side,
-        remote: SocketAddr,
-        initial_dst_cid: ConnectionId,
-        now: Instant,
-    ) -> Option<QlogConfig>;
-}
-
-/// Configuration for qlog trace logging.
-///
-/// This struct is returned from [`QlogFactory::for_connection`] if qlog logging should
-/// be enabled for a connection. It allows to set metadata for the qlog trace.
-///
-/// The trace will be written to the provided writer in the [`JSON-SEQ format`] defined in the qlog spec.
-///
-/// [`JSON-SEQ format`](https://www.ietf.org/archive/id/draft-ietf-quic-qlog-main-schema-13.html#section-5)
-#[cfg(feature = "qlog")]
-pub struct QlogConfig {
-    pub(crate) writer: Box<dyn io::Write + Send + Sync>,
-    pub(crate) title: Option<String>,
-    pub(crate) description: Option<String>,
-    pub(crate) start_time: Option<Instant>,
-}
-
-#[cfg(feature = "qlog")]
-impl QlogConfig {
-    /// Creates a new [`QlogConfig`] that writes a qlog trace to the specified `writer`.
-    pub fn new(writer: Box<dyn io::Write + Send + Sync>) -> Self {
-        Self {
-            writer,
-            title: None,
-            description: None,
-            start_time: None,
-        }
-    }
-
-    /// Title to record in the qlog capture
-    pub fn title(&mut self, title: Option<String>) -> &mut Self {
-        self.title = title;
-        self
-    }
-
-    /// Description to record in the qlog capture
-    pub fn description(&mut self, description: Option<String>) -> &mut Self {
-        self.description = description;
-        self
-    }
-
-    /// Epoch qlog event times are recorded relative to
-    ///
-    /// If unset, the start of the connection is used.
-    pub fn start_time(&mut self, start_time: Instant) -> &mut Self {
-        self.start_time = Some(start_time);
-        self
     }
 }
 
