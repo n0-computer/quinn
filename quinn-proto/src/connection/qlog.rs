@@ -301,7 +301,7 @@ impl QlogSink {
                 ConnTimer::Idle => Some(QlogTimerType::IdleTimeout.into()),
                 ConnTimer::Close => Some(TimerType::custom("close")),
                 ConnTimer::KeyDiscard => Some(TimerType::custom("key_discard")),
-                ConnTimer::KeepAlive => Some(TimerType::custom("keep_alive")),
+                ConnTimer::KeepAlive => None,
                 ConnTimer::PushNewCid => Some(TimerType::custom("push_new_cid")),
             },
             Timer::PerPath(_, path_timer) => match path_timer {
@@ -310,8 +310,7 @@ impl QlogSink {
                 PathTimer::PathValidation => Some(QlogTimerType::PathValidation.into()),
                 PathTimer::PathChallengeLost => Some(TimerType::custom("path_challenge_lost")),
                 PathTimer::PathOpen => Some(TimerType::custom("path_open")),
-                PathTimer::PathKeepAlive => Some(TimerType::custom("path_keep_alive")),
-                // skipped because it fires very often and is likely not important for debugging things.
+                PathTimer::PathKeepAlive => None,
                 PathTimer::Pacing => None,
                 PathTimer::MaxAckDelay => Some(QlogTimerType::Ack.into()),
                 PathTimer::PathAbandoned => Some(TimerType::custom("path_abandoned")),
