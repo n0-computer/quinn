@@ -644,6 +644,12 @@ impl Connection {
             .path_abandon
             .insert(path_id, error_code.into());
 
+        // Remove pending NEW CIDs for this path
+        self.spaces[SpaceId::Data]
+            .pending
+            .new_cids
+            .retain(|cid| cid.path_id != path_id);
+
         // Consider remotely issued CIDs as retired.
         // Technically we don't have to do this just yet.  We only need to do this *after*
         // the ABANDON_PATH frame is sent, allowing us to still send it on the
@@ -2799,12 +2805,6 @@ impl Connection {
         }
         self.paths.remove(&path_id);
         self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
-
-        // Cleanup pending CIDs for this path
-        self.spaces[SpaceId::Data]
-            .pending
-            .new_cids
-            .retain(|cid| cid.path_id != path_id);
 
         // TODO: cleanup other path data in Retransmits
 
