@@ -466,7 +466,10 @@ impl TransportConfig {
         self
     }
 
-    /// qlog capture configuration to use for a particular connection
+    /// Configures qlog capturing.
+    ///
+    /// This assigns a [`QlogFactory`] that produces qlog capture configurations for
+    /// individual connections.
     #[cfg(feature = "qlog")]
     pub fn qlog_factory(&mut self, factory: Arc<dyn QlogFactory>) -> &mut Self {
         self.qlog_factory = Some(factory);
@@ -725,11 +728,13 @@ impl Default for AckFrequencyConfig {
 }
 
 #[cfg(feature = "qlog")]
-/// Creates a [`QlogConfig`] for connections.
+/// Constructs a [`QlogConfig`] for individual connections.
+///
+/// This is set via [`TransportConfig::qlog_factory`].
 pub trait QlogFactory: Send + Sync + 'static {
-    /// Returns a [`QlogConfig`] if this connection should be recorded.
+    /// Returns a [`QlogConfig`] for a connection, if logging should be enabled.
     ///
-    /// If `None` is returned, the connection will not be recorded.
+    /// If `None` is returned, qlog capture is disabled for the connection.
     fn for_connection(
         &self,
         side: Side,
@@ -739,7 +744,14 @@ pub trait QlogFactory: Send + Sync + 'static {
     ) -> Option<QlogConfig>;
 }
 
-/// Configuration for qlog trace logging
+/// Configuration for qlog trace logging.
+///
+/// This struct is returned from [`QlogFactory::for_connection`] if qlog logging should
+/// be enabled for a connection. It allows to set metadata for the qlog trace.
+///
+/// The trace will be written to the provided writer in the [`JSON-SEQ format`] defined in the qlog spec.
+///
+/// [`JSON-SEQ format`](https://www.ietf.org/archive/id/draft-ietf-quic-qlog-main-schema-13.html#section-5)
 #[cfg(feature = "qlog")]
 pub struct QlogConfig {
     pub(crate) writer: Box<dyn io::Write + Send + Sync>,
@@ -750,7 +762,7 @@ pub struct QlogConfig {
 
 #[cfg(feature = "qlog")]
 impl QlogConfig {
-    /// Where to write a qlog `TraceSeq`
+    /// Creates a new [`QlogConfig`] that writes a qlog trace to the specified `writer`.
     pub fn new(writer: Box<dyn io::Write + Send + Sync>) -> Self {
         Self {
             writer,
@@ -773,6 +785,8 @@ impl QlogConfig {
     }
 
     /// Epoch qlog event times are recorded relative to
+    ///
+    /// If unset, the start of the connection is used.
     pub fn start_time(&mut self, start_time: Instant) -> &mut Self {
         self.start_time = Some(start_time);
         self
