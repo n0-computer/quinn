@@ -171,8 +171,14 @@ pub(super) fn run_random_interaction(
 
     for interaction in interactions {
         debug!(?interaction, "INTERACTION STEP");
+        interaction.run(pair, &mut client, &mut server);
+    }
+}
+
+impl TestOp {
+    fn run(self: TestOp, pair: &mut Pair, client: &mut State, server: &mut State) {
         let now = pair.time;
-        match interaction {
+        match self {
             TestOp::Drive(Side::Client) => pair.drive_client(),
             TestOp::Drive(Side::Server) => pair.drive_server(),
             TestOp::AdvanceTime => {
@@ -189,8 +195,16 @@ pub(super) fn run_random_interaction(
                 debug!(len = pair.server.inbound.len(), "dropping inbound");
                 pair.server.inbound.clear();
             }
-            TestOp::ReorderInbound(Side::Client) => reorder(&mut pair.client.inbound),
-            TestOp::ReorderInbound(Side::Server) => reorder(&mut pair.server.inbound),
+            TestOp::ReorderInbound(Side::Client) => {
+                if let Some(item) = pair.client.inbound.pop_front() {
+                    pair.client.inbound.push_back(item);
+                }
+            }
+            TestOp::ReorderInbound(Side::Server) => {
+                if let Some(item) = pair.server.inbound.pop_front() {
+                    pair.server.inbound.push_back(item);
+                }
+            }
             TestOp::ForceKeyUpdate(Side::Client) => {
                 if let Some(conn) = client.conn(pair) {
                     conn.force_key_update()
@@ -208,8 +222,8 @@ pub(super) fn run_random_interaction(
                         Side::Server => routes.server_addr(addr),
                     } {
                         let state = match side {
-                            Side::Client => &mut client,
-                            Side::Server => &mut server,
+                            Side::Client => client,
+                            Side::Server => server,
                         };
                         if let Some(conn) = state.conn(pair) {
                             conn.open_path(remote, initial_status, now).ok();
@@ -219,8 +233,8 @@ pub(super) fn run_random_interaction(
             }
             TestOp::ClosePath(side, path_idx, error_code) => {
                 let state = match side {
-                    Side::Client => &mut client,
-                    Side::Server => &mut server,
+                    Side::Client => client,
+                    Side::Server => server,
                 };
                 if let Some(conn) = state.conn(pair) {
                     if let Some(path_id) = get_path_id(conn, path_idx) {
@@ -230,8 +244,8 @@ pub(super) fn run_random_interaction(
             }
             TestOp::PathSetStatus(side, path_idx, status) => {
                 let state = match side {
-                    Side::Client => &mut client,
-                    Side::Server => &mut server,
+                    Side::Client => client,
+                    Side::Server => server,
                 };
                 if let Some(conn) = state.conn(pair) {
                     if let Some(path_id) = get_path_id(conn, path_idx) {
@@ -240,8 +254,8 @@ pub(super) fn run_random_interaction(
                 }
             }
             TestOp::StreamOp(side, stream_op) => match side {
-                Side::Client => stream_op.run(pair, &mut client),
-                Side::Server => stream_op.run(pair, &mut server),
+                Side::Client => stream_op.run(pair, client),
+                Side::Server => stream_op.run(pair, server),
             },
         }
     }
