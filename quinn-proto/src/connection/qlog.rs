@@ -60,7 +60,7 @@ impl QlogStream {
     pub(crate) fn new(
         config: QlogConfig,
         initial_dst_cid: ConnectionId,
-        side: crate::Side,
+        side: Side,
         now: Instant,
     ) -> Result<Self, qlog::Error> {
         let vantage_point = VantagePoint {
