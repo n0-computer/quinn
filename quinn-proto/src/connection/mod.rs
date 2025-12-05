@@ -5804,8 +5804,8 @@ impl Connection {
     }
 
     #[cfg(test)]
-    pub(crate) fn state(&self) -> &State {
-        &self.state
+    pub(crate) fn state(&mut self) -> &mut State {
+        &mut self.state
     }
 
     /// Decodes a packet, returning its decrypted payload, so it can be inspected in tests

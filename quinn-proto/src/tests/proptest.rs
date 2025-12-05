@@ -14,8 +14,8 @@ use rand::{RngCore, SeedableRng, rngs::StdRng};
 use test_strategy::proptest;
 
 use crate::{
-    Endpoint, EndpointConfig, PathStatus, TransportConfig,
-    connection::state::CloseReason,
+    ConnectionClose, ConnectionError, Endpoint, EndpointConfig, PathStatus, TransportConfig,
+    TransportErrorCode,
     tests::{
         DEFAULT_MTU, Pair, RoutingTable, TestEndpoint,
         random_interaction::{Side, TestOp, run_random_interaction},
@@ -86,16 +86,14 @@ fn random_interaction(
 ) {
     let mut pair = Pair::default_deterministic(seed);
     let (client_ch, server_ch) =
-    run_random_interaction(&mut pair, interactions, multipath_transport_config());
+        run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-    prop_assert!(!matches!(
-        pair.client_conn_mut(client_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    prop_assert!(not_transport_error(
+        pair.client_conn_mut(client_ch).state().take_error(),
     ));
-    prop_assert!(!matches!(
-        pair.server_conn_mut(server_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    prop_assert!(not_transport_error(
+        pair.server_conn_mut(server_ch).state().take_error(),
     ));
 }
 
@@ -110,13 +108,11 @@ fn random_interaction_with_multipath_simple_routing(
         run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-    prop_assert!(!matches!(
-        pair.client_conn_mut(client_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    prop_assert!(not_transport_error(
+        pair.client_conn_mut(client_ch).state().take_error(),
     ));
-    prop_assert!(!matches!(
-        pair.server_conn_mut(server_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    prop_assert!(not_transport_error(
+        pair.server_conn_mut(server_ch).state().take_error(),
     ));
 }
 
@@ -151,16 +147,14 @@ fn random_interaction_with_multipath_complex_routing(
 ) {
     let mut pair = setup_deterministic_with_multipath(seed, routes);
     let (client_ch, server_ch) =
-    run_random_interaction(&mut pair, interactions, multipath_transport_config());
+        run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-    prop_assert!(!matches!(
-        pair.client_conn_mut(client_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    prop_assert!(not_transport_error(
+        pair.client_conn_mut(client_ch).state().take_error(),
     ));
-    prop_assert!(!matches!(
-        pair.server_conn_mut(server_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    prop_assert!(not_transport_error(
+        pair.server_conn_mut(server_ch).state().take_error(),
     ));
 }
 
@@ -173,6 +167,17 @@ fn old_routing_table() -> RoutingTable {
         routes.add_server_route(addr, 0);
     }
     routes
+}
+
+fn not_transport_error(err: Option<ConnectionError>) -> bool {
+    match err {
+        None => true,
+        Some(ConnectionError::TransportError(_)) => false,
+        Some(ConnectionError::ConnectionClosed(ConnectionClose { error_code, .. })) => {
+            error_code != TransportErrorCode::PROTOCOL_VIOLATION
+        }
+        _ => true,
+    }
 }
 
 #[test]
@@ -194,16 +199,14 @@ fn regression_unset_packet_acked() {
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
     let (client_ch, server_ch) =
-    run_random_interaction(&mut pair, interactions, multipath_transport_config());
+        run_random_interaction(&mut pair, interactions, Default::default());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(!matches!(
-        pair.client_conn_mut(client_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    assert!(not_transport_error(
+        pair.client_conn_mut(client_ch).state().take_error(),
     ));
-    assert!(!matches!(
-        pair.server_conn_mut(server_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    assert!(not_transport_error(
+        pair.server_conn_mut(server_ch).state().take_error(),
     ));
 }
 
@@ -224,16 +227,14 @@ fn regression_invalid_key() {
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
     let (client_ch, server_ch) =
-    run_random_interaction(&mut pair, interactions, multipath_transport_config());
+        run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(!matches!(
-        pair.client_conn_mut(client_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    assert!(not_transport_error(
+        pair.client_conn_mut(client_ch).state().take_error(),
     ));
-    assert!(!matches!(
-        pair.server_conn_mut(server_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    assert!(not_transport_error(
+        pair.server_conn_mut(server_ch).state().take_error(),
     ));
 }
 
@@ -253,16 +254,14 @@ fn regression_key_update_error() {
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
     let (client_ch, server_ch) =
-    run_random_interaction(&mut pair, interactions, multipath_transport_config());
+        run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(!matches!(
-        pair.client_conn_mut(client_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    assert!(not_transport_error(
+        pair.client_conn_mut(client_ch).state().take_error(),
     ));
-    assert!(!matches!(
-        pair.server_conn_mut(server_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    assert!(not_transport_error(
+        pair.server_conn_mut(server_ch).state().take_error(),
     ));
 }
 
@@ -282,16 +281,14 @@ fn regression_never_idle() {
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
     let (client_ch, server_ch) =
-    run_random_interaction(&mut pair, interactions, multipath_transport_config());
+        run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(!matches!(
-        pair.client_conn_mut(client_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    assert!(not_transport_error(
+        pair.client_conn_mut(client_ch).state().take_error(),
     ));
-    assert!(!matches!(
-        pair.server_conn_mut(server_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    assert!(not_transport_error(
+        pair.server_conn_mut(server_ch).state().take_error(),
     ));
 }
 
@@ -313,16 +310,14 @@ fn regression_never_idle2() {
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
     let (client_ch, server_ch) =
-    run_random_interaction(&mut pair, interactions, multipath_transport_config());
+        run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     // We needed to increase the bounds. It eventually times out.
     assert!(!pair.drive_bounded(1000), "connection never became idle");
-    assert!(!matches!(
-        pair.client_conn_mut(client_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    assert!(not_transport_error(
+        pair.client_conn_mut(client_ch).state().take_error(),
     ));
-    assert!(!matches!(
-        pair.server_conn_mut(server_ch).state().as_closed(),
-        Some(&CloseReason::TransportError(_))
+    assert!(not_transport_error(
+        pair.server_conn_mut(server_ch).state().take_error(),
     ));
 }

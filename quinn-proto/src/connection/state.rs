@@ -29,8 +29,7 @@ impl State {
         }
     }
 
-    #[allow(unreachable_pub)] // cfg(test) exposed only
-    pub fn as_closed(&self) -> Option<&CloseReason> {
+    pub(super) fn as_closed(&self) -> Option<&CloseReason> {
         if let InnerState::Closed {
             ref remote_reason, ..
         } = self.inner
@@ -177,7 +176,8 @@ impl State {
         matches!(self.inner, InnerState::Drained { .. })
     }
 
-    pub(super) fn take_error(&mut self) -> Option<ConnectionError> {
+    #[allow(unreachable_pub)] // only exposed in cfg(test)
+    pub fn take_error(&mut self) -> Option<ConnectionError> {
         match &mut self.inner {
             InnerState::Draining { error, is_local } => {
                 if !*is_local {
@@ -234,7 +234,7 @@ pub(super) enum StateType {
 }
 
 #[derive(Debug, Clone)]
-pub enum CloseReason {
+pub(super) enum CloseReason {
     TransportError(TransportError),
     Connection(ConnectionClose),
     Application(ApplicationClose),
