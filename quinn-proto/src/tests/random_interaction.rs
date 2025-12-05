@@ -69,8 +69,8 @@ pub(super) struct State {
 impl From<StreamKind> for crate::Dir {
     fn from(value: StreamKind) -> Self {
         match value {
-            StreamKind::Bi => crate::Dir::Bi,
-            StreamKind::Uni => crate::Dir::Uni,
+            StreamKind::Bi => Self::Bi,
+            StreamKind::Uni => Self::Uni,
         }
     }
 }
@@ -82,8 +82,8 @@ impl StreamOp {
         };
         // We generally ignore application-level errors. It's legal to call these APIs, so we do. We don't expect them to work all the time.
         match self {
-            StreamOp::Open(kind) => state.send_streams.extend(conn.streams().open(kind.into())),
-            StreamOp::Send { stream, num_bytes } => {
+            Self::Open(kind) => state.send_streams.extend(conn.streams().open(kind.into())),
+            Self::Send { stream, num_bytes } => {
                 if let Some(&stream_id) = state.send_streams.get(stream) {
                     let data = vec![0; num_bytes];
                     if let Some(bytes) = conn.send_stream(stream_id).write(&data).ok() {
@@ -91,20 +91,20 @@ impl StreamOp {
                     }
                 }
             }
-            StreamOp::Finish(stream) => {
+            Self::Finish(stream) => {
                 if let Some(&stream_id) = state.send_streams.get(stream) {
                     conn.send_stream(stream_id).finish().ok();
                 }
             }
-            StreamOp::Reset(stream, code) => {
+            Self::Reset(stream, code) => {
                 if let Some(&stream_id) = state.send_streams.get(stream) {
                     conn.send_stream(stream_id).reset(code.into()).ok();
                 }
             }
-            StreamOp::Accept(kind) => state
+            Self::Accept(kind) => state
                 .recv_streams
                 .extend(conn.streams().accept(kind.into())),
-            StreamOp::Receive(stream, ordered) => {
+            Self::Receive(stream, ordered) => {
                 if let Some(&stream_id) = state.recv_streams.get(stream) {
                     if let Some(mut chunks) = conn.recv_stream(stream_id).read(ordered).ok() {
                         if let Ok(Some(chunk)) = chunks.next(usize::MAX) {
@@ -113,7 +113,7 @@ impl StreamOp {
                     }
                 }
             }
-            StreamOp::Stop(stream, code) => {
+            Self::Stop(stream, code) => {
                 if let Some(&stream_id) = state.recv_streams.get(stream) {
                     conn.recv_stream(stream_id).stop(code.into()).ok();
                 }
