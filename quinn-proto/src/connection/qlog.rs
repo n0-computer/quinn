@@ -286,6 +286,10 @@ impl QlogSink {
         }
     }
 
+    /// Emits a timer event.
+    ///
+    /// This function is not public: Instead, create a [`QlogSinkWithTime`] via [`Self::with_time`] and use
+    /// its `emit_timer_` methods.
     #[cfg(feature = "qlog")]
     fn emit_timer(&self, timer: Timer, op: TimerOp, now: Instant) {
         let Some(stream) = self.stream.as_ref() else {
@@ -347,11 +351,17 @@ impl QlogSink {
         stream.emit_event(EventData::TimerUpdated(event), now);
     }
 
+    /// Returns a [`QlogSinkWithTime`] that passes along a `now` timestamp.
+    ///
+    /// This may be used if you want to pass a [`QlogSink`] downwards together with the current
+    /// `now` timestamp, to not have to pass the latter separately as an additional argument just
+    /// for qlog support.
     pub(super) fn with_time(&self, now: Instant) -> QlogSinkWithTime<'_> {
         QlogSinkWithTime { sink: self, now }
     }
 }
 
+/// A [`QlogSink`] with a `now` timestamp.
 #[cfg_attr(not(feature = "qlog"), allow(unused))]
 pub(super) struct QlogSinkWithTime<'a> {
     sink: &'a QlogSink,
