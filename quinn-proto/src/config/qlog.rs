@@ -2,7 +2,7 @@
 use std::io;
 use std::{io::BufWriter, net::SocketAddr, path::PathBuf, time::SystemTime};
 
-use tracing::{debug, warn};
+use tracing::{trace, warn};
 
 use crate::{ConnectionId, Instant, Side};
 
@@ -159,7 +159,7 @@ impl QlogFactory for QlogFileFactory {
         let file = std::fs::File::create(&path)
             .inspect_err(|err| warn!("Failed to create qlog file at {}: {err}", path.display()))
             .ok()?;
-        debug!(
+        trace!(
             "Initialized qlog file for connection {initial_dst_cid} at {}",
             path.display()
         );
