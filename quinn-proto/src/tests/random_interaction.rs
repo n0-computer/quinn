@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::sync::Arc;
 
 use proptest::prelude::Strategy;
 use test_strategy::Arbitrary;
@@ -76,6 +76,92 @@ pub(super) struct State {
     recv_streams: Vec<StreamId>,
     handle: ConnectionHandle,
     side: Side,
+}
+
+impl TestOp {
+    fn run(self: TestOp, pair: &mut Pair, client: &mut State, server: &mut State) {
+        let now = pair.time;
+        match self {
+            Self::Drive(Side::Client) => pair.drive_client(),
+            Self::Drive(Side::Server) => pair.drive_server(),
+            Self::AdvanceTime => {
+                // If we advance during idle, we just immediately hit the idle timeout
+                if !pair.client.is_idle() || !pair.server.is_idle() {
+                    pair.advance_time();
+                }
+            }
+            Self::DropInbound(Side::Client) => {
+                debug!(len = pair.client.inbound.len(), "dropping inbound");
+                pair.client.inbound.clear();
+            }
+            Self::DropInbound(Side::Server) => {
+                debug!(len = pair.server.inbound.len(), "dropping inbound");
+                pair.server.inbound.clear();
+            }
+            Self::ReorderInbound(Side::Client) => {
+                if let Some(item) = pair.client.inbound.pop_front() {
+                    pair.client.inbound.push_back(item);
+                }
+            }
+            Self::ReorderInbound(Side::Server) => {
+                if let Some(item) = pair.server.inbound.pop_front() {
+                    pair.server.inbound.push_back(item);
+                }
+            }
+            Self::ForceKeyUpdate(Side::Client) => {
+                if let Some(conn) = client.conn(pair) {
+                    conn.force_key_update()
+                }
+            }
+            Self::ForceKeyUpdate(Side::Server) => {
+                if let Some(conn) = server.conn(pair) {
+                    conn.force_key_update()
+                }
+            }
+            Self::OpenPath(side, initial_status, addr) => {
+                if let Some(routes) = &pair.routes {
+                    if let Some(remote) = match side {
+                        Side::Client => routes.client_addr(addr),
+                        Side::Server => routes.server_addr(addr),
+                    } {
+                        let state = match side {
+                            Side::Client => client,
+                            Side::Server => server,
+                        };
+                        if let Some(conn) = state.conn(pair) {
+                            conn.open_path(remote, initial_status, now).ok();
+                        }
+                    }
+                }
+            }
+            Self::ClosePath(side, path_idx, error_code) => {
+                let state = match side {
+                    Side::Client => client,
+                    Side::Server => server,
+                };
+                if let Some(conn) = state.conn(pair) {
+                    if let Some(path_id) = get_path_id(conn, path_idx) {
+                        conn.close_path(now, path_id, error_code.into()).ok();
+                    }
+                }
+            }
+            Self::PathSetStatus(side, path_idx, status) => {
+                let state = match side {
+                    Side::Client => client,
+                    Side::Server => server,
+                };
+                if let Some(conn) = state.conn(pair) {
+                    if let Some(path_id) = get_path_id(conn, path_idx) {
+                        conn.set_path_status(path_id, status).ok();
+                    }
+                }
+            }
+            Self::StreamOp(side, stream_op) => match side {
+                Side::Client => stream_op.run(pair, client),
+                Side::Server => stream_op.run(pair, server),
+            },
+        }
+    }
 }
 
 impl StreamOp {
@@ -172,97 +258,5 @@ pub(super) fn run_random_interaction(
     for interaction in interactions {
         debug!(?interaction, "INTERACTION STEP");
         interaction.run(pair, &mut client, &mut server);
-    }
-}
-
-impl TestOp {
-    fn run(self: TestOp, pair: &mut Pair, client: &mut State, server: &mut State) {
-        let now = pair.time;
-        match self {
-            TestOp::Drive(Side::Client) => pair.drive_client(),
-            TestOp::Drive(Side::Server) => pair.drive_server(),
-            TestOp::AdvanceTime => {
-                // If we advance during idle, we just immediately hit the idle timeout
-                if !pair.client.is_idle() || !pair.server.is_idle() {
-                    pair.advance_time();
-                }
-            }
-            TestOp::DropInbound(Side::Client) => {
-                debug!(len = pair.client.inbound.len(), "dropping inbound");
-                pair.client.inbound.clear();
-            }
-            TestOp::DropInbound(Side::Server) => {
-                debug!(len = pair.server.inbound.len(), "dropping inbound");
-                pair.server.inbound.clear();
-            }
-            TestOp::ReorderInbound(Side::Client) => {
-                if let Some(item) = pair.client.inbound.pop_front() {
-                    pair.client.inbound.push_back(item);
-                }
-            }
-            TestOp::ReorderInbound(Side::Server) => {
-                if let Some(item) = pair.server.inbound.pop_front() {
-                    pair.server.inbound.push_back(item);
-                }
-            }
-            TestOp::ForceKeyUpdate(Side::Client) => {
-                if let Some(conn) = client.conn(pair) {
-                    conn.force_key_update()
-                }
-            }
-            TestOp::ForceKeyUpdate(Side::Server) => {
-                if let Some(conn) = server.conn(pair) {
-                    conn.force_key_update()
-                }
-            }
-            TestOp::OpenPath(side, initial_status, addr) => {
-                if let Some(routes) = &pair.routes {
-                    if let Some(remote) = match side {
-                        Side::Client => routes.client_addr(addr),
-                        Side::Server => routes.server_addr(addr),
-                    } {
-                        let state = match side {
-                            Side::Client => client,
-                            Side::Server => server,
-                        };
-                        if let Some(conn) = state.conn(pair) {
-                            conn.open_path(remote, initial_status, now).ok();
-                        }
-                    }
-                }
-            }
-            TestOp::ClosePath(side, path_idx, error_code) => {
-                let state = match side {
-                    Side::Client => client,
-                    Side::Server => server,
-                };
-                if let Some(conn) = state.conn(pair) {
-                    if let Some(path_id) = get_path_id(conn, path_idx) {
-                        conn.close_path(now, path_id, error_code.into()).ok();
-                    }
-                }
-            }
-            TestOp::PathSetStatus(side, path_idx, status) => {
-                let state = match side {
-                    Side::Client => client,
-                    Side::Server => server,
-                };
-                if let Some(conn) = state.conn(pair) {
-                    if let Some(path_id) = get_path_id(conn, path_idx) {
-                        conn.set_path_status(path_id, status).ok();
-                    }
-                }
-            }
-            TestOp::StreamOp(side, stream_op) => match side {
-                Side::Client => stream_op.run(pair, client),
-                Side::Server => stream_op.run(pair, server),
-            },
-        }
-    }
-}
-
-fn reorder<T>(vec: &mut VecDeque<T>) {
-    if let Some(item) = vec.pop_front() {
-        vec.push_back(item);
     }
 }
