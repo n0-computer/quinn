@@ -258,14 +258,12 @@ pub(super) fn run_random_interaction(
     pair: &mut Pair,
     interactions: Vec<TestOp>,
     transport_config: TransportConfig,
-) {
+) -> (ConnectionHandle, ConnectionHandle) {
     let mut client_cfg = client_config();
     client_cfg.transport = Arc::new(transport_config);
     let (client_ch, server_ch) = pair.connect_with(client_cfg);
     pair.drive(); // finish establishing the connection;
     debug!("INTERACTION SETUP FINISHED");
-    pair.client_conn_mut(client_ch).panic_on_transport_error();
-    pair.server_conn_mut(server_ch).panic_on_transport_error();
     let mut client = State::new(Side::Client, client_ch);
     let mut server = State::new(Side::Server, server_ch);
 
@@ -273,4 +271,5 @@ pub(super) fn run_random_interaction(
         debug!(?interaction, "INTERACTION STEP");
         interaction.run(pair, &mut client, &mut server);
     }
+    (client.handle, server.handle)
 }

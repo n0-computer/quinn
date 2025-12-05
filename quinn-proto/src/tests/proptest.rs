@@ -8,12 +8,14 @@ use std::{
 use proptest::{
     collection::vec,
     prelude::{Strategy, any},
+    prop_assert,
 };
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use test_strategy::proptest;
 
 use crate::{
     Endpoint, EndpointConfig, PathStatus, TransportConfig,
+    connection::state::CloseReason,
     tests::{
         DEFAULT_MTU, Pair, RoutingTable, TestEndpoint,
         random_interaction::{Side, TestOp, run_random_interaction},
@@ -83,9 +85,18 @@ fn random_interaction(
     #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
 ) {
     let mut pair = Pair::default_deterministic(seed);
+    let (client_ch, server_ch) =
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
-    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
+    prop_assert!(!matches!(
+        pair.client_conn_mut(client_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
+    prop_assert!(!matches!(
+        pair.server_conn_mut(server_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
 }
 
 #[proptest(cases = 256)]
@@ -95,9 +106,18 @@ fn random_interaction_with_multipath_simple_routing(
 ) {
     let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
     let mut pair = setup_deterministic_with_multipath(seed, routes);
-    run_random_interaction(&mut pair, interactions, multipath_transport_config());
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
-    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
+    prop_assert!(!matches!(
+        pair.client_conn_mut(client_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
+    prop_assert!(!matches!(
+        pair.server_conn_mut(server_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
 }
 
 fn routing_table() -> impl Strategy<Value = RoutingTable> {
@@ -130,9 +150,18 @@ fn random_interaction_with_multipath_complex_routing(
     #[strategy(routing_table())] routes: RoutingTable,
 ) {
     let mut pair = setup_deterministic_with_multipath(seed, routes);
+    let (client_ch, server_ch) =
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
-    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
+    prop_assert!(!matches!(
+        pair.client_conn_mut(client_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
+    prop_assert!(!matches!(
+        pair.server_conn_mut(server_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
 }
 
 fn old_routing_table() -> RoutingTable {
@@ -164,9 +193,18 @@ fn regression_unset_packet_acked() {
     let _guard = subscribe();
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
+    let (client_ch, server_ch) =
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!matches!(
+        pair.client_conn_mut(client_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
+    assert!(!matches!(
+        pair.server_conn_mut(server_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
 }
 
 #[test]
@@ -185,9 +223,18 @@ fn regression_invalid_key() {
     let _guard = subscribe();
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
+    let (client_ch, server_ch) =
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!matches!(
+        pair.client_conn_mut(client_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
+    assert!(!matches!(
+        pair.server_conn_mut(server_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
 }
 
 #[test]
@@ -205,9 +252,18 @@ fn regression_key_update_error() {
     let _guard = subscribe();
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
+    let (client_ch, server_ch) =
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!matches!(
+        pair.client_conn_mut(client_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
+    assert!(!matches!(
+        pair.server_conn_mut(server_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
 }
 
 #[test]
@@ -225,9 +281,18 @@ fn regression_never_idle() {
     let _guard = subscribe();
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
+    let (client_ch, server_ch) =
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!matches!(
+        pair.client_conn_mut(client_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
+    assert!(!matches!(
+        pair.server_conn_mut(server_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
 }
 
 #[test]
@@ -247,8 +312,17 @@ fn regression_never_idle2() {
     let _guard = subscribe();
     let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes);
+    let (client_ch, server_ch) =
     run_random_interaction(&mut pair, interactions, multipath_transport_config());
 
     // We needed to increase the bounds. It eventually times out.
     assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(!matches!(
+        pair.client_conn_mut(client_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
+    assert!(!matches!(
+        pair.server_conn_mut(server_ch).state().as_closed(),
+        Some(&CloseReason::TransportError(_))
+    ));
 }

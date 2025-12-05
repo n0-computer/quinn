@@ -1,7 +1,9 @@
 use bytes::Bytes;
 
 use crate::frame::Close;
-use crate::{ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode};
+use crate::{
+    ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode,
+};
 
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
@@ -27,7 +29,8 @@ impl State {
         }
     }
 
-    pub(super) fn as_closed(&self) -> Option<&CloseReason> {
+    #[allow(unreachable_pub)] // cfg(test) exposed only
+    pub fn as_closed(&self) -> Option<&CloseReason> {
         if let InnerState::Closed {
             ref remote_reason, ..
         } = self.inner
@@ -231,7 +234,7 @@ pub(super) enum StateType {
 }
 
 #[derive(Debug, Clone)]
-pub(super) enum CloseReason {
+pub enum CloseReason {
     TransportError(TransportError),
     Connection(ConnectionClose),
     Application(ApplicationClose),
