@@ -648,10 +648,21 @@ impl Connection {
             .insert(path_id, error_code.into());
 
         // Remove pending NEW CIDs for this path
-        self.spaces[SpaceId::Data]
-            .pending
-            .new_cids
-            .retain(|cid| cid.path_id != path_id);
+        let pn = &mut self.spaces[SpaceId::Data].pending;
+        pn.new_cids.retain(|cid| cid.path_id != path_id);
+        pn.path_cids_blocked.retain(|&id| id != path_id);
+        pn.path_status.retain(|&id| id != path_id);
+
+        // Cleanup in retransmits as well
+        if let Some(pn) = self.spaces[SpaceId::Data].path_space_mut(path_id) {
+            for s in pn.sent_packets.values_mut() {
+                if let Some(retransmits) = s.retransmits.get_mut() {
+                    retransmits.new_cids.retain(|cid| cid.path_id != path_id);
+                    retransmits.path_cids_blocked.retain(|&id| id != path_id);
+                    retransmits.path_status.retain(|&id| id != path_id);
+                }
+            }
+        }
 
         // Consider remotely issued CIDs as retired.
         // Technically we don't have to do this just yet.  We only need to do this *after*
@@ -2813,8 +2824,6 @@ impl Connection {
         self.paths.remove(&path_id);
         self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
 
-        // TODO: cleanup other path data in Retransmits
-
         let path_stats = self.path_stats.remove(&path_id).unwrap_or_default();
         self.events.push_back(
             PathEvent::Abandoned {
@@ -4376,7 +4385,6 @@ impl Connection {
                             // For details see  https://www.ietf.org/archive/id/draft-ietf-quic-multipath-17.html#section-3.2.2
                             // > an endpoint SHOULD provide new connection IDs for that path, if still open, using PATH_NEW_CONNECTION_ID frames.
                             let has_path = !self.abandoned_paths.contains(&path_id);
-                            tracing::info!(%path_id, allow_more_cids, has_path, "allow more cids after retiring");
                             let allow_more_cids = allow_more_cids && has_path;
 
                             self.endpoint_events
@@ -5423,7 +5431,7 @@ impl Connection {
                 .local_cid_state
                 .get(&issued.path_id)
                 .map(|cid_state| cid_state.retire_prior_to())
-                .expect("missing local CID state");
+                .unwrap_or_else(|| panic!("missing local CID state for path={}", issued.path_id));
 
             let cid_path_id = match is_multipath_negotiated {
                 true => {
