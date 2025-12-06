@@ -993,8 +993,12 @@ impl Connection {
                     // Locally we should have refused to open this path, the remote should
                     // have given us CIDs for this path before opening it.  So we can always
                     // abandon this here.
-                    self.close_path(now, path_id, TransportErrorCode::NO_CID_AVAILABLE.into())
-                        .ok();
+                    self.close_path(
+                        now,
+                        path_id,
+                        TransportErrorCode::NO_CID_AVAILABLE_FOR_PATH.into(),
+                    )
+                    .ok();
                     self.spaces[SpaceId::Data]
                         .pending
                         .path_cids_blocked
@@ -1967,7 +1971,7 @@ impl Connection {
                             if let Err(err) = self.close_path(
                                 now,
                                 path_id,
-                                TransportErrorCode::UNSTABLE_INTERFACE.into(),
+                                TransportErrorCode::PATH_UNSTABLE_OR_POOR.into(),
                             ) {
                                 warn!(?err, "failed closing path");
                             }
@@ -4238,6 +4242,13 @@ impl Connection {
                     if remote == path.remote {
                         // PATH_CHALLENGE on active path, possible off-path packet forwarding
                         // attack. Send a non-probing packet to recover the active path.
+                        // TODO(flub): No longer true! We now path_challege also to validate
+                        //    the path if the path is new, without an RFC9000-style
+                        //    migration involved. This means we add in an extra
+                        //    IMMEDIATE_ACK on some challenges. It isn't really wrong to do
+                        //    so, but it still is something untidy. We should instead
+                        //    suppress this when we know the remote is still validating the
+                        //    path.
                         match self.peer_supports_ack_frequency() {
                             true => self.immediate_ack(path_id),
                             false => {
@@ -6217,8 +6228,11 @@ impl Connection {
                 .unwrap_or(false);
 
             if !validated {
-                let _ =
-                    self.close_path(now, path_id, TransportErrorCode::APPLICATION_ABANDON.into());
+                let _ = self.close_path(
+                    now,
+                    path_id,
+                    TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
+                );
             }
         }
 
