@@ -937,14 +937,16 @@ fn transport_error(code: TransportErrorCode) -> (Option<quic::TransportError>, O
         TransportErrorCode::AEAD_LIMIT_REACHED => Some(quic::TransportError::AeadLimitReached),
         TransportErrorCode::NO_VIABLE_PATH => Some(quic::TransportError::NoViablePath),
         // multipath
-        TransportErrorCode::APPLICATION_ABANDON => {
+        TransportErrorCode::APPLICATION_ABANDON_PATH => {
             Some(quic::TransportError::ApplicationAbandonPath)
         }
-        TransportErrorCode::RESOURCE_LIMIT_REACHED => {
+        TransportErrorCode::PATH_RESOURCE_LIMIT_REACHED => {
             Some(quic::TransportError::PathResourceLimitReached)
         }
-        TransportErrorCode::UNSTABLE_INTERFACE => Some(quic::TransportError::PathUnstableOrPoor),
-        TransportErrorCode::NO_CID_AVAILABLE => Some(quic::TransportError::NoCidsAvailableForPath),
+        TransportErrorCode::PATH_UNSTABLE_OR_POOR => Some(quic::TransportError::PathUnstableOrPoor),
+        TransportErrorCode::NO_CID_AVAILABLE_FOR_PATH => {
+            Some(quic::TransportError::NoCidsAvailableForPath)
+        }
         _ => None,
     };
     let code = match transport_error {
