@@ -1529,7 +1529,7 @@ impl Connection {
                 self.stats.frame_tx.ping += 1;
 
                 // If supported by the peer, we want no delays to the probe's ACK
-                if self.peer_supports_ack_frequency() {
+                if self.peer_supports_ack_frequency() && space_id == SpaceId::Data {
                     trace!("IMMEDIATE_ACK");
                     builder
                         .frame_space_mut()
@@ -4233,7 +4233,9 @@ impl Connection {
                         //    so, but it still is something untidy. We should instead
                         //    suppress this when we know the remote is still validating the
                         //    path.
-                        match self.peer_supports_ack_frequency() {
+                        match self.peer_supports_ack_frequency()
+                            && self.highest_space == SpaceId::Data
+                        {
                             true => self.immediate_ack(path_id),
                             false => {
                                 self.ping_path(path_id).ok();
@@ -5058,6 +5060,11 @@ impl Connection {
 
         // IMMEDIATE_ACK
         if mem::replace(&mut space.for_path(path_id).immediate_ack_pending, false) {
+            debug_assert_eq!(
+                space_id,
+                SpaceId::Data,
+                "immediate acks must be sent in the data space"
+            );
             trace!("IMMEDIATE_ACK");
             buf.write(frame::FrameType::IMMEDIATE_ACK);
             sent.non_retransmits = true;
