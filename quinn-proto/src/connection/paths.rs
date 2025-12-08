@@ -16,7 +16,7 @@ use crate::{
 };
 
 #[cfg(feature = "qlog")]
-use qlog::events::quic::MetricsUpdated;
+use qlog::events::quic::RecoveryMetricsUpdated;
 
 /// Id representing different paths when using multipath extension
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
@@ -99,6 +99,7 @@ impl<T: Into<u32>> From<T> for PathId {
 /// involuntary. We need to keep the [`PathData`] of the previously used such path available
 /// in order to defend against migration attacks (see RFC9000 §9.3.1, §9.3.2 and §9.3.3) as
 /// well as to support path probing (RFC9000 §9.1).
+#[derive(Debug)]
 pub(super) struct PathState {
     pub(super) data: PathData,
     pub(super) prev: Option<(ConnectionId, PathData)>,
@@ -120,6 +121,7 @@ impl PathState {
 }
 
 /// Description of a particular network path
+#[derive(Debug)]
 pub(super) struct PathData {
     pub(super) remote: SocketAddr,
     pub(super) rtt: RttEstimator,
@@ -309,18 +311,6 @@ impl PathData {
         !self.challenges_sent.is_empty() || self.send_new_challenge
     }
 
-    /// Resets RTT, congestion control and MTU states.
-    ///
-    /// This is useful when it is known the underlying path has changed.
-    pub(super) fn reset(&mut self, now: Instant, config: &TransportConfig) {
-        self.rtt = RttEstimator::new(config.initial_rtt);
-        self.congestion = config
-            .congestion_controller_factory
-            .clone()
-            .build(now, config.get_initial_mtu());
-        self.mtud.reset(config.get_initial_mtu(), config.min_mtu);
-    }
-
     /// Indicates whether we're a server that hasn't validated the peer's address and hasn't
     /// received enough data from the peer to permit sending `bytes_to_send` additional bytes
     pub(super) fn anti_amplification_blocked(&self, bytes_to_send: u64) -> bool {
@@ -378,7 +368,10 @@ impl PathData {
     }
 
     #[cfg(feature = "qlog")]
-    pub(super) fn qlog_recovery_metrics(&mut self, pto_count: u32) -> Option<MetricsUpdated> {
+    pub(super) fn qlog_recovery_metrics(
+        &mut self,
+        path_id: PathId,
+    ) -> Option<RecoveryMetricsUpdated> {
         let controller_metrics = self.congestion.metrics();
 
         let metrics = RecoveryMetrics {
@@ -386,7 +379,7 @@ impl PathData {
             smoothed_rtt: Some(self.rtt.get()),
             latest_rtt: Some(self.rtt.latest),
             rtt_variance: Some(self.rtt.var),
-            pto_count: Some(pto_count),
+            pto_count: Some(self.pto_count),
             bytes_in_flight: Some(self.in_flight.bytes),
             packets_in_flight: Some(self.in_flight.ack_eliciting),
 
@@ -395,7 +388,7 @@ impl PathData {
             pacing_rate: controller_metrics.pacing_rate,
         };
 
-        let event = metrics.to_qlog_event(&self.recovery_metrics);
+        let event = metrics.to_qlog_event(path_id, &self.recovery_metrics);
         self.recovery_metrics = metrics;
         event
     }
@@ -462,7 +455,7 @@ impl PathData {
 ///
 /// [`recovery_metrics_updated`]: https://datatracker.ietf.org/doc/html/draft-ietf-quic-qlog-quic-events.html#name-recovery_metrics_updated
 #[cfg(feature = "qlog")]
-#[derive(Default, Clone, PartialEq)]
+#[derive(Default, Clone, PartialEq, Debug)]
 #[non_exhaustive]
 struct RecoveryMetrics {
     pub min_rtt: Option<Duration>,
@@ -506,14 +499,14 @@ impl RecoveryMetrics {
     }
 
     /// Emit a `MetricsUpdated` event containing only updated values
-    fn to_qlog_event(&self, previous: &Self) -> Option<MetricsUpdated> {
+    fn to_qlog_event(&self, path_id: PathId, previous: &Self) -> Option<RecoveryMetricsUpdated> {
         let updated = self.retain_updated(previous);
 
         if updated == Self::default() {
             return None;
         }
 
-        Some(MetricsUpdated {
+        Some(RecoveryMetricsUpdated {
             min_rtt: updated.min_rtt.map(|rtt| rtt.as_secs_f32()),
             smoothed_rtt: updated.smoothed_rtt.map(|rtt| rtt.as_secs_f32()),
             latest_rtt: updated.latest_rtt.map(|rtt| rtt.as_secs_f32()),
@@ -526,12 +519,13 @@ impl RecoveryMetrics {
             congestion_window: updated.congestion_window,
             ssthresh: updated.ssthresh,
             pacing_rate: updated.pacing_rate,
+            path_id: Some(path_id.as_u32() as u64),
         })
     }
 }
 
 /// RTT estimation for a particular network path
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct RttEstimator {
     /// The most recent RTT measurement made when receiving an ack for a previously unacked packet
     latest: Duration,
@@ -598,7 +592,7 @@ impl RttEstimator {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct PathResponses {
     pending: Vec<PathResponse>,
 }
@@ -656,7 +650,7 @@ impl PathResponses {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct PathResponse {
     /// The packet number the corresponding PATH_CHALLENGE was received in
     packet: u64,
@@ -668,6 +662,7 @@ struct PathResponse {
 
 /// Summary statistics of packets that have been sent on a particular path, but which have not yet
 /// been acked or deemed lost
+#[derive(Debug)]
 pub(super) struct InFlight {
     /// Sum of the sizes of all sent packets considered "in flight" by congestion control
     ///
