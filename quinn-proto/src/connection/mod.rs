@@ -655,8 +655,8 @@ impl Connection {
 
         // Cleanup in retransmits as well
         if let Some(space) = self.spaces[SpaceId::Data].path_space_mut(path_id) {
-            for s in space.sent_packets.values_mut() {
-                if let Some(retransmits) = s.retransmits.get_mut() {
+            for sent_packet in space.sent_packets.values_mut() {
+                if let Some(retransmits) = sent_packet.retransmits.get_mut() {
                     retransmits.new_cids.retain(|cid| cid.path_id != path_id);
                     retransmits.path_cids_blocked.retain(|&id| id != path_id);
                     retransmits.path_status.retain(|&id| id != path_id);
