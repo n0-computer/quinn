@@ -1488,6 +1488,8 @@ impl Connection {
 
         // Send MTU probe if necessary
         if transmit.is_empty() && self.state.is_established() {
+            // MTU probing happens only in Data space.
+            let space_id = SpaceId::Data;
             path_id = *self.paths.first_key_value().expect("one path must exist").0;
             let probe_data = loop {
                 // We MTU probe all paths for which all of the following is true:
@@ -1501,9 +1503,7 @@ impl Connection {
                     && !self.abandoned_paths.contains(&path_id);
                 let probe_size = eligible
                     .then(|| {
-                        let next_pn = self.spaces[SpaceId::Data]
-                            .for_path(path_id)
-                            .peek_tx_number();
+                        let next_pn = self.spaces[space_id].for_path(path_id).peek_tx_number();
                         self.path_data_mut(path_id).mtud.poll_transmit(now, next_pn)
                     })
                     .flatten();
@@ -1549,7 +1549,7 @@ impl Connection {
                 self.stats.frame_tx.ping += 1;
 
                 // If supported by the peer, we want no delays to the probe's ACK
-                if self.peer_supports_ack_frequency() && space_id == SpaceId::Data {
+                if self.peer_supports_ack_frequency() {
                     trace!("IMMEDIATE_ACK");
                     builder
                         .frame_space_mut()
