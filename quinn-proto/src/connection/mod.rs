@@ -5889,6 +5889,11 @@ impl Connection {
     /// According to the spec, this will result in an error if the remote endpoint does not support
     /// the Acknowledgement Frequency extension
     pub(crate) fn immediate_ack(&mut self, path_id: PathId) {
+        debug_assert_eq!(
+            self.highest_space,
+            SpaceId::Data,
+            "immediate ack must be written in the data space"
+        );
         self.spaces[self.highest_space]
             .for_path(path_id)
             .immediate_ack_pending = true;
