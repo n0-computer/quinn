@@ -18,7 +18,7 @@ use rustls::{
     client::WebPkiServerVerifier,
     pki_types::{CertificateDer, PrivateKeyDer},
 };
-use tracing::{info_span, trace, warn};
+use tracing::{debug, info_span, trace};
 
 use super::crypto::rustls::{QuicClientConfig, QuicServerConfig, configured_provider};
 use super::*;
@@ -185,7 +185,7 @@ impl Pair {
                     client_addr,
                 ));
             } else {
-                warn!(?packet.destination, "packet from server to client lost");
+                debug!(?packet.destination, "packet from server to client lost");
             }
         }
     }
@@ -216,7 +216,7 @@ impl Pair {
                     server_addr,
                 ));
             } else {
-                warn!(?packet.destination, "packet from server to client lost");
+                debug!(?packet.destination, "packet from server to client lost");
             }
         }
     }
