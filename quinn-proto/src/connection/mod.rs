@@ -648,14 +648,14 @@ impl Connection {
             .insert(path_id, error_code.into());
 
         // Remove pending NEW CIDs for this path
-        let pn = &mut self.spaces[SpaceId::Data].pending;
-        pn.new_cids.retain(|cid| cid.path_id != path_id);
-        pn.path_cids_blocked.retain(|&id| id != path_id);
-        pn.path_status.retain(|&id| id != path_id);
+        let pending_space = &mut self.spaces[SpaceId::Data].pending;
+        pending_space.new_cids.retain(|cid| cid.path_id != path_id);
+        pending_space.path_cids_blocked.retain(|&id| id != path_id);
+        pending_space.path_status.retain(|&id| id != path_id);
 
         // Cleanup in retransmits as well
-        if let Some(pn) = self.spaces[SpaceId::Data].path_space_mut(path_id) {
-            for s in pn.sent_packets.values_mut() {
+        if let Some(space) = self.spaces[SpaceId::Data].path_space_mut(path_id) {
+            for s in space.sent_packets.values_mut() {
                 if let Some(retransmits) = s.retransmits.get_mut() {
                     retransmits.new_cids.retain(|cid| cid.path_id != path_id);
                     retransmits.path_cids_blocked.retain(|&id| id != path_id);
