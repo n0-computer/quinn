@@ -52,7 +52,7 @@ fn setup_deterministic_with_multipath(
 
 fn multipath_transport_config(qlog_prefix: &'static str) -> TransportConfig {
     let mut cfg = TransportConfig::default();
-        // enable multipath
+    // enable multipath
     cfg.max_concurrent_multipath_paths(MAX_PATHS);
     // cfg.mtu_discovery_config(None);
     #[cfg(feature = "qlog")]
@@ -308,6 +308,33 @@ fn regression_never_idle2() {
 
     // We needed to increase the bounds. It eventually times out.
     assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(not_transport_error(
+        pair.client_conn_mut(client_ch).state().take_error(),
+    ));
+    assert!(not_transport_error(
+        pair.server_conn_mut(server_ch).state().take_error(),
+    ));
+}
+
+#[test]
+fn regression_packet_number_space_missing() {
+    let prefix = "regression_packet_number_space_missing";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::OpenPath(Side::Client, PathStatus::Backup, 0),
+        TestOp::OpenPath(Side::Client, PathStatus::Backup, 0),
+        TestOp::Drive(Side::Client),
+        TestOp::DropInbound(Side::Server),
+        TestOp::ClosePath(Side::Client, 0, 0),
+    ];
+
+    let _guard = subscribe();
+    let routes = RoutingTable::simple_symmetric([CLIENT_ADDRS[0]], [SERVER_ADDRS[0]]);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(100), "connection never became idle");
     assert!(not_transport_error(
         pair.client_conn_mut(client_ch).state().take_error(),
     ));
