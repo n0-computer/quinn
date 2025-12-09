@@ -91,9 +91,18 @@ impl PacketSpace {
     //    return an Option but that would need to be handled for all callers.  This could be
     //    worth exploring once we have all the main multipath bits fitted.
     pub(super) fn for_path(&mut self, path: PathId) -> &mut PacketNumberSpace {
-        self.number_spaces
-            .entry(path)
-            .or_insert_with(|| PacketNumberSpace::new_default(self.space_id, path))
+        match self.number_spaces.entry(path) {
+            #[allow(unused)]
+            std::collections::btree_map::Entry::Vacant(vacant_entry) => {
+                #[cfg(debug_assertions)]
+                panic!("PacketNumberSpace missing for path {path}");
+                #[cfg(not(debug_assertions))]
+                vacant_entry.insert(PacketNumberSpace::new_default(self.space_id, path))
+            }
+            std::collections::btree_map::Entry::Occupied(occupied_entry) => {
+                occupied_entry.into_mut()
+            }
+        }
     }
 
     pub(super) fn iter_paths_mut(&mut self) -> impl Iterator<Item = &mut PacketNumberSpace> {
