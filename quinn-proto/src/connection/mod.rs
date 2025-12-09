@@ -4255,9 +4255,7 @@ impl Connection {
                         //    so, but it still is something untidy. We should instead
                         //    suppress this when we know the remote is still validating the
                         //    path.
-                        match self.peer_supports_ack_frequency()
-                            && self.highest_space == SpaceId::Data
-                        {
+                        match self.peer_supports_ack_frequency() {
                             true => self.immediate_ack(path_id),
                             false => {
                                 self.ping_path(path_id).ok();
