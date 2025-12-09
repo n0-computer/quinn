@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use proptest::prelude::Strategy;
+use proptest::{
+    prelude::{Just, Strategy},
+    prop_oneof,
+};
 use test_strategy::Arbitrary;
 use tracing::{debug, trace};
 
@@ -41,11 +44,7 @@ pub(super) enum TestOp {
 }
 
 fn path_status() -> impl Strategy<Value = PathStatus> {
-    (0..=1).prop_map(|n| match n {
-        0 => PathStatus::Available,
-        1 => PathStatus::Backup,
-        _ => unreachable!(),
-    })
+    prop_oneof![Just(PathStatus::Available), Just(PathStatus::Backup)]
 }
 
 /// We *basically* only operate with 3 streams concurrently at the moment
