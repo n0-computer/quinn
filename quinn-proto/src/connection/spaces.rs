@@ -8,7 +8,7 @@ use std::{
 
 use rand::Rng;
 use rustc_hash::{FxHashMap, FxHashSet};
-use tracing::{error, trace};
+use tracing::trace;
 
 use super::{PathId, assembler::Assembler};
 use crate::{
@@ -22,8 +22,6 @@ use crate::{
 };
 
 pub(super) struct PacketSpace {
-    // TODO(@divma): for debugging purposes
-    space_id: SpaceId,
     pub(super) crypto: Option<Keys>,
 
     /// Data to send
@@ -46,7 +44,6 @@ impl PacketSpace {
     pub(super) fn new(now: Instant, space: SpaceId, rng: &mut (impl Rng + ?Sized)) -> Self {
         let number_space_0 = PacketNumberSpace::new(now, space, rng);
         Self {
-            space_id: space,
             crypto: None,
             pending: Retransmits::default(),
             crypto_stream: Assembler::new(),
@@ -59,7 +56,6 @@ impl PacketSpace {
     pub(super) fn new_deterministic(now: Instant, space: SpaceId) -> Self {
         let number_space_0 = PacketNumberSpace::new_deterministic(now, space);
         Self {
-            space_id: space,
             crypto: None,
             pending: Retransmits::default(),
             crypto_stream: Assembler::new(),
@@ -91,18 +87,9 @@ impl PacketSpace {
     //    return an Option but that would need to be handled for all callers.  This could be
     //    worth exploring once we have all the main multipath bits fitted.
     pub(super) fn for_path(&mut self, path: PathId) -> &mut PacketNumberSpace {
-        match self.number_spaces.entry(path) {
-            #[allow(unused)]
-            std::collections::btree_map::Entry::Vacant(vacant_entry) => {
-                #[cfg(debug_assertions)]
-                panic!("PacketNumberSpace missing for path {path}");
-                #[cfg(not(debug_assertions))]
-                vacant_entry.insert(PacketNumberSpace::new_default(self.space_id, path))
-            }
-            std::collections::btree_map::Entry::Occupied(occupied_entry) => {
-                occupied_entry.into_mut()
-            }
-        }
+        self.number_spaces
+            .get_mut(&path)
+            .unwrap_or_else(|| panic!("PacketNumberSpace missing for {path}"))
     }
 
     pub(super) fn iter_paths_mut(&mut self) -> impl Iterator<Item = &mut PacketNumberSpace> {
@@ -327,36 +314,6 @@ impl PacketNumberSpace {
             loss_time: None,
             loss_probes: 0,
             pn_filter,
-        }
-    }
-
-    /// Creates a default PacketNumberSpace
-    ///
-    /// This allows us to be type-safe about always being able to access a
-    /// PacketNumberSpace.  While the space will work it will not skip packet numbers to
-    /// protect against eaget ack attacks.
-    fn new_default(space_id: SpaceId, path_id: PathId) -> Self {
-        error!(%path_id, ?space_id, "PacketNumberSpace created by default");
-        Self {
-            rx_packet: None,
-            next_packet_number: 0,
-            largest_acked_packet: None,
-            largest_acked_packet_sent: Instant::now(),
-            largest_ack_eliciting_sent: 0,
-            unacked_non_ack_eliciting_tail: 0,
-            sent_packets: BTreeMap::new(),
-            lost_packets: BTreeMap::new(),
-            ecn_counters: frame::EcnCounts::ZERO,
-            ecn_feedback: frame::EcnCounts::ZERO,
-            sent_with_keys: 0,
-            ping_pending: false,
-            immediate_ack_pending: false,
-            dedup: Default::default(),
-            pending_acks: PendingAcks::new(),
-            time_of_last_ack_eliciting_packet: None,
-            loss_time: None,
-            loss_probes: 0,
-            pn_filter: None,
         }
     }
 
