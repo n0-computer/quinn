@@ -572,6 +572,11 @@ impl RttEstimator {
         self.smoothed.unwrap_or(self.latest)
     }
 
+    /// Whether any RTT samples have been recorded on this path
+    pub fn has_samples(&self) -> bool {
+        self.smoothed.is_some()
+    }
+
     /// Conservative estimate of RTT
     ///
     /// Takes the maximum of smoothed and latest RTT, as recommended

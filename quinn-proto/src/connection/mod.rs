@@ -3096,17 +3096,17 @@ impl Connection {
         match space {
             SpaceId::Initial | SpaceId::Handshake => self.pto(space, PathId::ZERO),
             SpaceId::Data => {
-                // Include paths where peer might send us data:
+                // Include paths that have actual RTT measurements:
                 // - validated: PATH_RESPONSE confirmed bidirectional connectivity
-                // - total_recvd > 0: peer already sent us data on this path
+                // - has_samples(): ACK-based RTT sample recorded
                 //
-                // Exclude unvalidated paths with no received data (unreachable holepunch
-                // candidates) as they inflate the close timer with their default 333ms RTT.
+                // Exclude paths without RTT measurements (unreachable holepunch candidates)
+                // as they inflate the close timer with their default 333ms RTT.
                 let active_pto = self
                     .paths
                     .iter()
                     .filter(|(_, path_state)| {
-                        path_state.data.validated || path_state.data.total_recvd > 0
+                        path_state.data.validated || path_state.data.rtt.has_samples()
                     })
                     .map(|(path_id, _)| self.pto(space, *path_id))
                     .max();
