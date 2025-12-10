@@ -3104,10 +3104,23 @@ impl Connection {
             SpaceId::Initial | SpaceId::Handshake => self.pto(space, PathId::ZERO),
             SpaceId::Data => self
                 .paths
-                .keys()
-                .map(|path_id| self.pto(space, *path_id))
+                .iter()
+                .filter(|(path_id, path)| {
+                    // Paths with total_sent == 0 have never transmitted anything, so there's
+                    // nothing to drain and their (likely default) RTT should not inflate timeouts.
+                    // Abandoned paths are also excluded since they're no longer active.
+                    // Paths that have never received any data (total_recvd == 0) and have no
+                    // RTT samples are likely unreachable and should not inflate timeouts.
+                    let has_rtt_sample = path.data.rtt.has_samples();
+                    let is_active = path.data.total_sent > 0
+                        && !self.abandoned_paths.contains(path_id)
+                        && (path.data.total_recvd > 0 || has_rtt_sample);
+                    is_active
+                })
+                .map(|(path_id, _)| self.pto(space, *path_id))
                 .max()
-                .expect("there should be one at least path"),
+                // Fall back to path 0 if no paths have sent data (shouldn't happen in practice)
+                .unwrap_or_else(|| self.pto(space, PathId::ZERO)),
         }
     }
 
