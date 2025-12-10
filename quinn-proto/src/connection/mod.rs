@@ -2463,7 +2463,6 @@ impl Connection {
             let path_data = self.path_data_mut(path);
             // TODO(@divma): should be a method of path, should be contained in a single place
             path_data.rtt.update(ack_delay, rtt);
-            path_data.first_rtt_sample_taken = true;
             if path_data.first_packet_after_rtt_sample.is_none() {
                 path_data.first_packet_after_rtt_sample = Some((space, next_pn));
             }
@@ -3102,25 +3101,25 @@ impl Connection {
     fn pto_max_path(&self, space: SpaceId) -> Duration {
         match space {
             SpaceId::Initial | SpaceId::Handshake => self.pto(space, PathId::ZERO),
-            SpaceId::Data => self
-                .paths
-                .iter()
-                .filter(|(path_id, path)| {
-                    // Paths with total_sent == 0 have never transmitted anything, so there's
-                    // nothing to drain and their (likely default) RTT should not inflate timeouts.
-                    // Abandoned paths are also excluded since they're no longer active.
-                    // Paths that have never received any data (total_recvd == 0) and have no
-                    // RTT samples are likely unreachable and should not inflate timeouts.
-                    let has_rtt_sample = path.data.rtt.has_samples();
-                    let is_active = path.data.total_sent > 0
-                        && !self.abandoned_paths.contains(path_id)
-                        && (path.data.total_recvd > 0 || has_rtt_sample);
-                    is_active
+            SpaceId::Data => {
+                // Prefer paths that have actual RTT measurements.
+                // Pre-provisioned paths that were never used still have their initial_rtt
+                // estimate which can inflate the close timer unnecessarily.
+                let measured_pto = self
+                    .paths
+                    .iter()
+                    .filter(|(_, path_state)| path_state.data.rtt.has_samples())
+                    .map(|(path_id, _)| self.pto(space, *path_id))
+                    .max();
+
+                measured_pto.unwrap_or_else(|| {
+                    self.paths
+                        .keys()
+                        .map(|path_id| self.pto(space, *path_id))
+                        .max()
+                        .expect("there should be at least one path")
                 })
-                .map(|(path_id, _)| self.pto(space, *path_id))
-                .max()
-                // Fall back to path 0 if no paths have sent data (shouldn't happen in practice)
-                .unwrap_or_else(|| self.pto(space, PathId::ZERO)),
+            }
         }
     }
 
