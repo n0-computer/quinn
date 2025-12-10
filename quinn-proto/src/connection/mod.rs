@@ -2039,12 +2039,15 @@ impl Connection {
                             // The peer failed to respond with a PATH_ABANDON when we sent such a
                             // frame.
                             warn!("missing PATH_ABANDON from peer");
-                            // TODO(flub): What should the error code be?
-                            self.close(
-                                now,
-                                TransportErrorCode::NO_ERROR.into(),
-                                "peer ignored PATH_ABANDON frame".into(),
-                            );
+                            if !self.state.is_closed() {
+                                // TODO(flub): What should the error code be?
+                                self.state.move_to_closed(TransportError::NO_ERROR(
+                                    "peer ignored PATH_ABANDON frame",
+                                ));
+                                self.close_common();
+                                self.set_close_timer(now);
+                                self.close = true;
+                            }
                         }
                     }
                 }
@@ -4604,11 +4607,7 @@ impl Connection {
                         Err(ClosePathError::LastOpenPath) => {
                             trace!("peer abandoned last path, closing connection");
                             // TODO(flub): which error code?
-                            self.close(
-                                now,
-                                TransportErrorCode::NO_ERROR.into(),
-                                Bytes::from_static(b"last path abandoned by peer"),
-                            );
+                            return Err(TransportError::NO_ERROR("last path abandoned by peer"));
                         }
                         Err(ClosePathError::ClosedPath) => {
                             trace!("peer abandoned already closed path");
