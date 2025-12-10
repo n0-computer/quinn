@@ -1961,6 +1961,9 @@ impl Connection {
                             self.ping_path(path_id).ok();
                         }
                         PathTimer::LossDetection => {
+                            if self.abandoned_paths.contains(&path_id) {
+                                continue;
+                            }
                             self.on_loss_detection_timeout(now, path_id);
                             self.qlog.emit_recovery_metrics(
                                 path_id,
@@ -1984,6 +1987,9 @@ impl Connection {
                             path.data.send_new_challenge = false;
                         }
                         PathTimer::PathChallengeLost => {
+                            if self.abandoned_paths.contains(&path_id) {
+                                continue;
+                            }
                             let Some(path) = self.paths.get_mut(&path_id) else {
                                 continue;
                             };
