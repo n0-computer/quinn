@@ -4275,8 +4275,10 @@ impl Connection {
                         .expect("payload is processed only after the path becomes known");
 
                     match path.data.challenges_sent.get(&token) {
-                        Some(info) if info.remote == remote => {
+                        // Response to an on-path PathChallenge
+                        Some(info) if info.remote == remote && path.data.remote == remote => {
                             let sent_instant = info.sent_instant;
+                            // TODO(@divma): reset timers using the remaining off-path challenges
                             self.timers.stop(
                                 Timer::PerPath(path_id, PathTimer::PathChallengeLost),
                                 self.qlog.with_time(now),
@@ -4292,7 +4294,10 @@ impl Connection {
                                 Timer::PerPath(path_id, PathTimer::PathOpen),
                                 self.qlog.with_time(now),
                             );
-                            path.data.challenges_sent.clear();
+                            // Clear any other on-path sent challenge.
+                            path.data
+                                .challenges_sent
+                                .retain(|_token, info| info.remote != remote);
                             path.data.send_new_challenge = false;
                             path.data.validated = true;
 
@@ -4320,9 +4325,18 @@ impl Connection {
                                 prev.send_new_challenge = false;
                             }
                         }
+                        // Response to an off-path PathChallenge
+                        Some(info) if info.remote == remote => {
+                            debug!("Response to off-path PathChallenge!");
+                            path.data
+                                .challenges_sent
+                                .retain(|_token, info| info.remote != remote);
+                        }
+                        // Response to a PathChallenge we recognize, but from an invalid remote
                         Some(info) => {
                             debug!(token, from=%remote, expected=%info.remote, "ignoring invalid PATH_RESPONSE")
                         }
+                        // Response to an unknown PathChallenge
                         None => debug!(token, "ignoring invalid PATH_RESPONSE"),
                     }
                 }
