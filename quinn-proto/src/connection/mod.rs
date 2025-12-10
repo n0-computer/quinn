@@ -5175,7 +5175,7 @@ impl Connection {
             sent.non_retransmits = true;
             sent.requires_padding = true;
             let challenge = frame::PathChallenge(token);
-            trace!(%challenge);
+            trace!(%challenge, "sending new challenge");
             buf.write(challenge);
             qlog.frame(&Frame::PathChallenge(challenge));
             self.stats.frame_tx.path_challenge += 1;
@@ -5221,7 +5221,7 @@ impl Connection {
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
                 let response = frame::PathResponse(token);
-                trace!(%response);
+                trace!(%response, "sending response");
                 buf.write(response);
                 qlog.frame(&Frame::PathResponse(response));
                 self.stats.frame_tx.path_response += 1;

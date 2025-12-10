@@ -295,7 +295,7 @@ impl Frame {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, derive_more::Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, derive_more::Display)]
 pub(crate) struct PathChallenge(#[display("PATH_CHALLENGE({:08x})")] pub(crate) u64);
 
 impl PathChallenge {
