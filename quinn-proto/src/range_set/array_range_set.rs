@@ -69,7 +69,7 @@ impl ArrayRangeSet {
     }
 
     pub fn replace(&mut self, range: Range<u64>) -> Replace<'_> {
-        let mut res = TinyVec::<[Range<u64>;2]>::new();
+        let mut res = TinyVec::<[Range<u64>; 2]>::new();
         for r in self.iter() {
             if r.end > range.start && r.start < range.end {
                 res.push(Range {
