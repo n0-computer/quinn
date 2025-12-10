@@ -36,7 +36,7 @@ use rustc_hash::FxHashMap;
 ))]
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::sync::{Notify, futures::Notified, mpsc};
-use tracing::{Instrument, Span};
+use tracing::{trace, Instrument, Span};
 use udp::{BATCH_SIZE, RecvMeta};
 
 use crate::{
@@ -553,6 +553,7 @@ impl State {
             if event.is_drained() {
                 self.recv_state.connections.senders.remove(&ch);
                 if self.recv_state.connections.is_empty() {
+                    trace!("all connections drained, notifying waiters");
                     shared.idle.notify_waiters();
                 }
             }

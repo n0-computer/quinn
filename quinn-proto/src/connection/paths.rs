@@ -570,6 +570,11 @@ impl RttEstimator {
         self.get() + cmp::max(4 * self.var, TIMER_GRANULARITY)
     }
 
+    /// Whether an actual RTT measurement has been received (vs using initial estimate)
+    pub(crate) fn has_measurement(&self) -> bool {
+        self.smoothed.is_some()
+    }
+
     pub(crate) fn update(&mut self, ack_delay: Duration, rtt: Duration) {
         self.latest = rtt;
         // min_rtt ignores ack delay.

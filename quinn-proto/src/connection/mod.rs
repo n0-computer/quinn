@@ -1904,6 +1904,7 @@ impl Connection {
             match timer {
                 Timer::Conn(timer) => match timer {
                     ConnTimer::Close => {
+                        trace!("close timer fired, moving to drained");
                         self.state.move_to_drained(None);
                         self.endpoint_events.push_back(EndpointEventInner::Drained);
                     }
@@ -3095,12 +3096,26 @@ impl Connection {
     fn pto_max_path(&self, space: SpaceId) -> Duration {
         match space {
             SpaceId::Initial | SpaceId::Handshake => self.pto(space, PathId::ZERO),
-            SpaceId::Data => self
-                .paths
-                .keys()
-                .map(|path_id| self.pto(space, *path_id))
-                .max()
-                .expect("there should be one at least path"),
+            SpaceId::Data => {
+                // For Data space, prefer paths that have actual RTT measurements.
+                // Pre-provisioned paths that were never used still have their initial_rtt
+                // estimate which can inflate the close timer unnecessarily.
+                let measured_pto = self
+                    .paths
+                    .iter()
+                    .filter(|(_, path_state)| path_state.data.rtt.has_measurement())
+                    .map(|(path_id, _)| self.pto(space, *path_id))
+                    .max();
+
+                measured_pto.unwrap_or_else(|| {
+                    // Fall back to all paths if none have measurements yet
+                    self.paths
+                        .keys()
+                        .map(|path_id| self.pto(space, *path_id))
+                        .max()
+                        .expect("there should be at least one path")
+                })
+            }
         }
     }
 
