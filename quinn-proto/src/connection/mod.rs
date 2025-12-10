@@ -1325,12 +1325,10 @@ impl Connection {
                     // TODO(flub): We need to use the right CID!  We shouldn't use the same
                     //    CID as the current active one for the path.  Though see also
                     //    https://github.com/quinn-rs/quinn/issues/2184
-                    trace!("PATH_RESPONSE {:08x} (off-path)", token);
-                    builder
-                        .frame_space_mut()
-                        .write(frame::FrameType::PATH_RESPONSE);
-                    builder.frame_space_mut().write(token);
-                    qlog.frame(&Frame::PathResponse(token));
+                    let response = frame::PathResponse(token);
+                    trace!(%response, "(off-path)");
+                    builder.frame_space_mut().write(response);
+                    qlog.frame(&Frame::PathResponse(response));
                     self.stats.frame_tx.path_response += 1;
                     builder.finish_and_track(
                         now,
@@ -1746,12 +1744,10 @@ impl Connection {
             self,
             &mut qlog,
         )?;
-        trace!("validating previous path with PATH_CHALLENGE {:08x}", token);
-        builder
-            .frame_space_mut()
-            .write(frame::FrameType::PATH_CHALLENGE);
-        builder.frame_space_mut().write(token);
-        qlog.frame(&Frame::PathChallenge(token));
+        let challenge = frame::PathChallenge(token);
+        trace!(%challenge, "validating previous path");
+        qlog.frame(&Frame::PathChallenge(challenge));
+        builder.frame_space_mut().write(challenge);
         self.stats.frame_tx.path_challenge += 1;
 
         // An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
@@ -4245,11 +4241,11 @@ impl Connection {
                 Frame::Close(reason) => {
                     close = Some(reason);
                 }
-                Frame::PathChallenge(token) => {
+                Frame::PathChallenge(challenge) => {
                     let path = &mut self
                         .path_mut(path_id)
                         .expect("payload is processed only after the path becomes known");
-                    path.path_responses.push(number, token, remote);
+                    path.path_responses.push(number, challenge.0, remote);
                     if remote == path.remote {
                         // PATH_CHALLENGE on active path, possible off-path packet forwarding
                         // attack. Send a non-probing packet to recover the active path.
@@ -4268,13 +4264,13 @@ impl Connection {
                         }
                     }
                 }
-                Frame::PathResponse(token) => {
+                Frame::PathResponse(response) => {
                     let path = self
                         .paths
                         .get_mut(&path_id)
                         .expect("payload is processed only after the path becomes known");
 
-                    match path.data.challenges_sent.get(&token) {
+                    match path.data.challenges_sent.get(&response.0) {
                         // Response to an on-path PathChallenge
                         Some(info) if info.remote == remote && path.data.remote == remote => {
                             let sent_instant = info.sent_instant;
@@ -4334,10 +4330,10 @@ impl Connection {
                         }
                         // Response to a PathChallenge we recognize, but from an invalid remote
                         Some(info) => {
-                            debug!(token, from=%remote, expected=%info.remote, "ignoring invalid PATH_RESPONSE")
+                            debug!(%response, from=%remote, expected=%info.remote, "ignoring invalid PATH_RESPONSE")
                         }
                         // Response to an unknown PathChallenge
-                        None => debug!(token, "ignoring invalid PATH_RESPONSE"),
+                        None => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
                 }
                 Frame::MaxData(bytes) => {
@@ -5188,7 +5184,10 @@ impl Connection {
         }
 
         // PATH_CHALLENGE
-        if buf.remaining_mut() > 9 && space_id == SpaceId::Data && path.send_new_challenge {
+        if buf.remaining_mut() > frame::PathChallenge::SIZE_BOUND
+            && space_id == SpaceId::Data
+            && path.send_new_challenge
+        {
             path.send_new_challenge = false;
 
             // Generate a new challenge every time we send a new PATH_CHALLENGE
@@ -5200,10 +5199,10 @@ impl Connection {
             path.challenges_sent.insert(token, info);
             sent.non_retransmits = true;
             sent.requires_padding = true;
-            trace!(%token, "PATH_CHALLENGE");
-            buf.write(frame::FrameType::PATH_CHALLENGE);
-            buf.write(token);
-            qlog.frame(&Frame::PathChallenge(token));
+            let challenge = frame::PathChallenge(token);
+            trace!(%challenge, "sending new challenge");
+            buf.write(challenge);
+            qlog.frame(&Frame::PathChallenge(challenge));
             self.stats.frame_tx.path_challenge += 1;
             let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
             self.timers.set(
@@ -5242,14 +5241,14 @@ impl Connection {
         }
 
         // PATH_RESPONSE
-        if buf.remaining_mut() > 9 && space_id == SpaceId::Data {
+        if buf.remaining_mut() > frame::PathResponse::SIZE_BOUND && space_id == SpaceId::Data {
             if let Some(token) = path.path_responses.pop_on_path(path.remote) {
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
-                trace!(?token, "PATH_RESPONSE");
-                buf.write(frame::FrameType::PATH_RESPONSE);
-                buf.write(token);
-                qlog.frame(&Frame::PathResponse(token));
+                let response = frame::PathResponse(token);
+                trace!(%response, "sending response");
+                buf.write(response);
+                qlog.frame(&Frame::PathResponse(response));
                 self.stats.frame_tx.path_response += 1;
 
                 // NOTE: this is technically not required but might be useful to ride the
