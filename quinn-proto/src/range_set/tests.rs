@@ -127,7 +127,6 @@ macro_rules! common_set_tests {
 
                 for start in 0..=MAX_RANGE {
                     for end in 0..=MAX_RANGE {
-                        println!("insert({}..{})", start, end);
                         let (mut set, mut reference) = create_initial_sets(MAX_RANGE);
                         assert_eq!(set.insert(start..end), reference.insert(start..end));
                         assert_sets_equal(&set, &reference);
@@ -141,7 +140,6 @@ macro_rules! common_set_tests {
 
                 for start in 0..=MAX_RANGE {
                     for end in 0..=MAX_RANGE {
-                        println!("remove({}..{})", start, end);
                         let (mut set, mut reference) = create_initial_sets(MAX_RANGE);
                         assert_eq!(set.remove(start..end), reference.remove(start..end));
                         assert_sets_equal(&set, &reference);

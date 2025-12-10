@@ -82,15 +82,6 @@ impl ArrayRangeSet {
         Replace(res.into_iter(), self)
     }
 
-    pub fn subtract(&mut self, other: &Self) {
-        // TODO: This can potentially be made more efficient, since the we know
-        // individual ranges are not overlapping, and the next range must start
-        // after the last one finished
-        for range in &other.0 {
-            self.remove(range.clone());
-        }
-    }
-
     pub fn insert_one(&mut self, x: u64) -> bool {
         self.insert(x..x + 1)
     }

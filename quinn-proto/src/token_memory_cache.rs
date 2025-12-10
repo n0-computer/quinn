@@ -176,7 +176,6 @@ mod tests {
                 if rng.random_bool(0.666) {
                     // store
                     let token = Bytes::from(vec![i]);
-                    println!("STORE {server_name} {token:?}");
                     if let Some((j, _)) = cache_1
                         .iter()
                         .enumerate()
@@ -199,7 +198,6 @@ mod tests {
                     cache_2.insert(&server_name.to_string(), token);
                 } else {
                     // take
-                    println!("TAKE {server_name}");
                     let expecting = cache_1
                         .iter()
                         .enumerate()
@@ -213,7 +211,6 @@ mod tests {
                             }
                             token
                         });
-                    println!("EXPECTING {expecting:?}");
                     assert_eq!(cache_2.take(&server_name.to_string()), expecting);
                 }
             }
