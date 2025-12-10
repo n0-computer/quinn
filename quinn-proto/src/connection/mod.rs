@@ -2463,6 +2463,7 @@ impl Connection {
             let path_data = self.path_data_mut(path);
             // TODO(@divma): should be a method of path, should be contained in a single place
             path_data.rtt.update(ack_delay, rtt);
+            path_data.first_rtt_sample_taken = true;
             if path_data.first_packet_after_rtt_sample.is_none() {
                 path_data.first_packet_after_rtt_sample = Some((space, next_pn));
             }

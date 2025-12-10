@@ -152,6 +152,8 @@ pub(super) struct PathData {
     ///
     /// Used in persistent congestion determination.
     pub(super) first_packet_after_rtt_sample: Option<(SpaceId, u64)>,
+    /// Whether we've already taken an initial RTT sample from PATH_RESPONSE on this path
+    pub(super) first_rtt_sample_taken: bool,
     /// The in-flight packets and bytes
     ///
     /// Note that this is across all spaces on this path
@@ -251,6 +253,7 @@ impl PathData {
                     },
                 ),
             first_packet_after_rtt_sample: None,
+            first_rtt_sample_taken: false,
             in_flight: InFlight::new(),
             observed_addr_sent: false,
             last_observed_addr_report: None,
@@ -291,6 +294,7 @@ impl PathData {
             total_recvd: 0,
             mtud: prev.mtud.clone(),
             first_packet_after_rtt_sample: prev.first_packet_after_rtt_sample,
+            first_rtt_sample_taken: prev.first_rtt_sample_taken,
             in_flight: InFlight::new(),
             observed_addr_sent: false,
             last_observed_addr_report: None,
