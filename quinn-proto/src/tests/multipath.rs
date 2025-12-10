@@ -11,8 +11,8 @@ use tracing::info;
 use crate::tests::util::{CLIENT_PORTS, SERVER_PORTS};
 use crate::{
     ClientConfig, ClosePathError, ConnectionHandle, ConnectionId, ConnectionIdGenerator, Endpoint,
-    EndpointConfig, Instant, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator,
-    ServerConfig, TransportConfig, cid_queue::CidQueue,
+    EndpointConfig, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator, ServerConfig,
+    TransportConfig, cid_queue::CidQueue,
 };
 use crate::{Event, PathError, PathEvent};
 
@@ -151,9 +151,10 @@ fn path_close_last_path() {
     let _guard = subscribe();
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
+    let now = pair.time;
     let client_conn = pair.client_conn_mut(client_ch);
     let err = client_conn
-        .close_path(Instant::now(), PathId::ZERO, 0u8.into())
+        .close_path(now, PathId::ZERO, 0u8.into())
         .err()
         .unwrap();
     assert!(matches!(err, ClosePathError::LastOpenPath));
@@ -357,8 +358,9 @@ fn issue_max_path_id() {
     assert_eq!(stats.frame_rx.path_new_connection_id, client_path_new_cids);
 
     // Server increases MAX_PATH_ID.
+    let now = pair.time;
     pair.server_conn_mut(server_ch)
-        .set_max_concurrent_paths(Instant::now(), NonZeroU32::new(MAX_PATHS).unwrap())
+        .set_max_concurrent_paths(now, NonZeroU32::new(MAX_PATHS).unwrap())
         .unwrap();
     pair.drive();
     let stats = pair.server_conn_mut(server_ch).stats();
@@ -429,8 +431,9 @@ fn issue_max_path_id_reordered() {
     assert_eq!(stats.frame_rx.path_new_connection_id, client_path_new_cids);
 
     // Server increases MAX_PATH_ID, but we reorder the frame
+    let now = pair.time;
     pair.server_conn_mut(server_ch)
-        .set_max_concurrent_paths(Instant::now(), NonZeroU32::new(MAX_PATHS).unwrap())
+        .set_max_concurrent_paths(now, NonZeroU32::new(MAX_PATHS).unwrap())
         .unwrap();
     pair.drive_server();
     // reorder the frames on the incoming side
@@ -456,10 +459,11 @@ fn open_path() {
     let _guard = subscribe();
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
+    let now = pair.time;
     let server_addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, Instant::now())
+        .open_path(server_addr, PathStatus::Available, now)
         .unwrap();
     pair.drive();
     let client_conn = pair.client_conn_mut(client_ch);
@@ -480,10 +484,11 @@ fn open_path_key_update() {
     let _guard = subscribe();
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
+    let now = pair.time;
     let server_addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, Instant::now())
+        .open_path(server_addr, PathStatus::Available, now)
         .unwrap();
 
     // Do a key-update at the same time as opening the new path.
@@ -515,9 +520,10 @@ fn open_path_validation_fails_server_side() {
         [9, 8, 7, 6].into(),
         SERVER_PORTS.lock().unwrap().next().unwrap(),
     );
+    let now = pair.time;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(different_addr, PathStatus::Available, Instant::now())
+        .open_path(different_addr, PathStatus::Available, now)
         .unwrap();
 
     // block the server from receiving anything
@@ -546,10 +552,11 @@ fn open_path_validation_fails_client_side() {
         CLIENT_PORTS.lock().unwrap().next().unwrap(),
     );
 
+    let now = pair.time;
     let addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(addr, PathStatus::Available, Instant::now())
+        .open_path(addr, PathStatus::Available, now)
         .unwrap();
 
     // block the client from receiving anything
@@ -566,10 +573,11 @@ fn close_path() {
     let _guard = subscribe();
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
+    let now = pair.time;
     let server_addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, Instant::now())
+        .open_path(server_addr, PathStatus::Available, now)
         .unwrap();
     pair.drive();
     assert_ne!(path_id, PathId::ZERO);
@@ -581,8 +589,9 @@ fn close_path() {
     assert_eq!(stats0.frame_rx.max_path_id, 0);
 
     info!("closing path 0");
+    let now = pair.time;
     pair.client_conn_mut(client_ch)
-        .close_path(Instant::now(), PathId::ZERO, 0u8.into())
+        .close_path(now, PathId::ZERO, 0u8.into())
         .unwrap();
     pair.drive();
 
@@ -600,22 +609,24 @@ fn close_last_path() {
     let _guard = subscribe();
     let (mut pair, client_ch, server_ch) = multipath_pair();
 
+    let now = pair.time;
     let server_addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, Instant::now())
+        .open_path(server_addr, PathStatus::Available, now)
         .unwrap();
     pair.drive();
     assert_ne!(path_id, PathId::ZERO);
 
     info!("client closes path 0");
+    let now = pair.time;
     pair.client_conn_mut(client_ch)
-        .close_path(Instant::now(), PathId::ZERO, 0u8.into())
+        .close_path(now, PathId::ZERO, 0u8.into())
         .unwrap();
 
     info!("server closes path 1");
     pair.server_conn_mut(server_ch)
-        .close_path(Instant::now(), PathId(1), 0u8.into())
+        .close_path(now, PathId(1), 0u8.into())
         .unwrap();
 
     pair.drive();
@@ -672,11 +683,10 @@ fn per_path_observed_address() {
     let our_addr = pair.client.addr;
 
     // open a second path
+    let now = pair.time;
     let remote = pair.server.addr;
     let conn = pair.client_conn_mut(client_ch);
-    let _new_path_id = conn
-        .open_path(remote, PathStatus::Available, Instant::now())
-        .unwrap();
+    let _new_path_id = conn.open_path(remote, PathStatus::Available, now).unwrap();
 
     pair.drive();
     let conn = pair.client_conn_mut(client_ch);
@@ -692,4 +702,81 @@ fn per_path_observed_address() {
     }
     assert!(opened);
     assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId(1), addr})) if addr == our_addr);
+}
+
+#[test]
+fn mtud_on_two_paths() {
+    let _guard = subscribe();
+
+    // Manual pair setup because we need to disable the max_idle_timeout.
+    let multipath_transport_cfg = Arc::new(TransportConfig {
+        max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
+        initial_rtt: Duration::from_millis(10),
+        max_idle_timeout: None,
+        ..TransportConfig::default()
+    });
+    let server_cfg = Arc::new(ServerConfig {
+        transport: multipath_transport_cfg.clone(),
+        ..server_config()
+    });
+    let server = Endpoint::new(Default::default(), Some(server_cfg), true, None);
+    let client = Endpoint::new(Default::default(), None, true, None);
+
+    let mut pair = Pair::new_from_endpoint(client, server);
+    pair.mtu = 1200; // Start with a small MTU
+    let client_cfg = ClientConfig {
+        transport: multipath_transport_cfg,
+        ..client_config()
+    };
+    let (client_ch, _server_ch) = pair.connect_with(client_cfg);
+    pair.drive();
+    info!("connected");
+
+    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(PathId::ZERO), 1200);
+
+    // Open a 2nd path.
+    let now = pair.time;
+    let server_addr = pair.server.addr;
+    let path_id = pair
+        .client_conn_mut(client_ch)
+        .open_path(server_addr, PathStatus::Available, now)
+        .unwrap();
+    pair.drive();
+    let client_conn = pair.client_conn_mut(client_ch);
+
+    // Ensure the path opened correctly.
+    assert_matches!(
+        client_conn.poll().unwrap(),
+        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+    );
+    let server_conn = pair.server_conn_mut(client_ch);
+    assert_matches!(
+        server_conn.poll().unwrap(),
+        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+    );
+
+    // MTU should be 1200 for both paths.
+    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(PathId::ZERO), 1200);
+    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(path_id), 1200);
+
+    // The default MtuDiscoveryConfig::upper_bound is 1452, the default
+    // MtuDiscoveryConfig::interval is 600s.
+    pair.mtu = 1452;
+    pair.time += Duration::from_secs(600);
+    info!("Bumping MTU to: {}", pair.mtu);
+    pair.drive();
+
+    info!(
+        "MTU Path 0: {}",
+        pair.client_conn_mut(client_ch).path_mtu(PathId::ZERO)
+    );
+    info!(
+        "MTU Path {}: {}",
+        path_id,
+        pair.client_conn_mut(client_ch).path_mtu(path_id)
+    );
+
+    // Both paths should have found the new MTU.
+    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(PathId::ZERO), 1452);
+    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(path_id), 1452);
 }

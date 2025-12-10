@@ -61,17 +61,6 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-impl From<Code> for Error {
-    fn from(x: Code) -> Self {
-        Self {
-            code: x,
-            frame: None,
-            reason: "".to_string(),
-            crypto: None,
-        }
-    }
-}
-
 /// Transport-level error code
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Code(u64);
@@ -116,12 +105,7 @@ macro_rules! errors {
         impl Error {
             $(
             pub(crate) fn $name<T>(reason: T) -> Self where T: Into<String> {
-                Self {
-                    code: Code::$name,
-                    frame: None,
-                    reason: reason.into(),
-                    crypto: None,
-                }
+                Self::new(Code::$name, reason.into())
             }
             )*
         }
@@ -171,8 +155,8 @@ errors! {
     KEY_UPDATE_ERROR(0xE) "key update error";
     AEAD_LIMIT_REACHED(0xF) "the endpoint has reached the confidentiality or integrity limit for the AEAD algorithm";
     NO_VIABLE_PATH(0x10) "no viable network path exists";
-    APPLICATION_ABANDON(0x004150504142414e) "Path abandoned at the application's request";
-    RESOURCE_LIMIT_REACHED(0x0052534c494d4954) "Path abandoned due to resource limitations in the transport";
-    UNSTABLE_INTERFACE(0x00554e5f494e5446) "Path abandoned due to unstable interfaces";
-    NO_CID_AVAILABLE(0x004e4f5f4349445f) "Path abandoned due to no available connection IDs for the path";
+    APPLICATION_ABANDON_PATH(0x004150504142414e) "Path abandoned at the application's request";
+    PATH_RESOURCE_LIMIT_REACHED(0x0052534c494d4954) "Path abandoned due to resource limitations in the transport";
+    PATH_UNSTABLE_OR_POOR(0x00554e5f494e5446) "Path abandoned due to unstable interfaces";
+    NO_CID_AVAILABLE_FOR_PATH(0x004e4f5f4349445f) "Path abandoned due to no available connection IDs for the path";
 }

@@ -5,7 +5,7 @@ use tracing::trace;
 /// Implements Datagram Packetization Layer Path Maximum Transmission Unit Discovery
 ///
 /// See [`MtuDiscoveryConfig`] for details
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct MtuDiscovery {
     /// Detected MTU for the path
     current_mtu: u16,
@@ -56,21 +56,15 @@ impl MtuDiscovery {
         }
     }
 
-    pub(super) fn reset(&mut self, current_mtu: u16, min_mtu: u16) {
-        self.current_mtu = current_mtu;
-        if let Some(state) = self.state.take() {
-            self.state = Some(EnabledMtuDiscovery::new(state.config));
-            self.on_peer_max_udp_payload_size_received(state.peer_max_udp_payload_size);
-        }
-        self.black_hole_detector = BlackHoleDetector::new(min_mtu);
-    }
-
     /// Returns the current MTU
     pub(crate) fn current_mtu(&self) -> u16 {
         self.current_mtu
     }
 
-    /// Returns the amount of bytes that should be sent as an MTU probe, if any
+    /// Returns the amount of bytes that should be sent as an MTU probe, if any.
+    ///
+    /// Returns [`None`] if MTUD discovery is disabled. Otherwise delegates to
+    /// [`EnabledMtuDiscovery::poll_transmit`].
     pub(crate) fn poll_transmit(&mut self, now: Instant, next_pn: u64) -> Option<u16> {
         self.state
             .as_mut()
@@ -184,7 +178,14 @@ impl EnabledMtuDiscovery {
         }
     }
 
-    /// Returns the amount of bytes that should be sent as an MTU probe, if any
+    /// Returns the amount of bytes that should be sent as an MTU probe, if any.
+    ///
+    /// A probe only needs to be sent if:
+    ///
+    /// - There is no current in-flight probe.
+    /// - A search for a new MTU is in progress.
+    /// - The MTU discovery was completed but the [`MtuDiscoveryConfig::interval`] expired,
+    ///   this re-starts a n MTU search.
     fn poll_transmit(&mut self, now: Instant, current_mtu: u16, next_pn: u64) -> Option<u16> {
         if let Phase::Initial = &self.phase {
             // Start the first search
@@ -363,7 +364,7 @@ impl SearchState {
 ///
 /// When the number of suspicious loss bursts exceeds [`BLACK_HOLE_THRESHOLD`], we judge the
 /// evidence for an MTU black hole to be sufficient.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct BlackHoleDetector {
     /// Packet loss bursts currently considered suspicious
     suspicious_loss_bursts: Vec<LossBurst>,
@@ -503,12 +504,12 @@ impl BlackHoleDetector {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct LossBurst {
     smallest_packet_size: u16,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct CurrentLossBurst {
     smallest_packet_size: u16,
     latest_non_probe: u64,
