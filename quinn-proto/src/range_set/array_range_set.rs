@@ -213,6 +213,10 @@ impl ArrayRangeSet {
     }
 }
 
+/// An iterator over ranges that were replaced by a call to [`ArrayRangeSet::replace`]
+///
+/// The reference is so that the iterator can not be used in parallel mutating the set.
+#[allow(dead_code)]
 pub struct Replace<'a>(TinyVecIterator<[Range<u64>; 2]>, &'a mut ArrayRangeSet);
 
 impl<'a> Iterator for Replace<'a> {
