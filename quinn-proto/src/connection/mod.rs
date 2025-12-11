@@ -102,10 +102,7 @@ use timer::{Timer, TimerTable};
 mod transmit_buf;
 use transmit_buf::TransmitBuf;
 
-#[cfg(not(test))]
 mod state;
-#[cfg(test)]
-pub(crate) mod state;
 
 #[cfg(not(fuzzing))]
 use state::State;
@@ -5894,11 +5891,6 @@ impl Connection {
         self.spaces[self.highest_space]
             .for_path(path_id)
             .immediate_ack_pending = true;
-    }
-
-    #[cfg(test)]
-    pub(crate) fn state(&mut self) -> &mut State {
-        &mut self.state
     }
 
     /// Decodes a packet, returning its decrypted payload, so it can be inspected in tests

@@ -1,7 +1,9 @@
 use bytes::Bytes;
 
 use crate::frame::Close;
-use crate::{ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode};
+use crate::{
+    ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode,
+};
 
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
@@ -178,8 +180,7 @@ impl State {
         matches!(self.inner, InnerState::Drained { .. })
     }
 
-    #[allow(unreachable_pub)] // only exposed in cfg(test)
-    pub fn take_error(&mut self) -> Option<ConnectionError> {
+    pub(super) fn take_error(&mut self) -> Option<ConnectionError> {
         match &mut self.inner {
             InnerState::Draining { error, is_local } => {
                 if !*is_local {
