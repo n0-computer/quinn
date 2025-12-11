@@ -676,9 +676,16 @@ impl Connection {
 
         // The peer MUST respond with a corresponding PATH_ABANDON frame. If not, this timer
         // expires.
+        // We set the timeout to just after the connection idle timeout, so that if e.g. we
+        // *just* sent the PATH_ABANDON during a time that the other side completely shut
+        // down, we still error out with a "timed out" instead of a transport error.
+        let dt = cmp::max(
+            self.idle_timeout.unwrap_or_default(),
+            self.pto_max_path(SpaceId::Data),
+        );
         self.timers.set(
             Timer::PerPath(path_id, PathTimer::PathNotAbandoned),
-            now + 3 * self.pto_max_path(SpaceId::Data),
+            now + dt,
             self.qlog.with_time(now),
         );
 
