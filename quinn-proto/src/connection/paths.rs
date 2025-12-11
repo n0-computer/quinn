@@ -120,6 +120,14 @@ impl PathState {
     }
 }
 
+#[derive(Debug)]
+pub(super) struct SentChallengeInfo {
+    /// When was the challenge sent on the wire.
+    pub(super) sent_instant: Instant,
+    /// The remote to which this path challenge was sent.
+    pub(super) remote: SocketAddr,
+}
+
 /// Description of a particular network path
 #[derive(Debug)]
 pub(super) struct PathData {
@@ -131,9 +139,9 @@ pub(super) struct PathData {
     pub(super) congestion: Box<dyn congestion::Controller>,
     /// Pacing state
     pub(super) pacing: Pacer,
-    /// Actually sent challenges (on the wire)
-    pub(super) challenges_sent: IntMap<u64, Instant>,
-    /// Whether to *immediately* trigger another PATH_CHALLENGE (via Connection::can_send)
+    /// Actually sent challenges (on the wire).
+    pub(super) challenges_sent: IntMap<u64, SentChallengeInfo>,
+    /// Whether to *immediately* trigger another PATH_CHALLENGE (via [`super::Connection::can_send`])
     pub(super) send_new_challenge: bool,
     /// Pending responses to PATH_CHALLENGE frames
     pub(super) path_responses: PathResponses,
@@ -547,6 +555,26 @@ impl RttEstimator {
         }
     }
 
+    /// Resets the estimator using a new initial_rtt value.
+    ///
+    /// This only resets the initial_rtt **if** no samples have been recorded yet. If there
+    /// are any recorded samples the initial estimate can not be adjusted after the fact.
+    ///
+    /// This is useful when you receive a PATH_RESPONSE in the first packet received on a
+    /// new path. In this case you can use the delay of the PATH_CHALLENGE-PATH_RESPONSE as
+    /// the initial RTT to get a better expected estimation.
+    ///
+    /// A PATH_CHALLENGE-PATH_RESPONSE pair later in the connection should not be used
+    /// explicitly as an estimation since PATH_CHALLENGE is an ACK-eliciting packet itself
+    /// already.
+    pub(crate) fn reset_initial_rtt(&mut self, initial_rtt: Duration) {
+        if self.smoothed.is_none() {
+            self.latest = initial_rtt;
+            self.var = initial_rtt / 2;
+            self.min = initial_rtt;
+        }
+    }
+
     /// The current best RTT estimation.
     pub fn get(&self) -> Duration {
         self.smoothed.unwrap_or(self.latest)
@@ -565,14 +593,16 @@ impl RttEstimator {
         self.min
     }
 
-    // PTO computed as described in RFC9002#6.2.1
+    /// PTO computed as described in RFC9002#6.2.1.
     pub(crate) fn pto_base(&self) -> Duration {
         self.get() + cmp::max(4 * self.var, TIMER_GRANULARITY)
     }
 
+    /// Records an RTT sample.
     pub(crate) fn update(&mut self, ack_delay: Duration, rtt: Duration) {
         self.latest = rtt;
-        // min_rtt ignores ack delay.
+        // https://www.rfc-editor.org/rfc/rfc9002.html#section-5.2-3:
+        // min_rtt does not adjust for ack_delay to avoid underestimating.
         self.min = cmp::min(self.min, self.latest);
         // Based on RFC6298.
         if let Some(smoothed) = self.smoothed {
@@ -697,12 +727,12 @@ impl InFlight {
     }
 }
 
-/// State for QUIC-MULTIPATH PATH_AVAILABLE and PATH_BACKUP frames
+/// State for QUIC-MULTIPATH PATH_STATUS_AVAILABLE and PATH_STATUS_BACKUP frames
 #[derive(Debug, Clone, Default)]
 pub(super) struct PathStatusState {
     /// The local status
     local_status: PathStatus,
-    /// Local sequence number, for both PATH_AVAIALABLE and PATH_BACKUP
+    /// Local sequence number, for both PATH_STATUS_AVAILABLE and PATH_STATUS_BACKUP
     ///
     /// This is the number of the *next* path status frame to be sent.
     local_seq: VarInt,
@@ -711,7 +741,7 @@ pub(super) struct PathStatusState {
 }
 
 impl PathStatusState {
-    /// To be called on received PATH_AVAILABLE/PATH_BACKUP frames
+    /// To be called on received PATH_STATUS_AVAILABLE/PATH_STATUS_BACKUP frames
     pub(super) fn remote_update(&mut self, status: PathStatus, seq: VarInt) {
         if self.remote_status.is_some_and(|(curr, _)| curr >= seq) {
             return trace!(%seq, "ignoring path status update");
