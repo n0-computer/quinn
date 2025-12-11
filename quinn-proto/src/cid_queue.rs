@@ -409,7 +409,7 @@ mod tests {
             assert!(q.next_reserved().is_some());
         }
 
-        q.next();
+        assert!(q.next().is_some());
         assert_eq!(q.next(), None);
     }
 
@@ -439,5 +439,22 @@ mod tests {
         }
 
         assert_eq!(q.next(), None);
+    }
+
+    #[test]
+    fn reserve_insert_advance() {
+        let mut q = CidQueue::new(initial_cid());
+
+        let first = cid(1, 0);
+        let second = cid(2, 0);
+        let third = cid(3, 0);
+
+        q.insert(first).unwrap();
+        q.insert(second).unwrap();
+
+        assert_eq!(q.next_reserved(), Some(first.id));
+        q.insert(third).unwrap();
+        q.next();
+        assert_eq!(q.active(), second.id);
     }
 }
