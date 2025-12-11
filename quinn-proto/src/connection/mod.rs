@@ -471,7 +471,7 @@ impl Connection {
             this.write_crypto();
             this.init_0rtt(now);
         }
-        this.qlog.emit_new_path(PathId::ZERO, remote, now);
+        this.qlog.emit_tuple_assigned(PathId::ZERO, remote, now);
         this
     }
 
@@ -653,8 +653,8 @@ impl Connection {
         pending_space.path_cids_blocked.retain(|&id| id != path_id);
         pending_space.path_status.retain(|&id| id != path_id);
 
-        // Cleanup in retransmits as well
-        if let Some(space) = self.spaces[SpaceId::Data].path_space_mut(path_id) {
+        // Cleanup retransmits across ALL paths (CIDs for path_id may have been transmitted on other paths)
+        for space in self.spaces[SpaceId::Data].iter_paths_mut() {
             for sent_packet in space.sent_packets.values_mut() {
                 if let Some(retransmits) = sent_packet.retransmits.get_mut() {
                     retransmits.new_cids.retain(|cid| cid.path_id != path_id);
@@ -872,7 +872,7 @@ impl Connection {
         self.spaces[SpaceId::Data]
             .number_spaces
             .insert(path_id, pn_space);
-        self.qlog.emit_new_path(path_id, remote, now);
+        self.qlog.emit_tuple_assigned(path_id, remote, now);
         &mut path.data
     }
 
@@ -1103,7 +1103,7 @@ impl Connection {
                 trace!(?space_id, %path_id, ?send_blocked, "congestion blocked");
                 congestion_blocked = true;
             }
-            if send_blocked == PathBlocked::Congestion && space_id < SpaceId::Data {
+            if send_blocked != PathBlocked::No && space_id < SpaceId::Data {
                 // Higher spaces might still have tail-loss probes to send, which are not
                 // congestion blocked.
                 space_id = space_id.next();
@@ -1325,12 +1325,10 @@ impl Connection {
                     // TODO(flub): We need to use the right CID!  We shouldn't use the same
                     //    CID as the current active one for the path.  Though see also
                     //    https://github.com/quinn-rs/quinn/issues/2184
-                    trace!("PATH_RESPONSE {:08x} (off-path)", token);
-                    builder
-                        .frame_space_mut()
-                        .write(frame::FrameType::PATH_RESPONSE);
-                    builder.frame_space_mut().write(token);
-                    qlog.frame(&Frame::PathResponse(token));
+                    let response = frame::PathResponse(token);
+                    trace!(%response, "(off-path)");
+                    builder.frame_space_mut().write(response);
+                    qlog.frame(&Frame::PathResponse(response));
                     self.stats.frame_tx.path_response += 1;
                     builder.finish_and_track(
                         now,
@@ -1742,12 +1740,10 @@ impl Connection {
             self,
             &mut qlog,
         )?;
-        trace!("validating previous path with PATH_CHALLENGE {:08x}", token);
-        builder
-            .frame_space_mut()
-            .write(frame::FrameType::PATH_CHALLENGE);
-        builder.frame_space_mut().write(token);
-        qlog.frame(&Frame::PathChallenge(token));
+        let challenge = frame::PathChallenge(token);
+        trace!(%challenge, "validating previous path");
+        qlog.frame(&Frame::PathChallenge(challenge));
+        builder.frame_space_mut().write(challenge);
         self.stats.frame_tx.path_challenge += 1;
 
         // An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
@@ -3592,6 +3588,7 @@ impl Connection {
                     if hs.allow_server_migration {
                         trace!(?remote, prev = ?self.path_data(path_id).remote, "server migrated to new remote");
                         self.path_data_mut(path_id).remote = remote;
+                        self.qlog.emit_tuple_assigned(path_id, remote, now);
                     } else {
                         debug!("discarding packet with unexpected remote during handshake");
                         return;
@@ -4240,11 +4237,11 @@ impl Connection {
                 Frame::Close(reason) => {
                     close = Some(reason);
                 }
-                Frame::PathChallenge(token) => {
+                Frame::PathChallenge(challenge) => {
                     let path = &mut self
                         .path_mut(path_id)
                         .expect("payload is processed only after the path becomes known");
-                    path.path_responses.push(number, token, remote);
+                    path.path_responses.push(number, challenge.0, remote);
                     if remote == path.remote {
                         // PATH_CHALLENGE on active path, possible off-path packet forwarding
                         // attack. Send a non-probing packet to recover the active path.
@@ -4263,15 +4260,16 @@ impl Connection {
                         }
                     }
                 }
-                Frame::PathResponse(token) => {
+                Frame::PathResponse(response) => {
                     let path = self
                         .paths
                         .get_mut(&path_id)
                         .expect("payload is processed only after the path becomes known");
 
                     if remote != path.data.remote {
-                        debug!(token, "ignoring invalid PATH_RESPONSE");
-                    } else if let Some(&challenge_sent) = path.data.challenges_sent.get(&token) {
+                        debug!(%response, "ignoring invalid PATH_RESPONSE");
+                    } else if let Some(&challenge_sent) = path.data.challenges_sent.get(&response.0)
+                    {
                         self.timers.stop(
                             Timer::PerPath(path_id, PathTimer::PathValidation),
                             self.qlog.with_time(now),
@@ -4290,10 +4288,12 @@ impl Connection {
                         path.data.challenges_sent.clear();
                         path.data.send_new_challenge = false;
                         path.data.validated = true;
-                        path.data.rtt.update(
-                            Duration::ZERO,
-                            now.saturating_duration_since(challenge_sent),
-                        );
+
+                        // This RTT can only be used for the initial RTT, not as a normal
+                        // sample: https://www.rfc-editor.org/rfc/rfc9002#section-6.2.2-2.
+                        let rtt = now.saturating_duration_since(challenge_sent);
+                        path.data.rtt.reset_initial_rtt(rtt);
+
                         self.events
                             .push_back(Event::Path(PathEvent::Opened { id: path_id }));
                         // mark the path as open from the application perspective now that Opened
@@ -4312,7 +4312,7 @@ impl Connection {
                             prev.send_new_challenge = false;
                         }
                     } else {
-                        debug!(token, "ignoring invalid PATH_RESPONSE");
+                        debug!(%response, "ignoring invalid PATH_RESPONSE");
                     }
                 }
                 Frame::MaxData(bytes) => {
@@ -4894,6 +4894,9 @@ impl Connection {
             known_path.prev = Some((self.rem_cids.get(&path_id).unwrap().active(), prev));
         }
 
+        // We need to re-assign the correct remote to this path in qlog
+        self.qlog.emit_tuple_assigned(path_id, remote, now);
+
         self.timers.set(
             Timer::PerPath(path_id, PathTimer::PathValidation),
             now + 3 * cmp::max(self.pto(SpaceId::Data, path_id), prev_pto),
@@ -5160,7 +5163,10 @@ impl Connection {
         }
 
         // PATH_CHALLENGE
-        if buf.remaining_mut() > 9 && space_id == SpaceId::Data && path.send_new_challenge {
+        if buf.remaining_mut() > frame::PathChallenge::SIZE_BOUND
+            && space_id == SpaceId::Data
+            && path.send_new_challenge
+        {
             path.send_new_challenge = false;
 
             // Generate a new challenge every time we send a new PATH_CHALLENGE
@@ -5168,10 +5174,10 @@ impl Connection {
             path.challenges_sent.insert(token, now);
             sent.non_retransmits = true;
             sent.requires_padding = true;
-            trace!(%token, "PATH_CHALLENGE");
-            buf.write(frame::FrameType::PATH_CHALLENGE);
-            buf.write(token);
-            qlog.frame(&Frame::PathChallenge(token));
+            let challenge = frame::PathChallenge(token);
+            trace!(%challenge, "sending new challenge");
+            buf.write(challenge);
+            qlog.frame(&Frame::PathChallenge(challenge));
             self.stats.frame_tx.path_challenge += 1;
             let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
             self.timers.set(
@@ -5210,14 +5216,14 @@ impl Connection {
         }
 
         // PATH_RESPONSE
-        if buf.remaining_mut() > 9 && space_id == SpaceId::Data {
+        if buf.remaining_mut() > frame::PathResponse::SIZE_BOUND && space_id == SpaceId::Data {
             if let Some(token) = path.path_responses.pop_on_path(path.remote) {
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
-                trace!(?token, "PATH_RESPONSE");
-                buf.write(frame::FrameType::PATH_RESPONSE);
-                buf.write(token);
-                qlog.frame(&Frame::PathResponse(token));
+                let response = frame::PathResponse(token);
+                trace!(%response, "sending response");
+                buf.write(response);
+                qlog.frame(&Frame::PathResponse(response));
                 self.stats.frame_tx.path_response += 1;
 
                 // NOTE: this is technically not required but might be useful to ride the
