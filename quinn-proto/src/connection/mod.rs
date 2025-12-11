@@ -4653,13 +4653,13 @@ impl Connection {
                         ));
                     }
                 }
-                Frame::PathBackup(info) => {
+                Frame::PathStatusBackup(info) => {
                     span.record("path", tracing::field::debug(&info.path_id));
                     if self.is_multipath_negotiated() {
                         self.on_path_status(info.path_id, PathStatus::Backup, info.status_seq_no);
                     } else {
                         return Err(TransportError::PROTOCOL_VIOLATION(
-                            "received PATH_BACKUP frame when multipath was not negotiated",
+                            "received PATH_STATUS_BACKUP frame when multipath was not negotiated",
                         ));
                     }
                 }
@@ -5322,7 +5322,7 @@ impl Connection {
                 .or_insert(error_code);
         }
 
-        // PATH_AVAILABLE & PATH_BACKUP
+        // PATH_AVAILABLE & PATH_STATUS_BACKUP
         while !path_exclusive_only
             && space_id == SpaceId::Data
             && frame::PathAvailable::SIZE_BOUND <= buf.remaining_mut()
@@ -5349,14 +5349,14 @@ impl Connection {
                     trace!(%path_id, %seq, "PATH_AVAILABLE")
                 }
                 PathStatus::Backup => {
-                    let frame = frame::PathBackup {
+                    let frame = frame::PathStatusBackup {
                         path_id,
                         status_seq_no: seq,
                     };
                     frame.encode(buf);
-                    qlog.frame(&Frame::PathBackup(frame));
-                    self.stats.frame_tx.path_backup += 1;
-                    trace!(%path_id, %seq, "PATH_BACKUP")
+                    qlog.frame(&Frame::PathStatusBackup(frame));
+                    self.stats.frame_tx.path_status_backup += 1;
+                    trace!(%path_id, %seq, "PATH_STATUS_BACKUP")
                 }
             }
         }
@@ -6165,7 +6165,7 @@ impl Connection {
         }
     }
 
-    /// Handle new path status information: PATH_AVAILABLE, PATH_BACKUP
+    /// Handle new path status information: PATH_AVAILABLE, PATH_STATUS_BACKUP
     fn on_path_status(&mut self, path_id: PathId, status: PathStatus, status_seq_no: VarInt) {
         if let Some(path) = self.paths.get_mut(&path_id) {
             path.data.status.remote_update(status, status_seq_no);

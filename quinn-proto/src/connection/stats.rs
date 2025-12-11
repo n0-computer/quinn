@@ -62,7 +62,7 @@ pub struct FrameStats {
     pub observed_addr: u64,
     pub path_abandon: u64,
     pub path_available: u64,
-    pub path_backup: u64,
+    pub path_status_backup: u64,
     pub max_path_id: u64,
     pub paths_blocked: u64,
     pub path_cids_blocked: u64,
@@ -120,7 +120,9 @@ impl FrameStats {
             Frame::ObservedAddr(_) => self.observed_addr += 1,
             Frame::PathAbandon(_) => self.path_abandon = self.path_abandon.saturating_add(1),
             Frame::PathAvailable(_) => self.path_available = self.path_available.saturating_add(1),
-            Frame::PathBackup(_) => self.path_backup = self.path_backup.saturating_add(1),
+            Frame::PathStatusBackup(_) => {
+                self.path_status_backup = self.path_status_backup.saturating_add(1)
+            }
             Frame::MaxPathId(_) => self.max_path_id = self.max_path_id.saturating_add(1),
             Frame::PathsBlocked(_) => self.paths_blocked = self.paths_blocked.saturating_add(1),
             Frame::PathCidsBlocked(_) => {
@@ -155,7 +157,7 @@ impl std::fmt::Debug for FrameStats {
             .field("PATH_ABANDON", &self.path_abandon)
             .field("PATH_ACK", &self.path_acks)
             .field("PATH_AVAILABLE", &self.path_available)
-            .field("PATH_BACKUP", &self.path_backup)
+            .field("PATH_STATUS_BACKUP", &self.path_status_backup)
             .field("PATH_CHALLENGE", &self.path_challenge)
             .field("PATH_CIDS_BLOCKED", &self.path_cids_blocked)
             .field("PATH_NEW_CONNECTION_ID", &self.path_new_connection_id)

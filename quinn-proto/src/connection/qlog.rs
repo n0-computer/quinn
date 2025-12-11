@@ -793,7 +793,7 @@ impl Frame {
                 path_status_sequence_number: frame.status_seq_no.into(),
                 raw: None,
             },
-            Self::PathBackup(frame) => QuicFrame::PathStatusBackup {
+            Self::PathStatusBackup(frame) => QuicFrame::PathStatusBackup {
                 path_id: frame.path_id.as_u32().into(),
                 path_status_sequence_number: frame.status_seq_no.into(),
                 raw: None,
