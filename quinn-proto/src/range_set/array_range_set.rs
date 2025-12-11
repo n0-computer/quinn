@@ -69,14 +69,13 @@ impl ArrayRangeSet {
     }
 
     pub fn iter_range(&self, range: Range<u64>) -> impl Iterator<Item = Range<u64>> + '_ {
-        self.iter()
-            .filter_map(move |r| {
-                if r.end > range.start && r.start < range.end {
-                    Some(r.start.max(range.start)..r.end.min(range.end))
-                } else {
-                    None
-                }
-            })
+        self.iter().filter_map(move |r| {
+            if r.end > range.start && r.start < range.end {
+                Some(r.start.max(range.start)..r.end.min(range.end))
+            } else {
+                None
+            }
+        })
     }
 
     pub fn insert_one(&mut self, x: u64) -> bool {
