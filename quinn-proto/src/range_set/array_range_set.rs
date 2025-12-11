@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use tinyvec::{TinyVec, TinyVecIterator};
+use tinyvec::TinyVec;
 
 /// A set of u64 values optimized for long runs and random insert/delete/contains
 ///
@@ -68,18 +68,15 @@ impl ArrayRangeSet {
         false
     }
 
-    pub fn replace(&mut self, range: Range<u64>) -> Replace<'_> {
-        let mut res = TinyVec::<[Range<u64>; 2]>::new();
-        for r in self.iter() {
-            if r.end > range.start && r.start < range.end {
-                res.push(Range {
-                    start: r.start.max(range.start),
-                    end: r.end.min(range.end),
-                });
-            }
-        }
-        self.insert(range);
-        Replace(res.into_iter(), self)
+    pub fn iter_range(&self, range: Range<u64>) -> impl Iterator<Item = Range<u64>> + '_ {
+        self.iter()
+            .filter_map(move |r| {
+                if r.end > range.start && r.start < range.end {
+                    Some(r.start.max(range.start)..r.end.min(range.end))
+                } else {
+                    None
+                }
+            })
     }
 
     pub fn insert_one(&mut self, x: u64) -> bool {
@@ -210,19 +207,5 @@ impl ArrayRangeSet {
 
     pub fn max(&self) -> Option<u64> {
         self.iter().next_back().map(|x| x.end - 1)
-    }
-}
-
-/// An iterator over ranges that were replaced by a call to [`ArrayRangeSet::replace`]
-///
-/// The reference is so that the iterator can not be used in parallel mutating the set.
-#[allow(dead_code)]
-pub struct Replace<'a>(TinyVecIterator<[Range<u64>; 2]>, &'a mut ArrayRangeSet);
-
-impl<'a> Iterator for Replace<'a> {
-    type Item = Range<u64>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
     }
 }

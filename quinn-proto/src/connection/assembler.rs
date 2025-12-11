@@ -157,7 +157,8 @@ impl Assembler {
         self.end = self.end.max(offset + bytes.len() as u64);
         if let State::Unordered { ref mut recvd } = self.state {
             // Discard duplicate data
-            for duplicate in recvd.replace(offset..offset + bytes.len() as u64) {
+            let range = offset..offset + bytes.len() as u64;
+            for duplicate in recvd.iter_range(range.clone()) {
                 if duplicate.start > offset {
                     let buffer = Buffer::new(
                         offset,
@@ -172,6 +173,7 @@ impl Assembler {
                 bytes.advance((duplicate.end - offset) as usize);
                 offset = duplicate.end;
             }
+            recvd.insert(range);
         } else if offset < self.bytes_read {
             if (offset + bytes.len() as u64) <= self.bytes_read {
                 return;
