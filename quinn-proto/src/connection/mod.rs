@@ -2050,7 +2050,6 @@ impl Connection {
                             }
                             self.drop_path_state(path_id, now);
                         }
-                        PathTimer::PathNotAbandoned => {}
                     }
                 }
             }
@@ -4619,9 +4618,10 @@ impl Connection {
                 }) => {
                     span.record("path", tracing::field::debug(&path_id));
                     // TODO(flub): don't really know which error code to use here.
-                    match self.close_path(now, path_id, error_code.into()) {
+                    let already_abandoned = match self.close_path(now, path_id, error_code.into()) {
                         Ok(()) => {
                             trace!("peer abandoned path");
+                            false
                         }
                         Err(ClosePathError::LastOpenPath) => {
                             trace!("peer abandoned last path, closing connection");
@@ -4630,17 +4630,14 @@ impl Connection {
                         }
                         Err(ClosePathError::ClosedPath) => {
                             trace!("peer abandoned already closed path");
+                            true
                         }
-                    }
+                    };
                     // If we receive a retransmit of PATH_ABANDON then we may already have
                     // abandoned this path locally.  In that case the PathAbandoned timer
                     // may already have fired and we no longer have any state for this path.
                     // Only set this timer if we still have path state.
-                    // TODO(flub): Note that if we process a retransmit and *do* still have
-                    //    path state, we are extending the expiration time of this timer.
-                    //    That's technically not needed, but not a violation.  We would have
-                    //    to be able to inspect if the timer is set to avoid this.
-                    if self.path(path_id).is_some() {
+                    if self.path(path_id).is_some() && !already_abandoned {
                         // TODO(flub): Checking is_some() here followed by a number of calls
                         //    that would panic if it was None is really ugly.  If only we
                         //    could do something like PathData::pto().  One day we'll have
@@ -4652,10 +4649,6 @@ impl Connection {
                             self.qlog.with_time(now),
                         );
                     }
-                    self.timers.stop(
-                        Timer::PerPath(path_id, PathTimer::PathNotAbandoned),
-                        self.qlog.with_time(now),
-                    );
                 }
                 Frame::PathAvailable(info) => {
                     span.record("path", tracing::field::debug(&info.path_id));
