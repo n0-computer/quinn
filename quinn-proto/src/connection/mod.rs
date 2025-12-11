@@ -4276,11 +4276,11 @@ impl Connection {
                             let sent_instant = info.sent_instant;
                             // TODO(@divma): reset timers using the remaining off-path challenges
                             self.timers.stop(
-                                Timer::PerPath(path_id, PathTimer::PathChallengeLost),
+                                Timer::PerPath(path_id, PathTimer::PathValidation),
                                 self.qlog.with_time(now),
                             );
                             self.timers.stop(
-                                Timer::PerPath(path_id, PathTimer::PathValidation),
+                                Timer::PerPath(path_id, PathTimer::PathChallengeLost),
                                 self.qlog.with_time(now),
                             );
                             if !path.data.validated {
