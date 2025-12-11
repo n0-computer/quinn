@@ -157,7 +157,6 @@ fn old_routing_table() -> RoutingTable {
 }
 
 fn not_transport_error(err: Option<ConnectionError>) -> bool {
-    println!("transport error: {err:?}");
     match err {
         None => true,
         Some(ConnectionError::TransportError(_)) => false,
@@ -336,6 +335,30 @@ fn regression_packet_number_space_missing() {
 
     let _guard = subscribe();
     let routes = RoutingTable::simple_symmetric([CLIENT_ADDRS[0]], [SERVER_ADDRS[0]]);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(not_transport_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(not_transport_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
+
+#[test]
+fn regression_peer_ignored_path_abandon_frame() {
+    let prefix = "regression_peer_ignored_path_abandon_frame";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
+        TestOp::ClosePath(Side::Client, 0, 0),
+    ];
+
+    let _guard = subscribe();
+    let routes = old_routing_table();
     let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));

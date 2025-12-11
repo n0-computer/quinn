@@ -630,8 +630,8 @@ impl Connection {
         if self.paths.contains_key(&path_id)
             && self
                 .paths
-                .keys()
-                .filter(|&id| !self.abandoned_paths.contains(id))
+                .iter()
+                .filter(|(id, path)| !self.abandoned_paths.contains(*id) && path.data.validated)
                 .count()
                 < 2
         {
@@ -2033,9 +2033,12 @@ impl Connection {
                             self.drop_path_state(path_id, now);
                         }
                         PathTimer::PathNotAbandoned => {
+                            let Some(path) = self.paths.get_mut(&path_id) else {
+                                continue;
+                            };
                             // The peer failed to respond with a PATH_ABANDON when we sent such a
                             // frame.
-                            warn!("missing PATH_ABANDON from peer");
+                            warn!(?path.data.validated, "missing PATH_ABANDON from peer");
                             if !self.state.is_closed() {
                                 // TODO(flub): What should the error code be?
                                 self.state.move_to_closed(TransportError::NO_ERROR(
