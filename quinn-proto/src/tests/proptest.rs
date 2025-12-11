@@ -111,14 +111,14 @@ fn routing_table() -> impl Strategy<Value = RoutingTable> {
         for (idx, &offset) in client_offsets.iter().enumerate() {
             let other_idx = idx.saturating_sub(offset);
             let server_idx = other_idx.clamp(0, server_offsets.len());
-            client_routes.push((client_addr, server_idx));
             client_addr.set_port(client_addr.port() + 1);
+            client_routes.push((client_addr, server_idx));
         }
         for (idx, &offset) in server_offsets.iter().enumerate() {
             let other_idx = idx.saturating_sub(offset);
             let client_idx = other_idx.clamp(0, client_offsets.len());
-            server_routes.push((server_addr, client_idx));
             server_addr.set_port(server_addr.port() + 1);
+            server_routes.push((server_addr, client_idx));
         }
 
         RoutingTable::from_routes(client_routes, server_routes)

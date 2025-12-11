@@ -12,7 +12,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use frame::StreamMetaVec;
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use thiserror::Error;
 use tracing::{debug, error, trace, trace_span, warn};
 
@@ -310,9 +310,12 @@ pub struct Connection {
     /// They may still have some state left in [`Connection::paths`] or
     /// [`Connection::local_cid_state`] since some of this has to be kept around for some
     /// time after a path is abandoned.
+    ///
+    /// The instant stored for each abandoned path is the time at which the path state
+    /// is allowed to be forgotten.
     // TODO(flub): Make this a more efficient data structure.  Like ranges of abandoned
     //    paths.  Or a set together with a minimum.  Or something.
-    abandoned_paths: FxHashSet<PathId>,
+    abandoned_paths: FxHashMap<PathId, Instant>,
 
     iroh_hp: iroh_hp::State,
     qlog: QlogSink,
@@ -585,7 +588,7 @@ impl Connection {
             return Err(PathError::ServerSideNotAllowed);
         }
 
-        let max_abandoned = self.abandoned_paths.iter().max().copied();
+        let max_abandoned = self.abandoned_paths.keys().max().copied();
         let max_used = self.paths.keys().last().copied();
         let path_id = max_abandoned
             .max(max_used)
@@ -624,18 +627,29 @@ impl Connection {
         path_id: PathId,
         error_code: VarInt,
     ) -> Result<(), ClosePathError> {
-        if self.abandoned_paths.contains(&path_id) || Some(path_id) > self.max_path_id() {
+        if self.abandoned_paths.contains_key(&path_id) || Some(path_id) > self.max_path_id() {
             return Err(ClosePathError::ClosedPath);
         }
-        if self.paths.contains_key(&path_id)
-            && self
-                .paths
-                .iter()
-                .filter(|(id, path)| !self.abandoned_paths.contains(*id) && path.data.validated)
-                .count()
-                < 2
+        let Some(path) = self.paths.get(&path_id) else {
+            return Err(ClosePathError::ClosedPath);
+        };
+        if self
+            .paths
+            .iter()
+            // Other, non-abandoned, validated paths
+            .filter(|(id, path)| {
+                **id != path_id && !self.abandoned_paths.contains_key(*id) && path.data.validated
+            })
+            .next()
+            .is_none()
         {
             return Err(ClosePathError::LastOpenPath);
+        }
+
+        if path.data.total_sent == 0 && path.data.total_recvd == 0 {
+            // Path was never opened on the wire.
+            self.drop_path_state(path_id, now);
+            return Ok(());
         }
 
         // Send PATH_ABANDON
@@ -670,25 +684,22 @@ impl Connection {
         self.endpoint_events
             .push_back(EndpointEventInner::RetireResetToken(path_id));
 
-        self.abandoned_paths.insert(path_id);
+        let pto = self.pto_max_path(SpaceId::Data);
+
+        // We record the time at which receiving data on this path generates a transport error.
+        self.abandoned_paths.insert(path_id, now + 3 * pto);
 
         self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
 
-        // The peer MUST respond with a corresponding PATH_ABANDON frame. If not, this timer
-        // expires.
-        // We set the timeout to just after the connection idle timeout, so that if e.g. we
-        // *just* sent the PATH_ABANDON during a time that the other side completely shut
-        // down, we still error out with a "timed out" instead of a transport error.
-        let dt = cmp::max(
-            self.idle_timeout.unwrap_or_default(),
-            self.pto_max_path(SpaceId::Data),
-        );
+        // The peer MUST respond with a corresponding PATH_ABANDON frame.
+        // If we receive packets on the abandoned path after 3 * PTO we trigger a transport error.
+        // In any case, we completely forget about the path after 6 * PTO whether we receive a
+        // PATH_ABANDON or not.
         self.timers.set(
-            Timer::PerPath(path_id, PathTimer::PathNotAbandoned),
-            now + dt,
+            Timer::PerPath(path_id, PathTimer::PathAbandoned),
+            now + 6 * pto,
             self.qlog.with_time(now),
         );
-
         Ok(())
     }
 
@@ -1015,7 +1026,7 @@ impl Connection {
             // check if there is at least one active CID to use for sending
             let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
                 let err = PathError::RemoteCidsExhausted;
-                if !self.abandoned_paths.contains(&path_id) {
+                if !self.abandoned_paths.contains_key(&path_id) {
                     debug!(?err, %path_id, "no active CID for path");
                     self.events.push_back(Event::Path(PathEvent::LocallyClosed {
                         id: path_id,
@@ -1504,7 +1515,7 @@ impl Connection {
                 let active_cid = self.rem_cids.get(&path_id).map(CidQueue::active);
                 let eligible = self.path_data(path_id).validated
                     && !self.path_data(path_id).is_validating_path()
-                    && !self.abandoned_paths.contains(&path_id);
+                    && !self.abandoned_paths.contains_key(&path_id);
                 let probe_size = eligible
                     .then(|| {
                         let next_pn = self.spaces[space_id].for_path(path_id).peek_tx_number();
@@ -2039,23 +2050,7 @@ impl Connection {
                             }
                             self.drop_path_state(path_id, now);
                         }
-                        PathTimer::PathNotAbandoned => {
-                            let Some(path) = self.paths.get_mut(&path_id) else {
-                                continue;
-                            };
-                            // The peer failed to respond with a PATH_ABANDON when we sent such a
-                            // frame.
-                            warn!(?path.data.validated, "missing PATH_ABANDON from peer");
-                            if !self.state.is_closed() {
-                                // TODO(flub): What should the error code be?
-                                self.state.move_to_closed(TransportError::NO_ERROR(
-                                    "peer ignored PATH_ABANDON frame",
-                                ));
-                                self.close_common();
-                                self.set_close_timer(now);
-                                self.close = true;
-                            }
-                        }
+                        PathTimer::PathNotAbandoned => {}
                     }
                 }
             }
@@ -2362,7 +2357,7 @@ impl Connection {
         path: PathId,
         ack: frame::Ack,
     ) -> Result<(), TransportError> {
-        if self.abandoned_paths.contains(&path) {
+        if self.abandoned_paths.contains_key(&path) {
             // See also https://www.ietf.org/archive/id/draft-ietf-quic-multipath-17.html#section-3.4.3-3
             // > PATH_ACK frames received with an abandoned path ID are silently ignored, as specified in Section 4.
             trace!("silently ignoring PATH_ACK on abandoned path");
@@ -3137,6 +3132,23 @@ impl Connection {
         is_1rtt: bool,
     ) {
         self.total_authed_packets += 1;
+        if let Some(last_allowed_receive) = self.abandoned_paths.get(&path_id) {
+            if now > *last_allowed_receive {
+                // The peer failed to respond with a PATH_ABANDON in time.
+                warn!("missing PATH_ABANDON from peer");
+                if !self.state.is_closed() {
+                    // TODO(flub): What should the error code be?
+                    self.state.move_to_closed(TransportError::NO_ERROR(
+                        "peer ignored PATH_ABANDON frame",
+                    ));
+                    self.close_common();
+                    self.set_close_timer(now);
+                    self.close = true;
+                }
+                return;
+            }
+        }
+
         self.reset_keep_alive(path_id, now);
         self.reset_idle_timeout(now, space_id, path_id);
         self.permit_idle_reset = true;
@@ -3687,7 +3699,7 @@ impl Connection {
                             _ => false,
                         };
 
-                        if self.side().is_server() && !self.abandoned_paths.contains(&path_id) {
+                        if self.side().is_server() && !self.abandoned_paths.contains_key(&path_id) {
                             // Only the client is allowed to open paths
                             self.ensure_path(path_id, remote, now, number);
                         }
@@ -4394,7 +4406,7 @@ impl Connection {
                             // If the path has closed, we do not issue more CIDs for this path
                             // For details see  https://www.ietf.org/archive/id/draft-ietf-quic-multipath-17.html#section-3.2.2
                             // > an endpoint SHOULD provide new connection IDs for that path, if still open, using PATH_NEW_CONNECTION_ID frames.
-                            let has_path = !self.abandoned_paths.contains(&path_id);
+                            let has_path = !self.abandoned_paths.contains_key(&path_id);
                             let allow_more_cids = allow_more_cids && has_path;
 
                             self.endpoint_events
@@ -4424,7 +4436,7 @@ impl Connection {
                         PathId::ZERO
                     };
 
-                    if self.abandoned_paths.contains(&path_id) {
+                    if self.abandoned_paths.contains_key(&path_id) {
                         trace!("ignoring issued CID for abandoned path");
                         continue;
                     }
@@ -4800,7 +4812,7 @@ impl Connection {
             .pending_acks
             .packet_received(now, number, ack_eliciting, &space.dedup)
         {
-            if self.abandoned_paths.contains(&path_id) {
+            if self.abandoned_paths.contains_key(&path_id) {
                 // § 3.4.3 QUIC-MULTIPATH: promptly send ACKs for packets received from
                 // abandoned paths.
                 space.pending_acks.set_immediate_ack_required();
@@ -5108,7 +5120,7 @@ impl Connection {
         }
 
         // ACK
-        // TODO(flub): Should this sends acks for this path anyway?
+        // TODO(flub): Should this send acks for this path anyway?
 
         if !path_exclusive_only {
             for path_id in space
@@ -6089,7 +6101,7 @@ impl Connection {
     pub fn current_mtu(&self) -> u16 {
         self.paths
             .iter()
-            .filter(|&(path_id, _path_state)| !self.abandoned_paths.contains(path_id))
+            .filter(|&(path_id, _path_state)| !self.abandoned_paths.contains_key(path_id))
             .map(|(_path_id, path_state)| path_state.data.current_mtu())
             .min()
             .expect("There is always at least one available path")
