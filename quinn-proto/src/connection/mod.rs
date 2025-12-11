@@ -830,6 +830,15 @@ impl Connection {
         pn: Option<u64>,
     ) -> &mut PathData {
         let validated = self.is_remote_validated(remote);
+
+        // Non-primary paths inherit RTT from main path to avoid inflating close timer
+        // with 333ms default RTT for unreachable holepunch candidates.
+        let main_path_rtt = if path_id != PathId::ZERO {
+            self.paths.get(&PathId::ZERO).map(|p| p.data.rtt)
+        } else {
+            None
+        };
+
         let vacant_entry = match self.paths.entry(path_id) {
             btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
             btree_map::Entry::Occupied(occupied_entry) => {
@@ -841,14 +850,27 @@ impl Connection {
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
         self.path_counter = self.path_counter.wrapping_add(1);
-        let mut data = PathData::new(
-            remote,
-            self.allow_mtud,
-            Some(peer_max_udp_payload_size),
-            self.path_counter,
-            now,
-            &self.config,
-        );
+
+        let mut data = if let Some(rtt) = main_path_rtt {
+            PathData::new_with_rtt(
+                remote,
+                self.allow_mtud,
+                Some(peer_max_udp_payload_size),
+                self.path_counter,
+                now,
+                &self.config,
+                rtt,
+            )
+        } else {
+            PathData::new(
+                remote,
+                self.allow_mtud,
+                Some(peer_max_udp_payload_size),
+                self.path_counter,
+                now,
+                &self.config,
+            )
+        };
 
         data.validated = validated;
 

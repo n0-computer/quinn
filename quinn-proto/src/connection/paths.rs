@@ -214,16 +214,41 @@ impl PathData {
         now: Instant,
         config: &TransportConfig,
     ) -> Self {
+        Self::new_with_rtt(
+            remote,
+            allow_mtud,
+            peer_max_udp_payload_size,
+            generation,
+            now,
+            config,
+            RttEstimator::new(config.initial_rtt),
+        )
+    }
+
+    /// Create a new path with the given RTT estimator.
+    ///
+    /// Non-primary paths can inherit RTT from the main path to avoid inflating
+    /// close timer with 333ms default RTT for unreachable holepunch candidates.
+    pub(super) fn new_with_rtt(
+        remote: SocketAddr,
+        allow_mtud: bool,
+        peer_max_udp_payload_size: Option<u16>,
+        generation: u64,
+        now: Instant,
+        config: &TransportConfig,
+        rtt: RttEstimator,
+    ) -> Self {
         let congestion = config
             .congestion_controller_factory
             .clone()
             .build(now, config.get_initial_mtu());
+        let rtt_value = rtt.get();
         Self {
             remote,
-            rtt: RttEstimator::new(config.initial_rtt),
+            rtt,
             sending_ecn: true,
             pacing: Pacer::new(
-                config.initial_rtt,
+                rtt_value,
                 congestion.initial_window(),
                 config.get_initial_mtu(),
                 now,
