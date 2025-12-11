@@ -690,8 +690,8 @@ mod proptests {
 
     fn op_strategy() -> impl Strategy<Value = Op> {
         prop_oneof![
-            3 => (0..MAX_OFFSET, 1..MAX_LEN).prop_map(|(offset, len)| Op::Insert { offset, len }),
-            2 => (1..MAX_LEN).prop_map(|max_len| Op::Read { max_len }),
+            10 => (0..MAX_OFFSET, 1..MAX_LEN).prop_map(|(offset, len)| Op::Insert { offset, len }),
+            10 => (1..MAX_LEN).prop_map(|max_len| Op::Read { max_len }),
             1 => any::<bool>().prop_map(|ordered| Op::EnsureOrdering { ordered }),
         ]
     }
