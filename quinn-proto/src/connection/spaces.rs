@@ -8,7 +8,8 @@ use std::{
 
 use rand::Rng;
 use rustc_hash::{FxHashMap, FxHashSet};
-use tracing::{error, trace};
+use sorted_index_buffer::SortedIndexBuffer;
+use tracing::trace;
 
 use super::{PathId, assembler::Assembler};
 use crate::{
@@ -22,8 +23,6 @@ use crate::{
 };
 
 pub(super) struct PacketSpace {
-    // TODO(@divma): for debugging purposes
-    space_id: SpaceId,
     pub(super) crypto: Option<Keys>,
 
     /// Data to send
@@ -46,7 +45,6 @@ impl PacketSpace {
     pub(super) fn new(now: Instant, space: SpaceId, rng: &mut (impl Rng + ?Sized)) -> Self {
         let number_space_0 = PacketNumberSpace::new(now, space, rng);
         Self {
-            space_id: space,
             crypto: None,
             pending: Retransmits::default(),
             crypto_stream: Assembler::new(),
@@ -59,7 +57,6 @@ impl PacketSpace {
     pub(super) fn new_deterministic(now: Instant, space: SpaceId) -> Self {
         let number_space_0 = PacketNumberSpace::new_deterministic(now, space);
         Self {
-            space_id: space,
             crypto: None,
             pending: Retransmits::default(),
             crypto_stream: Assembler::new(),
@@ -92,8 +89,8 @@ impl PacketSpace {
     //    worth exploring once we have all the main multipath bits fitted.
     pub(super) fn for_path(&mut self, path: PathId) -> &mut PacketNumberSpace {
         self.number_spaces
-            .entry(path)
-            .or_insert_with(|| PacketNumberSpace::new_default(self.space_id, path))
+            .get_mut(&path)
+            .unwrap_or_else(|| panic!("PacketNumberSpace missing for {path}"))
     }
 
     pub(super) fn iter_paths_mut(&mut self) -> impl Iterator<Item = &mut PacketNumberSpace> {
@@ -207,8 +204,8 @@ impl IndexMut<SpaceId> for [PacketSpace; 3] {
 /// This contains the data specific to a per-path packet number space.  You should access
 /// this via [`PacketSpace::for_path`].
 pub(super) struct PacketNumberSpace {
-    /// Highest received packet number
-    pub(super) rx_packet: u64,
+    /// Highest received packet number, if any
+    pub(super) rx_packet: Option<u64>,
     /// The packet number of the next packet that will be sent, if any. In the Data space, the
     /// packet number stored here is sometimes skipped by [`PacketNumberFilter`] logic.
     pub(super) next_packet_number: u64,
@@ -221,7 +218,10 @@ pub(super) struct PacketNumberSpace {
     pub(super) unacked_non_ack_eliciting_tail: u64,
     /// Transmitted but not acked
     // We use a BTreeMap here so we can efficiently query by range on ACK and for loss detection
-    pub(super) sent_packets: BTreeMap<u64, SentPacket>,
+    pub(super) sent_packets: SortedIndexBuffer<SentPacket>,
+    /// Packets that were deemed lost
+    // Older packets are regularly removed in `Connection::drain_lost_packets`.
+    pub(super) lost_packets: SortedIndexBuffer<LostPacket>,
     /// Number of explicit congestion notification codepoints seen on incoming packets
     pub(super) ecn_counters: frame::EcnCounts,
     /// Recent ECN counters sent by the peer in ACK frames
@@ -267,13 +267,14 @@ impl PacketNumberSpace {
             SpaceId::Data => Some(PacketNumberFilter::new(rng)),
         };
         Self {
-            rx_packet: 0,
+            rx_packet: None,
             next_packet_number: 0,
             largest_acked_packet: None,
             largest_acked_packet_sent: now,
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
-            sent_packets: BTreeMap::new(),
+            sent_packets: SortedIndexBuffer::new(),
+            lost_packets: SortedIndexBuffer::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -295,13 +296,14 @@ impl PacketNumberSpace {
             SpaceId::Data => Some(PacketNumberFilter::disabled()),
         };
         Self {
-            rx_packet: 0,
+            rx_packet: None,
             next_packet_number: 0,
             largest_acked_packet: None,
             largest_acked_packet_sent: now,
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
-            sent_packets: BTreeMap::new(),
+            sent_packets: SortedIndexBuffer::new(),
+            lost_packets: SortedIndexBuffer::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
             sent_with_keys: 0,
@@ -313,35 +315,6 @@ impl PacketNumberSpace {
             loss_time: None,
             loss_probes: 0,
             pn_filter,
-        }
-    }
-
-    /// Creates a default PacketNumberSpace
-    ///
-    /// This allows us to be type-safe about always being able to access a
-    /// PacketNumberSpace.  While the space will work it will not skip packet numbers to
-    /// protect against eaget ack attacks.
-    fn new_default(space_id: SpaceId, path_id: PathId) -> Self {
-        error!(?path_id, ?space_id, "PacketNumberSpace created by default");
-        Self {
-            rx_packet: 0,
-            next_packet_number: 0,
-            largest_acked_packet: None,
-            largest_acked_packet_sent: Instant::now(),
-            largest_ack_eliciting_sent: 0,
-            unacked_non_ack_eliciting_tail: 0,
-            sent_packets: BTreeMap::new(),
-            ecn_counters: frame::EcnCounts::ZERO,
-            ecn_feedback: frame::EcnCounts::ZERO,
-            sent_with_keys: 0,
-            ping_pending: false,
-            immediate_ack_pending: false,
-            dedup: Default::default(),
-            pending_acks: PendingAcks::new(),
-            time_of_last_ack_eliciting_packet: None,
-            loss_time: None,
-            loss_probes: 0,
-            pn_filter: None,
         }
     }
 
@@ -428,7 +401,7 @@ impl PacketNumberSpace {
 
     /// Stop tracking sent packet `number`, and return what we knew about it
     pub(super) fn take(&mut self, number: u64) -> Option<SentPacket> {
-        let packet = self.sent_packets.remove(&number)?;
+        let packet = self.sent_packets.remove(number)?;
         if !packet.ack_eliciting && number > self.largest_ack_eliciting_sent {
             self.unacked_non_ack_eliciting_tail =
                 self.unacked_non_ack_eliciting_tail.checked_sub(1).unwrap();
@@ -451,22 +424,21 @@ impl PacketNumberSpace {
             self.unacked_non_ack_eliciting_tail = 0;
             self.largest_ack_eliciting_sent = number;
         } else if self.unacked_non_ack_eliciting_tail > MAX_UNACKED_NON_ACK_ELICTING_TAIL {
-            let oldest_after_ack_eliciting = *self
+            let oldest_after_ack_eliciting = self
                 .sent_packets
-                .range((
+                .keys_range((
                     Bound::Excluded(self.largest_ack_eliciting_sent),
                     Bound::Unbounded,
                 ))
                 .next()
-                .unwrap()
-                .0;
+                .unwrap();
             // Per https://www.rfc-editor.org/rfc/rfc9000.html#name-frames-and-frame-types,
             // non-ACK-eliciting packets must only contain PADDING, ACK, and CONNECTION_CLOSE
             // frames, which require no special handling on ACK or loss beyond removal from
             // in-flight counters if padded.
             let packet = self
                 .sent_packets
-                .remove(&oldest_after_ack_eliciting)
+                .remove(oldest_after_ack_eliciting)
                 .unwrap();
             debug_assert!(!packet.ack_eliciting);
             forgotten = Some(packet);
@@ -512,6 +484,13 @@ pub(super) struct SentPacket {
     pub(super) stream_frames: frame::StreamMetaVec,
 }
 
+/// Represents one or more packets that are deemed lost.
+#[derive(Debug)]
+pub(super) struct LostPacket {
+    /// The time the packet was sent.
+    pub(super) time_sent: Instant,
+}
+
 /// Retransmittable data queue
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Default, Clone)]
@@ -552,7 +531,7 @@ pub struct Retransmits {
     pub(super) new_tokens: Vec<SocketAddr>,
     /// Paths which need to be abandoned
     pub(super) path_abandon: BTreeMap<PathId, TransportErrorCode>,
-    /// If a [`frame::PathAvailable`] and [`frame::PathBackup`] need to be sent for a path
+    /// If a [`frame::PathStatusAvailable`] and [`frame::PathStatusBackup`] need to be sent for a path
     pub(super) path_status: BTreeSet<PathId>,
     /// If a PATH_CIDS_BLOCKED frame needs to be sent for a path
     pub(super) path_cids_blocked: Vec<PathId>,
@@ -564,12 +543,6 @@ pub struct Retransmits {
     pub(super) remove_address: BTreeSet<RemoveAddress>,
     /// Round and local addresses to advertise in `REACH_OUT` frames
     pub(super) reach_out: Option<(VarInt, Vec<(IpAddr, u16)>)>,
-    /// Round of the nat traversal rand data that are pending
-    ///
-    /// This is only used for bitwise operations on the pending data.
-    pub(super) hole_punch_round: VarInt,
-    /// Remote addresses to which random data needs to be sent
-    pub(super) hole_punch_to: Vec<(IpAddr, u16)>,
 }
 
 impl Retransmits {
@@ -596,7 +569,6 @@ impl Retransmits {
             && self.add_address.is_empty()
             && self.remove_address.is_empty()
             && self.reach_out.is_none()
-            && self.hole_punch_to.is_empty()
     }
 }
 
@@ -635,13 +607,6 @@ impl ::std::ops::BitOrAssign for Retransmits {
                 self.reach_out = rhs.reach_out.clone()
             }
             _ => {}
-        }
-
-        if self.hole_punch_round < rhs.hole_punch_round {
-            self.hole_punch_round = rhs.hole_punch_round;
-            self.hole_punch_to = rhs.hole_punch_to.clone();
-        } else if self.hole_punch_round == rhs.hole_punch_round {
-            self.hole_punch_to.extend_from_slice(&rhs.hole_punch_to);
         }
     }
 }
@@ -685,6 +650,11 @@ impl ThinRetransmits {
     /// Returns a reference to the retransmits stored in this box
     pub(super) fn get(&self) -> Option<&Retransmits> {
         self.retransmits.as_deref()
+    }
+
+    /// Returns a mutable reference to the retransmits stored in this box
+    pub(super) fn get_mut(&mut self) -> Option<&mut Retransmits> {
+        self.retransmits.as_deref_mut()
     }
 
     /// Returns a mutable reference to the stored retransmits

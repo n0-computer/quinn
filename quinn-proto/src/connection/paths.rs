@@ -16,7 +16,7 @@ use crate::{
 };
 
 #[cfg(feature = "qlog")]
-use qlog::events::quic::MetricsUpdated;
+use qlog::events::quic::RecoveryMetricsUpdated;
 
 /// Id representing different paths when using multipath extension
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
@@ -62,7 +62,7 @@ impl PathId {
         Self(inner)
     }
 
-    /// Saturating integer substraction. Computes self - rhs, saturating at the numeric bounds
+    /// Saturating integer subtraction. Computes self - rhs, saturating at the numeric bounds
     /// instead of overflowing.
     pub fn saturating_sub(self, rhs: impl Into<Self>) -> Self {
         let rhs = rhs.into();
@@ -99,6 +99,7 @@ impl<T: Into<u32>> From<T> for PathId {
 /// involuntary. We need to keep the [`PathData`] of the previously used such path available
 /// in order to defend against migration attacks (see RFC9000 §9.3.1, §9.3.2 and §9.3.3) as
 /// well as to support path probing (RFC9000 §9.1).
+#[derive(Debug)]
 pub(super) struct PathState {
     pub(super) data: PathData,
     pub(super) prev: Option<(ConnectionId, PathData)>,
@@ -119,7 +120,16 @@ impl PathState {
     }
 }
 
+#[derive(Debug)]
+pub(super) struct SentChallengeInfo {
+    /// When was the challenge sent on the wire.
+    pub(super) sent_instant: Instant,
+    /// The remote to which this path challenge was sent.
+    pub(super) remote: SocketAddr,
+}
+
 /// Description of a particular network path
+#[derive(Debug)]
 pub(super) struct PathData {
     pub(super) remote: SocketAddr,
     pub(super) rtt: RttEstimator,
@@ -129,9 +139,9 @@ pub(super) struct PathData {
     pub(super) congestion: Box<dyn congestion::Controller>,
     /// Pacing state
     pub(super) pacing: Pacer,
-    /// Actually sent challenges (on the wire)
-    pub(super) challenges_sent: IntMap<u64, Instant>,
-    /// Whether to *immediately* trigger another PATH_CHALLENGE (via Connection::can_send)
+    /// Actually sent challenges (on the wire).
+    pub(super) challenges_sent: IntMap<u64, SentChallengeInfo>,
+    /// Whether to *immediately* trigger another PATH_CHALLENGE (via [`super::Connection::can_send`])
     pub(super) send_new_challenge: bool,
     /// Pending responses to PATH_CHALLENGE frames
     pub(super) path_responses: PathResponses,
@@ -309,18 +319,6 @@ impl PathData {
         !self.challenges_sent.is_empty() || self.send_new_challenge
     }
 
-    /// Resets RTT, congestion control and MTU states.
-    ///
-    /// This is useful when it is known the underlying path has changed.
-    pub(super) fn reset(&mut self, now: Instant, config: &TransportConfig) {
-        self.rtt = RttEstimator::new(config.initial_rtt);
-        self.congestion = config
-            .congestion_controller_factory
-            .clone()
-            .build(now, config.get_initial_mtu());
-        self.mtud.reset(config.get_initial_mtu(), config.min_mtu);
-    }
-
     /// Indicates whether we're a server that hasn't validated the peer's address and hasn't
     /// received enough data from the peer to permit sending `bytes_to_send` additional bytes
     pub(super) fn anti_amplification_blocked(&self, bytes_to_send: u64) -> bool {
@@ -356,25 +354,32 @@ impl PathData {
     /// Increment the total size of sent UDP datagrams
     pub(super) fn inc_total_sent(&mut self, inc: u64) {
         self.total_sent = self.total_sent.saturating_add(inc);
-        trace!(
-            remote = %self.remote,
-            anti_amplification_budget = %(self.total_recvd * 3).saturating_sub(self.total_sent),
-            "anti amplification budget decreased"
-        );
+        if !self.validated {
+            trace!(
+                remote = %self.remote,
+                anti_amplification_budget = %(self.total_recvd * 3).saturating_sub(self.total_sent),
+                "anti amplification budget decreased"
+            );
+        }
     }
 
     /// Increment the total size of received UDP datagrams
     pub(super) fn inc_total_recvd(&mut self, inc: u64) {
         self.total_recvd = self.total_recvd.saturating_add(inc);
-        trace!(
-            remote = %self.remote,
-            anti_amplification_budget = %(self.total_recvd * 3).saturating_sub(self.total_sent),
-            "anti amplification budget increased"
-        );
+        if !self.validated {
+            trace!(
+                remote = %self.remote,
+                anti_amplification_budget = %(self.total_recvd * 3).saturating_sub(self.total_sent),
+                "anti amplification budget increased"
+            );
+        }
     }
 
     #[cfg(feature = "qlog")]
-    pub(super) fn qlog_recovery_metrics(&mut self, pto_count: u32) -> Option<MetricsUpdated> {
+    pub(super) fn qlog_recovery_metrics(
+        &mut self,
+        path_id: PathId,
+    ) -> Option<RecoveryMetricsUpdated> {
         let controller_metrics = self.congestion.metrics();
 
         let metrics = RecoveryMetrics {
@@ -382,7 +387,7 @@ impl PathData {
             smoothed_rtt: Some(self.rtt.get()),
             latest_rtt: Some(self.rtt.latest),
             rtt_variance: Some(self.rtt.var),
-            pto_count: Some(pto_count),
+            pto_count: Some(self.pto_count),
             bytes_in_flight: Some(self.in_flight.bytes),
             packets_in_flight: Some(self.in_flight.ack_eliciting),
 
@@ -391,7 +396,7 @@ impl PathData {
             pacing_rate: controller_metrics.pacing_rate,
         };
 
-        let event = metrics.to_qlog_event(&self.recovery_metrics);
+        let event = metrics.to_qlog_event(path_id, &self.recovery_metrics);
         self.recovery_metrics = metrics;
         event
     }
@@ -458,7 +463,7 @@ impl PathData {
 ///
 /// [`recovery_metrics_updated`]: https://datatracker.ietf.org/doc/html/draft-ietf-quic-qlog-quic-events.html#name-recovery_metrics_updated
 #[cfg(feature = "qlog")]
-#[derive(Default, Clone, PartialEq)]
+#[derive(Default, Clone, PartialEq, Debug)]
 #[non_exhaustive]
 struct RecoveryMetrics {
     pub min_rtt: Option<Duration>,
@@ -502,14 +507,14 @@ impl RecoveryMetrics {
     }
 
     /// Emit a `MetricsUpdated` event containing only updated values
-    fn to_qlog_event(&self, previous: &Self) -> Option<MetricsUpdated> {
+    fn to_qlog_event(&self, path_id: PathId, previous: &Self) -> Option<RecoveryMetricsUpdated> {
         let updated = self.retain_updated(previous);
 
         if updated == Self::default() {
             return None;
         }
 
-        Some(MetricsUpdated {
+        Some(RecoveryMetricsUpdated {
             min_rtt: updated.min_rtt.map(|rtt| rtt.as_secs_f32()),
             smoothed_rtt: updated.smoothed_rtt.map(|rtt| rtt.as_secs_f32()),
             latest_rtt: updated.latest_rtt.map(|rtt| rtt.as_secs_f32()),
@@ -522,12 +527,13 @@ impl RecoveryMetrics {
             congestion_window: updated.congestion_window,
             ssthresh: updated.ssthresh,
             pacing_rate: updated.pacing_rate,
+            path_id: Some(path_id.as_u32() as u64),
         })
     }
 }
 
 /// RTT estimation for a particular network path
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct RttEstimator {
     /// The most recent RTT measurement made when receiving an ack for a previously unacked packet
     latest: Duration,
@@ -549,6 +555,26 @@ impl RttEstimator {
         }
     }
 
+    /// Resets the estimator using a new initial_rtt value.
+    ///
+    /// This only resets the initial_rtt **if** no samples have been recorded yet. If there
+    /// are any recorded samples the initial estimate can not be adjusted after the fact.
+    ///
+    /// This is useful when you receive a PATH_RESPONSE in the first packet received on a
+    /// new path. In this case you can use the delay of the PATH_CHALLENGE-PATH_RESPONSE as
+    /// the initial RTT to get a better expected estimation.
+    ///
+    /// A PATH_CHALLENGE-PATH_RESPONSE pair later in the connection should not be used
+    /// explicitly as an estimation since PATH_CHALLENGE is an ACK-eliciting packet itself
+    /// already.
+    pub(crate) fn reset_initial_rtt(&mut self, initial_rtt: Duration) {
+        if self.smoothed.is_none() {
+            self.latest = initial_rtt;
+            self.var = initial_rtt / 2;
+            self.min = initial_rtt;
+        }
+    }
+
     /// The current best RTT estimation.
     pub fn get(&self) -> Duration {
         self.smoothed.unwrap_or(self.latest)
@@ -567,14 +593,16 @@ impl RttEstimator {
         self.min
     }
 
-    // PTO computed as described in RFC9002#6.2.1
+    /// PTO computed as described in RFC9002#6.2.1.
     pub(crate) fn pto_base(&self) -> Duration {
         self.get() + cmp::max(4 * self.var, TIMER_GRANULARITY)
     }
 
+    /// Records an RTT sample.
     pub(crate) fn update(&mut self, ack_delay: Duration, rtt: Duration) {
         self.latest = rtt;
-        // min_rtt ignores ack delay.
+        // https://www.rfc-editor.org/rfc/rfc9002.html#section-5.2-3:
+        // min_rtt does not adjust for ack_delay to avoid underestimating.
         self.min = cmp::min(self.min, self.latest);
         // Based on RFC6298.
         if let Some(smoothed) = self.smoothed {
@@ -594,7 +622,7 @@ impl RttEstimator {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct PathResponses {
     pending: Vec<PathResponse>,
 }
@@ -652,7 +680,7 @@ impl PathResponses {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct PathResponse {
     /// The packet number the corresponding PATH_CHALLENGE was received in
     packet: u64,
@@ -664,6 +692,7 @@ struct PathResponse {
 
 /// Summary statistics of packets that have been sent on a particular path, but which have not yet
 /// been acked or deemed lost
+#[derive(Debug)]
 pub(super) struct InFlight {
     /// Sum of the sizes of all sent packets considered "in flight" by congestion control
     ///
@@ -698,12 +727,12 @@ impl InFlight {
     }
 }
 
-/// State for QUIC-MULTIPATH PATH_AVAILABLE and PATH_BACKUP frames
+/// State for QUIC-MULTIPATH PATH_STATUS_AVAILABLE and PATH_STATUS_BACKUP frames
 #[derive(Debug, Clone, Default)]
 pub(super) struct PathStatusState {
     /// The local status
     local_status: PathStatus,
-    /// Local sequence number, for both PATH_AVAIALABLE and PATH_BACKUP
+    /// Local sequence number, for both PATH_STATUS_AVAILABLE and PATH_STATUS_BACKUP
     ///
     /// This is the number of the *next* path status frame to be sent.
     local_seq: VarInt,
@@ -712,7 +741,7 @@ pub(super) struct PathStatusState {
 }
 
 impl PathStatusState {
-    /// To be called on received PATH_AVAILABLE/PATH_BACKUP frames
+    /// To be called on received PATH_STATUS_AVAILABLE/PATH_STATUS_BACKUP frames
     pub(super) fn remote_update(&mut self, status: PathStatus, seq: VarInt) {
         if self.remote_status.is_some_and(|(curr, _)| curr >= seq) {
             return trace!(%seq, "ignoring path status update");
@@ -798,7 +827,7 @@ pub enum PathEvent {
     /// The remote changed the status of the path
     ///
     /// The local status is not changed because of this event. It is up to the application
-    /// to update the local status, wihch is used for packet scheduling, when the remote
+    /// to update the local status, which is used for packet scheduling, when the remote
     /// changes the status.
     RemoteStatus {
         /// Path which has changed status
@@ -814,6 +843,17 @@ pub enum PathEvent {
         /// The address observed by the remote over this path
         addr: SocketAddr,
     },
+}
+
+/// Error from setting path status
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum SetPathStatusError {
+    /// Error indicating that a path has not been opened or has already been abandoned
+    #[error("closed path")]
+    ClosedPath,
+    /// Error indicating that this operation requires multipath to be negotiated whereas it hasn't been
+    #[error("multipath not negotiated")]
+    MultipathNotNegotiated,
 }
 
 /// Error indicating that a path has not been opened or has already been abandoned

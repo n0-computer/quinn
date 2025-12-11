@@ -36,6 +36,10 @@ mod util;
 use util::*;
 
 mod multipath;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+mod proptest;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+mod random_interaction;
 mod token;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
@@ -580,6 +584,10 @@ fn zero_rtt_happypath() {
         pair.server_conn_mut(server_ch).poll(),
         Some(Event::HandshakeDataReady)
     );
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
+        Some(Event::HandshakeConfirmed)
+    );
     // We don't currently preserve stream event order wrt. connection events
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
@@ -627,6 +635,10 @@ fn zero_rtt_rejection() {
     );
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
+        Some(Event::HandshakeConfirmed)
+    );
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
         Some(Event::Connected)
     );
     assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
@@ -668,6 +680,10 @@ fn zero_rtt_rejection() {
     );
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
+        Some(Event::HandshakeConfirmed)
+    );
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
         Some(Event::Connected)
     );
     assert_matches!(pair.server_conn_mut(server_ch).poll(), None);
@@ -698,10 +714,17 @@ fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: 
     const EXPECTED_DROPPED: u64 = 4;
 
     let _guard = subscribe();
+
+    let mut transport = TransportConfig::default();
+    // Assume a low-latency connection so pacing doesn't interfere with the test
+    transport.initial_rtt(Duration::from_millis(10));
+    let transport = Arc::new(transport);
+
     let mut server_config = server_config();
     configure_server(&mut server_config);
     let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
-    let config = client_config();
+    let mut config = client_config();
+    config.transport_config(transport);
 
     // Establish normal connection
     let client_ch = pair.begin_connect(config.clone());
@@ -747,6 +770,10 @@ fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: 
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
         Some(Event::HandshakeDataReady)
+    );
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
+        Some(Event::HandshakeConfirmed)
     );
     // We don't currently preserve stream event order wrt. connection events
     assert_matches!(
@@ -820,6 +847,10 @@ fn alpn_success() {
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
         Some(Event::HandshakeDataReady)
+    );
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
+        Some(Event::HandshakeConfirmed)
     );
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
@@ -1059,7 +1090,7 @@ fn key_update_reordered() {
 
     const MSG1: &[u8] = b"1";
     pair.client_send(client_ch, s).write(MSG1).unwrap();
-    pair.client.drive(pair.time, pair.server.addr);
+    pair.client.drive(pair.time);
     assert!(!pair.client.outbound.is_empty());
     pair.client.delay_outbound();
 
@@ -1068,7 +1099,7 @@ fn key_update_reordered() {
 
     const MSG2: &[u8] = b"two";
     pair.client_send(client_ch, s).write(MSG2).unwrap();
-    pair.client.drive(pair.time, pair.server.addr);
+    pair.client.drive(pair.time);
     pair.client.finish_delay();
     pair.drive();
 
@@ -1114,7 +1145,7 @@ fn initial_retransmit() {
     let _guard = subscribe();
     let mut pair = Pair::default();
     let client_ch = pair.begin_connect(client_config());
-    pair.client.drive(pair.time, pair.server.addr);
+    pair.client.drive(pair.time);
     pair.client.outbound.clear(); // Drop initial
     pair.drive();
     assert_matches!(
@@ -1190,7 +1221,7 @@ fn instant_server_close() {
     info!("connecting");
     pair.begin_connect(client_config());
     pair.drive_client();
-    pair.server.drive_incoming(pair.time, pair.client.addr);
+    pair.server.drive_incoming(pair.time);
     let server_ch = pair.server.assert_accept();
     info!("closing");
     pair.server
@@ -1712,8 +1743,8 @@ fn cid_retirement() {
     let (client_ch, server_ch) = pair.connect();
 
     // Server retires current active remote CIDs
-    pair.server_conn_mut(server_ch)
-        .rotate_local_cid(1, Instant::now());
+    let now = pair.time;
+    pair.server_conn_mut(server_ch).rotate_local_cid(1, now);
     pair.drive();
     // Any unexpected behavior may trigger TransportError::CONNECTION_ID_LIMIT_ERROR
     assert!(!pair.client_conn_mut(client_ch).is_closed());
@@ -1725,11 +1756,12 @@ fn cid_retirement() {
     let mut active_cid_num = CidQueue::LEN as u64;
     active_cid_num = active_cid_num.min(LOC_CID_COUNT);
 
+    let now = pair.time;
     let next_retire_prior_to = active_cid_num + 1;
     pair.client_conn_mut(client_ch).ping();
     // Server retires all valid remote CIDs
     pair.server_conn_mut(server_ch)
-        .rotate_local_cid(next_retire_prior_to, Instant::now());
+        .rotate_local_cid(next_retire_prior_to, now);
     pair.drive();
     assert!(!pair.client_conn_mut(client_ch).is_closed());
     assert!(!pair.server_conn_mut(server_ch).is_closed());
@@ -1751,7 +1783,7 @@ fn finish_stream_flow_control_reordered() {
     const MSG: &[u8] = b"hello";
     pair.client_send(client_ch, s).write(MSG).unwrap();
     pair.drive_client(); // Send stream data
-    pair.server.drive(pair.time, pair.client.addr); // Receive
+    pair.server.drive(pair.time); // Receive
 
     // Issue flow control credit
     let mut recv = pair.server_recv(server_ch, s);
@@ -1762,12 +1794,12 @@ fn finish_stream_flow_control_reordered() {
     );
     let _ = chunks.finalize();
 
-    pair.server.drive(pair.time, pair.client.addr);
+    pair.server.drive(pair.time);
     pair.server.delay_outbound(); // Delay it
 
     pair.client_send(client_ch, s).finish().unwrap();
     pair.drive_client(); // Send FIN
-    pair.server.drive(pair.time, pair.client.addr); // Acknowledge
+    pair.server.drive(pair.time); // Acknowledge
     pair.server.finish_delay(); // Add flow control packets after
     pair.drive();
 
@@ -1798,7 +1830,7 @@ fn handshake_1rtt_handling() {
     let server_ch = pair.server.assert_accept();
     // Server now has 1-RTT keys, but remains in Handshake state until the TLS CFIN has
     // authenticated the client. Delay the final client handshake flight so that doesn't happen yet.
-    pair.client.drive(pair.time, pair.server.addr);
+    pair.client.drive(pair.time);
     pair.client.delay_outbound();
 
     // Send some 1-RTT data which will be received first.
@@ -1806,7 +1838,7 @@ fn handshake_1rtt_handling() {
     const MSG: &[u8] = b"hello";
     pair.client_send(client_ch, s).write(MSG).unwrap();
     pair.client_send(client_ch, s).finish().unwrap();
-    pair.client.drive(pair.time, pair.server.addr);
+    pair.client.drive(pair.time);
 
     // Add the handshake flight back on.
     pair.client.finish_delay();
@@ -2112,6 +2144,10 @@ fn large_initial() {
     );
     assert_matches!(
         pair.server_conn_mut(server_ch).poll(),
+        Some(Event::HandshakeConfirmed)
+    );
+    assert_matches!(
+        pair.server_conn_mut(server_ch).poll(),
         Some(Event::Connected)
     );
 }
@@ -2305,9 +2341,14 @@ fn handshake_anti_deadlock_probe() {
 #[test]
 fn server_can_send_3_inital_packets() {
     let _guard = subscribe();
+    let mut transport = TransportConfig::default();
+    // Assume a low-latency connection so pacing doesn't interfere with the test
+    transport.initial_rtt(Duration::from_millis(10));
+    let transport = Arc::new(transport);
 
     let (cert, key) = big_cert_and_key();
-    let server = server_config_with_cert(cert.clone(), key);
+    let mut server = server_config_with_cert(cert.clone(), key);
+    server.transport_config(transport);
     let client = client_config_with_certs(vec![cert]);
     let mut pair = Pair::new(Default::default(), server);
 
@@ -2447,8 +2488,14 @@ fn connect_detects_mtu() {
         let (client_ch, server_ch) = pair.connect();
         pair.drive();
 
-        assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), expected_mtu);
-        assert_eq!(pair.server_conn_mut(server_ch).path_mtu(), expected_mtu);
+        assert_eq!(
+            pair.client_conn_mut(client_ch).path_mtu(PathId::ZERO),
+            expected_mtu
+        );
+        assert_eq!(
+            pair.server_conn_mut(server_ch).path_mtu(PathId::ZERO),
+            expected_mtu
+        );
     }
 }
 
@@ -2480,8 +2527,8 @@ fn migrate_detects_new_mtu_and_respects_original_peer_max_udp_payload_size() {
 
     // Sanity check: MTUD ran to completion (the numbers differ because binary search stops when
     // changes are smaller than 20, otherwise both endpoints would converge at the same MTU of 1300)
-    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), 1293);
-    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(), 1300);
+    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(PathId::ZERO), 1293);
+    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(PathId::ZERO), 1300);
 
     // Migrate client to a different port (and simulate a higher path MTU)
     pair.mtu = 1500;
@@ -2501,13 +2548,13 @@ fn migrate_detects_new_mtu_and_respects_original_peer_max_udp_payload_size() {
 
     // MTU detection has successfully run after migrating
     assert_eq!(
-        pair.server_conn_mut(server_ch).path_mtu(),
+        pair.server_conn_mut(server_ch).path_mtu(PathId::ZERO),
         client_max_udp_payload_size
     );
 
     // Sanity check: the client keeps the old MTU, because migration is triggered by incoming
     // packets from a different address
-    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), 1293);
+    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(PathId::ZERO), 1293);
 }
 
 #[test]
@@ -2533,12 +2580,12 @@ fn connect_runs_mtud_again_after_600_seconds() {
     // Sanity check: the mtu has been discovered
     let client_conn = pair.client_conn_mut(client_ch);
     let client_path_stats = client_conn.path_stats(PathId::ZERO).unwrap();
-    assert_eq!(client_conn.path_mtu(), 1389);
+    assert_eq!(client_conn.path_mtu(PathId::ZERO), 1389);
     assert_eq!(client_path_stats.sent_plpmtud_probes, 5);
     assert_eq!(client_path_stats.lost_plpmtud_probes, 3);
     let server_conn = pair.server_conn_mut(server_ch);
     let server_path_stats = server_conn.path_stats(PathId::ZERO).unwrap();
-    assert_eq!(server_conn.path_mtu(), 1389);
+    assert_eq!(server_conn.path_mtu(PathId::ZERO), 1389);
     assert_eq!(server_path_stats.sent_plpmtud_probes, 5);
     assert_eq!(server_path_stats.lost_plpmtud_probes, 3);
 
@@ -2546,16 +2593,16 @@ fn connect_runs_mtud_again_after_600_seconds() {
     // higher udp payload size
     pair.mtu = 1500;
     pair.drive();
-    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), 1389);
-    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(), 1389);
+    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(PathId::ZERO), 1389);
+    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(PathId::ZERO), 1389);
 
     // The MTU changes after 600 seconds, because now MTUD runs for the second time
     pair.time += Duration::from_secs(600);
     pair.drive();
     assert!(!pair.client_conn_mut(client_ch).is_closed());
     assert!(!pair.server_conn_mut(client_ch).is_closed());
-    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), 1452);
-    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(), 1452);
+    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(PathId::ZERO), 1452);
+    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(PathId::ZERO), 1452);
 }
 
 #[test]
@@ -2567,8 +2614,8 @@ fn blackhole_after_mtu_change_repairs_itself() {
     pair.drive();
 
     // Sanity check
-    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(), 1452);
-    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(), 1452);
+    assert_eq!(pair.client_conn_mut(client_ch).path_mtu(PathId::ZERO), 1452);
+    assert_eq!(pair.server_conn_mut(server_ch).path_mtu(PathId::ZERO), 1452);
 
     // Back to the base MTU
     pair.mtu = 1200;
@@ -2578,7 +2625,7 @@ fn blackhole_after_mtu_change_repairs_itself() {
     let payload = vec![42; 1300];
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
     pair.client_send(client_ch, s).write(&payload).unwrap();
-    let out_of_bounds = pair.drive_bounded();
+    let out_of_bounds = pair.drive_bounded(100);
 
     if out_of_bounds {
         panic!("Connections never reached an idle state");
@@ -2634,7 +2681,7 @@ fn packet_splitting_with_default_mtu() {
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
 
     pair.client_send(client_ch, s).write(&payload).unwrap();
-    pair.client.drive(pair.time, pair.server.addr);
+    pair.client.drive(pair.time);
     assert_eq!(pair.client.outbound.len(), 2);
 
     pair.drive_client();
@@ -2655,7 +2702,7 @@ fn packet_splitting_not_necessary_after_higher_mtu_discovered() {
     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
 
     pair.client_send(client_ch, s).write(&payload).unwrap();
-    pair.client.drive(pair.time, pair.server.addr);
+    pair.client.drive(pair.time);
     assert_eq!(pair.client.outbound.len(), 1);
 
     pair.drive_client();
@@ -2859,7 +2906,8 @@ fn setup_ack_frequency_test(max_ack_delay: Duration) -> (Pair, ConnectionHandle,
     Arc::get_mut(&mut client_config.transport)
         .unwrap()
         .ack_frequency_config(Some(ack_freq_config))
-        .mtu_discovery_config(None); // To keep traffic cleaner
+        .mtu_discovery_config(None) // To keep traffic cleaner
+        .initial_rtt(Duration::from_millis(10)); // To avoid delays from pacing
 
     let mut pair = Pair::default_with_deterministic_pns();
     pair.latency = Duration::from_millis(10); // Need latency to avoid an RTT = 0
@@ -3392,7 +3440,7 @@ fn pad_to_mtu() {
     pair.client_datagrams(client_ch)
         .send(vec![0; LEN_2].into(), false)
         .unwrap();
-    pair.client.drive(pair.time, pair.server.addr);
+    pair.client.drive(pair.time);
 
     // Check padding
     assert_eq!(pair.client.outbound.len(), 2);
@@ -3515,6 +3563,7 @@ fn address_discovery() {
     let conn = pair.client_conn_mut(conn_handle);
     assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
     assert_matches!(conn.poll(), Some(Event::Connected));
+    assert_matches!(conn.poll(), Some(Event::HandshakeConfirmed));
     assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
     assert_matches!(conn.poll(), None);
 
@@ -3523,6 +3572,7 @@ fn address_discovery() {
     let expected_addr = pair.server.addr;
     let conn = pair.server_conn_mut(conn_handle);
     assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.poll(), Some(Event::HandshakeConfirmed));
     assert_matches!(conn.poll(), Some(Event::Connected));
     assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
     assert_matches!(conn.poll(), None);
@@ -3593,6 +3643,7 @@ fn address_discovery_zero_rtt_accepted() {
     let conn = pair.server_conn_mut(server_ch);
     assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
     // We don't currently preserve stream event order wrt. connection events
+    assert_matches!(conn.poll(), Some(Event::HandshakeConfirmed));
     assert_matches!(conn.poll(), Some(Event::Connected));
     assert_matches!(
         conn.poll(),
@@ -3652,6 +3703,7 @@ fn address_discovery_zero_rtt_rejection() {
     let server_ch = pair.server.assert_accept();
     let conn = pair.server_conn_mut(server_ch);
     assert_matches!(conn.poll(), Some(Event::HandshakeDataReady));
+    assert_matches!(conn.poll(), Some(Event::HandshakeConfirmed));
     assert_matches!(conn.poll(), Some(Event::Connected));
     assert_matches!(conn.poll(), None);
     pair.client
@@ -3693,6 +3745,8 @@ fn address_discovery_retransmission() {
     let server = ServerConfig {
         transport: Arc::new(TransportConfig {
             address_discovery_role: crate::address_discovery::Role::Both,
+            // Assume a low-latency connection so pacing doesn't interfere with the test
+            initial_rtt: Duration::from_millis(10),
             ..TransportConfig::default()
         }),
         ..server_config()
@@ -3701,6 +3755,8 @@ fn address_discovery_retransmission() {
     let client_config = ClientConfig {
         transport: Arc::new(TransportConfig {
             address_discovery_role: crate::address_discovery::Role::Both,
+            // Assume a low-latency connection so pacing doesn't interfere with the test
+            initial_rtt: Duration::from_millis(10),
             ..TransportConfig::default()
         }),
         ..client_config()
@@ -3718,6 +3774,7 @@ fn address_discovery_retransmission() {
 
     pair.drive();
     let conn = pair.client_conn_mut(client_ch);
+    assert_matches!(conn.poll(), Some(Event::HandshakeConfirmed));
     assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == pair.client.addr);
 }
 
@@ -3728,6 +3785,8 @@ fn address_discovery_rebind_retransmission() {
     let server = ServerConfig {
         transport: Arc::new(TransportConfig {
             address_discovery_role: crate::address_discovery::Role::Both,
+            // Assume a low-latency connection so pacing doesn't interfere with the test
+            initial_rtt: Duration::from_millis(10),
             ..TransportConfig::default()
         }),
         ..server_config()
@@ -3736,6 +3795,8 @@ fn address_discovery_rebind_retransmission() {
     let client_config = ClientConfig {
         transport: Arc::new(TransportConfig {
             address_discovery_role: crate::address_discovery::Role::Both,
+            // Assume a low-latency connection so pacing doesn't interfere with the test
+            initial_rtt: Duration::from_millis(10),
             ..TransportConfig::default()
         }),
         ..client_config()
@@ -3760,6 +3821,7 @@ fn address_discovery_rebind_retransmission() {
 
     pair.drive();
     let conn = pair.client_conn_mut(client_ch);
+    assert_matches!(conn.poll(), Some(Event::HandshakeConfirmed));
     assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == pair.client.addr);
 }
 
@@ -3794,4 +3856,93 @@ fn preferred_address() {
 
     let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
     pair.connect();
+}
+
+#[test]
+fn handshake_sequence() {
+    let _guard = subscribe();
+
+    let mut pair = Pair::default();
+    let ch = pair.begin_connect(client_config());
+
+    pair.step();
+    assert_matches!(pair.client_conn_mut(ch).poll(), None);
+    let sh = pair.server.assert_accept();
+    assert_matches!(
+        pair.server_conn_mut(sh).poll(),
+        Some(Event::HandshakeDataReady)
+    );
+    assert_matches!(pair.server_conn_mut(sh).poll(), None);
+
+    pair.step();
+    assert_matches!(
+        pair.client_conn_mut(ch).poll(),
+        Some(Event::HandshakeDataReady)
+    );
+    assert_matches!(pair.client_conn_mut(ch).poll(), Some(Event::Connected));
+    assert_matches!(pair.client_conn_mut(ch).poll(), None);
+    assert_matches!(
+        pair.server_conn_mut(sh).poll(),
+        Some(Event::HandshakeConfirmed)
+    );
+    assert_matches!(pair.server_conn_mut(sh).poll(), Some(Event::Connected));
+    assert_matches!(pair.server_conn_mut(sh).poll(), None);
+
+    pair.drive_client();
+    assert_matches!(
+        pair.client_conn_mut(ch).poll(),
+        Some(Event::HandshakeConfirmed)
+    );
+    assert_matches!(pair.client_conn_mut(ch).poll(), None);
+}
+
+#[test]
+fn handshake_confirmation_no_resumption_shortcut() {
+    let _guard = subscribe();
+
+    // Initial connection
+    let mut pair = Pair::default();
+    let config = client_config();
+    let (ch, _) = pair.connect_with(config.clone());
+    pair.client
+        .connections
+        .get_mut(&ch)
+        .unwrap()
+        .close(pair.time, VarInt(0), [][..].into());
+    pair.drive();
+
+    // Resumed connection
+    info!("resuming session");
+    let ch = pair.begin_connect(config);
+    assert!(pair.client_conn_mut(ch).has_0rtt());
+
+    pair.step();
+    assert_matches!(pair.client_conn_mut(ch).poll(), None);
+    let sh = pair.server.assert_accept();
+    assert_matches!(
+        pair.server_conn_mut(sh).poll(),
+        Some(Event::HandshakeDataReady)
+    );
+    assert_matches!(pair.server_conn_mut(sh).poll(), None);
+
+    pair.step();
+    assert_matches!(
+        pair.client_conn_mut(ch).poll(),
+        Some(Event::HandshakeDataReady)
+    );
+    assert_matches!(pair.client_conn_mut(ch).poll(), Some(Event::Connected));
+    assert_matches!(pair.client_conn_mut(ch).poll(), None);
+    assert_matches!(
+        pair.server_conn_mut(sh).poll(),
+        Some(Event::HandshakeConfirmed)
+    );
+    assert_matches!(pair.server_conn_mut(sh).poll(), Some(Event::Connected));
+    assert_matches!(pair.server_conn_mut(sh).poll(), None);
+
+    pair.drive_client();
+    assert_matches!(
+        pair.client_conn_mut(ch).poll(),
+        Some(Event::HandshakeConfirmed)
+    );
+    assert_matches!(pair.client_conn_mut(ch).poll(), None);
 }

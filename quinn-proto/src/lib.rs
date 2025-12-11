@@ -46,10 +46,9 @@ pub use crate::connection::{
     Chunk, Chunks, ClosePathError, ClosedPath, ClosedStream, Connection, ConnectionError,
     ConnectionStats, Datagrams, Event, FinishError, FrameStats, PathError, PathEvent, PathId,
     PathStats, PathStatus, ReadError, ReadableError, RecvStream, RttEstimator, SendDatagramError,
-    SendStream, ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError, Written,
+    SendStream, SetPathStatusError, ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError,
+    Written,
 };
-#[cfg(feature = "qlog")]
-pub use connection::qlog::QlogStream;
 
 #[cfg(feature = "rustls")]
 pub use rustls;
@@ -57,12 +56,12 @@ pub use rustls;
 mod config;
 #[cfg(doc)]
 pub use config::DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED;
-#[cfg(feature = "qlog")]
-pub use config::QlogConfig;
 pub use config::{
     AckFrequencyConfig, ClientConfig, ConfigError, EndpointConfig, IdleTimeout, MtuDiscoveryConfig,
     ServerConfig, StdSystemTime, TimeSource, TransportConfig, ValidationTokenConfig,
 };
+#[cfg(feature = "qlog")]
+pub use config::{QlogConfig, QlogFactory, QlogFileFactory};
 
 pub mod crypto;
 

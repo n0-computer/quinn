@@ -14,7 +14,7 @@ pub use cubic::{Cubic, CubicConfig};
 pub use new_reno::{NewReno, NewRenoConfig};
 
 /// Common interface for different congestion controllers
-pub trait Controller: Send + Sync {
+pub trait Controller: Send + Sync + std::fmt::Debug {
     /// One or more packets were just sent
     #[allow(unused_variables)]
     fn on_sent(&mut self, now: Instant, bytes: u64, last_packet_number: u64) {}
@@ -56,8 +56,15 @@ pub trait Controller: Send + Sync {
         now: Instant,
         sent: Instant,
         is_persistent_congestion: bool,
+        is_ecn: bool,
         lost_bytes: u64,
     );
+
+    /// Packets were incorrectly deemed lost
+    ///
+    /// This function is called when all packets that were deemed lost (for instance because
+    /// of packet reordering) are acknowledged after the congestion event was raised.
+    fn on_spurious_congestion_event(&mut self) {}
 
     /// The known MTU for the current network path has been updated
     fn on_mtu_update(&mut self, new_mtu: u16);
@@ -85,7 +92,7 @@ pub trait Controller: Send + Sync {
 }
 
 /// Common congestion controller metrics
-#[derive(Default)]
+#[derive(Default, Debug)]
 #[non_exhaustive]
 pub struct ControllerMetrics {
     /// Congestion window (bytes)

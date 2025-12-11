@@ -5,7 +5,7 @@ use tracing::trace;
 /// Implements Datagram Packetization Layer Path Maximum Transmission Unit Discovery
 ///
 /// See [`MtuDiscoveryConfig`] for details
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct MtuDiscovery {
     /// Detected MTU for the path
     current_mtu: u16,
@@ -56,21 +56,15 @@ impl MtuDiscovery {
         }
     }
 
-    pub(super) fn reset(&mut self, current_mtu: u16, min_mtu: u16) {
-        self.current_mtu = current_mtu;
-        if let Some(state) = self.state.take() {
-            self.state = Some(EnabledMtuDiscovery::new(state.config));
-            self.on_peer_max_udp_payload_size_received(state.peer_max_udp_payload_size);
-        }
-        self.black_hole_detector = BlackHoleDetector::new(min_mtu);
-    }
-
     /// Returns the current MTU
     pub(crate) fn current_mtu(&self) -> u16 {
         self.current_mtu
     }
 
-    /// Returns the amount of bytes that should be sent as an MTU probe, if any
+    /// Returns the amount of bytes that should be sent as an MTU probe, if any.
+    ///
+    /// Returns [`None`] if MTUD discovery is disabled. Otherwise delegates to
+    /// [`EnabledMtuDiscovery::poll_transmit`].
     pub(crate) fn poll_transmit(&mut self, now: Instant, next_pn: u64) -> Option<u16> {
         self.state
             .as_mut()
@@ -83,9 +77,14 @@ impl MtuDiscovery {
         self.current_mtu = self.current_mtu.min(peer_max_udp_payload_size);
 
         if let Some(state) = self.state.as_mut() {
-            // MTUD is only active after the connection has been fully established, so it is
-            // guaranteed we will receive the peer's transport parameters before we start probing
-            debug_assert!(matches!(state.phase, Phase::Initial));
+            // It is possible for black hole detection to trigger before the connection has been
+            // fully established, if the initial MTU is greater the minimum MTU. We should never
+            // send probes before the connection has been fully established and we have received
+            // the peer's transport parameters though.
+            debug_assert!(
+                !matches!(state.phase, Phase::Searching(_)),
+                "Transport parameters received after MTU probing started"
+            );
             state.peer_max_udp_payload_size = peer_max_udp_payload_size;
         }
     }
@@ -179,7 +178,14 @@ impl EnabledMtuDiscovery {
         }
     }
 
-    /// Returns the amount of bytes that should be sent as an MTU probe, if any
+    /// Returns the amount of bytes that should be sent as an MTU probe, if any.
+    ///
+    /// A probe only needs to be sent if:
+    ///
+    /// - There is no current in-flight probe.
+    /// - A search for a new MTU is in progress.
+    /// - The MTU discovery was completed but the [`MtuDiscoveryConfig::interval`] expired,
+    ///   this re-starts a n MTU search.
     fn poll_transmit(&mut self, now: Instant, current_mtu: u16, next_pn: u64) -> Option<u16> {
         if let Phase::Initial = &self.phase {
             // Start the first search
@@ -358,7 +364,7 @@ impl SearchState {
 ///
 /// When the number of suspicious loss bursts exceeds [`BLACK_HOLE_THRESHOLD`], we judge the
 /// evidence for an MTU black hole to be sufficient.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct BlackHoleDetector {
     /// Packet loss bursts currently considered suspicious
     suspicious_loss_bursts: Vec<LossBurst>,
@@ -450,9 +456,9 @@ impl BlackHoleDetector {
         };
         // If a loss burst contains a packet smaller than the minimum MTU or a more recently
         // transmitted packet, it is not suspicious.
-        if burst.smallest_packet_size < self.min_mtu
+        if burst.smallest_packet_size <= self.min_mtu
             || (burst.latest_non_probe < self.largest_post_loss_packet
-                && burst.smallest_packet_size < self.acked_mtu)
+                && burst.smallest_packet_size <= self.acked_mtu)
         {
             return;
         }
@@ -498,12 +504,12 @@ impl BlackHoleDetector {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct LossBurst {
     smallest_packet_size: u16,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct CurrentLossBurst {
     smallest_packet_size: u16,
     latest_non_probe: u64,
@@ -733,10 +739,14 @@ mod tests {
 
     #[cfg(debug_assertions)]
     #[test]
-    #[should_panic]
-    fn mtu_discovery_with_peer_max_udp_payload_size_after_search_panics() {
+    #[should_panic(expected = "Transport parameters received after MTU probing started")]
+    fn mtu_discovery_with_peer_max_udp_payload_size_during_search_panics() {
         let mut mtud = default_mtud();
-        drive_to_completion(&mut mtud, Instant::now(), 1500);
+        assert!(mtud.poll_transmit(Instant::now(), 0).is_some());
+        assert!(matches!(
+            mtud.state.as_ref().unwrap().phase,
+            Phase::Searching(_)
+        ));
         mtud.on_peer_max_udp_payload_size_received(1300);
     }
 
