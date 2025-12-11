@@ -648,7 +648,7 @@ impl Connection {
 
         if path.data.total_sent == 0 && path.data.total_recvd == 0 {
             // Path was never opened on the wire.
-            self.drop_path_state(path_id, now);
+            self.forget_path(path_id, now);
             return Ok(());
         }
 
@@ -696,7 +696,7 @@ impl Connection {
         // In any case, we completely forget about the path after 6 * PTO whether we receive a
         // PATH_ABANDON or not.
         self.timers.set(
-            Timer::PerPath(path_id, PathTimer::PathAbandoned),
+            Timer::PerPath(path_id, PathTimer::ForgetPath),
             now + 6 * pto,
             self.qlog.with_time(now),
         );
@@ -2034,7 +2034,7 @@ impl Connection {
                                 .pending_acks
                                 .on_max_ack_delay_timeout()
                         }
-                        PathTimer::PathAbandoned => {
+                        PathTimer::ForgetPath => {
                             // The path was abandoned and 3*PTO has expired since.  Clean up all
                             // remaining state and install stateless reset token.
                             self.timers.stop_per_path(path_id, self.qlog.with_time(now));
@@ -2048,7 +2048,7 @@ impl Connection {
                                     );
                                 }
                             }
-                            self.drop_path_state(path_id, now);
+                            self.forget_path(path_id, now);
                         }
                     }
                 }
@@ -2790,7 +2790,7 @@ impl Connection {
     }
 
     /// Drops the path state, declaring any remaining in-flight packets as lost
-    fn drop_path_state(&mut self, path_id: PathId, now: Instant) {
+    fn forget_path(&mut self, path_id: PathId, now: Instant) {
         trace!(%path_id, "dropping path state");
         let path = self.path_data(path_id);
         let in_flight_mtu_probe = path.mtud.in_flight_mtu_probe();
@@ -4634,7 +4634,7 @@ impl Connection {
                         }
                     };
                     // If we receive a retransmit of PATH_ABANDON then we may already have
-                    // abandoned this path locally.  In that case the PathAbandoned timer
+                    // abandoned this path locally.  In that case the ForgetPath timer
                     // may already have fired and we no longer have any state for this path.
                     // Only set this timer if we still have path state.
                     if self.path(path_id).is_some() && !already_abandoned {
@@ -4644,7 +4644,7 @@ impl Connection {
                         //    unified SpaceId and PathId and this will be possible.
                         let delay = self.pto(SpaceId::Data, path_id) * 3;
                         self.timers.set(
-                            Timer::PerPath(path_id, PathTimer::PathAbandoned),
+                            Timer::PerPath(path_id, PathTimer::ForgetPath),
                             now + delay,
                             self.qlog.with_time(now),
                         );
