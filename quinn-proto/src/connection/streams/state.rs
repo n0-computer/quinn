@@ -602,7 +602,6 @@ impl StreamsState {
             meta.encode(encode_length, buf);
             qlog.frame_stream(&meta);
 
-            
             stream.pending.get_into(meta.offsets.clone(), buf);
             stream_frames.push(meta);
         }

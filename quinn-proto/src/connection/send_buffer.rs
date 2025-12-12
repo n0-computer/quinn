@@ -12,7 +12,7 @@ pub(super) struct SendBuffer {
     /// Only data up to the highest contiguous acknowledged offset can be discarded.
     /// We could discard acknowledged in this buffer, but it would require a more
     /// complex data structure. Instead, we track acknowledged ranges in `acks`.
-    /// 
+    ///
     /// Data keeps track of the base offset of the buffered data.
     data: SendBufferData,
     /// The first offset that hasn't been sent even once
@@ -73,10 +73,7 @@ impl SendBufferData {
         self.len -= n;
         self.offset += n as u64;
         while n > 0 {
-            let front = self
-                .segments
-                .front_mut()
-                .expect("Expected buffered data");
+            let front = self.segments.front_mut().expect("Expected buffered data");
 
             if front.len() <= n {
                 // Remove the whole front segment
@@ -98,7 +95,10 @@ impl SendBufferData {
     /// Requesting a range outside of the buffered data will panic.
     #[cfg(test)]
     fn get(&self, offsets: Range<u64>) -> &[u8] {
-        assert!(offsets.start >= self.range().start && offsets.end <= self.range().end, "Requested range is outside of buffered data");
+        assert!(
+            offsets.start >= self.range().start && offsets.end <= self.range().end,
+            "Requested range is outside of buffered data"
+        );
         // translate to segment-relative offsets and usize
         let offsets = Range {
             start: (offsets.start - self.offset) as usize,
@@ -106,9 +106,7 @@ impl SendBufferData {
         };
         let mut segment_offset = 0;
         for segment in self.segments.iter() {
-            if offsets.start >= segment_offset
-                && offsets.start < segment_offset + segment.len()
-            {
+            if offsets.start >= segment_offset && offsets.start < segment_offset + segment.len() {
                 let start = offsets.start - segment_offset;
                 let end = offsets.end - segment_offset;
 
@@ -121,7 +119,10 @@ impl SendBufferData {
     }
 
     fn get_into(&self, offsets: Range<u64>, buf: &mut impl BufMut) {
-        assert!(offsets.start >= self.range().start && offsets.end <= self.range().end, "Requested range is outside of buffered data");
+        assert!(
+            offsets.start >= self.range().start && offsets.end <= self.range().end,
+            "Requested range is outside of buffered data"
+        );
         // translate to segment-relative offsets and usize
         let offsets = Range {
             start: (offsets.start - self.offset) as usize,
@@ -153,7 +154,6 @@ impl SendBufferData {
         result
     }
 }
-
 
 impl SendBuffer {
     /// Construct an empty buffer at the initial offset
