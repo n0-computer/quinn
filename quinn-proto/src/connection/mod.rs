@@ -322,6 +322,19 @@ pub struct Connection {
     qlog: QlogSink,
 }
 
+#[derive(Debug)]
+enum PathSendStatus {
+    SendTransmit { transmit: Option<Transmit> },
+    NothingToSend { congestion_blocked: bool },
+}
+
+enum PathSpaceStatus {
+    NextSpace,
+    NothingToSend { congestion_blocked: bool },
+    Send,
+    SendTransmit { transmit: Transmit },
+}
+
 impl Connection {
     pub(crate) fn new(
         endpoint_config: Arc<EndpointConfig>,
@@ -985,23 +998,6 @@ impl Connection {
                 && self.peer_supports_ack_frequency();
         }
 
-        // Whether this packet can be coalesced with another one in the same datagram.
-        let mut coalesce = true;
-
-        // Whether the last packet in the datagram must be padded so the datagram takes up
-        // to at least MIN_INITIAL_SIZE, or to the maximum segment size if this is smaller.
-        let mut pad_datagram = PadDatagram::No;
-
-        // Whether congestion control stopped the next packet from being sent. Further
-        // packets could still be built, as e.g. tail-loss probes are not congestion
-        // limited.
-        let mut congestion_blocked = false;
-
-        // The packet number of the last built packet.
-        let mut last_packet_number = None;
-
-        let mut path_id = *self.paths.first_key_value().expect("one path must exist").0;
-
         // If there is any open, validated and available path we only want to send frames to
         // any backup path that must be sent on that backup path exclusively.
         let have_available_path = self.paths.iter().any(|(id, path)| {
@@ -1010,22 +1006,202 @@ impl Connection {
                 && self.rem_cids.contains_key(id)
         });
 
-        // Setup for the first path_id
+        // TODO: how to avoid the allocation? Cannot use a for loop because of borrowing
+        let path_ids: Vec<_> = self.paths.keys().copied().collect();
+
         let mut transmit = TransmitBuf::new(
             buf,
             max_datagrams,
-            self.path_data(path_id).current_mtu().into(),
+            self.path_data(path_ids[0]).current_mtu().into(),
         );
-        if let Some(challenge) = self.send_prev_path_challenge(now, &mut transmit, path_id) {
-            return Some(challenge);
-        }
-        let mut space_id = match path_id {
-            PathId::ZERO => SpaceId::Initial,
-            _ => SpaceId::Data,
-        };
 
+        let mut congestion_blocked = false;
+
+        for &path_id in &path_ids {
+            // Update per path state
+            transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
+
+            if let Some(challenge) = self.send_prev_path_challenge(now, &mut transmit, path_id) {
+                return Some(challenge);
+            }
+
+            match self.poll_transmit_path(now, &mut transmit, path_id, have_available_path, close) {
+                PathSendStatus::SendTransmit { transmit: t } => match t {
+                    None => {
+                        let transmit = self.build_transmit(path_id, transmit);
+                        return Some(transmit);
+                    }
+                    Some(transmit) => {
+                        return Some(transmit);
+                    }
+                },
+                PathSendStatus::NothingToSend {
+                    congestion_blocked: cb,
+                } => {
+                    // TODO: congestion blocked should be per path? how to deal with this better
+
+                    // move to next path
+                    if cb {
+                        // note congestion block
+                        congestion_blocked = true;
+                    }
+                }
+            }
+            // Nothing more to send.
+            trace!(%path_id, "nothing to send on path");
+        }
+
+        // We didn't produce any application data packet
+        debug_assert!(
+            transmit.is_empty(),
+            "there was data in the transmit, but it was not sent"
+        );
+        self.app_limited = !congestion_blocked;
+
+        if self.state.is_established() {
+            // Try MTU probing now
+            for path_id in path_ids {
+                self.poll_transmit_mtu_probe(now, &mut transmit, path_id);
+                if !transmit.is_empty() {
+                    let transmit = self.build_transmit(path_id, transmit);
+                    return Some(transmit);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn build_transmit(&mut self, path_id: PathId, transmit: TransmitBuf<'_>) -> Transmit {
+        let network_path = self.path_data(path_id).network_path;
+        trace!(
+            segment_size = transmit.segment_size(),
+            last_datagram_len = transmit.len() % transmit.segment_size(),
+            %network_path,
+            "sending {} bytes in {} datagrams",
+            transmit.len(),
+            transmit.num_datagrams()
+        );
+        self.path_data_mut(path_id)
+            .inc_total_sent(transmit.len() as u64);
+
+        self.stats
+            .udp_tx
+            .on_sent(transmit.num_datagrams() as u64, transmit.len());
+
+        Transmit {
+            destination: network_path.remote,
+            size: transmit.len(),
+            ecn: if self.path_data(path_id).sending_ecn {
+                Some(EcnCodepoint::Ect0)
+            } else {
+                None
+            },
+            segment_size: match transmit.num_datagrams() {
+                1 => None,
+                _ => Some(transmit.segment_size()),
+            },
+            src_ip: network_path.local_ip,
+        }
+    }
+
+    /// poll_transmit logic for a specific path
+    #[must_use]
+    fn poll_transmit_path(
+        &mut self,
+        now: Instant,
+        transmit: &mut TransmitBuf<'_>,
+        path_id: PathId,
+        have_available_path: bool,
+        close: bool,
+    ) -> PathSendStatus {
+        // Whether this packet can be coalesced with another one in the same datagram.
+        let mut coalesce = true;
+
+        // Whether the last packet in the datagram must be padded so the datagram takes up
+        // to at least MIN_INITIAL_SIZE, or to the maximum segment size if this is smaller.
+        let mut pad_datagram = PadDatagram::No;
+
+        // The packet number of the last built packet.
+        let mut last_packet_number = None;
+
+        // Iterate over the available spaces
+        for space_id in SpaceId::iter() {
+            // Only Path0 uses non Data space ids
+            if path_id != PathId::ZERO && space_id != SpaceId::Data {
+                continue;
+            }
+
+            let res = self.poll_transmit_path_space(
+                now,
+                transmit,
+                path_id,
+                space_id,
+                have_available_path,
+                close,
+                &mut coalesce,
+                &mut pad_datagram,
+                &mut last_packet_number,
+            );
+            match res {
+                PathSpaceStatus::Send => {
+                    break;
+                }
+                PathSpaceStatus::SendTransmit { transmit } => {
+                    return PathSendStatus::SendTransmit {
+                        transmit: Some(transmit),
+                    };
+                }
+                PathSpaceStatus::NothingToSend { congestion_blocked } => {
+                    return PathSendStatus::NothingToSend { congestion_blocked };
+                }
+                PathSpaceStatus::NextSpace => {
+                    // moving onto the next space
+                }
+            }
+        }
+
+        if let Some(last_packet_number) = last_packet_number {
+            // Note that when sending in multiple packet spaces the last packet number will
+            // be the one from the highest packet space.
+            self.path_data_mut(path_id).congestion.on_sent(
+                now,
+                transmit.len() as u64,
+                last_packet_number,
+            );
+        }
+
+        self.qlog.emit_recovery_metrics(
+            path_id,
+            &mut self.paths.get_mut(&path_id).unwrap().data,
+            now,
+        );
+
+        if transmit.is_empty() {
+            PathSendStatus::NothingToSend {
+                congestion_blocked: false,
+            }
+        } else {
+            PathSendStatus::SendTransmit { transmit: None }
+        }
+    }
+
+    /// poll_transmit logic for a path_id - space_id combination
+    #[must_use]
+    fn poll_transmit_path_space(
+        &mut self,
+        now: Instant,
+        transmit: &mut TransmitBuf<'_>,
+        path_id: PathId,
+        space_id: SpaceId,
+        have_available_path: bool,
+        close: bool,
+        coalesce: &mut bool,
+        pad_datagram: &mut PadDatagram,
+        last_packet_number: &mut Option<u64>,
+    ) -> PathSpaceStatus {
         loop {
-            // check if there is at least one active CID to use for sending
+            // Check if there is at least one active CID to use for sending
             let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
                 let err = PathError::RemoteCidsExhausted;
                 if !self.abandoned_paths.contains(&path_id) {
@@ -1051,36 +1227,12 @@ impl Connection {
                     trace!(%path_id, "remote CIDs retired for abandoned path");
                 }
 
-                match self.paths.keys().find(|&&next| next > path_id) {
-                    Some(next_path_id) => {
-                        // See if this next path can send anything.
-                        path_id = *next_path_id;
-                        space_id = SpaceId::Data;
-
-                        // update per path state
-                        transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
-                        if let Some(challenge) =
-                            self.send_prev_path_challenge(now, &mut transmit, path_id)
-                        {
-                            return Some(challenge);
-                        }
-
-                        continue;
-                    }
-                    None => {
-                        // Nothing more to send.
-                        trace!(
-                            ?space_id,
-                            %path_id,
-                            "no CIDs to send on path, no more paths"
-                        );
-                        break;
-                    }
-                }
+                return PathSpaceStatus::NothingToSend {
+                    congestion_blocked: false,
+                };
             };
 
-            // Determine if anything can be sent in this packet number space (SpaceId +
-            // PathId).
+            // Determine if anything can be sent in this packet number space (SpaceId + PathId).
             let max_packet_size = if transmit.datagram_remaining_mut() > 0 {
                 // We are trying to coalesce another packet into this datagram.
                 transmit.datagram_remaining_mut()
@@ -1088,7 +1240,9 @@ impl Connection {
                 // A new datagram needs to be started.
                 transmit.segment_size()
             };
+
             let can_send = self.space_can_send(space_id, path_id, max_packet_size, close);
+
             let path_should_send = {
                 let path_exclusive_only = space_id == SpaceId::Data
                     && have_available_path
@@ -1106,25 +1260,29 @@ impl Connection {
                 if self.spaces[space_id].crypto.is_some() {
                     trace!(?space_id, %path_id, "nothing to send in space");
                 }
-                space_id = space_id.next();
-                continue;
+                return PathSpaceStatus::NextSpace;
             }
 
             let send_blocked = if path_should_send && transmit.datagram_remaining_mut() == 0 {
                 // Only check congestion control if a new datagram is needed.
-                self.path_congestion_check(space_id, path_id, &transmit, &can_send, now)
+                self.path_congestion_check(space_id, path_id, transmit, &can_send, now)
             } else {
                 PathBlocked::No
             };
-            if send_blocked != PathBlocked::No {
+
+            // Whether congestion control stopped the next packet from being sent. Further
+            // packets could still be built, as e.g. tail-loss probes are not congestion
+            // limited.
+            let congestion_blocked = if send_blocked != PathBlocked::No {
                 trace!(?space_id, %path_id, ?send_blocked, "congestion blocked");
-                congestion_blocked = true;
-            }
+                true
+            } else {
+                false
+            };
             if send_blocked != PathBlocked::No && space_id < SpaceId::Data {
                 // Higher spaces might still have tail-loss probes to send, which are not
                 // congestion blocked.
-                space_id = space_id.next();
-                continue;
+                return PathSpaceStatus::NextSpace;
             }
             if !path_should_send || send_blocked != PathBlocked::No {
                 // Nothing more to send on this path, check the next path if possible.
@@ -1132,49 +1290,16 @@ impl Connection {
                 // If there are any datagrams in the transmit, packets for another path can
                 // not be built.
                 if transmit.num_datagrams() > 0 {
-                    break;
+                    return PathSpaceStatus::Send;
                 }
 
-                match self.paths.keys().find(|&&next| next > path_id) {
-                    Some(next_path_id) => {
-                        // See if this next path can send anything.
-                        trace!(
-                            ?space_id,
-                            %path_id,
-                            %next_path_id,
-                            "nothing to send on path"
-                        );
-                        path_id = *next_path_id;
-                        space_id = SpaceId::Data;
-
-                        // update per path state
-                        transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
-                        if let Some(challenge) =
-                            self.send_prev_path_challenge(now, &mut transmit, path_id)
-                        {
-                            return Some(challenge);
-                        }
-
-                        continue;
-                    }
-                    None => {
-                        // Nothing more to send.
-                        trace!(
-                            ?space_id,
-                            %path_id,
-                            next_path_id=?None::<PathId>,
-                            "nothing to send on path"
-                        );
-                        break;
-                    }
-                }
+                return PathSpaceStatus::NothingToSend { congestion_blocked };
             }
 
-            // If the datagram is full, we need to start a new one.
             if transmit.datagram_remaining_mut() == 0 {
                 if transmit.num_datagrams() >= transmit.max_datagrams().get() {
                     // No more datagrams allowed
-                    break;
+                    return PathSpaceStatus::Send;
                 }
 
                 match self.spaces[space_id].for_path(path_id).loss_probes {
@@ -1201,8 +1326,8 @@ impl Connection {
                     }
                 }
                 trace!(count = transmit.num_datagrams(), "new datagram started");
-                coalesce = true;
-                pad_datagram = PadDatagram::No;
+                *coalesce = true;
+                *pad_datagram = PadDatagram::No;
             }
 
             // If coalescing another packet into the existing datagram, there should
@@ -1227,24 +1352,26 @@ impl Connection {
                 prev.update_unacked = false;
             }
 
-            let mut builder = PacketBuilder::new(
+            let Some(mut builder) = PacketBuilder::new(
                 now,
                 space_id,
                 path_id,
                 remote_cid,
-                &mut transmit,
+                transmit,
                 can_send.other,
                 self,
-            )?;
-            last_packet_number = Some(builder.exact_number);
-            coalesce = coalesce && !builder.short_header;
+            ) else {
+                return PathSpaceStatus::NothingToSend { congestion_blocked };
+            };
+            *last_packet_number = Some(builder.exact_number);
+            *coalesce = *coalesce && !builder.short_header;
 
             if space_id == SpaceId::Initial && (self.side.is_client() || can_send.other) {
                 // https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1
-                pad_datagram |= PadDatagram::ToMinMtu;
+                *pad_datagram |= PadDatagram::ToMinMtu;
             }
             if space_id == SpaceId::Data && self.config.pad_to_mtu {
-                pad_datagram |= PadDatagram::ToSegmentSize;
+                *pad_datagram |= PadDatagram::ToSegmentSize;
             }
 
             if can_send.close {
@@ -1300,19 +1427,18 @@ impl Connection {
                     };
                     builder.write_frame(close.encoder(max_frame_size), stats);
                 }
-                builder.finish_and_track(now, self, path_id, pad_datagram);
+                builder.finish_and_track(now, self, path_id, *pad_datagram);
                 if space_id == self.highest_space {
                     // Don't send another close packet. Even with multipath we only send
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
                     self.close = false;
                     // `CONNECTION_CLOSE` is the final packet
-                    break;
+                    return PathSpaceStatus::Send;
                 } else {
                     // Send a close frame in every possible space for robustness, per
                     // RFC9000 "Immediate Close during the Handshake". Don't bother trying
                     // to send anything else.
-                    space_id = space_id.next();
-                    continue;
+                    return PathSpaceStatus::NextSpace;
                 }
             }
 
@@ -1332,13 +1458,16 @@ impl Connection {
                     builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
                     builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
                     self.stats.udp_tx.on_sent(1, transmit.len());
-                    return Some(Transmit {
-                        destination: network_path.remote,
-                        size: transmit.len(),
-                        ecn: None,
-                        segment_size: None,
-                        src_ip: network_path.local_ip,
-                    });
+
+                    return PathSpaceStatus::SendTransmit {
+                        transmit: Transmit {
+                            destination: network_path.remote,
+                            size: transmit.len(),
+                            ecn: None,
+                            segment_size: None,
+                            src_ip: network_path.local_ip,
+                        },
+                    };
                 }
             }
 
@@ -1362,7 +1491,7 @@ impl Connection {
                 "SendableFrames was {can_send:?}, but only ACKs have been written"
             );
             if builder.sent_frames().requires_padding {
-                pad_datagram |= PadDatagram::ToMinMtu;
+                *pad_datagram |= PadDatagram::ToMinMtu;
             }
 
             for (path_id, _pn) in builder.sent_frames().largest_acked.iter() {
@@ -1383,7 +1512,7 @@ impl Connection {
 
             // Are we allowed to coalesce AND is there enough space for another *packet* in
             // this datagram AND is there another packet to send in this or the next space?
-            if coalesce
+            if *coalesce
                 && builder
                     .buf
                     .datagram_remaining_mut()
@@ -1416,144 +1545,81 @@ impl Connection {
                             builder.buf.datagram_remaining_mut() - builder.predict_packet_end()
                         );
                         builder.finish_and_track(now, self, path_id, PadDatagram::No);
-                        break;
+                        return PathSpaceStatus::Send;
                     }
 
                     // Pad the current datagram to GSO segment size so it can be
                     // included in the GSO batch.
                     builder.finish_and_track(now, self, path_id, PadDatagram::ToSegmentSize);
                 } else {
-                    builder.finish_and_track(now, self, path_id, pad_datagram);
+                    builder.finish_and_track(now, self, path_id, *pad_datagram);
                 }
                 if transmit.num_datagrams() == 1 {
                     transmit.clip_datagram_size();
                 }
             }
         }
+    }
 
-        if let Some(last_packet_number) = last_packet_number {
-            // Note that when sending in multiple packet spaces the last packet number will
-            // be the one from the highest packet space.
-            self.path_data_mut(path_id).congestion.on_sent(
-                now,
-                transmit.len() as u64,
-                last_packet_number,
-            );
-        }
+    fn poll_transmit_mtu_probe(
+        &mut self,
+        now: Instant,
+        transmit: &mut TransmitBuf<'_>,
+        path_id: PathId,
+    ) {
+        // MTU probing happens only in Data space.
+        let space_id = SpaceId::Data;
+        let probe_data = {
+            // We MTU probe all paths for which all of the following is true:
+            // - We have an active destination CID for the path.
+            // - The remote address *and* path are validated.
+            // - The path is not abandoned.
+            // - The MTU Discovery subsystem wants to probe the path.
+            let active_cid = self.rem_cids.get(&path_id).map(CidQueue::active);
+            let eligible = self.path_data(path_id).validated
+                && !self.path_data(path_id).is_validating_path()
+                && !self.abandoned_paths.contains(&path_id);
+            let probe_size = eligible
+                .then(|| {
+                    let next_pn = self.spaces[space_id].for_path(path_id).peek_tx_number();
+                    self.path_data_mut(path_id).mtud.poll_transmit(now, next_pn)
+                })
+                .flatten();
 
-        self.qlog.emit_recovery_metrics(
-            path_id,
-            &mut self.paths.get_mut(&path_id).unwrap().data,
-            now,
-        );
-
-        self.app_limited = transmit.is_empty() && !congestion_blocked;
-
-        // Send MTU probe if necessary
-        if transmit.is_empty() && self.state.is_established() {
-            // MTU probing happens only in Data space.
-            let space_id = SpaceId::Data;
-            path_id = *self.paths.first_key_value().expect("one path must exist").0;
-            let probe_data = loop {
-                // We MTU probe all paths for which all of the following is true:
-                // - We have an active destination CID for the path.
-                // - The remote address *and* path are validated.
-                // - The path is not abandoned.
-                // - The MTU Discovery subsystem wants to probe the path.
-                let active_cid = self.rem_cids.get(&path_id).map(CidQueue::active);
-                let eligible = self.path_data(path_id).validated
-                    && !self.path_data(path_id).is_validating_path()
-                    && !self.abandoned_paths.contains(&path_id);
-                let probe_size = eligible
-                    .then(|| {
-                        let next_pn = self.spaces[space_id].for_path(path_id).peek_tx_number();
-                        self.path_data_mut(path_id).mtud.poll_transmit(now, next_pn)
-                    })
-                    .flatten();
-                match (active_cid, probe_size) {
-                    (Some(active_cid), Some(probe_size)) => {
-                        // Let's send an MTUD probe!
-                        break Some((active_cid, probe_size));
-                    }
-                    _ => {
-                        // Find the next path to check if it needs an MTUD probe.
-                        match self.paths.keys().find(|&&next| next > path_id) {
-                            Some(next) => {
-                                path_id = *next;
-                                continue;
-                            }
-                            None => break None,
-                        }
-                    }
-                }
-            };
-            if let Some((active_cid, probe_size)) = probe_data {
-                // We are definitely sending a DPLPMTUD probe.
-                debug_assert_eq!(transmit.num_datagrams(), 0);
-                transmit.start_new_datagram_with_size(probe_size as usize);
-
-                let mut builder = PacketBuilder::new(
-                    now,
-                    space_id,
-                    path_id,
-                    active_cid,
-                    &mut transmit,
-                    true,
-                    self,
-                )?;
-
-                // We implement MTU probes as ping packets padded up to the probe size
-                trace!(?probe_size, "writing MTUD probe");
-                builder.write_frame(frame::Ping, &mut self.stats.frame_tx);
-
-                // If supported by the peer, we want no delays to the probe's ACK
-                if self.peer_supports_ack_frequency() {
-                    builder.write_frame(frame::ImmediateAck, &mut self.stats.frame_tx);
-                }
-
-                builder.finish_and_track(now, self, path_id, PadDatagram::ToSize(probe_size));
-
-                self.path_stats
-                    .entry(path_id)
-                    .or_default()
-                    .sent_plpmtud_probes += 1;
+            match (active_cid, probe_size) {
+                (Some(active_cid), Some(probe_size)) => Some((active_cid, probe_size)),
+                _ => None,
             }
+        };
+
+        // Let's send an MTUD probe!
+        if let Some((active_cid, probe_size)) = probe_data {
+            // We are definitely sending a DPLPMTUD probe.
+            debug_assert_eq!(transmit.num_datagrams(), 0);
+            transmit.start_new_datagram_with_size(probe_size as usize);
+
+            let Some(mut builder) =
+                PacketBuilder::new(now, space_id, path_id, active_cid, transmit, true, self)
+            else {
+                return;
+            };
+
+            // We implement MTU probes as ping packets padded up to the probe size
+            trace!(?probe_size, "writing MTUD probe");
+            builder.write_frame(frame::Ping, &mut self.stats.frame_tx);
+
+            // If supported by the peer, we want no delays to the probe's ACK
+            if self.peer_supports_ack_frequency() {
+                builder.write_frame(frame::ImmediateAck, &mut self.stats.frame_tx);
+            }
+
+            builder.finish_and_track(now, self, path_id, PadDatagram::ToSize(probe_size));
+
+            self.path_stats
+                .entry(path_id)
+                .or_default()
+                .sent_plpmtud_probes += 1;
         }
-
-        if transmit.is_empty() {
-            return None;
-        }
-
-        let network_path = self.path_data(path_id).network_path;
-        trace!(
-            segment_size = transmit.segment_size(),
-            last_datagram_len = transmit.len() % transmit.segment_size(),
-            %network_path,
-            "sending {} bytes in {} datagrams",
-            transmit.len(),
-            transmit.num_datagrams()
-        );
-        self.path_data_mut(path_id)
-            .inc_total_sent(transmit.len() as u64);
-
-        self.stats
-            .udp_tx
-            .on_sent(transmit.num_datagrams() as u64, transmit.len());
-
-        Some(Transmit {
-            destination: network_path.remote,
-            size: transmit.len(),
-            ecn: if self.path_data(path_id).sending_ecn {
-                Some(EcnCodepoint::Ect0)
-            } else {
-                None
-            },
-            segment_size: match transmit.num_datagrams() {
-                1 => None,
-                _ => Some(transmit.segment_size()),
-            },
-            src_ip: network_path.local_ip,
-        })
     }
 
     /// Returns the [`SpaceId`] of the next packet space which has data to send
