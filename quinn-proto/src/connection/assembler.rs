@@ -674,7 +674,7 @@ mod test {
 #[cfg(all(test, not(target_family = "wasm")))]
 mod proptests {
     use proptest::prelude::*;
-    use test_strategy::{proptest, Arbitrary};
+    use test_strategy::{Arbitrary, proptest};
 
     use super::*;
 
@@ -684,9 +684,17 @@ mod proptests {
     #[derive(Debug, Clone, Arbitrary)]
     enum Op {
         #[weight(10)]
-        Insert { #[strategy(0..MAX_OFFSET)] offset: u64, #[strategy(1..MAX_LEN)] len: usize },
+        Insert {
+            #[strategy(0..MAX_OFFSET)]
+            offset: u64,
+            #[strategy(1..MAX_LEN)]
+            len: usize,
+        },
         #[weight(10)]
-        Read { #[strategy(1..MAX_LEN)] max_len: usize },
+        Read {
+            #[strategy(1..MAX_LEN)]
+            max_len: usize,
+        },
         #[weight(1)]
         EnsureOrdering { ordered: bool },
         #[weight(1)]
