@@ -93,6 +93,7 @@ impl SendBufferData {
     /// Returns data which is associated with a range
     ///
     /// Requesting a range outside of the buffered data will panic.
+    #[cfg(any(test, feature = "bench"))]
     fn get(&self, offsets: Range<u64>) -> &[u8] {
         assert!(
             offsets.start >= self.range().start && offsets.end <= self.range().end,
@@ -244,6 +245,7 @@ impl SendBuffer {
     /// in noncontiguous fashion in the send buffer. In this case callers
     /// should call the function again with an incremented start offset to
     /// retrieve more data.
+    #[cfg(any(test, feature = "bench"))]
     pub(super) fn get(&self, offsets: Range<u64>) -> &[u8] {
         self.data.get(offsets)
     }
@@ -504,7 +506,7 @@ mod tests {
 #[cfg(feature = "bench")]
 pub mod send_buffer {
     //! Bench fns for SendBuffer
-    //! 
+    //!
     //! These are defined here and re-exported via `bench_exports` in lib.rs,
     //! so we can access the private `SendBuffer` struct.
     use bencher::Bencher;
@@ -529,7 +531,7 @@ pub mod send_buffer {
         bench.iter(|| {
             // Get from end (very slow - scans through all 1000 segments)
             tgt.clear();
-            buf.get_into( BYTES - PACKET_SIZE..BYTES, bencher::black_box(&mut tgt));
+            buf.get_into(BYTES - PACKET_SIZE..BYTES, bencher::black_box(&mut tgt));
         });
     }
 
