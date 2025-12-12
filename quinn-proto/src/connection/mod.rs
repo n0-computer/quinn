@@ -637,10 +637,9 @@ impl Connection {
             .paths
             .iter()
             // Other, non-abandoned, validated paths
-            .filter(|(id, path)| {
+            .find(|(id, path)| {
                 **id != path_id && !self.abandoned_paths.contains_key(*id) && path.data.validated
             })
-            .next()
             .is_none()
         {
             return Err(ClosePathError::LastOpenPath);
