@@ -80,6 +80,9 @@ impl SendBufferData {
             if self.last_segment.len() + data.len() > MAX_COMBINE && !self.last_segment.is_empty() {
                 self.segments.push_back(self.last_segment.split().freeze());
             }
+            // the reserve call is needed so the buffer will move the data to the front if there
+            // is enough space due to advance calls.
+            self.last_segment.reserve(data.len());
             self.last_segment.extend_from_slice(&data);
         }
     }
