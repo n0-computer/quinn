@@ -356,8 +356,8 @@ fn regression_packet_number_space_missing() {
 }
 
 #[test]
-fn regression_peer_ignored_path_abandon_frame() {
-    let prefix = "regression_peer_ignored_path_abandon_frame";
+fn regression_peer_failed_to_respond_with_path_abandon() {
+    let prefix = "regression_peer_failed_to_respond_with_path_abandon";
     let seed = [0u8; 32];
     let interactions = vec![
         TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
@@ -380,8 +380,8 @@ fn regression_peer_ignored_path_abandon_frame() {
 }
 
 #[test]
-fn regression_peer_ignored_path_abandon_frame2() {
-    let prefix = "regression_peer_ignored_path_abandon_frame2";
+fn regression_peer_failed_to_respond_with_path_abandon2() {
+    let prefix = "regression_peer_failed_to_respond_with_path_abandon2";
     let seed = [0u8; 32];
     let interactions = vec![
         TestOp::OpenPath(Side::Client, PathStatus::Available, 0),

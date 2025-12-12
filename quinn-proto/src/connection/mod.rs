@@ -3131,12 +3131,12 @@ impl Connection {
             .and_then(|path| path.data.last_allowed_receive)
         {
             if now > last_allowed_receive {
+                warn!("received data on path that was abandoned after 3 * PTO");
                 // The peer failed to respond with a PATH_ABANDON in time.
-                warn!("missing PATH_ABANDON from peer");
                 if !self.state.is_closed() {
                     // TODO(flub): What should the error code be?
                     self.state.move_to_closed(TransportError::NO_ERROR(
-                        "peer ignored PATH_ABANDON frame",
+                        "peer failed to respond with PATH_ABANDON in time",
                     ));
                     self.close_common();
                     self.set_close_timer(now);
