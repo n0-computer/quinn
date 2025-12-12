@@ -582,7 +582,7 @@ fn many_small_writes_delayed_acks() {
     // With O(n²) behavior and 500 segments, this could take 10-100ms
     // With O(n) or O(1), should be < 5ms
     // This is a performance regression test
-    println!(
+    info!(
         "Time to drive {} small writes with delayed ACKs: {:?}",
         NUM_WRITES, elapsed
     );
