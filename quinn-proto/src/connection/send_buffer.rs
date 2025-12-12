@@ -115,7 +115,7 @@ impl SendBufferData {
             segment_offset += segment.len();
         }
 
-        &[]
+        unreachable!("impossible if segments and range are consistent");
     }
 
     fn get_into(&self, offsets: Range<u64>, buf: &mut impl BufMut) {
@@ -485,5 +485,20 @@ mod tests {
 
     fn aggregate_unacked(buf: &SendBuffer) -> Vec<u8> {
         buf.data.to_vec()
+    }
+
+    #[test]
+    #[should_panic(expected = "Requested range is outside of buffered data")]
+    fn send_buffer_get_out_of_range() {
+        let data = SendBufferData::default();
+        data.get(0..1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Requested range is outside of buffered data")]
+    fn send_buffer_get_into_out_of_range() {
+        let data = SendBufferData::default();
+        let mut buf = Vec::new();
+        data.get_into(0..1, &mut buf);
     }
 }
