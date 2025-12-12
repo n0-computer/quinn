@@ -116,7 +116,7 @@ pub(crate) use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[cfg(feature = "bench")]
 pub mod bench_exports {
     //! Exports for benchmarks
-    pub use crate::connection::send_buffer::send_buffer;
+    pub use crate::connection::send_buffer::send_buffer_benches;
 }
 
 #[cfg(fuzzing)]

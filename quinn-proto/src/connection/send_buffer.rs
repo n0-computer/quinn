@@ -504,7 +504,7 @@ mod tests {
 }
 
 #[cfg(feature = "bench")]
-pub mod send_buffer {
+pub mod send_buffer_benches {
     //! Bench fns for SendBuffer
     //!
     //! These are defined here and re-exported via `bench_exports` in lib.rs,
