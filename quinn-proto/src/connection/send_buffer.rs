@@ -2,7 +2,7 @@ use std::{collections::VecDeque, ops::Range};
 
 use bytes::{Buf, BufMut, Bytes};
 
-use crate::{VarInt, range_set::RangeSet};
+use crate::{VarInt, range_set::ArrayRangeSet};
 
 /// Buffer of outgoing retransmittable stream data
 #[derive(Default, Debug)]
@@ -25,14 +25,14 @@ pub(super) struct SendBuffer {
     /// All ranges must be within `data.range().start..(data.range().end - unsent)`, since data
     /// that has never been sent can't be acknowledged.
     // TODO: Recover storage from these by compacting (#700)
-    acks: RangeSet,
+    acks: ArrayRangeSet,
     /// Previously transmitted ranges deemed lost and marked for retransmission
     ///
     /// All ranges must be within `data.range().start..(data.range().end - unsent)`, since data
     /// that has never been sent can't be retransmitted.
     ///
     /// This should usually ot overlap with `acks`, but this is not strictly enforced.
-    retransmits: RangeSet,
+    retransmits: ArrayRangeSet,
 }
 
 /// This is where the data of the send buffer lives. It supports appending at the end,
