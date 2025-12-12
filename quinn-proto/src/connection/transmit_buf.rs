@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use bytes::BufMut;
 use tracing::trace;
 
@@ -40,7 +42,7 @@ pub(super) struct TransmitBuf<'a> {
     /// size. All datagrams in between need to be exactly this size.
     buf_capacity: usize,
     /// The maximum number of datagrams allowed to write into [`TransmitBuf::buf`]
-    max_datagrams: usize,
+    max_datagrams: NonZeroUsize,
     /// The number of datagrams already (partially) written into the buffer
     ///
     /// Incremented by a call to [`TransmitBuf::start_new_datagram`].
@@ -57,7 +59,7 @@ pub(super) struct TransmitBuf<'a> {
 }
 
 impl<'a> TransmitBuf<'a> {
-    pub(super) fn new(buf: &'a mut Vec<u8>, max_datagrams: usize, mtu: usize) -> Self {
+    pub(super) fn new(buf: &'a mut Vec<u8>, max_datagrams: NonZeroUsize, mtu: usize) -> Self {
         Self {
             buf,
             datagram_start: 0,
@@ -106,12 +108,12 @@ impl<'a> TransmitBuf<'a> {
         // (e.g. purely containing ACKs), modern memory allocators (e.g. mimalloc and
         // jemalloc) will pool certain allocation sizes and therefore this is still rather
         // efficient.
-        let max_capacity_hint = self.max_datagrams * self.segment_size;
+        let max_capacity_hint = self.max_datagrams.get() * self.segment_size;
         self.new_datagram_inner(self.segment_size, max_capacity_hint)
     }
 
     fn new_datagram_inner(&mut self, datagram_size: usize, max_capacity_hint: usize) {
-        debug_assert!(self.num_datagrams < self.max_datagrams);
+        debug_assert!(self.num_datagrams < self.max_datagrams.into());
         if self.num_datagrams == 1 {
             // Set the segment size to the size of the first datagram.
             self.segment_size = self.buf.len();
@@ -121,7 +123,7 @@ impl<'a> TransmitBuf<'a> {
             if datagram_size < self.segment_size {
                 // If this is a GSO batch and this datagram is smaller than the segment
                 // size, this must be the last datagram in the batch.
-                self.max_datagrams = self.num_datagrams + 1;
+                self.max_datagrams = NonZeroUsize::new(self.num_datagrams + 1).expect("known");
             }
         }
         self.datagram_start = self.buf.len();
@@ -181,7 +183,7 @@ impl<'a> TransmitBuf<'a> {
     }
 
     /// Returns the maximum number of datagrams allowed to be written into the buffer
-    pub(super) fn max_datagrams(&self) -> usize {
+    pub(super) fn max_datagrams(&self) -> NonZeroUsize {
         self.max_datagrams
     }
 

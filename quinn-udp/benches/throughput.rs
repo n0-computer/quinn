@@ -2,6 +2,7 @@ use std::{
     cmp::min,
     io::{ErrorKind, IoSliceMut},
     net::{Ipv4Addr, Ipv6Addr, UdpSocket},
+    num::NonZeroUsize,
 };
 
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -54,9 +55,9 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let gso_segments = if gso_enabled {
             send_state.max_gso_segments()
         } else {
-            1
+            NonZeroUsize::new(1).expect("known")
         };
-        let msg = vec![0xAB; min(MAX_DATAGRAM_SIZE, SEGMENT_SIZE * gso_segments)];
+        let msg = vec![0xAB; min(MAX_DATAGRAM_SIZE, SEGMENT_SIZE * gso_segments.get())];
         let transmit = Transmit {
             destination: dst_addr,
             ecn: None,
@@ -67,13 +68,14 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let gro_segments = if gro_enabled {
             recv_state.gro_segments()
         } else {
-            1
+            NonZeroUsize::new(1).expect("known")
         };
         let batch_size = if recvmmsg_enabled { BATCH_SIZE } else { 1 };
 
         group.bench_function("throughput", |b| {
             b.to_async(&rt).iter(|| async {
-                let mut receive_buffers = vec![vec![0; SEGMENT_SIZE * gro_segments]; batch_size];
+                let mut receive_buffers =
+                    vec![vec![0; SEGMENT_SIZE * gro_segments.get()]; batch_size];
                 let mut receive_slices = receive_buffers
                     .iter_mut()
                     .map(|buf| IoSliceMut::new(buf))

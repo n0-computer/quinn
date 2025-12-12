@@ -295,9 +295,9 @@ impl UdpSocketState {
     ///
     /// Returns 1 if the platform doesn't support GRO.
     #[inline]
-    pub fn gro_segments(&self) -> usize {
+    pub fn gro_segments(&self) -> NonZeroUsize {
         // Arbitrary reasonable value inspired by Linux and msquic
-        64
+        NonZeroUsize::new(64).expect("known")
     }
 
     /// Resize the send buffer of `socket` to `bytes`

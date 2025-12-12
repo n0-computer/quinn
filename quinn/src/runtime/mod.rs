@@ -5,6 +5,7 @@ use std::{
     future::Future,
     io::{self, IoSliceMut},
     net::SocketAddr,
+    num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -65,8 +66,8 @@ pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
     fn local_addr(&self) -> io::Result<SocketAddr>;
 
     /// Maximum number of datagrams that might be described by a single [`RecvMeta`]
-    fn max_receive_segments(&self) -> usize {
-        1
+    fn max_receive_segments(&self) -> NonZeroUsize {
+        NonZeroUsize::new(1).expect("known")
     }
 
     /// Whether datagrams might get fragmented into multiple parts
@@ -100,8 +101,8 @@ pub trait UdpSender: Send + Sync + Debug + 'static {
     ) -> Poll<io::Result<()>>;
 
     /// Maximum number of datagrams that a [`Transmit`] may encode.
-    fn max_transmit_segments(&self) -> usize {
-        1
+    fn max_transmit_segments(&self) -> NonZeroUsize {
+        NonZeroUsize::new(1).expect("known")
     }
 }
 
@@ -195,7 +196,7 @@ where
         }
     }
 
-    fn max_transmit_segments(&self) -> usize {
+    fn max_transmit_segments(&self) -> NonZeroUsize {
         self.socket.max_transmit_segments()
     }
 }
@@ -212,7 +213,7 @@ trait UdpSenderHelperSocket: Send + Sync + 'static {
     fn try_send(&self, transmit: &udp::Transmit) -> io::Result<()>;
 
     /// See [`UdpSender::max_transmit_segments`].
-    fn max_transmit_segments(&self) -> usize;
+    fn max_transmit_segments(&self) -> NonZeroUsize;
 }
 
 /// Automatically select an appropriate runtime from those enabled at compile time
