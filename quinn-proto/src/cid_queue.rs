@@ -32,6 +32,9 @@ pub(crate) struct CidQueue {
     offset: u64,
     /// Circular index for the last reserved CID, i.e. a CID that is
     /// not active, but was used for probing packets on a different remote address.
+    ///
+    /// When [`Self::cursor_reserved`] and [`Self::cursor`] are equal, no CID is considered
+    /// reserved.
     cursor_reserved: usize,
 }
 
@@ -148,14 +151,15 @@ impl CidQueue {
     /// 1) the corresponding ResetToken and 2) a non-empty range preceding it to retire
     pub(crate) fn next(&mut self) -> Option<(ResetToken, Range<u64>)> {
         let (i, cid_data) = self.iter_from_reserved().nth(1)?;
-        for i in 0..=self.reserved_len() {
-            self.buffer[self.cursor + i] = None;
+        let reserved = self.reserved_len();
+        for j in 0..=reserved {
+            self.buffer[self.cursor + j] = None;
         }
-
         let orig_offset = self.offset;
-        self.offset += i as u64;
-        self.cursor = (self.cursor + i) % Self::LEN;
+        self.offset += (i + reserved) as u64;
+        self.cursor = (self.cursor_reserved + i) % Self::LEN;
         self.cursor_reserved = self.cursor;
+
         Some((cid_data.1.unwrap(), orig_offset..self.offset))
     }
 
@@ -180,7 +184,9 @@ impl CidQueue {
         })
     }
 
-    /// Iterate CIDs in CidQueue that are not `None`, including the active CID
+    /// Iterate CIDs in CidQueue that are not `None`, including the active CID.
+    ///
+    /// Along with the CID, it returns the offset counted from [`Self::cursor_reserved`] where the CID is stored.
     fn iter_from_reserved(&self) -> impl Iterator<Item = (usize, CidData)> + '_ {
         (0..(Self::LEN - self.reserved_len())).filter_map(move |step| {
             let index = (self.cursor_reserved + step) % Self::LEN;
@@ -232,7 +238,7 @@ mod tests {
         NewConnectionId {
             path_id: None,
             sequence,
-            id: ConnectionId::new(&[0xAB; 8]),
+            id: ConnectionId::new(&sequence.to_be_bytes()),
             reset_token: ResetToken::from([0xCD; crate::RESET_TOKEN_SIZE]),
             retire_prior_to,
         }
