@@ -7,21 +7,33 @@ use crate::{VarInt, range_set::RangeSet};
 /// Buffer of outgoing retransmittable stream data
 #[derive(Default, Debug)]
 pub(super) struct SendBuffer {
-    /// Data queued by the application but not yet acknowledged. May or may not have been sent.
-    unacked_segments: VecDeque<Bytes>,
-    /// Total size of `unacked_segments`
-    unacked_len: usize,
-    /// The first offset that hasn't been written by the application, i.e. the offset past the end of `unacked`
-    offset: u64,
-    /// The first offset that hasn't been sent
+    /// Data queued by the application that has to be retained for resends.
     ///
-    /// Always lies in (offset - unacked.len())..offset
+    /// Only data up to the highest contiguous acknowledged offset can be discarded.
+    /// We could discard acknowledged in this buffer, but it would require a more
+    /// complex data structure. Instead, we track acknowledged ranges in `acks`.
+    buffered_segments: VecDeque<Bytes>,
+    /// Total size of `buffered_segments`
+    buffered_len: usize,
+    /// The first offset that hasn't been written by the application, i.e. the offset past the end of `buffered_segments`
+    offset: u64,
+    /// The first offset that hasn't been sent even once
+    ///
+    /// Always lies in (offset - buffered_len)..offset
     unsent: u64,
     /// Acknowledged ranges which couldn't be discarded yet as they don't include the earliest
     /// offset in `unacked`
+    ///
+    /// All ranges must be within (offset - buffered_len)..(offset-unsent), since data
+    /// that has never been sent can't be acknowledged.
     // TODO: Recover storage from these by compacting (#700)
     acks: RangeSet,
-    /// Previously transmitted ranges deemed lost
+    /// Previously transmitted ranges deemed lost and marked for retransmission
+    ///
+    /// All ranges must be within (offset - buffered_len)..unsent, since data
+    /// that has never been sent can't be retransmitted.
+    ///
+    /// This should usually ot overlap with `acks`, but this is not strictly enforced.
     retransmits: RangeSet,
 }
 
@@ -33,37 +45,37 @@ impl SendBuffer {
 
     /// Append application data to the end of the stream
     pub(super) fn write(&mut self, data: Bytes) {
-        self.unacked_len += data.len();
+        self.buffered_len += data.len();
         self.offset += data.len() as u64;
-        self.unacked_segments.push_back(data);
+        self.buffered_segments.push_back(data);
     }
 
     /// Discard a range of acknowledged stream data
     pub(super) fn ack(&mut self, mut range: Range<u64>) {
         // Clamp the range to data which is still tracked
-        let base_offset = self.offset - self.unacked_len as u64;
+        let base_offset = self.offset - self.buffered_len as u64;
         range.start = base_offset.max(range.start);
         range.end = base_offset.max(range.end);
 
         self.acks.insert(range);
 
-        while self.acks.min() == Some(self.offset - self.unacked_len as u64) {
+        while self.acks.min() == Some(self.offset - self.buffered_len as u64) {
             let prefix = self.acks.pop_min().unwrap();
             let mut to_advance = (prefix.end - prefix.start) as usize;
 
-            self.unacked_len -= to_advance;
+            self.buffered_len -= to_advance;
             while to_advance > 0 {
                 let front = self
-                    .unacked_segments
+                    .buffered_segments
                     .front_mut()
                     .expect("Expected buffered data");
 
                 if front.len() <= to_advance {
                     to_advance -= front.len();
-                    self.unacked_segments.pop_front();
+                    self.buffered_segments.pop_front();
 
-                    if self.unacked_segments.len() * 4 < self.unacked_segments.capacity() {
-                        self.unacked_segments.shrink_to_fit();
+                    if self.buffered_segments.len() * 4 < self.buffered_segments.capacity() {
+                        self.buffered_segments.shrink_to_fit();
                     }
                 } else {
                     front.advance(to_advance);
@@ -137,10 +149,10 @@ impl SendBuffer {
     /// should call the function again with an incremented start offset to
     /// retrieve more data.
     pub(super) fn get(&self, offsets: Range<u64>) -> &[u8] {
-        let base_offset = self.offset - self.unacked_len as u64;
+        let base_offset = self.offset - self.buffered_len as u64;
 
         let mut segment_offset = base_offset;
-        for segment in self.unacked_segments.iter() {
+        for segment in self.buffered_segments.iter() {
             if offsets.start >= segment_offset
                 && offsets.start < segment_offset + segment.len() as u64
             {
@@ -162,7 +174,7 @@ impl SendBuffer {
     }
 
     pub(super) fn retransmit_all_for_0rtt(&mut self) {
-        debug_assert_eq!(self.offset, self.unacked_len as u64);
+        debug_assert_eq!(self.offset, self.buffered_len as u64);
         self.unsent = 0;
     }
 
@@ -174,7 +186,7 @@ impl SendBuffer {
 
     /// Whether all sent data has been acknowledged
     pub(super) fn is_fully_acked(&self) -> bool {
-        self.unacked_len == 0
+        self.buffered_len == 0
     }
 
     /// Whether there's data to send
@@ -186,7 +198,7 @@ impl SendBuffer {
 
     /// Compute the amount of data that hasn't been acknowledged
     pub(super) fn unacked(&self) -> u64 {
-        self.unacked_len as u64 - self.acks.iter().map(|x| x.end - x.start).sum::<u64>()
+        self.buffered_len as u64 - self.acks.iter().map(|x| x.end - x.start).sum::<u64>()
     }
 }
 
@@ -386,7 +398,7 @@ mod tests {
 
     fn aggregate_unacked(buf: &SendBuffer) -> Vec<u8> {
         let mut result = Vec::new();
-        for segment in buf.unacked_segments.iter() {
+        for segment in buf.buffered_segments.iter() {
             result.extend_from_slice(&segment[..]);
         }
         result
