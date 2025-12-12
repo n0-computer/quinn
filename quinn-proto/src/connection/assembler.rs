@@ -674,7 +674,7 @@ mod test {
 #[cfg(all(test, not(target_family = "wasm")))]
 mod proptests {
     use proptest::prelude::*;
-    use test_strategy::proptest;
+    use test_strategy::{proptest, Arbitrary};
 
     use super::*;
 
@@ -689,6 +689,8 @@ mod proptests {
         Read { #[strategy(1..MAX_LEN)] max_len: usize },
         #[weight(1)]
         EnsureOrdering { ordered: bool },
+        #[weight(1)]
+        Defragment,
     }
 
     /// Tracks the state of the assembler for verification
@@ -751,7 +753,7 @@ mod proptests {
 
     #[proptest]
     fn assembler_matches_reference(
-        #[strategy(proptest::collection::vec(op_strategy(), 1..100))] ops: Vec<Op>,
+        #[strategy(proptest::collection::vec(any::<Op>(), 1..100))] ops: Vec<Op>,
     ) {
         let data = make_data();
         let mut asm = Assembler::new();
@@ -814,6 +816,11 @@ mod proptests {
                     let actual = asm.ensure_ordering(ordered).is_ok();
                     let expected = reference.ensure_ordering(ordered);
                     prop_assert_eq!(actual, expected, "ensure_ordering result mismatch");
+                }
+                Op::Defragment => {
+                    if asm.state.is_ordered() {
+                        asm.defragment();
+                    }
                 }
             }
         }
