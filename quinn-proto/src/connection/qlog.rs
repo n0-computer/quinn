@@ -315,7 +315,7 @@ impl QlogSink {
                 PathTimer::PathKeepAlive => Some(TimerType::custom("path_keep_alive")),
                 PathTimer::Pacing => Some(TimerType::custom("pacing")),
                 PathTimer::MaxAckDelay => Some(QlogTimerType::Ack.into()),
-                PathTimer::DiscardPath => Some(TimerType::custom("forget_path")),
+                PathTimer::DiscardPath => Some(TimerType::custom("discard_path")),
             },
         };
 
