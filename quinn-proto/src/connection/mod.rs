@@ -5,6 +5,7 @@ use std::{
     fmt, io, mem,
     net::{IpAddr, SocketAddr},
     num::NonZeroU32,
+    ops::Not,
     sync::Arc,
 };
 
@@ -637,10 +638,10 @@ impl Connection {
             .paths
             .iter()
             // Other, non-abandoned, validated paths
-            .find(|(id, path)| {
-                **id != path_id && !self.abandoned_paths.contains_key(*id) && path.data.validated
+            .any(|(id, path)| {
+                *id != path_id && !self.abandoned_paths.contains_key(id) && path.data.validated
             })
-            .is_none()
+            .not()
         {
             return Err(ClosePathError::LastOpenPath);
         }
