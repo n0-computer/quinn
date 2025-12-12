@@ -35,6 +35,7 @@ tracing-log = ["tracing/log"]
 rustls-log = ["rustls?/logging"]
 # Enable qlog support
 qlog = ["dep:qlog"]
+bench = ["dep:bencher"]
 
 # Internal (PRIVATE!) features used to aid testing.
 # Don't rely on these whatsoever. They may disappear at any time.
@@ -44,6 +45,7 @@ __rustls-post-quantum-test =  []
 [dependencies]
 arbitrary = { workspace = true, optional = true }
 aws-lc-rs = { workspace = true, optional = true }
+bencher = { workspace = true, optional = true }
 bytes = { workspace = true }
 fastbloom = { workspace = true, optional = true }
 identity-hash = { workspace = true }
@@ -81,6 +83,11 @@ wasm-bindgen-test = { workspace = true }
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
 proptest = { workspace = true }
 test-strategy = { workspace = true }
+
+[[bench]]
+name = "send_buffer"
+harness = false
+required-features = ["bench"]
 
 [lints.rust]
 # https://rust-fuzz.github.io/book/cargo-fuzz/guide.html#cfgfuzzing

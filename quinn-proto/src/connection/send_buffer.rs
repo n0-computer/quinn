@@ -93,7 +93,6 @@ impl SendBufferData {
     /// Returns data which is associated with a range
     ///
     /// Requesting a range outside of the buffered data will panic.
-    #[cfg(test)]
     fn get(&self, offsets: Range<u64>) -> &[u8] {
         assert!(
             offsets.start >= self.range().start && offsets.end <= self.range().end,
@@ -245,7 +244,6 @@ impl SendBuffer {
     /// in noncontiguous fashion in the send buffer. In this case callers
     /// should call the function again with an incremented start offset to
     /// retrieve more data.
-    #[cfg(test)]
     pub(super) fn get(&self, offsets: Range<u64>) -> &[u8] {
         self.data.get(offsets)
     }
@@ -500,5 +498,65 @@ mod tests {
         let data = SendBufferData::default();
         let mut buf = Vec::new();
         data.get_into(0..1, &mut buf);
+    }
+}
+
+#[cfg(feature = "bench")]
+pub mod send_buffer {
+    //! Bench fns for SendBuffer
+    //! 
+    //! These are defined here and re-exported via `bench_exports` in lib.rs,
+    //! so we can access the private `SendBuffer` struct.
+    use bencher::Bencher;
+    use bytes::Bytes;
+    use super::SendBuffer;
+
+    /// Pathological case: many segments, get from end
+    pub fn get_into_many_segments(bench: &mut Bencher) {
+        let mut buf = SendBuffer::new();
+
+        const SEGMENTS: u64 = 10000;
+        const SEGMENT_SIZE: u64 = 10;
+        const PACKET_SIZE: u64 = 1200;
+        const BYTES: u64 = SEGMENTS * SEGMENT_SIZE;
+
+        // 10000 segments of 10 bytes each = 100KB total (same data size)
+        for i in 0..SEGMENTS {
+            buf.write(Bytes::from(vec![i as u8; SEGMENT_SIZE as usize]));
+        }
+
+        let mut tgt = Vec::with_capacity(PACKET_SIZE as usize);
+        bench.iter(|| {
+            // Get from end (very slow - scans through all 1000 segments)
+            tgt.clear();
+            buf.get_into( BYTES - PACKET_SIZE..BYTES, bencher::black_box(&mut tgt));
+        });
+    }
+
+    /// Get segments in the old way, using a loop of get calls
+    pub fn get_loop_many_segments(bench: &mut Bencher) {
+        let mut buf = SendBuffer::new();
+
+        const SEGMENTS: u64 = 10000;
+        const SEGMENT_SIZE: u64 = 10;
+        const PACKET_SIZE: u64 = 1200;
+        const BYTES: u64 = SEGMENTS * SEGMENT_SIZE;
+
+        // 10000 segments of 10 bytes each = 100KB total (same data size)
+        for i in 0..SEGMENTS {
+            buf.write(Bytes::from(vec![i as u8; SEGMENT_SIZE as usize]));
+        }
+
+        let mut tgt = Vec::with_capacity(PACKET_SIZE as usize);
+        bench.iter(|| {
+            // Get from end (very slow - scans through all 1000 segments)
+            tgt.clear();
+            let mut range = BYTES - PACKET_SIZE..BYTES;
+            while range.start < range.end {
+                let slice = bencher::black_box(buf.get(range.clone()));
+                range.start += slice.len() as u64;
+                tgt.extend_from_slice(slice);
+            }
+        });
     }
 }

@@ -73,8 +73,7 @@ pub use paths::{ClosedPath, PathEvent, PathId, PathStatus, RttEstimator, SetPath
 use paths::{PathData, PathState};
 
 pub(crate) mod qlog;
-
-mod send_buffer;
+pub(crate) mod send_buffer;
 
 mod spaces;
 #[cfg(fuzzing)]

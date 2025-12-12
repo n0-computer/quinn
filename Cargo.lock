@@ -1486,6 +1486,7 @@ dependencies = [
  "arbitrary",
  "assert_matches",
  "aws-lc-rs",
+ "bencher",
  "bytes",
  "derive_more",
  "fastbloom",
