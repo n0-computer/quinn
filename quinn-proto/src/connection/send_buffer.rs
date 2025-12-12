@@ -12,9 +12,7 @@ pub(super) struct SendBuffer {
     /// Only data up to the highest contiguous acknowledged offset can be discarded.
     /// We could discard acknowledged in this buffer, but it would require a more
     /// complex data structure. Instead, we track acknowledged ranges in `acks`.
-    buffered_segments: VecDeque<Bytes>,
-    /// Total size of `buffered_segments`
-    buffered_len: usize,
+    buffered_segments: SendBufferData,
     /// The first offset that hasn't been written by the application, i.e. the offset past the end of `buffered_segments`
     offset: u64,
     /// The first offset that hasn't been sent even once
@@ -37,6 +35,85 @@ pub(super) struct SendBuffer {
     retransmits: RangeSet,
 }
 
+/// This is where the data of the send buffer lives. It supports appending at the end,
+/// removing from the front, and retrieving data by range.
+#[derive(Default, Debug)]
+struct SendBufferData {
+    segments: VecDeque<Bytes>,
+    /// Total size of `buffered_segments`
+    len: usize,
+}
+
+impl SendBufferData {
+    /// Total size of buffered data
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Append data to the end of the buffer
+    fn append(&mut self, data: Bytes) {
+        self.len += data.len();
+        self.segments.push_back(data);
+    }
+
+    /// Discard data from the front of the buffer
+    ///
+    /// Calling this with n > len() is allowed and will simply clear the buffer.
+    fn pop_front(&mut self, n: usize) {
+        let mut n = n.min(self.len);
+        self.len -= n;
+        while n > 0 {
+            let front = self
+                .segments
+                .front_mut()
+                .expect("Expected buffered data");
+
+            if front.len() <= n {
+                // Remove the whole front segment
+                n -= front.len();
+                self.segments.pop_front();
+            } else {
+                // Advance within the front segment
+                front.advance(n);
+                n = 0;
+            }
+        }
+        if self.segments.len() * 4 < self.segments.capacity() {
+            self.segments.shrink_to_fit();
+        }
+    }
+
+    /// Returns data which is associated with a range
+    ///
+    /// Requesting a range outside of the buffered data will return an empty slice.
+    fn get(&self, offsets: Range<u64>) -> &[u8] {
+        let mut segment_offset = 0;
+        for segment in self.segments.iter() {
+            if offsets.start >= segment_offset
+                && offsets.start < segment_offset + segment.len() as u64
+            {
+                let start = (offsets.start - segment_offset) as usize;
+                let end = (offsets.end - segment_offset) as usize;
+
+                return &segment[start..end.min(segment.len())];
+            }
+            segment_offset += segment.len() as u64;
+        }
+
+        &[]
+    }
+
+    #[cfg(test)]
+    fn to_vec(&self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(self.len);
+        for segment in self.segments.iter() {
+            result.extend_from_slice(&segment[..]);
+        }
+        result
+    }
+}
+
+
 impl SendBuffer {
     /// Construct an empty buffer at the initial offset
     pub(super) fn new() -> Self {
@@ -45,43 +122,23 @@ impl SendBuffer {
 
     /// Append application data to the end of the stream
     pub(super) fn write(&mut self, data: Bytes) {
-        self.buffered_len += data.len();
         self.offset += data.len() as u64;
-        self.buffered_segments.push_back(data);
+        self.buffered_segments.append(data);
     }
 
     /// Discard a range of acknowledged stream data
     pub(super) fn ack(&mut self, mut range: Range<u64>) {
         // Clamp the range to data which is still tracked
-        let base_offset = self.offset - self.buffered_len as u64;
+        let base_offset = self.offset - self.buffered_segments.len() as u64;
         range.start = base_offset.max(range.start);
         range.end = base_offset.max(range.end);
 
         self.acks.insert(range);
 
-        while self.acks.min() == Some(self.offset - self.buffered_len as u64) {
+        while self.acks.min() == Some(self.offset - self.buffered_segments.len() as u64) {
             let prefix = self.acks.pop_min().unwrap();
-            let mut to_advance = (prefix.end - prefix.start) as usize;
-
-            self.buffered_len -= to_advance;
-            while to_advance > 0 {
-                let front = self
-                    .buffered_segments
-                    .front_mut()
-                    .expect("Expected buffered data");
-
-                if front.len() <= to_advance {
-                    to_advance -= front.len();
-                    self.buffered_segments.pop_front();
-
-                    if self.buffered_segments.len() * 4 < self.buffered_segments.capacity() {
-                        self.buffered_segments.shrink_to_fit();
-                    }
-                } else {
-                    front.advance(to_advance);
-                    to_advance = 0;
-                }
-            }
+            let to_advance = (prefix.end - prefix.start) as usize;
+            self.buffered_segments.pop_front(to_advance);
         }
     }
 
@@ -149,22 +206,12 @@ impl SendBuffer {
     /// should call the function again with an incremented start offset to
     /// retrieve more data.
     pub(super) fn get(&self, offsets: Range<u64>) -> &[u8] {
-        let base_offset = self.offset - self.buffered_len as u64;
-
-        let mut segment_offset = base_offset;
-        for segment in self.buffered_segments.iter() {
-            if offsets.start >= segment_offset
-                && offsets.start < segment_offset + segment.len() as u64
-            {
-                let start = (offsets.start - segment_offset) as usize;
-                let end = (offsets.end - segment_offset) as usize;
-
-                return &segment[start..end.min(segment.len())];
-            }
-            segment_offset += segment.len() as u64;
-        }
-
-        &[]
+        let base_offset = self.offset - self.buffered_segments.len() as u64;
+        let offsets = Range {
+            start: offsets.start.saturating_sub(base_offset),
+            end: offsets.end.saturating_sub(base_offset),
+        };
+        self.buffered_segments.get(offsets)
     }
 
     /// Queue a range of sent but unacknowledged data to be retransmitted
@@ -174,7 +221,7 @@ impl SendBuffer {
     }
 
     pub(super) fn retransmit_all_for_0rtt(&mut self) {
-        debug_assert_eq!(self.offset, self.buffered_len as u64);
+        debug_assert_eq!(self.offset, self.buffered_segments.len() as u64);
         self.unsent = 0;
     }
 
@@ -186,7 +233,7 @@ impl SendBuffer {
 
     /// Whether all sent data has been acknowledged
     pub(super) fn is_fully_acked(&self) -> bool {
-        self.buffered_len == 0
+        self.buffered_segments.len() == 0
     }
 
     /// Whether there's data to send
@@ -198,7 +245,7 @@ impl SendBuffer {
 
     /// Compute the amount of data that hasn't been acknowledged
     pub(super) fn unacked(&self) -> u64 {
-        self.buffered_len as u64 - self.acks.iter().map(|x| x.end - x.start).sum::<u64>()
+        self.buffered_segments.len() as u64 - self.acks.iter().map(|x| x.end - x.start).sum::<u64>()
     }
 }
 
@@ -397,10 +444,6 @@ mod tests {
     }
 
     fn aggregate_unacked(buf: &SendBuffer) -> Vec<u8> {
-        let mut result = Vec::new();
-        for segment in buf.buffered_segments.iter() {
-            result.extend_from_slice(&segment[..]);
-        }
-        result
+        buf.buffered_segments.to_vec()
     }
 }
