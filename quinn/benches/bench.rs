@@ -1,8 +1,16 @@
 use std::{
-    net::{IpAddr, Ipv6Addr, SocketAddr, UdpSocket},
+    net::SocketAddr,
+    pin::Pin,
     sync::Arc,
+    task::{Poll, ready},
     thread,
 };
+
+use bytes::Bytes;
+use quinn::AsyncUdpSocket;
+use tokio::sync::mpsc;
+use tokio_util::sync::PollSender;
+use udp::{EcnCodepoint, Transmit};
 
 use bencher::{Bencher, benchmark_group, benchmark_main};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
@@ -11,6 +19,223 @@ use tracing::error_span;
 use tracing_futures::Instrument as _;
 
 use iroh_quinn::{self as quinn, Endpoint, TokioRuntime};
+
+pub struct TestAddr(pub u8);
+
+impl From<TestAddr> for SocketAddr {
+    fn from(TestAddr(id): TestAddr) -> Self {
+        ([1, 1, 1, id], 42u16).into()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OwnedTransmit {
+    pub destination: SocketAddr,
+    pub ecn: Option<EcnCodepoint>,
+    pub contents: Bytes,
+    pub segment_size: Option<usize>,
+    pub src_ip: SocketAddr,
+}
+
+impl OwnedTransmit {
+    fn new(src: SocketAddr, t: &udp::Transmit) -> Self {
+        Self {
+            destination: t.destination,
+            ecn: t.ecn.clone(),
+            contents: Bytes::copy_from_slice(t.contents),
+            segment_size: t.segment_size.clone(),
+            src_ip: SocketAddr::new(t.src_ip.unwrap_or(src.ip()), src.port()),
+        }
+    }
+
+    fn as_quinn_transmit(&self) -> Transmit<'_> {
+        Transmit {
+            destination: self.destination,
+            ecn: self.ecn,
+            contents: self.contents.as_ref(),
+            segment_size: self.segment_size.clone(),
+            src_ip: Some(self.src_ip.ip()),
+        }
+    }
+
+    fn receive_into(
+        &self,
+        buf: &mut std::io::IoSliceMut<'_>,
+        meta: &mut udp::RecvMeta,
+    ) -> std::io::Result<()> {
+        buf[..self.contents.len()].copy_from_slice(&self.contents);
+        meta.addr = self.src_ip;
+        meta.dst_ip = Some(self.destination.ip());
+        meta.len = self.contents.len();
+        meta.stride = self.contents.len();
+        meta.ecn = self.ecn;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct VirtualSocket {
+    pub addr: SocketAddr,
+    sender: mpsc::Sender<OwnedTransmit>,
+    receiver: mpsc::Receiver<OwnedTransmit>,
+}
+
+#[derive(Debug)]
+pub struct VirtualSocketSender {
+    addr: SocketAddr,
+    sender: PollSender<OwnedTransmit>,
+}
+
+impl VirtualSocket {
+    pub fn pair(addr0: impl Into<SocketAddr>, addr1: impl Into<SocketAddr>) -> (Self, Self) {
+        let zero_to_one = mpsc::channel(150); // Default UDP buffer size in linux is ~213KB, which would hold about 150 datagrams
+        let one_to_zero = mpsc::channel(150); // Default UDP buffer size in linux is ~213KB, which would hold about 150 datagrams
+        (
+            Self {
+                addr: addr0.into(),
+                sender: zero_to_one.0,
+                receiver: one_to_zero.1,
+            },
+            Self {
+                addr: addr1.into(),
+                sender: one_to_zero.0,
+                receiver: zero_to_one.1,
+            },
+        )
+    }
+
+    pub fn new(
+        addr: impl Into<SocketAddr>,
+        sender: mpsc::Sender<OwnedTransmit>,
+        receiver: mpsc::Receiver<OwnedTransmit>,
+    ) -> Self {
+        Self {
+            addr: addr.into(),
+            sender,
+            receiver,
+        }
+    }
+
+    pub async fn receive_datagram(&mut self) -> std::io::Result<(SocketAddr, Bytes)> {
+        use std::io::IoSliceMut;
+
+        let mut buf = [0u8; 1200];
+        let mut bufs = [IoSliceMut::new(&mut buf)];
+        let mut meta = [udp::RecvMeta::default()];
+
+        let num_datagrams =
+            std::future::poll_fn(|cx| self.poll_recv(cx, &mut bufs, &mut meta)).await?;
+
+        debug_assert_eq!(num_datagrams, 1); // we don't support GSO/GRO(?)
+
+        Ok((meta[0].addr, Bytes::copy_from_slice(&buf[..meta[0].len])))
+    }
+
+    pub async fn send_datagram(
+        &self,
+        destination: impl Into<SocketAddr>,
+        contents: Bytes,
+    ) -> std::io::Result<()> {
+        let transmit = OwnedTransmit {
+            contents,
+            destination: destination.into(),
+            ecn: None,
+            segment_size: None,
+            src_ip: self.addr,
+        };
+
+        let mut socket_sender = self.create_sender();
+        std::future::poll_fn(|cx| {
+            socket_sender
+                .as_mut()
+                .poll_send(&transmit.as_quinn_transmit(), cx)
+        })
+        .await?;
+
+        Ok(())
+    }
+}
+
+impl quinn::UdpSender for VirtualSocketSender {
+    fn max_transmit_segments(&self) -> usize {
+        1
+    }
+
+    fn poll_send(
+        mut self: Pin<&mut Self>,
+        transmit: &Transmit,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        if let Err(_closed) = std::task::ready!(self.as_mut().sender.poll_reserve(cx)) {
+            return Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "virtual socket closed when sending",
+            )));
+        }
+
+        let addr = self.addr;
+        if let Err(_closed) = self
+            .as_mut()
+            .sender
+            .send_item(OwnedTransmit::new(addr, transmit))
+        {
+            return Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "virtual socket closed when sending",
+            )));
+        }
+
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl AsyncUdpSocket for VirtualSocket {
+    fn create_sender(&self) -> Pin<Box<dyn iroh_quinn::UdpSender>> {
+        Box::pin(VirtualSocketSender {
+            addr: self.addr,
+            sender: PollSender::new(self.sender.clone()),
+        })
+    }
+
+    fn poll_recv(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        bufs: &mut [std::io::IoSliceMut<'_>],
+        meta: &mut [udp::RecvMeta],
+    ) -> Poll<std::io::Result<usize>> {
+        let mut transmits = Vec::new();
+        let recvd = ready!(self.receiver.poll_recv_many(cx, &mut transmits, bufs.len()));
+        if recvd == 0 {
+            return Poll::Pending;
+            // return Poll::Ready(Err(std::io::Error::new(
+            //     std::io::ErrorKind::BrokenPipe,
+            //     "virtual socket closed when receiving",
+            // )));
+        }
+
+        for ((t, buf), meta) in transmits
+            .into_iter()
+            .zip(bufs.iter_mut())
+            .zip(meta.iter_mut())
+        {
+            if buf.len() >= t.contents.len() {
+                // tracing::debug!(
+                //     "Received from {:?} to {:?}: {} bytes",
+                //     t.src_ip,
+                //     t.destination,
+                //     t.contents.len()
+                // );
+                t.receive_into(buf, meta)?;
+            }
+        }
+
+        Poll::Ready(Ok(recvd))
+    }
+
+    fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+        Ok(self.addr)
+    }
+}
 
 benchmark_group!(
     benches,
@@ -40,9 +265,10 @@ fn small_data_100_streams(bench: &mut Bencher) {
 fn send_data(bench: &mut Bencher, data: &'static [u8], concurrent_streams: usize) {
     let _ = tracing_subscriber::fmt::try_init();
 
+    let (client_sock, server_sock) = VirtualSocket::pair(TestAddr(0), TestAddr(1));
     let ctx = Context::new();
-    let (addr, thread) = ctx.spawn_server();
-    let (endpoint, client, runtime) = ctx.make_client(addr);
+    let (addr, thread) = ctx.spawn_server(server_sock);
+    let (endpoint, client, runtime) = ctx.make_client(client_sock, addr);
     let client = Arc::new(client);
 
     bench.bytes = (data.len() as u64) * (concurrent_streams as u64);
@@ -96,18 +322,17 @@ impl Context {
         }
     }
 
-    pub fn spawn_server(&self) -> (SocketAddr, thread::JoinHandle<()>) {
-        let sock = UdpSocket::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0)).unwrap();
+    pub fn spawn_server(&self, sock: VirtualSocket) -> (SocketAddr, thread::JoinHandle<()>) {
         let addr = sock.local_addr().unwrap();
         let config = self.server_config.clone();
         let handle = thread::spawn(move || {
             let runtime = rt();
             let endpoint = {
                 let _guard = runtime.enter();
-                Endpoint::new(
+                Endpoint::new_with_abstract_socket(
                     Default::default(),
                     Some(config),
-                    sock,
+                    Box::new(sock),
                     Arc::new(TokioRuntime),
                 )
                 .unwrap()
@@ -141,12 +366,19 @@ impl Context {
 
     pub fn make_client(
         &self,
+        sock: VirtualSocket,
         server_addr: SocketAddr,
     ) -> (quinn::Endpoint, quinn::Connection, Runtime) {
         let runtime = rt();
         let endpoint = {
             let _guard = runtime.enter();
-            Endpoint::client(SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0)).unwrap()
+            Endpoint::new_with_abstract_socket(
+                Default::default(),
+                None,
+                Box::new(sock),
+                Arc::new(TokioRuntime),
+            )
+            .unwrap()
         };
         let connection = runtime
             .block_on(async {
@@ -162,7 +394,7 @@ impl Context {
 }
 
 fn rt() -> Runtime {
-    Builder::new_current_thread().enable_all().build().unwrap()
+    Builder::new_multi_thread().enable_all().build().unwrap()
 }
 
 const LARGE_DATA: &[u8] = &[0xAB; 1024 * 1024];

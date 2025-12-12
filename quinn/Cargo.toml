@@ -98,6 +98,7 @@ tracing-subscriber = { workspace = true }
 tracing-futures = { workspace = true }
 url = { workspace = true }
 tokio-stream = "0.1.15"
+tokio-util = { version = "0.7.15", features = ["rt"] }
 
 [build-dependencies]
 cfg_aliases = { workspace = true }
