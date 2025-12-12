@@ -74,10 +74,10 @@ fn random_interaction(
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-    prop_assert!(not_transport_error(poll_to_close(
+    prop_assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    prop_assert!(not_transport_error(poll_to_close(
+    prop_assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
 }
@@ -94,10 +94,10 @@ fn random_interaction_with_multipath_simple_routing(
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-    prop_assert!(not_transport_error(poll_to_close(
+    prop_assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    prop_assert!(not_transport_error(poll_to_close(
+    prop_assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
 }
@@ -137,10 +137,10 @@ fn random_interaction_with_multipath_complex_routing(
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-    prop_assert!(not_transport_error(poll_to_close(
+    prop_assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    prop_assert!(not_transport_error(poll_to_close(
+    prop_assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
 }
@@ -156,10 +156,17 @@ fn old_routing_table() -> RoutingTable {
     routes
 }
 
-fn not_transport_error(err: Option<ConnectionError>) -> bool {
+/// In proptests, we only allow connection errors that don't indicate erroring out
+/// because we think we're working with another implementation that isn't protocol-
+/// abiding. If we think that, clearly something is wrong, given we're controlling
+/// both ends of the connection.
+fn allowed_error(err: Option<ConnectionError>) -> bool {
     match err {
         None => true,
-        Some(ConnectionError::TransportError(_)) => false,
+        Some(ConnectionError::TransportError(err)) => {
+            // keep in sync with connection/mod.rs
+            &err.reason == "last path abandoned by peer"
+        }
         Some(ConnectionError::ConnectionClosed(ConnectionClose { error_code, .. })) => {
             error_code != TransportErrorCode::PROTOCOL_VIOLATION
         }
@@ -203,10 +210,10 @@ fn regression_unset_packet_acked() {
     let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, cfg);
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
 }
@@ -232,10 +239,10 @@ fn regression_invalid_key() {
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
 }
@@ -260,10 +267,10 @@ fn regression_key_update_error() {
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
 }
@@ -285,10 +292,10 @@ fn regression_never_idle() {
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
 }
@@ -313,10 +320,10 @@ fn regression_never_idle2() {
 
     // We needed to increase the bounds. It eventually times out.
     assert!(!pair.drive_bounded(1000), "connection never became idle");
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
 }
@@ -340,10 +347,10 @@ fn regression_packet_number_space_missing() {
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
 }
@@ -364,10 +371,10 @@ fn regression_peer_ignored_path_abandon_frame() {
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
 }
@@ -395,10 +402,10 @@ fn regression_peer_ignored_path_abandon_frame2() {
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(not_transport_error(poll_to_close(
+    assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
 }
