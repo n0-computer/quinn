@@ -232,6 +232,7 @@ pub(crate) enum InsertError {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     fn cid(sequence: u64, retire_prior_to: u64) -> NewConnectionId {
@@ -493,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn reserve_insert_advance() {
+    fn insert_reserve_advance() {
         let mut q = CidQueue::new(initial_cid());
 
         let first = cid(1, 0);
@@ -507,5 +508,22 @@ mod tests {
         q.insert(third).unwrap();
         q.next();
         assert_eq!(q.active(), second.id);
+    }
+
+    #[test]
+    fn sparse_insert_reserve_insert_advance() {
+        let mut q = CidQueue::new(initial_cid());
+
+        let one = cid(1, 0);
+        let two = cid(2, 0);
+        let three = cid(3, 0);
+
+        q.insert(two).unwrap();
+        q.insert(three).unwrap();
+        assert_eq!(q.next_reserved(), Some(two.id));
+        q.insert(one).unwrap();
+        q.next();
+        assert_eq!(q.active(), three.id);
+        assert_eq!(q.next_reserved(), None);
     }
 }
