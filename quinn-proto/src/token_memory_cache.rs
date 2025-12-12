@@ -157,6 +157,7 @@ mod tests {
     use super::*;
     use rand::prelude::*;
     use rand_pcg::Pcg32;
+    use tracing::info;
 
     fn new_rng() -> impl Rng {
         Pcg32::from_seed(0xdeadbeefdeadbeefdeadbeefdeadbeefu128.to_le_bytes())
@@ -176,6 +177,7 @@ mod tests {
                 if rng.random_bool(0.666) {
                     // store
                     let token = Bytes::from(vec![i]);
+                    info!("STORE {server_name} {token:?}");
                     if let Some((j, _)) = cache_1
                         .iter()
                         .enumerate()
@@ -198,6 +200,7 @@ mod tests {
                     cache_2.insert(&server_name.to_string(), token);
                 } else {
                     // take
+                    info!("TAKE {server_name}");
                     let expecting = cache_1
                         .iter()
                         .enumerate()
@@ -211,6 +214,7 @@ mod tests {
                             }
                             token
                         });
+                    info!("EXPECTING {expecting:?}");
                     assert_eq!(cache_2.take(&server_name.to_string()), expecting);
                 }
             }
