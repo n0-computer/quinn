@@ -681,19 +681,14 @@ mod proptests {
     const MAX_OFFSET: u64 = 512;
     const MAX_LEN: usize = 64;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Arbitrary)]
     enum Op {
-        Insert { offset: u64, len: usize },
-        Read { max_len: usize },
+        #[weight(10)]
+        Insert { #[strategy(0..MAX_OFFSET)] offset: u64, #[strategy(1..MAX_LEN)] len: usize },
+        #[weight(10)]
+        Read { #[strategy(1..MAX_LEN)] max_len: usize },
+        #[weight(1)]
         EnsureOrdering { ordered: bool },
-    }
-
-    fn op_strategy() -> impl Strategy<Value = Op> {
-        prop_oneof![
-            10 => (0..MAX_OFFSET, 1..MAX_LEN).prop_map(|(offset, len)| Op::Insert { offset, len }),
-            10 => (1..MAX_LEN).prop_map(|max_len| Op::Read { max_len }),
-            1 => any::<bool>().prop_map(|ordered| Op::EnsureOrdering { ordered }),
-        ]
     }
 
     /// Tracks the state of the assembler for verification
