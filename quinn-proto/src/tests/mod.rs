@@ -3450,8 +3450,8 @@ fn pad_to_mtu() {
     assert_eq!(pair.client.outbound[1].1.len(), usize::from(MTU));
     pair.drive_client();
     assert_eq!(pair.server.inbound.len(), 2);
-    assert_eq!(pair.server.inbound[0].2.len(), usize::from(MTU));
-    assert_eq!(pair.server.inbound[1].2.len(), usize::from(MTU));
+    assert_eq!(pair.server.inbound[0].packet.len(), usize::from(MTU));
+    assert_eq!(pair.server.inbound[1].packet.len(), usize::from(MTU));
     pair.drive();
 
     // Check that both datagrams ended up in the same GSO batch
