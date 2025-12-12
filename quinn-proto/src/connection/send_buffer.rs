@@ -31,7 +31,7 @@ pub(super) struct SendBuffer {
     /// All ranges must be within `data.range().start..(data.range().end - unsent)`, since data
     /// that has never been sent can't be retransmitted.
     ///
-    /// This should usually ot overlap with `acks`, but this is not strictly enforced.
+    /// This should usually not overlap with `acks`, but this is not strictly enforced.
     retransmits: ArrayRangeSet,
 }
 
