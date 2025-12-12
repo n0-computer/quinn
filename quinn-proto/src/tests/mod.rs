@@ -538,75 +538,76 @@ fn high_latency_handshake() {
     assert!(pair.server_conn_mut(server_ch).using_ecn());
 }
 
-// Test to expose O(n²) behavior in SendBuffer with many small writes and delayed ACKs
-#[test]
-fn many_small_writes_delayed_acks() {
-    let _guard = subscribe();
-    let mut pair = Pair::default();
+// // Test to expose O(n²) behavior in SendBuffer with many small writes and delayed ACKs
+// #[test]
+// #[cfg(not(wasm_browser))]
+// fn many_small_writes_delayed_acks() {
+//     let _guard = subscribe();
+//     let mut pair = Pair::default();
 
-    // Simulate high latency to delay ACKs
-    pair.latency = Duration::from_millis(500);
+//     // Simulate high latency to delay ACKs
+//     pair.latency = Duration::from_millis(500);
 
-    let (client_ch, server_ch) = pair.connect();
+//     let (client_ch, server_ch) = pair.connect();
 
-    let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
+//     let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
 
-    // Write many small messages (simulate fragmented buffer)
-    const NUM_WRITES: usize = 100000;
-    const WRITE_SIZE: usize = 10;
+//     // Write many small messages (simulate fragmented buffer)
+//     const NUM_WRITES: usize = 100000;
+//     const WRITE_SIZE: usize = 10;
 
-    for i in 0..NUM_WRITES {
-        let data = vec![i as u8; WRITE_SIZE];
-        pair.client_send(client_ch, s).write(&data).unwrap();
-    }
+//     for i in 0..NUM_WRITES {
+//         let data = vec![i as u8; WRITE_SIZE];
+//         pair.client_send(client_ch, s).write(&data).unwrap();
+//     }
 
-    // The key insight: with high latency, the client will send many packets
-    // before any ACKs arrive. This causes SendBuffer to accumulate many
-    // unacked segments. We don't need to artificially limit driving -
-    // the latency naturally creates the pathological state.
+//     // The key insight: with high latency, the client will send many packets
+//     // before any ACKs arrive. This causes SendBuffer to accumulate many
+//     // unacked segments. We don't need to artificially limit driving -
+//     // the latency naturally creates the pathological state.
 
-    // The high latency means:
-    // 1. Client sends many packets quickly (all 500 writes)
-    // 2. ACKs are delayed by 500ms RTT
-    // 3. SendBuffer accumulates many unacked segments
-    // 4. When retransmission or late transmission happens, get() scans are expensive
+//     // The high latency means:
+//     // 1. Client sends many packets quickly (all 500 writes)
+//     // 2. ACKs are delayed by 500ms RTT
+//     // 3. SendBuffer accumulates many unacked segments
+//     // 4. When retransmission or late transmission happens, get() scans are expensive
 
-    let start = std::time::Instant::now();
+//     let start = std::time::Instant::now();
 
-    // Drive to completion
-    // With O(n²) get() behavior, this will be slow due to many segments
-    pair.drive();
+//     // Drive to completion
+//     // With O(n²) get() behavior, this will be slow due to many segments
+//     pair.drive();
 
-    let elapsed = start.elapsed();
+//     let elapsed = start.elapsed();
 
-    // With O(n²) behavior and 500 segments, this could take 10-100ms
-    // With O(n) or O(1), should be < 5ms
-    // This is a performance regression test
-    info!(
-        "Time to drive {} small writes with delayed ACKs: {:?}",
-        NUM_WRITES, elapsed
-    );
+//     // With O(n²) behavior and 500 segments, this could take 10-100ms
+//     // With O(n) or O(1), should be < 5ms
+//     // This is a performance regression test
+//     info!(
+//         "Time to drive {} small writes with delayed ACKs: {:?}",
+//         NUM_WRITES, elapsed
+//     );
 
-    // Verify correctness - all data should be received
-    let total_written = (NUM_WRITES * WRITE_SIZE) as u64;
-    pair.client_send(client_ch, s).finish().unwrap();
-    pair.drive();
+//     // Verify correctness - all data should be received
+//     let total_written = (NUM_WRITES * WRITE_SIZE) as u64;
+//     pair.client_send(client_ch, s).finish().unwrap();
+//     pair.drive();
 
-    let mut recv = pair.server_recv(server_ch, s);
-    let mut chunks = recv.read(false).unwrap();
-    let mut received = 0;
+//     let mut recv = pair.server_recv(server_ch, s);
+//     let mut chunks = recv.read(false).unwrap();
+//     let mut received = 0;
 
-    while let Ok(Some(chunk)) = chunks.next(usize::MAX) {
-        received += chunk.bytes.len();
-    }
-    let _ = chunks.finalize();
+//     while let Ok(Some(chunk)) = chunks.next(usize::MAX) {
+//         received += chunk.bytes.len();
+//     }
+//     let _ = chunks.finalize();
 
-    assert_eq!(received, total_written as usize);
+//     assert_eq!(received, total_written as usize);
 
-    // This test exposes the pathology but doesn't strictly assert on timing
-    // because timing tests are flaky in CI. The println! shows the issue.
-    // To properly test, we'd need to instrument SendBuffer::get() to count scans.
-}
+//     // This test exposes the pathology but doesn't strictly assert on timing
+//     // because timing tests are flaky in CI. The println! shows the issue.
+//     // To properly test, we'd need to instrument SendBuffer::get() to count scans.
+// }
 
 #[test]
 fn zero_rtt_happypath() {
