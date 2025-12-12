@@ -1,7 +1,11 @@
 use bytes::Bytes;
 use thiserror::Error;
 
-use crate::{VarInt, connection::send_buffer::SendBuffer, frame};
+use crate::{
+    VarInt,
+    connection::{send_buffer::SendBuffer, streams::BytesOrSlice},
+    frame,
+};
 
 #[derive(Debug)]
 pub(super) struct Send {
@@ -164,7 +168,7 @@ impl<'a> BytesArray<'a> {
 }
 
 impl BytesSource for BytesArray<'_> {
-    fn pop_chunk(&mut self, limit: usize) -> (Bytes, usize) {
+    fn pop_chunk(&mut self, limit: usize) -> (impl BytesOrSlice, usize) {
         // The loop exists to skip empty chunks while still marking them as
         // consumed
         let mut chunks_consumed = 0;
@@ -209,7 +213,7 @@ impl<'a> ByteSlice<'a> {
 }
 
 impl BytesSource for ByteSlice<'_> {
-    fn pop_chunk(&mut self, limit: usize) -> (Bytes, usize) {
+    fn pop_chunk(&mut self, limit: usize) -> (impl BytesOrSlice, usize) {
         let limit = limit.min(self.data.len());
         if limit == 0 {
             return (Bytes::new(), 0);
@@ -240,7 +244,7 @@ pub(super) trait BytesSource {
     ///   had been consumed. This can be less than 1, if a chunk inside the
     ///   source had been truncated in order to adhere to the limit. It can also
     ///   be more than 1, if zero-length chunks had been skipped.
-    fn pop_chunk(&mut self, limit: usize) -> (Bytes, usize);
+    fn pop_chunk(&mut self, limit: usize) -> (impl BytesOrSlice, usize);
 }
 
 /// Indicates how many bytes and chunks had been transferred in a write operation
@@ -339,7 +343,7 @@ mod tests {
                 chunks_consumed += consumed;
 
                 if !chunk.is_empty() {
-                    buf.extend_from_slice(&chunk);
+                    buf.extend_from_slice(chunk.as_ref());
                     remaining -= chunk.len();
                     chunks_popped += 1;
                 } else {
@@ -377,7 +381,7 @@ mod tests {
                 chunks_consumed += consumed;
 
                 if !chunk.is_empty() {
-                    buf.extend_from_slice(&chunk);
+                    buf.extend_from_slice(chunk.as_ref());
                     remaining -= chunk.len();
                     chunks_popped += 1;
                 } else {

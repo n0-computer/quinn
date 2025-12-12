@@ -526,3 +526,14 @@ enum StreamHalf {
     Send,
     Recv,
 }
+
+/// A helper trait to unify Bytes, Vec<u8> and &[u8] as sources of bytes
+pub(super) trait BytesOrSlice: AsRef<[u8]> + Into<Bytes> {
+    fn len(&self) -> usize {
+        self.as_ref().len()
+    }
+    fn is_empty(&self) -> bool {
+        self.as_ref().is_empty()
+    }
+}
+impl<T: AsRef<[u8]> + Into<Bytes>> BytesOrSlice for T {}
