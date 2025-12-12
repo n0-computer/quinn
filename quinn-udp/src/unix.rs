@@ -358,7 +358,7 @@ fn send(
                 if let Some(libc::EIO) | Some(libc::EINVAL) = e.raw_os_error() {
                     // Prevent new transmits from being scheduled using GSO. Existing GSO transmits
                     // may already be in the pipeline, so we need to tolerate additional failures.
-                    if state.max_gso_segments() > 1 {
+                    if state.max_gso_segments().get() > 1 {
                         crate::log::info!(
                             "`libc::sendmsg` failed with {e}; halting segmentation offload"
                         );

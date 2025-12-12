@@ -2,6 +2,7 @@ use std::{
     io::{self, IoSliceMut},
     mem,
     net::{IpAddr, Ipv4Addr},
+    num::NonZeroUsize,
     os::windows::io::AsRawSocket,
     ptr,
     sync::{
