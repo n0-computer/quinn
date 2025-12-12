@@ -58,7 +58,7 @@ pub(crate) enum PathTimer {
     /// When to send an immediate ACK if there are unacked ack-eliciting packets of the peer
     MaxAckDelay = 7,
     /// When to clean up state for an abandoned path
-    ForgetPath = 8,
+    DiscardPath = 8,
 }
 
 impl PathTimer {
@@ -71,7 +71,7 @@ impl PathTimer {
         Self::PathKeepAlive,
         Self::Pacing,
         Self::MaxAckDelay,
-        Self::ForgetPath,
+        Self::DiscardPath,
     ];
 }
 
