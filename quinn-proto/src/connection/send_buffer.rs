@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, ops::Range};
 
-use bytes::{Buf, Bytes};
+use bytes::{Buf, BufMut, Bytes};
 
 use crate::{VarInt, range_set::RangeSet};
 
@@ -95,26 +95,53 @@ impl SendBufferData {
 
     /// Returns data which is associated with a range
     ///
-    /// Requesting a range outside of the buffered data will return an empty slice.
+    /// Requesting a range outside of the buffered data will panic.
+    #[cfg(test)]
     fn get(&self, offsets: Range<u64>) -> &[u8] {
-        let mut segment_offset = 0;
+        assert!(offsets.start >= self.range().start && offsets.end <= self.range().end, "Requested range is outside of buffered data");
+        // translate to segment-relative offsets and usize
         let offsets = Range {
-            start: offsets.start.saturating_sub(self.offset),
-            end: offsets.end.saturating_sub(self.offset),
+            start: (offsets.start - self.offset) as usize,
+            end: (offsets.end - self.offset) as usize,
         };
+        let mut segment_offset = 0;
         for segment in self.segments.iter() {
             if offsets.start >= segment_offset
-                && offsets.start < segment_offset + segment.len() as u64
+                && offsets.start < segment_offset + segment.len()
             {
-                let start = (offsets.start - segment_offset) as usize;
-                let end = (offsets.end - segment_offset) as usize;
+                let start = offsets.start - segment_offset;
+                let end = offsets.end - segment_offset;
 
                 return &segment[start..end.min(segment.len())];
             }
-            segment_offset += segment.len() as u64;
+            segment_offset += segment.len();
         }
 
         &[]
+    }
+
+    fn get_into(&self, offsets: Range<u64>, buf: &mut impl BufMut) {
+        assert!(offsets.start >= self.range().start && offsets.end <= self.range().end, "Requested range is outside of buffered data");
+        // translate to segment-relative offsets and usize
+        let offsets = Range {
+            start: (offsets.start - self.offset) as usize,
+            end: (offsets.end - self.offset) as usize,
+        };
+        let mut segment_offset = 0;
+        for segment in self.segments.iter() {
+            // intersect segment range with requested range
+            let start = segment_offset.max(offsets.start);
+            let end = (segment_offset + segment.len()).min(offsets.end);
+            if start < end {
+                // slice range intersects with requested range
+                buf.put_slice(&segment[start - segment_offset..end - segment_offset]);
+            }
+            segment_offset += segment.len();
+            if segment_offset >= offsets.end {
+                // we are beyond the requested range
+                break;
+            }
+        }
     }
 
     #[cfg(test)]
@@ -218,8 +245,13 @@ impl SendBuffer {
     /// in noncontiguous fashion in the send buffer. In this case callers
     /// should call the function again with an incremented start offset to
     /// retrieve more data.
+    #[cfg(test)]
     pub(super) fn get(&self, offsets: Range<u64>) -> &[u8] {
         self.data.get(offsets)
+    }
+
+    pub(super) fn get_into(&self, offsets: Range<u64>, buf: &mut impl BufMut) {
+        self.data.get_into(offsets, buf)
     }
 
     /// Queue a range of sent but unacknowledged data to be retransmitted
