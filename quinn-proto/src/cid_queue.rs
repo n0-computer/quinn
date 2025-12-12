@@ -9,7 +9,7 @@ use crate::{ConnectionId, ResetToken, frame::NewConnectionId};
 #[derive(Debug, Clone, Copy)]
 struct CidData(ConnectionId, Option<ResetToken>);
 
-/// Sliding window of active Connection IDs
+/// Sliding window of active Connection IDs.
 ///
 /// This represents a circular buffer that can contain gaps due to packet loss or reordering.
 /// The buffer has three regions:
@@ -17,9 +17,12 @@ struct CidData(ConnectionId, Option<ResetToken>);
 /// - Zero to `Self::LEN - 1` reserved CIDs from `self.cursor` up to `self.cursor_reserved`.
 /// - More "available"/"ready" CIDs after `self.cursor_reserved`.
 ///
-/// You grow the range of reserved CIDs by calling [`CidQueue::next_reserved`], which takes one
-/// of the available ones and returns the CID that was reserved.
-/// You add available/ready CIDs by calling [`CidQueue::insert`].
+/// The range of reserved CIDs is grown by calling [`CidQueue::next_reserved`], which takes one of
+/// the available ones and returns the CID that was reserved.
+///
+/// New available/ready CIDs are added by calling [`CidQueue::insert`].
+///
+/// May contain gaps due to packet loss or reordering.
 #[derive(Debug)]
 pub(crate) struct CidQueue {
     /// Ring buffer indexed by `self.cursor`
@@ -30,54 +33,12 @@ pub(crate) struct CidQueue {
     ///
     /// The sequence number of the active CID; must be the smallest among CIDs in `buffer`.
     offset: u64,
-    /// Circular index for the last reserved CID, i.e. a CID that is
-    /// not active, but was used for probing packets on a different remote address.
+    /// Circular index for the last reserved CID, i.e. a CID that is not the active CID, but was
+    /// used for probing packets on a different remote address.
     ///
     /// When [`Self::cursor_reserved`] and [`Self::cursor`] are equal, no CID is considered
     /// reserved.
     cursor_reserved: usize,
-}
-
-impl fmt::Display for CidQueue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let just_cid = |f: &mut fmt::Formatter<'_>, i: usize| -> fmt::Result {
-            let data = self.buffer[i];
-
-            let marker = if i == self.cursor && i == self.cursor_reserved {
-                Some('B')
-            } else if i == self.cursor {
-                Some('A')
-            } else if i == self.cursor_reserved {
-                Some('R')
-            } else {
-                None
-            };
-            let is_last = i + 1 == Self::LEN;
-            if let Some(marker) = marker {
-                write!(f, "({marker})")?;
-            } else {
-                f.write_str("___")?;
-            }
-
-            if let Some(CidData(cid, _token)) = data {
-                write!(f, "{cid}")?;
-            } else {
-                write!(f, "None            ")?;
-            }
-            if !is_last {
-                f.write_str(", ")?;
-            }
-
-            Ok(())
-        };
-
-        write!(f, "[")?;
-        for i in 0..Self::LEN - 1 {
-            just_cid(f, i)?;
-        }
-        just_cid(f, Self::LEN - 1)?;
-        write!(f, "] offset: {}", self.offset)
-    }
 }
 
 impl CidQueue {
@@ -232,7 +193,6 @@ pub(crate) enum InsertError {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     fn cid(sequence: u64, retire_prior_to: u64) -> NewConnectionId {
