@@ -123,7 +123,7 @@ impl<'a> TransmitBuf<'a> {
             if datagram_size < self.segment_size {
                 // If this is a GSO batch and this datagram is smaller than the segment
                 // size, this must be the last datagram in the batch.
-                self.max_datagrams = NonZeroUsize::new(self.num_datagrams + 1).expect("known");
+                self.max_datagrams = NonZeroUsize::MIN.saturating_add(self.num_datagrams);
             }
         }
         self.datagram_start = self.buf.len();

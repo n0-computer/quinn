@@ -55,7 +55,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let gso_segments = if gso_enabled {
             send_state.max_gso_segments()
         } else {
-            NonZeroUsize::new(1).expect("known")
+            NonZeroUsize::MIN
         };
         let msg = vec![0xAB; min(MAX_DATAGRAM_SIZE, SEGMENT_SIZE * gso_segments.get())];
         let transmit = Transmit {
@@ -68,7 +68,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let gro_segments = if gro_enabled {
             recv_state.gro_segments()
         } else {
-            NonZeroUsize::new(1).expect("known")
+            NonZeroUsize::MIN
         };
         let batch_size = if recvmmsg_enabled { BATCH_SIZE } else { 1 };
 

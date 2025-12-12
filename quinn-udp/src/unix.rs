@@ -1032,7 +1032,7 @@ mod gro {
             .or_else(|_| std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
         {
             Ok(socket) => socket,
-            Err(_) => return NonZeroUsize::new(1).expect("known"),
+            Err(_) => return NonZeroUsize::MIN,
         };
 
         // As defined in net/ipv4/udp_offload.c
@@ -1044,7 +1044,7 @@ mod gro {
         // https://github.com/quinn-rs/quinn/pull/1354.
         match set_socket_option(&socket, libc::SOL_UDP, UDP_GRO, OPTION_ON) {
             Ok(()) => NonZeroUsize::new(64).expect("known"),
-            Err(_) => NonZeroUsize::new(1).expect("known"),
+            Err(_) => NonZeroUsize::MIN,
         }
     }
 }
@@ -1096,6 +1096,6 @@ mod gro {
     use std::num::NonZeroUsize;
 
     pub(super) fn gro_segments() -> NonZeroUsize {
-        NonZeroUsize::new(1).expect("known")
+        NonZeroUsize::MIN
     }
 }

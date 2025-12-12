@@ -84,7 +84,7 @@ impl UdpSocketState {
 
     #[inline]
     pub fn gro_segments(&self) -> NonZeroUsize {
-        NonZeroUsize::new(1).expect("known")
+        NonZeroUsize::MIN
     }
 
     /// Resize the send buffer of `socket` to `bytes`

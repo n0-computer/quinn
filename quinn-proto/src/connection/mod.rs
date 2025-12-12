@@ -912,7 +912,7 @@ impl Connection {
         }
 
         let max_datagrams = match self.config.enable_segmentation_offload {
-            false => NonZeroUsize::new(1).expect("known"),
+            false => NonZeroUsize::MIN,
             true => max_datagrams,
         };
 

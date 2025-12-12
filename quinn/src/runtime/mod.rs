@@ -67,7 +67,7 @@ pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
 
     /// Maximum number of datagrams that might be described by a single [`RecvMeta`]
     fn max_receive_segments(&self) -> NonZeroUsize {
-        NonZeroUsize::new(1).expect("known")
+        NonZeroUsize::MIN
     }
 
     /// Whether datagrams might get fragmented into multiple parts
@@ -102,7 +102,7 @@ pub trait UdpSender: Send + Sync + Debug + 'static {
 
     /// Maximum number of datagrams that a [`Transmit`] may encode.
     fn max_transmit_segments(&self) -> NonZeroUsize {
-        NonZeroUsize::new(1).expect("known")
+        NonZeroUsize::MIN
     }
 }
 
