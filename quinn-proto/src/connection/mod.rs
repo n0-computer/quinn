@@ -323,16 +323,18 @@ pub struct Connection {
 }
 
 #[derive(Debug)]
-enum PathSendStatus {
-    SendTransmit { transmit: Option<Transmit> },
+enum PollPathStatus {
+    Send,
+    SendTransmit { transmit: Transmit },
     NothingToSend { congestion_blocked: bool },
 }
 
-enum PathSpaceStatus {
+#[derive(Debug)]
+enum PollPathSpaceStatus {
     NextSpace,
-    NothingToSend { congestion_blocked: bool },
     Send { last_packet_number: Option<u64> },
     SendTransmit { transmit: Transmit },
+    NothingToSend { congestion_blocked: bool },
 }
 
 impl Connection {
@@ -1026,16 +1028,14 @@ impl Connection {
             }
 
             match self.poll_transmit_path(now, &mut transmit, path_id, have_available_path, close) {
-                PathSendStatus::SendTransmit { transmit: t } => match t {
-                    None => {
-                        let transmit = self.build_transmit(path_id, transmit);
-                        return Some(transmit);
-                    }
-                    Some(transmit) => {
-                        return Some(transmit);
-                    }
-                },
-                PathSendStatus::NothingToSend {
+                PollPathStatus::SendTransmit { transmit } => {
+                    return Some(transmit);
+                }
+                PollPathStatus::Send => {
+                    let transmit = self.build_transmit(path_id, transmit);
+                    return Some(transmit);
+                }
+                PollPathStatus::NothingToSend {
                     congestion_blocked: cb,
                 } => {
                     // TODO: congestion blocked should be per path? how to deal with this better
@@ -1114,7 +1114,7 @@ impl Connection {
         path_id: PathId,
         have_available_path: bool,
         close: bool,
-    ) -> PathSendStatus {
+    ) -> PollPathStatus {
         // Whether this packet can be coalesced with another one in the same datagram.
         let mut coalesce = true;
 
@@ -1143,21 +1143,19 @@ impl Connection {
                 &mut pad_datagram,
             );
             match res {
-                PathSpaceStatus::Send {
+                PollPathSpaceStatus::Send {
                     last_packet_number: lp,
                 } => {
                     last_packet_number = lp;
                     break;
                 }
-                PathSpaceStatus::SendTransmit { transmit } => {
-                    return PathSendStatus::SendTransmit {
-                        transmit: Some(transmit),
-                    };
+                PollPathSpaceStatus::SendTransmit { transmit } => {
+                    return PollPathStatus::SendTransmit { transmit };
                 }
-                PathSpaceStatus::NothingToSend { congestion_blocked } => {
-                    return PathSendStatus::NothingToSend { congestion_blocked };
+                PollPathSpaceStatus::NothingToSend { congestion_blocked } => {
+                    return PollPathStatus::NothingToSend { congestion_blocked };
                 }
-                PathSpaceStatus::NextSpace => {
+                PollPathSpaceStatus::NextSpace => {
                     // moving onto the next space
                 }
             }
@@ -1180,11 +1178,11 @@ impl Connection {
         );
 
         if transmit.is_empty() {
-            PathSendStatus::NothingToSend {
+            PollPathStatus::NothingToSend {
                 congestion_blocked: false,
             }
         } else {
-            PathSendStatus::SendTransmit { transmit: None }
+            PollPathStatus::Send
         }
     }
 
@@ -1200,7 +1198,7 @@ impl Connection {
         close: bool,
         coalesce: &mut bool,
         pad_datagram: &mut PadDatagram,
-    ) -> PathSpaceStatus {
+    ) -> PollPathSpaceStatus {
         let mut last_packet_number = None;
         loop {
             // Check if there is at least one active CID to use for sending
@@ -1229,7 +1227,7 @@ impl Connection {
                     trace!(%path_id, "remote CIDs retired for abandoned path");
                 }
 
-                return PathSpaceStatus::NothingToSend {
+                return PollPathSpaceStatus::NothingToSend {
                     congestion_blocked: false,
                 };
             };
@@ -1262,7 +1260,7 @@ impl Connection {
                 if self.spaces[space_id].crypto.is_some() {
                     trace!(?space_id, %path_id, "nothing to send in space");
                 }
-                return PathSpaceStatus::NextSpace;
+                return PollPathSpaceStatus::NextSpace;
             }
 
             let send_blocked = if path_should_send && transmit.datagram_remaining_mut() == 0 {
@@ -1284,7 +1282,7 @@ impl Connection {
             if send_blocked != PathBlocked::No && space_id < SpaceId::Data {
                 // Higher spaces might still have tail-loss probes to send, which are not
                 // congestion blocked.
-                return PathSpaceStatus::NextSpace;
+                return PollPathSpaceStatus::NextSpace;
             }
             if !path_should_send || send_blocked != PathBlocked::No {
                 // Nothing more to send on this path, check the next path if possible.
@@ -1292,16 +1290,16 @@ impl Connection {
                 // If there are any datagrams in the transmit, packets for another path can
                 // not be built.
                 if transmit.num_datagrams() > 0 {
-                    return PathSpaceStatus::Send { last_packet_number };
+                    return PollPathSpaceStatus::Send { last_packet_number };
                 }
 
-                return PathSpaceStatus::NothingToSend { congestion_blocked };
+                return PollPathSpaceStatus::NothingToSend { congestion_blocked };
             }
 
             if transmit.datagram_remaining_mut() == 0 {
                 if transmit.num_datagrams() >= transmit.max_datagrams().get() {
                     // No more datagrams allowed
-                    return PathSpaceStatus::Send { last_packet_number };
+                    return PollPathSpaceStatus::Send { last_packet_number };
                 }
 
                 match self.spaces[space_id].for_path(path_id).loss_probes {
@@ -1363,7 +1361,7 @@ impl Connection {
                 can_send.other,
                 self,
             ) else {
-                return PathSpaceStatus::NothingToSend { congestion_blocked };
+                return PollPathSpaceStatus::NothingToSend { congestion_blocked };
             };
             last_packet_number = Some(builder.exact_number);
             *coalesce = *coalesce && !builder.short_header;
@@ -1435,12 +1433,12 @@ impl Connection {
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
                     self.close = false;
                     // `CONNECTION_CLOSE` is the final packet
-                    return PathSpaceStatus::Send { last_packet_number };
+                    return PollPathSpaceStatus::Send { last_packet_number };
                 } else {
                     // Send a close frame in every possible space for robustness, per
                     // RFC9000 "Immediate Close during the Handshake". Don't bother trying
                     // to send anything else.
-                    return PathSpaceStatus::NextSpace;
+                    return PollPathSpaceStatus::NextSpace;
                 }
             }
 
@@ -1460,8 +1458,7 @@ impl Connection {
                     builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
                     builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
                     self.stats.udp_tx.on_sent(1, transmit.len());
-
-                    return PathSpaceStatus::SendTransmit {
+                    return PollPathSpaceStatus::SendTransmit {
                         transmit: Transmit {
                             destination: network_path.remote,
                             size: transmit.len(),
@@ -1547,7 +1544,7 @@ impl Connection {
                             builder.buf.datagram_remaining_mut() - builder.predict_packet_end()
                         );
                         builder.finish_and_track(now, self, path_id, PadDatagram::No);
-                        return PathSpaceStatus::Send { last_packet_number };
+                        return PollPathSpaceStatus::Send { last_packet_number };
                     }
 
                     // Pad the current datagram to GSO segment size so it can be
