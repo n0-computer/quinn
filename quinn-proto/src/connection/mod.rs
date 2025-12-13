@@ -1505,9 +1505,7 @@ impl Connection {
                     .datagram_remaining_mut()
                     .saturating_sub(builder.predict_packet_end())
                     > MIN_PACKET_SPACE
-                && self
-                    .next_send_space(space_id, path_id, builder.buf, close)
-                    .is_some()
+                && self.has_next_send_space(space_id, path_id, builder.buf, close)
             {
                 // We can append/coalesce the next packet into the current
                 // datagram. Finish the current packet without adding extra padding.
@@ -1641,17 +1639,17 @@ impl Connection {
         Some((active_cid, probe_size))
     }
 
-    /// Returns the [`SpaceId`] of the next packet space which has data to send
+    /// Returns if there is anext packet space which has data to send
     ///
     /// This takes into account the space available to frames in the next datagram.
     // TODO(flub): This duplication is not nice.
-    fn next_send_space(
+    fn has_next_send_space(
         &mut self,
         current_space_id: SpaceId,
         path_id: PathId,
         buf: &TransmitBuf<'_>,
         close: bool,
-    ) -> Option<SpaceId> {
+    ) -> bool {
         // Number of bytes available for frames if this is a 1-RTT packet. We're guaranteed
         // to be able to send an individual frame at least this large in the next 1-RTT
         // packet. This could be generalized to support every space, but it's only needed to
@@ -1662,15 +1660,14 @@ impl Connection {
         loop {
             let can_send = self.space_can_send(space_id, path_id, buf.segment_size(), close);
             if !can_send.is_empty() || (close && self.spaces[space_id].crypto.is_some()) {
-                return Some(space_id);
+                return true;
             }
-            space_id = match space_id {
-                SpaceId::Initial => SpaceId::Handshake,
-                SpaceId::Handshake => SpaceId::Data,
-                SpaceId::Data => break,
-            }
+            let Some(next_space) = space_id.next() else {
+                break;
+            };
+            space_id = next_space;
         }
-        None
+        false
     }
 
     /// Checks if creating a new datagram would be blocked by congestion control
