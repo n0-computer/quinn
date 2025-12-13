@@ -1042,6 +1042,8 @@ impl Connection {
         if self.state.is_established() {
             // Try MTU probing now
             for path_id in path_ids {
+                // Update per path state
+                transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
                 self.poll_transmit_mtu_probe(now, &mut transmit, path_id);
                 if !transmit.is_empty() {
                     let transmit = self.build_transmit(path_id, transmit);
@@ -1054,6 +1056,10 @@ impl Connection {
     }
 
     fn build_transmit(&mut self, path_id: PathId, transmit: TransmitBuf<'_>) -> Transmit {
+        debug_assert!(
+            !transmit.is_empty(),
+            "must not be called with an empty transmit buffer"
+        );
         let destination = self.path_data(path_id).remote;
         trace!(
             segment_size = transmit.segment_size(),
@@ -1599,79 +1605,87 @@ impl Connection {
         transmit: &mut TransmitBuf<'_>,
         path_id: PathId,
     ) {
-        // MTU probing happens only in Data space.
-        let space_id = SpaceId::Data;
-        let probe_data = {
-            // We MTU probe all paths for which all of the following is true:
-            // - We have an active destination CID for the path.
-            // - The remote address *and* path are validated.
-            // - The path is not abandoned.
-            // - The MTU Discovery subsystem wants to probe the path.
-            let active_cid = self.rem_cids.get(&path_id).map(CidQueue::active);
-            let eligible = self.path_data(path_id).validated
-                && !self.path_data(path_id).is_validating_path()
-                && !self.abandoned_paths.contains(&path_id);
-            let probe_size = eligible
-                .then(|| {
-                    let next_pn = self.spaces[space_id].for_path(path_id).peek_tx_number();
-                    self.path_data_mut(path_id).mtud.poll_transmit(now, next_pn)
-                })
-                .flatten();
-
-            match (active_cid, probe_size) {
-                (Some(active_cid), Some(probe_size)) => Some((active_cid, probe_size)),
-                _ => None,
-            }
+        let Some((active_cid, probe_size)) = self.get_mtu_probe_data(now, path_id) else {
+            return;
         };
 
-        // Let's send an MTUD probe!
-        if let Some((active_cid, probe_size)) = probe_data {
-            // We are definitely sending a DPLPMTUD probe.
-            debug_assert_eq!(transmit.num_datagrams(), 0);
-            transmit.start_new_datagram_with_size(probe_size as usize);
+        // We are definitely sending a DPLPMTUD probe.
+        debug_assert_eq!(transmit.num_datagrams(), 0);
+        transmit.start_new_datagram_with_size(probe_size as usize);
 
-            let mut qlog = QlogSentPacket::default();
-            let Some(mut builder) = PacketBuilder::new(
-                now, space_id, path_id, active_cid, transmit, true, self, &mut qlog,
-            ) else {
-                return;
-            };
+        let mut qlog = QlogSentPacket::default();
+        let Some(mut builder) = PacketBuilder::new(
+            now,
+            SpaceId::Data,
+            path_id,
+            active_cid,
+            transmit,
+            true,
+            self,
+            &mut qlog,
+        ) else {
+            return;
+        };
 
-            // We implement MTU probes as ping packets padded up to the probe size
-            trace!(?probe_size, "writing MTUD probe");
-            trace!("PING");
-            builder.frame_space_mut().write(frame::FrameType::PING);
-            qlog.frame(&Frame::Ping);
-            self.stats.frame_tx.ping += 1;
+        // We implement MTU probes as ping packets padded up to the probe size
+        trace!(?probe_size, "writing MTUD probe");
+        trace!("PING");
+        builder.frame_space_mut().write(frame::FrameType::PING);
+        qlog.frame(&Frame::Ping);
+        self.stats.frame_tx.ping += 1;
 
-            // If supported by the peer, we want no delays to the probe's ACK
-            if self.peer_supports_ack_frequency() {
-                trace!("IMMEDIATE_ACK");
-                builder
-                    .frame_space_mut()
-                    .write(frame::FrameType::IMMEDIATE_ACK);
-                self.stats.frame_tx.immediate_ack += 1;
-                qlog.frame(&Frame::ImmediateAck);
-            }
-
-            let sent_frames = SentFrames {
-                non_retransmits: true,
-                ..Default::default()
-            };
-            builder.finish_and_track(
-                now,
-                self,
-                path_id,
-                sent_frames,
-                PadDatagram::ToSize(probe_size),
-                qlog,
-            );
-
-            self.path_stats
-                .entry(path_id)
-                .or_default()
-                .sent_plpmtud_probes += 1;
+        // If supported by the peer, we want no delays to the probe's ACK
+        if self.peer_supports_ack_frequency() {
+            trace!("IMMEDIATE_ACK");
+            builder
+                .frame_space_mut()
+                .write(frame::FrameType::IMMEDIATE_ACK);
+            self.stats.frame_tx.immediate_ack += 1;
+            qlog.frame(&Frame::ImmediateAck);
         }
+
+        let sent_frames = SentFrames {
+            non_retransmits: true,
+            ..Default::default()
+        };
+        builder.finish_and_track(
+            now,
+            self,
+            path_id,
+            sent_frames,
+            PadDatagram::ToSize(probe_size),
+            qlog,
+        );
+
+        self.path_stats
+            .entry(path_id)
+            .or_default()
+            .sent_plpmtud_probes += 1;
+    }
+
+    fn get_mtu_probe_data(&mut self, now: Instant, path_id: PathId) -> Option<(ConnectionId, u16)> {
+        // We MTU probe all paths for which all of the following is true:
+        // - We have an active destination CID for the path.
+        // - The remote address *and* path are validated.
+        // - The path is not abandoned.
+        // - The MTU Discovery subsystem wants to probe the path.
+        let active_cid = self.rem_cids.get(&path_id).map(CidQueue::active)?;
+        let is_eligible = self.path_data(path_id).validated
+            && !self.path_data(path_id).is_validating_path()
+            && !self.abandoned_paths.contains(&path_id);
+
+        if !is_eligible {
+            return None;
+        }
+        let next_pn = self.spaces[SpaceId::Data]
+            .for_path(path_id)
+            .peek_tx_number();
+        let probe_size = self
+            .path_data_mut(path_id)
+            .mtud
+            .poll_transmit(now, next_pn)?;
+
+        Some((active_cid, probe_size))
     }
 
     /// Returns the [`SpaceId`] of the next packet space which has data to send
