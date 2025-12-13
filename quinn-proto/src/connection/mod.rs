@@ -1210,29 +1210,7 @@ impl Connection {
         loop {
             // Check if there is at least one active CID to use for sending
             let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
-                let err = PathError::RemoteCidsExhausted;
-                if !self.abandoned_paths.contains(&path_id) {
-                    debug!(?err, %path_id, "no active CID for path");
-                    self.events.push_back(Event::Path(PathEvent::LocallyClosed {
-                        id: path_id,
-                        error: err,
-                    }));
-                    // Locally we should have refused to open this path, the remote should
-                    // have given us CIDs for this path before opening it.  So we can always
-                    // abandon this here.
-                    self.close_path(
-                        now,
-                        path_id,
-                        TransportErrorCode::NO_CID_AVAILABLE_FOR_PATH.into(),
-                    )
-                    .ok();
-                    self.spaces[SpaceId::Data]
-                        .pending
-                        .path_cids_blocked
-                        .insert(path_id);
-                } else {
-                    trace!(%path_id, "remote CIDs retired for abandoned path");
-                }
+                self.on_remote_cids_exhausted(now, path_id);
 
                 return PollPathSpaceStatus::NothingToSend {
                     congestion_blocked: false,
@@ -1565,6 +1543,31 @@ impl Connection {
                 }
             }
         }
+    }
+
+    fn on_remote_cids_exhausted(&mut self, now: Instant, path_id: PathId) {
+        if self.abandoned_paths.contains(&path_id) {
+            trace!(%path_id, "remote CIDs retired for abandoned path");
+            return;
+        }
+
+        let error = PathError::RemoteCidsExhausted;
+        debug!(?error, %path_id, "no active CID for path");
+        self.events
+            .push_back(Event::Path(PathEvent::LocallyClosed { id: path_id, error }));
+        // Locally we should have refused to open this path, the remote should
+        // have given us CIDs for this path before opening it.  So we can always
+        // abandon this here.
+        self.close_path(
+            now,
+            path_id,
+            TransportErrorCode::NO_CID_AVAILABLE_FOR_PATH.into(),
+        )
+        .ok();
+        self.spaces[SpaceId::Data]
+            .pending
+            .path_cids_blocked
+            .insert(path_id);
     }
 
     fn poll_transmit_mtu_probe(
