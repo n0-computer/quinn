@@ -1122,6 +1122,15 @@ impl Connection {
         have_available_path: bool,
         close: bool,
     ) -> PollPathStatus {
+        // Check if there is at least one active CID to use for sending
+        let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
+            self.on_remote_cids_exhausted(now, path_id);
+
+            return PollPathStatus::NothingToSend {
+                congestion_blocked: false,
+            };
+        };
+
         // Whether this packet can be coalesced with another one in the same datagram.
         let mut coalesce = true;
 
@@ -1144,6 +1153,7 @@ impl Connection {
                 transmit,
                 path_id,
                 space_id,
+                remote_cid,
                 have_available_path,
                 close,
                 &mut coalesce,
@@ -1201,22 +1211,15 @@ impl Connection {
         transmit: &mut TransmitBuf<'_>,
         path_id: PathId,
         space_id: SpaceId,
+        remote_cid: ConnectionId,
         have_available_path: bool,
         close: bool,
         coalesce: &mut bool,
         pad_datagram: &mut PadDatagram,
     ) -> PollPathSpaceStatus {
         let mut last_packet_number = None;
+
         loop {
-            // Check if there is at least one active CID to use for sending
-            let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
-                self.on_remote_cids_exhausted(now, path_id);
-
-                return PollPathSpaceStatus::NothingToSend {
-                    congestion_blocked: false,
-                };
-            };
-
             // Determine if anything can be sent in this packet number space (SpaceId + PathId).
             let max_packet_size = if transmit.datagram_remaining_mut() > 0 {
                 // We are trying to coalesce another packet into this datagram.
