@@ -331,7 +331,7 @@ enum PathSendStatus {
 enum PathSpaceStatus {
     NextSpace,
     NothingToSend { congestion_blocked: bool },
-    Send,
+    Send { last_packet_number: Option<u64> },
     SendTransmit { transmit: Transmit },
 }
 
@@ -1141,10 +1141,12 @@ impl Connection {
                 close,
                 &mut coalesce,
                 &mut pad_datagram,
-                &mut last_packet_number,
             );
             match res {
-                PathSpaceStatus::Send => {
+                PathSpaceStatus::Send {
+                    last_packet_number: lp,
+                } => {
+                    last_packet_number = lp;
                     break;
                 }
                 PathSpaceStatus::SendTransmit { transmit } => {
@@ -1198,8 +1200,8 @@ impl Connection {
         close: bool,
         coalesce: &mut bool,
         pad_datagram: &mut PadDatagram,
-        last_packet_number: &mut Option<u64>,
     ) -> PathSpaceStatus {
+        let mut last_packet_number = None;
         loop {
             // Check if there is at least one active CID to use for sending
             let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
@@ -1290,7 +1292,7 @@ impl Connection {
                 // If there are any datagrams in the transmit, packets for another path can
                 // not be built.
                 if transmit.num_datagrams() > 0 {
-                    return PathSpaceStatus::Send;
+                    return PathSpaceStatus::Send { last_packet_number };
                 }
 
                 return PathSpaceStatus::NothingToSend { congestion_blocked };
@@ -1299,7 +1301,7 @@ impl Connection {
             if transmit.datagram_remaining_mut() == 0 {
                 if transmit.num_datagrams() >= transmit.max_datagrams().get() {
                     // No more datagrams allowed
-                    return PathSpaceStatus::Send;
+                    return PathSpaceStatus::Send { last_packet_number };
                 }
 
                 match self.spaces[space_id].for_path(path_id).loss_probes {
@@ -1363,7 +1365,7 @@ impl Connection {
             ) else {
                 return PathSpaceStatus::NothingToSend { congestion_blocked };
             };
-            *last_packet_number = Some(builder.exact_number);
+            last_packet_number = Some(builder.exact_number);
             *coalesce = *coalesce && !builder.short_header;
 
             if space_id == SpaceId::Initial && (self.side.is_client() || can_send.other) {
@@ -1433,7 +1435,7 @@ impl Connection {
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
                     self.close = false;
                     // `CONNECTION_CLOSE` is the final packet
-                    return PathSpaceStatus::Send;
+                    return PathSpaceStatus::Send { last_packet_number };
                 } else {
                     // Send a close frame in every possible space for robustness, per
                     // RFC9000 "Immediate Close during the Handshake". Don't bother trying
@@ -1545,7 +1547,7 @@ impl Connection {
                             builder.buf.datagram_remaining_mut() - builder.predict_packet_end()
                         );
                         builder.finish_and_track(now, self, path_id, PadDatagram::No);
-                        return PathSpaceStatus::Send;
+                        return PathSpaceStatus::Send { last_packet_number };
                     }
 
                     // Pad the current datagram to GSO segment size so it can be
