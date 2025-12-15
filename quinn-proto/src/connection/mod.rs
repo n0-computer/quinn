@@ -4292,13 +4292,15 @@ impl Connection {
                     use paths::OnPathResponseReceived::*;
                     match path.data.on_path_response_received(now, response.0, remote) {
                         OnPath { was_open } => {
+                            // TODO(@divma): reset timers using the remaining off-path challenges
                             use PathTimer::*;
                             let qlog = self.qlog.with_time(now);
 
                             self.timers
                                 .stop(Timer::PerPath(path_id, PathValidation), qlog.clone());
                             self.timers
-                                .stop(Timer::PerPath(path_id, PathOpen), qlog.clone());
+                                .stop(Timer::PerPath(path_id, PathChallengeLost), qlog.clone());
+                            self.timers.stop(Timer::PerPath(path_id, PathOpen), qlog);
                             if !was_open {
                                 self.events
                                     .push_back(Event::Path(PathEvent::Opened { id: path_id }));
@@ -4314,39 +4316,9 @@ impl Connection {
                                 prev.challenges_sent.clear();
                                 prev.send_new_challenge = false;
                             }
-
-                            match path.data.earliest_expiring_challenge() {
-                                Some(new_expire_time) => {
-                                    let expires = new_expire_time
-                                        + self.ack_frequency.max_ack_delay_for_pto();
-                                    self.timers.set(
-                                        Timer::PerPath(path_id, PathChallengeLost),
-                                        expires,
-                                        qlog,
-                                    )
-                                }
-                                None => self
-                                    .timers
-                                    .stop(Timer::PerPath(path_id, PathChallengeLost), qlog),
-                            }
                         }
                         OffPath => {
                             debug!("Response to off-path PathChallenge!");
-                            match path.data.earliest_expiring_challenge() {
-                                Some(new_expire_time) => {
-                                    let expires = new_expire_time
-                                        + self.ack_frequency.max_ack_delay_for_pto();
-                                    self.timers.set(
-                                        Timer::PerPath(path_id, PathTimer::PathChallengeLost),
-                                        expires,
-                                        self.qlog.with_time(now),
-                                    )
-                                }
-                                None => self.timers.stop(
-                                    Timer::PerPath(path_id, PathTimer::PathChallengeLost),
-                                    self.qlog.with_time(now),
-                                ),
-                            }
                         }
                         Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                         Invalid { expected } => {
