@@ -208,6 +208,7 @@ pub(super) struct PathData {
     /// The time at which this path state should've received a PATH_ABANDON already.
     ///
     /// Receiving data on this path generates a transport error after that point in time.
+    /// This is checked in [`crate::Connection::on_packet_authenticated`].
     ///
     /// If set to `None`, then this path isn't abandoned yet and is allowed to receive data.
     pub(super) last_allowed_receive: Option<Instant>,
