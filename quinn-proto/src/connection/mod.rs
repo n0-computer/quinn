@@ -3131,7 +3131,7 @@ impl Connection {
             .and_then(|path| path.data.last_allowed_receive)
         {
             if now > last_allowed_receive {
-                warn!("received data on path that was abandoned after 3 * PTO");
+                warn!("received data on path which we abandoned more than 3 * PTO ago");
                 // The peer failed to respond with a PATH_ABANDON in time.
                 if !self.state.is_closed() {
                     // TODO(flub): What should the error code be?
