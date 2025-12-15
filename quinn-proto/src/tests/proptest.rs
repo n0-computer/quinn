@@ -11,7 +11,8 @@ use proptest::{
 use test_strategy::proptest;
 
 use crate::{
-    ConnectionClose, ConnectionError, PathStatus, TransportConfig, TransportErrorCode,
+    Connection, ConnectionClose, ConnectionError, Event, PathStatus, TransportConfig,
+    TransportErrorCode,
     tests::{
         Pair, RoutingTable,
         random_interaction::{Side, TestOp, run_random_interaction},
@@ -93,12 +94,12 @@ fn random_interaction(
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-    prop_assert!(not_transport_error(
-        pair.client_conn_mut(client_ch).state().take_error(),
-    ));
-    prop_assert!(not_transport_error(
-        pair.server_conn_mut(server_ch).state().take_error(),
-    ));
+    prop_assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    prop_assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
 }
 
 #[proptest(cases = 256)]
@@ -113,12 +114,12 @@ fn random_interaction_with_multipath_simple_routing(
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-    prop_assert!(not_transport_error(
-        pair.client_conn_mut(client_ch).state().take_error(),
-    ));
-    prop_assert!(not_transport_error(
-        pair.server_conn_mut(server_ch).state().take_error(),
-    ));
+    prop_assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    prop_assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
 }
 
 fn routing_table() -> impl Strategy<Value = RoutingTable> {
@@ -166,12 +167,12 @@ fn random_interaction_with_multipath_complex_routing(
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-    prop_assert!(not_transport_error(
-        pair.client_conn_mut(client_ch).state().take_error(),
-    ));
-    prop_assert!(not_transport_error(
-        pair.server_conn_mut(server_ch).state().take_error(),
-    ));
+    prop_assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    prop_assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
 }
 
 fn old_routing_table() -> RoutingTable {
@@ -185,15 +186,32 @@ fn old_routing_table() -> RoutingTable {
     routes
 }
 
-fn not_transport_error(err: Option<ConnectionError>) -> bool {
+/// In proptests, we only allow connection errors that don't indicate erroring out
+/// because we think we're working with another implementation that isn't protocol-
+/// abiding. If we think that, clearly something is wrong, given we're controlling
+/// both ends of the connection.
+fn allowed_error(err: Option<ConnectionError>) -> bool {
     match err {
         None => true,
-        Some(ConnectionError::TransportError(_)) => false,
+        Some(ConnectionError::TransportError(err)) => {
+            // keep in sync with connection/mod.rs
+            &err.reason == "last path abandoned by peer"
+        }
         Some(ConnectionError::ConnectionClosed(ConnectionClose { error_code, .. })) => {
             error_code != TransportErrorCode::PROTOCOL_VIOLATION
         }
         _ => true,
     }
+}
+
+fn poll_to_close(conn: &mut Connection) -> Option<ConnectionError> {
+    let mut close = None;
+    while let Some(event) = conn.poll() {
+        if let Event::ConnectionLost { reason } = event {
+            close = Some(reason);
+        }
+    }
+    close
 }
 
 #[test]
@@ -222,12 +240,12 @@ fn regression_unset_packet_acked() {
     let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, cfg);
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(not_transport_error(
-        pair.client_conn_mut(client_ch).state().take_error(),
-    ));
-    assert!(not_transport_error(
-        pair.server_conn_mut(server_ch).state().take_error(),
-    ));
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
 }
 
 #[test]
@@ -251,12 +269,12 @@ fn regression_invalid_key() {
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(not_transport_error(
-        pair.client_conn_mut(client_ch).state().take_error(),
-    ));
-    assert!(not_transport_error(
-        pair.server_conn_mut(server_ch).state().take_error(),
-    ));
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
 }
 
 #[test]
@@ -279,21 +297,18 @@ fn regression_key_update_error() {
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(not_transport_error(
-        pair.client_conn_mut(client_ch).state().take_error(),
-    ));
-    assert!(not_transport_error(
-        pair.server_conn_mut(server_ch).state().take_error(),
-    ));
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
 }
 
 #[test]
 fn regression_never_idle() {
     let prefix = "regression_never_idle";
-    let seed: [u8; 32] = [
-        172, 221, 115, 106, 31, 22, 213, 3, 199, 6, 128, 220, 47, 215, 159, 233, 97, 21, 254, 207,
-        48, 180, 255, 97, 33, 29, 11, 76, 219, 138, 87, 57,
-    ];
+    let seed = [0u8; 32];
     let interactions = vec![
         TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
         TestOp::PathSetStatus(Side::Server, 0, PathStatus::Backup),
@@ -307,21 +322,18 @@ fn regression_never_idle() {
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(not_transport_error(
-        pair.client_conn_mut(client_ch).state().take_error(),
-    ));
-    assert!(not_transport_error(
-        pair.server_conn_mut(server_ch).state().take_error(),
-    ));
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
 }
 
 #[test]
 fn regression_never_idle2() {
     let prefix = "regression_never_idle2";
-    let seed: [u8; 32] = [
-        201, 119, 56, 156, 173, 104, 243, 75, 174, 248, 232, 226, 240, 106, 118, 59, 226, 245, 138,
-        50, 100, 4, 245, 65, 8, 174, 18, 189, 72, 10, 166, 160,
-    ];
+    let seed = [0u8; 32];
     let interactions = vec![
         TestOp::OpenPath(Side::Client, PathStatus::Backup, 1),
         TestOp::ClosePath(Side::Client, 0, 0),
@@ -338,12 +350,12 @@ fn regression_never_idle2() {
 
     // We needed to increase the bounds. It eventually times out.
     assert!(!pair.drive_bounded(1000), "connection never became idle");
-    assert!(not_transport_error(
-        pair.client_conn_mut(client_ch).state().take_error(),
-    ));
-    assert!(not_transport_error(
-        pair.server_conn_mut(server_ch).state().take_error(),
-    ));
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
 }
 
 #[test]
@@ -365,10 +377,65 @@ fn regression_packet_number_space_missing() {
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     assert!(!pair.drive_bounded(100), "connection never became idle");
-    assert!(not_transport_error(
-        pair.client_conn_mut(client_ch).state().take_error(),
-    ));
-    assert!(not_transport_error(
-        pair.server_conn_mut(server_ch).state().take_error(),
-    ));
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
+
+#[test]
+fn regression_peer_failed_to_respond_with_path_abandon() {
+    let prefix = "regression_peer_failed_to_respond_with_path_abandon";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
+        TestOp::ClosePath(Side::Client, 0, 0),
+    ];
+
+    let _guard = subscribe();
+    let routes = old_routing_table();
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
+
+#[test]
+fn regression_peer_failed_to_respond_with_path_abandon2() {
+    let prefix = "regression_peer_failed_to_respond_with_path_abandon2";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
+        TestOp::Drive(Side::Client),
+        TestOp::CloseConn(Side::Server, 0),
+        TestOp::DropInbound(Side::Server),
+        TestOp::AdvanceTime,
+        TestOp::Drive(Side::Server),
+        TestOp::ClosePath(Side::Client, 0, 0),
+        TestOp::Drive(Side::Server),
+        TestOp::DropInbound(Side::Client),
+    ];
+
+    let _guard = subscribe();
+    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
 }
