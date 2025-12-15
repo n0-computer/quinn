@@ -178,12 +178,13 @@ impl Pair {
             };
             if let Some(client_addr) = client_addr {
                 let ecn = set_congestion_experienced(packet.ecn, self.congestion_experienced);
-                self.server.inbound.push_back((
-                    self.time + self.latency,
+                self.server.inbound.push_back(Inbound {
+                    recv_time: self.time + self.latency,
                     ecn,
-                    buffer.as_ref().into(),
-                    client_addr,
-                ));
+                    packet: buffer.as_ref().into(),
+                    remote: client_addr,
+                    dst_ip: Some(packet.destination.ip()),
+                });
             } else {
                 debug!(?packet.destination, "packet from server to client lost");
             }
@@ -209,12 +210,13 @@ impl Pair {
             };
             if let Some(server_addr) = server_addr {
                 let ecn = set_congestion_experienced(packet.ecn, self.congestion_experienced);
-                self.client.inbound.push_back((
-                    self.time + self.latency,
+                self.client.inbound.push_back(Inbound {
+                    recv_time: self.time + self.latency,
                     ecn,
-                    buffer.as_ref().into(),
-                    server_addr,
-                ));
+                    packet: buffer.as_ref().into(),
+                    remote: server_addr,
+                    dst_ip: Some(packet.destination.ip()),
+                });
             } else {
                 debug!(?packet.destination, "packet from server to client lost");
             }
@@ -376,7 +378,7 @@ pub(super) struct TestEndpoint {
     timeout: Option<Instant>,
     pub(super) outbound: VecDeque<(Transmit, Bytes)>,
     delayed: VecDeque<(Transmit, Bytes)>,
-    pub(super) inbound: VecDeque<(Instant, Option<EcnCodepoint>, BytesMut, SocketAddr)>,
+    pub(super) inbound: VecDeque<Inbound>,
     pub(super) accepted: Option<Result<ConnectionHandle, ConnectionError>>,
     pub(super) connections: HashMap<ConnectionHandle, Connection>,
     drained_connections: HashSet<ConnectionHandle>,
@@ -385,6 +387,14 @@ pub(super) struct TestEndpoint {
     pub(super) capture_inbound_packets: bool,
     pub(super) handle_incoming: Box<dyn FnMut(&Incoming) -> IncomingConnectionBehavior>,
     pub(super) waiting_incoming: Vec<Incoming>,
+}
+
+pub(super) struct Inbound {
+    pub(super) recv_time: Instant,
+    pub(super) ecn: Option<EcnCodepoint>,
+    pub(super) packet: BytesMut,
+    pub(super) remote: SocketAddr,
+    pub(super) dst_ip: Option<IpAddr>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -450,11 +460,17 @@ impl TestEndpoint {
         let buffer_size = self.endpoint.config().get_max_udp_payload_size() as usize;
         let mut buf = Vec::with_capacity(buffer_size);
 
-        while self.inbound.front().is_some_and(|x| x.0 <= now) {
-            let (recv_time, ecn, packet, remote) = self.inbound.pop_front().unwrap();
+        while self.inbound.front().is_some_and(|x| x.recv_time <= now) {
+            let Inbound {
+                recv_time,
+                ecn,
+                packet,
+                remote,
+                dst_ip,
+            } = self.inbound.pop_front().unwrap();
             if let Some(event) = self
                 .endpoint
-                .handle(recv_time, remote, None, ecn, packet, &mut buf)
+                .handle(recv_time, remote, dst_ip, ecn, packet, &mut buf)
             {
                 match event {
                     DatagramEvent::NewConnection(incoming) => {
@@ -543,7 +559,7 @@ impl TestEndpoint {
     }
 
     pub(super) fn next_wakeup(&self) -> Option<Instant> {
-        let next_inbound = self.inbound.front().map(|x| x.0);
+        let next_inbound = self.inbound.front().map(|x| x.recv_time);
         min_opt(self.timeout, next_inbound)
     }
 
