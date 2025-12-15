@@ -515,7 +515,7 @@ impl PathData {
 }
 
 pub(super) enum OnPathResponseReceived {
-    /// This response validates the path on it's current remote address.
+    /// This response validates the path on its current remote address.
     OnPath { was_open: bool },
     /// This response is valid, but it's for a remote other than the path's current remote address.
     OffPath,
