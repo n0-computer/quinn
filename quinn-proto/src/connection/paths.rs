@@ -385,6 +385,19 @@ impl PathData {
         }
     }
 
+    /// The earliest time at which a sent challenge is considered lost.
+    pub(super) fn earliest_expiring_challenge(&self) -> Option<Instant> {
+        if self.challenges_sent.is_empty() {
+            return None;
+        }
+        let pto = self.rtt.pto_base();
+        self.challenges_sent
+            .values()
+            .map(|info| info.sent_instant)
+            .min()
+            .map(|sent_instant| sent_instant + pto)
+    }
+
     /// Handle receiving a PATH_RESPONSE.
     pub(super) fn on_path_response_received(
         &mut self,
