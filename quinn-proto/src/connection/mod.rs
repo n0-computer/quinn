@@ -634,7 +634,7 @@ impl Connection {
         if self
             .paths
             .iter()
-            // Other, non-abandoned, validated paths
+            // Would there be any remaining, non-abandoned, validated paths
             .any(|(id, path)| {
                 *id != path_id && !self.abandoned_paths.contains(id) && path.data.validated
             })
