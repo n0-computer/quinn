@@ -410,8 +410,6 @@ impl PathData {
                 let rtt = now.saturating_duration_since(sent_instant);
                 self.rtt.reset_initial_rtt(rtt);
 
-                // mark the path as open from the application perspective now that Opened
-                // event has been queued
                 let was_open = std::mem::replace(&mut self.open, true);
                 OnPathResponseReceived::OnPath { was_open }
             }
@@ -523,7 +521,7 @@ pub(super) enum OnPathResponseReceived {
     Unknown,
     /// The response is invalid.
     Invalid {
-        /// The remote that was expected for this token
+        /// The remote that was expected for this token.
         expected: SocketAddr,
     },
 }
