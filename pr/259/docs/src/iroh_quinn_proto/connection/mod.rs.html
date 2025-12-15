@@ -4320,10 +4320,10 @@
 <a href=#4320 id=4320 data-nosnippet>4320</a>                        OffPath =&gt; {
 <a href=#4321 id=4321 data-nosnippet>4321</a>                            <span class="macro">debug!</span>(<span class="string">"Response to off-path PathChallenge!"</span>);
 <a href=#4322 id=4322 data-nosnippet>4322</a>                        }
-<a href=#4323 id=4323 data-nosnippet>4323</a>                        Unknown =&gt; <span class="macro">debug!</span>(%response, <span class="string">"ignoring invalid PATH_RESPONSE"</span>),
-<a href=#4324 id=4324 data-nosnippet>4324</a>                        Invalid { expected } =&gt; {
-<a href=#4325 id=4325 data-nosnippet>4325</a>                            <span class="macro">debug!</span>(%response, from=%remote, %expected, <span class="string">"ignoring invalid PATH_RESPONSE"</span>)
-<a href=#4326 id=4326 data-nosnippet>4326</a>                        }
+<a href=#4323 id=4323 data-nosnippet>4323</a>                        Invalid { expected } =&gt; {
+<a href=#4324 id=4324 data-nosnippet>4324</a>                            <span class="macro">debug!</span>(%response, from=%remote, %expected, <span class="string">"ignoring invalid PATH_RESPONSE"</span>)
+<a href=#4325 id=4325 data-nosnippet>4325</a>                        }
+<a href=#4326 id=4326 data-nosnippet>4326</a>                        Unknown =&gt; <span class="macro">debug!</span>(%response, <span class="string">"ignoring invalid PATH_RESPONSE"</span>),
 <a href=#4327 id=4327 data-nosnippet>4327</a>                    }
 <a href=#4328 id=4328 data-nosnippet>4328</a>                }
 <a href=#4329 id=4329 data-nosnippet>4329</a>                Frame::MaxData(bytes) =&gt; {
