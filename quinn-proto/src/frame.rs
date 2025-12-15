@@ -291,7 +291,7 @@ pub(crate) enum Frame {
 }
 
 impl fmt::Display for Frame {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Eventually all our frames will support fmt::Display and be able to be used to log
         // consistently. For now we fall back to fmt::Debug.
         match self {

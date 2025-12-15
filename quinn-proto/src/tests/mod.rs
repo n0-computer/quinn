@@ -3229,7 +3229,7 @@ fn ack_frequency_update_max_delay() {
     );
 }
 
-fn stream_chunks(mut recv: RecvStream) -> Vec<u8> {
+fn stream_chunks(mut recv: RecvStream<'_>) -> Vec<u8> {
     let mut buf = Vec::new();
 
     let mut chunks = recv.read(true).unwrap();
