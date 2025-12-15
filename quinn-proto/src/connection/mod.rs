@@ -4320,10 +4320,10 @@ impl Connection {
                         OffPath => {
                             debug!("Response to off-path PathChallenge!");
                         }
-                        Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                         Invalid { expected } => {
                             debug!(%response, from=%remote, %expected, "ignoring invalid PATH_RESPONSE")
                         }
+                        Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
                 }
                 Frame::MaxData(bytes) => {
