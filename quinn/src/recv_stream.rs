@@ -57,8 +57,17 @@ pub struct RecvStream {
     reset: Option<VarInt>,
 }
 
+/// A stream that can be used to receive data out-of-order.
+///
+/// Obtained by converting a [`RecvStream`] via [`RecvStream::into_unordered`].
+///
+/// This variant of `RecvStream` allows reading chunks of data *exclusively*
+/// out of order. Once you have done an unordered read, ordered reads are no
+/// longer possible since data may have been consumed out of order.
+///
+/// The stream state related fns like [`Self::id`], [`Self::is_0rtt`], [`Self::stop`], and
+/// [`Self::received_reset`] behave exactly as on [`RecvStream`].
 #[derive(Debug)]
-#[repr(transparent)]
 pub struct UnorderedRecvStream {
     inner: RecvStream,
 }
