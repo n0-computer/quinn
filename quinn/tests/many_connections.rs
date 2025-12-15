@@ -103,7 +103,7 @@ async fn read_from_peer(mut stream: quinn::RecvStream) -> Result<(), quinn::Conn
             use ReadError::*;
             use quinn::ReadToEndError::*;
             match e {
-                TooLong | Read(ClosedStream) | Read(ZeroRttRejected) | Read(IllegalOrderedRead) => {
+                TooLong | Read(ClosedStream) | Read(ZeroRttRejected) => {
                     unreachable!()
                 }
                 Read(Reset(error_code)) => panic!("unexpected stream reset: {error_code}"),

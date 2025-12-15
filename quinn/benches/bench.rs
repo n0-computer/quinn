@@ -121,14 +121,10 @@ impl Context {
                         .await
                         .expect("connect");
 
-                    while let Ok(mut stream) = connection.accept_uni().await {
+                    while let Ok(stream) = connection.accept_uni().await {
                         tokio::spawn(async move {
-                            while stream
-                                .read_chunk(usize::MAX, false)
-                                .await
-                                .unwrap()
-                                .is_some()
-                            {}
+                            let mut stream = stream.into_unordered();
+                            while stream.read_chunk(usize::MAX).await.unwrap().is_some() {}
                         });
                     }
                 }
