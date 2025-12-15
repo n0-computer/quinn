@@ -6329,6 +6329,13 @@ impl Connection {
             }
         }
 
+        if let Some(err) = err {
+            // We failed to probe any addresses, bail out
+            if probed_addresses.is_empty() {
+                return Err(iroh_hp::Error::Multipath(err));
+            }
+        }
+
         self.iroh_hp
             .client_side_mut()
             .expect("connection side validated")
