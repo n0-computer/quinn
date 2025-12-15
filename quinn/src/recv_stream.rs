@@ -410,7 +410,7 @@ impl RecvStream {
         }
     }
 
-    /// Convert this stream into an unordered stream
+    /// Converts this stream into an unordered stream.
     pub fn into_unordered(self) -> UnorderedRecvStream {
         UnorderedRecvStream { inner: self }
     }
