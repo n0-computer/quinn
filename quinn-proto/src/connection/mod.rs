@@ -679,7 +679,7 @@ impl Connection {
 
         let path = self.paths.get_mut(&path_id).expect("checked above");
 
-        // We record the time at which receiving data on this path generates a transport error.
+        // We record the time after which receiving data on this path generates a transport error.
         path.data.last_allowed_receive = Some(now + 3 * pto);
         self.abandoned_paths.insert(path_id);
 
