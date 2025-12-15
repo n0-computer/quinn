@@ -166,11 +166,11 @@ impl RecvStream {
     ///
     /// Yields `None` if the stream was finished. Otherwise, yields a segment of data and its
     /// offset in the stream. The chunk's offset will be immediately after
-    /// the last data yielded by `read()` or `read_chunk()`.
+    /// the last data yielded by [`RecvStream::read`] or [`RecvStream::read_chunk`].
     ///
-    /// For unordered reads, convert the stream into an unordered stream using `Self::into_unordered`.
+    /// For unordered reads, convert the stream into an unordered stream using [`Self::into_unordered`].
     ///
-    /// Slightly more efficient than `read` due to not copying. Chunk boundaries do not correspond
+    /// Slightly more efficient than [`RecvStream::read`] due to not copying. Chunk boundaries do not correspond
     /// to peer writes, and hence cannot be used as framing.
     ///
     /// This operation is cancel-safe.
@@ -424,9 +424,6 @@ impl UnorderedRecvStream {
     /// field can be used to determine ordering in the caller. Unordered reads are less prone
     /// to head-of-line blocking within a stream, but require the application to manage
     /// reassembling the original data.
-    ///
-    /// Slightly more efficient than `read` due to not copying. Chunk boundaries do not correspond
-    /// to peer writes, and hence cannot be used as framing.
     ///
     /// This operation is cancel-safe.
     pub async fn read_chunk(&mut self, max_length: usize) -> Result<Option<Chunk>, ReadError> {
