@@ -380,7 +380,15 @@ impl RecvStream {
             Some(code) => ReadStatus::Failed(None, Reset(code)),
             None => {
                 let mut recv = conn.inner.recv_stream(self.stream);
-                let mut chunks = recv.read(ordered)?;
+                let mut chunks = recv.read(ordered).map_err(|e| match e {
+                    ReadableError::ClosedStream => ReadError::ClosedStream,
+                    ReadableError::IllegalOrderedRead => {
+                        // We should never get here because the only way to do unordered reads is
+                        // via UnorderedRecvStream, which allows only unordered reads. It is not
+                        // possible to get a RecvStream from an UnorderedRecvStream.
+                        unreachable!("ordered read after unordered read")
+                    }
+                })?;
                 let status = read_fn(&mut chunks);
                 if chunks.finalize().should_transmit() {
                     conn.wake();
@@ -603,12 +611,6 @@ pub enum ReadError {
     /// The stream has already been stopped, finished, or reset
     #[error("closed stream")]
     ClosedStream,
-    /// Attempted an ordered read following an unordered read
-    ///
-    /// Performing an unordered read allows discontinuities to arise in the receive buffer of a
-    /// stream which cannot be recovered, making further ordered reads impossible.
-    #[error("ordered read after unordered read")]
-    IllegalOrderedRead,
     /// This was a 0-RTT stream and the server rejected it
     ///
     /// Can only occur on clients for 0-RTT streams, which can be opened using
@@ -617,15 +619,6 @@ pub enum ReadError {
     /// [`Connecting::into_0rtt()`]: crate::Connecting::into_0rtt()
     #[error("0-RTT rejected")]
     ZeroRttRejected,
-}
-
-impl From<ReadableError> for ReadError {
-    fn from(e: ReadableError) -> Self {
-        match e {
-            ReadableError::ClosedStream => Self::ClosedStream,
-            ReadableError::IllegalOrderedRead => Self::IllegalOrderedRead,
-        }
-    }
 }
 
 impl From<ResetError> for ReadError {
@@ -643,7 +636,6 @@ impl From<ReadError> for io::Error {
         let kind = match x {
             Reset { .. } | ZeroRttRejected => io::ErrorKind::ConnectionReset,
             ConnectionLost(_) | ClosedStream => io::ErrorKind::NotConnected,
-            IllegalOrderedRead => io::ErrorKind::InvalidInput,
         };
         Self::new(kind, x)
     }
