@@ -6733,6 +6733,7 @@ pub enum ClosePathError {
     LastOpenPath,
 }
 
+/// Error when the multipath extension was not negotiated, but attempted to be used.
 #[derive(Debug, Error, Clone, Copy)]
 #[error("Multipath extension not negotiated")]
 pub struct MultipathNotNegotiated {
