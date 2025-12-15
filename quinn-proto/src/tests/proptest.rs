@@ -1,5 +1,5 @@
 use std::{
-    net::{IpAddr, Ipv6Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
 };
 
@@ -20,16 +20,36 @@ use crate::{
 };
 
 const MAX_PATHS: u32 = 3;
+const CLIENT_PORT: u16 = 44433;
+const SERVER_PORT: u16 = 4433;
 
 const CLIENT_ADDRS: [SocketAddr; MAX_PATHS as usize] = [
-    SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 44433u16),
-    SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 44434u16),
-    SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 44435u16),
+    SocketAddr::new(
+        IpAddr::V6(Ipv4Addr::new(1, 1, 1, 0).to_ipv6_mapped()),
+        CLIENT_PORT,
+    ),
+    SocketAddr::new(
+        IpAddr::V6(Ipv4Addr::new(1, 1, 1, 1).to_ipv6_mapped()),
+        CLIENT_PORT,
+    ),
+    SocketAddr::new(
+        IpAddr::V6(Ipv4Addr::new(1, 1, 1, 2).to_ipv6_mapped()),
+        CLIENT_PORT,
+    ),
 ];
 const SERVER_ADDRS: [SocketAddr; MAX_PATHS as usize] = [
-    SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 4433u16),
-    SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 4434u16),
-    SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 4435u16),
+    SocketAddr::new(
+        IpAddr::V6(Ipv4Addr::new(2, 2, 2, 0).to_ipv6_mapped()),
+        SERVER_PORT,
+    ),
+    SocketAddr::new(
+        IpAddr::V6(Ipv4Addr::new(2, 2, 2, 1).to_ipv6_mapped()),
+        SERVER_PORT,
+    ),
+    SocketAddr::new(
+        IpAddr::V6(Ipv4Addr::new(2, 2, 2, 2).to_ipv6_mapped()),
+        SERVER_PORT,
+    ),
 ];
 
 fn setup_deterministic_with_multipath(
@@ -103,21 +123,31 @@ fn random_interaction_with_multipath_simple_routing(
 
 fn routing_table() -> impl Strategy<Value = RoutingTable> {
     (vec(0..=5usize, 0..=4), vec(0..=5usize, 0..=4)).prop_map(|(client_offsets, server_offsets)| {
-        let mut client_addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 44433u16);
-        let mut server_addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 4433u16);
+        let mut client_addr = SocketAddr::new(
+            IpAddr::V6(Ipv4Addr::new(1, 1, 1, 0).to_ipv6_mapped()),
+            CLIENT_PORT,
+        );
+        let mut server_addr = SocketAddr::new(
+            IpAddr::V6(Ipv4Addr::new(2, 2, 2, 0).to_ipv6_mapped()),
+            SERVER_PORT,
+        );
         let mut client_routes = vec![(client_addr, 0)];
         let mut server_routes = vec![(server_addr, 0)];
         for (idx, &offset) in client_offsets.iter().enumerate() {
             let other_idx = idx.saturating_sub(offset);
             let server_idx = other_idx.clamp(0, server_offsets.len());
+            client_addr.set_ip(IpAddr::V6(
+                Ipv4Addr::new(1, 1, 1, idx as u8 + 1).to_ipv6_mapped(),
+            ));
             client_routes.push((client_addr, server_idx));
-            client_addr.set_port(client_addr.port() + 1);
         }
         for (idx, &offset) in server_offsets.iter().enumerate() {
             let other_idx = idx.saturating_sub(offset);
             let client_idx = other_idx.clamp(0, client_offsets.len());
+            server_addr.set_ip(IpAddr::V6(
+                Ipv4Addr::new(2, 2, 2, idx as u8 + 1).to_ipv6_mapped(),
+            ));
             server_routes.push((server_addr, client_idx));
-            server_addr.set_port(server_addr.port() + 1);
         }
 
         RoutingTable::from_routes(client_routes, server_routes)
