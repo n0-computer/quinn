@@ -417,7 +417,7 @@ impl RecvStream {
 }
 
 impl UnorderedRecvStream {
-    /// Read the next segment of data
+    /// Reads the next segment of data.
     ///
     /// Yields `None` if the stream was finished. Otherwise, yields a segment of data and its
     /// offset in the stream. Segments may be received in any order, and the `Chunk`'s `offset`
