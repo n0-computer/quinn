@@ -385,6 +385,49 @@ impl PathData {
         }
     }
 
+    /// Handle receiving a PATH_RESPONSE.
+    pub(super) fn on_path_response_received(
+        &mut self,
+        now: Instant,
+        token: u64,
+        remote: SocketAddr,
+    ) -> OnPathResponseReceived {
+        match self.challenges_sent.get(&token) {
+            // Response to an on-path PathChallenge
+            Some(info) if info.remote == remote && self.remote == remote => {
+                let sent_instant = info.sent_instant;
+                if !std::mem::replace(&mut self.validated, true) {
+                    trace!("new path validated");
+                }
+                // Clear any other on-path sent challenge.
+                self.challenges_sent
+                    .retain(|_token, info| info.remote != remote);
+
+                self.send_new_challenge = false;
+
+                // This RTT can only be used for the initial RTT, not as a normal
+                // sample: https://www.rfc-editor.org/rfc/rfc9002#section-6.2.2-2.
+                let rtt = now.saturating_duration_since(sent_instant);
+                self.rtt.reset_initial_rtt(rtt);
+
+                let was_open = std::mem::replace(&mut self.open, true);
+                OnPathResponseReceived::OnPath { was_open }
+            }
+            // Response to an off-path PathChallenge
+            Some(info) if info.remote == remote => {
+                self.challenges_sent
+                    .retain(|_token, info| info.remote != remote);
+                OnPathResponseReceived::OffPath
+            }
+            // Response to a PathChallenge we recognize, but from an invalid remote
+            Some(info) => OnPathResponseReceived::Invalid {
+                expected: info.remote,
+            },
+            // Response to an unknown PathChallenge
+            None => OnPathResponseReceived::Unknown,
+        }
+    }
+
     #[cfg(feature = "qlog")]
     pub(super) fn qlog_recovery_metrics(
         &mut self,
@@ -467,6 +510,20 @@ impl PathData {
     pub(super) fn generation(&self) -> u64 {
         self.generation
     }
+}
+
+pub(super) enum OnPathResponseReceived {
+    /// This response validates the path on its current remote address.
+    OnPath { was_open: bool },
+    /// This response is valid, but it's for a remote other than the path's current remote address.
+    OffPath,
+    /// The received token is unknown.
+    Unknown,
+    /// The response is invalid.
+    Invalid {
+        /// The remote that was expected for this token.
+        expected: SocketAddr,
+    },
 }
 
 /// Congestion metrics as described in [`recovery_metrics_updated`].
