@@ -3084,11 +3084,7 @@ impl Connection {
     /// See [`Connection::pto`]
     fn pto_max_path(&self, space: SpaceId, is_closing: bool) -> Duration {
         match space {
-            SpaceId::Initial | SpaceId::Handshake => {
-                let pto = self.pto(space, PathId::ZERO);
-                tracing::info!(path_id = 0, "PTO: {}ms", pto.as_millis());
-                pto
-            }
+            SpaceId::Initial | SpaceId::Handshake => self.pto(space, PathId::ZERO),
             SpaceId::Data => self
                 .paths
                 .iter()
@@ -3098,7 +3094,6 @@ impl Connection {
                         None
                     } else {
                         let pto = self.pto(space, *path_id);
-                        tracing::info!(%path_id, %is_closing, "PTO: {}ms: {state:?}", pto.as_millis());
                         Some(pto)
                     }
                 })
@@ -5719,7 +5714,6 @@ impl Connection {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO with PTO the max of
         // the PTO for all paths.
         let pto_max = self.pto_max_path(self.highest_space, true);
-        tracing::info!("CLOSE_TIMER: PTO_MAX: {}ms", pto_max.as_millis());
         self.timers.set(
             Timer::Conn(ConnTimer::Close),
             now + 3 * pto_max,
