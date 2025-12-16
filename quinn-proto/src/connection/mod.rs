@@ -4290,16 +4290,15 @@ impl Connection {
                             self.timers
                                 .stop(Timer::PerPath(path_id, PathOpen), qlog.clone());
 
-                            match path.data.earliest_expiring_challenge() {
-                                Some(new_expire_time) => self.timers.set(
-                                    Timer::PerPath(path_id, PathChallengeLost),
-                                    new_expire_time + self.ack_frequency.max_ack_delay_for_pto(),
-                                    qlog,
-                                ),
-                                None => self
-                                    .timers
-                                    .stop(Timer::PerPath(path_id, PathChallengeLost), qlog),
-                            }
+                            let next_challenge = path
+                                .data
+                                .earliest_expiring_challenge()
+                                .map(|time| time + self.ack_frequency.max_ack_delay_for_pto());
+                            self.timers.set_or_stop(
+                                Timer::PerPath(path_id, PathChallengeLost),
+                                next_challenge,
+                                qlog,
+                            );
 
                             if !was_open {
                                 self.events
@@ -4319,17 +4318,15 @@ impl Connection {
                         }
                         OffPath => {
                             debug!("Response to off-path PathChallenge!");
-                            match path.data.earliest_expiring_challenge() {
-                                Some(new_expire_time) => self.timers.set(
-                                    Timer::PerPath(path_id, PathChallengeLost),
-                                    new_expire_time + self.ack_frequency.max_ack_delay_for_pto(),
-                                    self.qlog.with_time(now),
-                                ),
-                                None => self.timers.stop(
-                                    Timer::PerPath(path_id, PathChallengeLost),
-                                    self.qlog.with_time(now),
-                                ),
-                            }
+                            let next_challenge = path
+                                .data
+                                .earliest_expiring_challenge()
+                                .map(|time| time + self.ack_frequency.max_ack_delay_for_pto());
+                            self.timers.set_or_stop(
+                                Timer::PerPath(path_id, PathChallengeLost),
+                                next_challenge,
+                                self.qlog.with_time(now),
+                            );
                         }
                         Invalid { expected } => {
                             debug!(%response, from=%remote, %expected, "ignoring invalid PATH_RESPONSE")
