@@ -481,7 +481,7 @@ fn regression_peer_failed_to_respond_with_path_abandon2() {
 /// a broken path.
 #[test]
 fn regression_path_validation() {
-    let prefix = "regression";
+    let prefix = "regression_path_validation";
     let seed = [0u8; 32];
     let interactions = vec![
         TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
