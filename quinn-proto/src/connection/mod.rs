@@ -5,6 +5,7 @@ use std::{
     fmt, io, mem,
     net::{IpAddr, SocketAddr},
     num::NonZeroU32,
+    ops::Not,
     sync::Arc,
 };
 
@@ -102,10 +103,7 @@ use timer::{Timer, TimerTable};
 mod transmit_buf;
 use transmit_buf::TransmitBuf;
 
-#[cfg(not(test))]
 mod state;
-#[cfg(test)]
-pub(crate) mod state;
 
 #[cfg(not(fuzzing))]
 use state::State;
@@ -627,16 +625,20 @@ impl Connection {
         path_id: PathId,
         error_code: VarInt,
     ) -> Result<(), ClosePathError> {
-        if self.abandoned_paths.contains(&path_id) || Some(path_id) > self.max_path_id() {
+        if self.abandoned_paths.contains(&path_id)
+            || Some(path_id) > self.max_path_id()
+            || !self.paths.contains_key(&path_id)
+        {
             return Err(ClosePathError::ClosedPath);
         }
-        if self.paths.contains_key(&path_id)
-            && self
-                .paths
-                .keys()
-                .filter(|&id| !self.abandoned_paths.contains(id))
-                .count()
-                < 2
+        if self
+            .paths
+            .iter()
+            // Would there be any remaining, non-abandoned, validated paths
+            .any(|(id, path)| {
+                *id != path_id && !self.abandoned_paths.contains(id) && path.data.validated
+            })
+            .not()
         {
             return Err(ClosePathError::LastOpenPath);
         }
@@ -673,18 +675,25 @@ impl Connection {
         self.endpoint_events
             .push_back(EndpointEventInner::RetireResetToken(path_id));
 
+        let pto = self.pto_max_path(SpaceId::Data);
+
+        let path = self.paths.get_mut(&path_id).expect("checked above");
+
+        // We record the time after which receiving data on this path generates a transport error.
+        path.data.last_allowed_receive = Some(now + 3 * pto);
         self.abandoned_paths.insert(path_id);
 
         self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
 
-        // The peer MUST respond with a corresponding PATH_ABANDON frame. If not, this timer
-        // expires.
+        // The peer MUST respond with a corresponding PATH_ABANDON frame.
+        // If we receive packets on the abandoned path after 3 * PTO we trigger a transport error.
+        // In any case, we completely discard the path after 6 * PTO whether we receive a
+        // PATH_ABANDON or not.
         self.timers.set(
-            Timer::PerPath(path_id, PathTimer::PathNotAbandoned),
-            now + 3 * self.pto_max_path(SpaceId::Data),
+            Timer::PerPath(path_id, PathTimer::DiscardPath),
+            now + 6 * pto,
             self.qlog.with_time(now),
         );
-
         Ok(())
     }
 
@@ -2019,7 +2028,7 @@ impl Connection {
                                 .pending_acks
                                 .on_max_ack_delay_timeout()
                         }
-                        PathTimer::PathAbandoned => {
+                        PathTimer::DiscardPath => {
                             // The path was abandoned and 3*PTO has expired since.  Clean up all
                             // remaining state and install stateless reset token.
                             self.timers.stop_per_path(path_id, self.qlog.with_time(now));
@@ -2033,18 +2042,7 @@ impl Connection {
                                     );
                                 }
                             }
-                            self.drop_path_state(path_id, now);
-                        }
-                        PathTimer::PathNotAbandoned => {
-                            // The peer failed to respond with a PATH_ABANDON when we sent such a
-                            // frame.
-                            warn!("missing PATH_ABANDON from peer");
-                            // TODO(flub): What should the error code be?
-                            self.close(
-                                now,
-                                TransportErrorCode::NO_ERROR.into(),
-                                "peer ignored PATH_ABANDON frame".into(),
-                            );
+                            self.discard_path(path_id, now);
                         }
                     }
                 }
@@ -2786,7 +2784,7 @@ impl Connection {
     }
 
     /// Drops the path state, declaring any remaining in-flight packets as lost
-    fn drop_path_state(&mut self, path_id: PathId, now: Instant) {
+    fn discard_path(&mut self, path_id: PathId, now: Instant) {
         trace!(%path_id, "dropping path state");
         let path = self.path_data(path_id);
         let in_flight_mtu_probe = path.mtud.in_flight_mtu_probe();
@@ -3127,6 +3125,27 @@ impl Connection {
         is_1rtt: bool,
     ) {
         self.total_authed_packets += 1;
+        if let Some(last_allowed_receive) = self
+            .paths
+            .get(&path_id)
+            .and_then(|path| path.data.last_allowed_receive)
+        {
+            if now > last_allowed_receive {
+                warn!("received data on path which we abandoned more than 3 * PTO ago");
+                // The peer failed to respond with a PATH_ABANDON in time.
+                if !self.state.is_closed() {
+                    // TODO(flub): What should the error code be?
+                    self.state.move_to_closed(TransportError::NO_ERROR(
+                        "peer failed to respond with PATH_ABANDON in time",
+                    ));
+                    self.close_common();
+                    self.set_close_timer(now);
+                    self.close = true;
+                }
+                return;
+            }
+        }
+
         self.reset_keep_alive(path_id, now);
         self.reset_idle_timeout(now, space_id, path_id);
         self.permit_idle_reset = true;
@@ -4618,47 +4637,37 @@ impl Connection {
                 }) => {
                     span.record("path", tracing::field::debug(&path_id));
                     // TODO(flub): don't really know which error code to use here.
-                    match self.close_path(now, path_id, error_code.into()) {
+                    let already_abandoned = match self.close_path(now, path_id, error_code.into()) {
                         Ok(()) => {
                             trace!("peer abandoned path");
+                            false
                         }
                         Err(ClosePathError::LastOpenPath) => {
                             trace!("peer abandoned last path, closing connection");
                             // TODO(flub): which error code?
-                            self.close(
-                                now,
-                                TransportErrorCode::NO_ERROR.into(),
-                                Bytes::from_static(b"last path abandoned by peer"),
-                            );
+                            return Err(TransportError::NO_ERROR("last path abandoned by peer"));
                         }
                         Err(ClosePathError::ClosedPath) => {
                             trace!("peer abandoned already closed path");
+                            true
                         }
-                    }
+                    };
                     // If we receive a retransmit of PATH_ABANDON then we may already have
-                    // abandoned this path locally.  In that case the PathAbandoned timer
+                    // abandoned this path locally.  In that case the DiscardPath timer
                     // may already have fired and we no longer have any state for this path.
                     // Only set this timer if we still have path state.
-                    // TODO(flub): Note that if we process a retransmit and *do* still have
-                    //    path state, we are extending the expiration time of this timer.
-                    //    That's technically not needed, but not a violation.  We would have
-                    //    to be able to inspect if the timer is set to avoid this.
-                    if self.path(path_id).is_some() {
+                    if self.path(path_id).is_some() && !already_abandoned {
                         // TODO(flub): Checking is_some() here followed by a number of calls
                         //    that would panic if it was None is really ugly.  If only we
                         //    could do something like PathData::pto().  One day we'll have
                         //    unified SpaceId and PathId and this will be possible.
                         let delay = self.pto(SpaceId::Data, path_id) * 3;
                         self.timers.set(
-                            Timer::PerPath(path_id, PathTimer::PathAbandoned),
+                            Timer::PerPath(path_id, PathTimer::DiscardPath),
                             now + delay,
                             self.qlog.with_time(now),
                         );
                     }
-                    self.timers.stop(
-                        Timer::PerPath(path_id, PathTimer::PathNotAbandoned),
-                        self.qlog.with_time(now),
-                    );
                 }
                 Frame::PathStatusAvailable(info) => {
                     span.record("path", tracing::field::debug(&info.path_id));
@@ -5126,7 +5135,7 @@ impl Connection {
         }
 
         // ACK
-        // TODO(flub): Should this sends acks for this path anyway?
+        // TODO(flub): Should this send acks for this path anyway?
 
         if !path_exclusive_only {
             for path_id in space
@@ -5926,11 +5935,6 @@ impl Connection {
         self.spaces[self.highest_space]
             .for_path(path_id)
             .immediate_ack_pending = true;
-    }
-
-    #[cfg(test)]
-    pub(crate) fn state(&mut self) -> &mut State {
-        &mut self.state
     }
 
     /// Decodes a packet, returning its decrypted payload, so it can be inspected in tests
