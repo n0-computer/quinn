@@ -9,6 +9,7 @@ use proptest::{
     prop_assert,
 };
 use test_strategy::proptest;
+use tracing::error;
 
 use crate::{
     Connection, ConnectionClose, ConnectionError, Event, PathStatus, TransportConfig,
@@ -203,7 +204,10 @@ fn allowed_error(err: Option<ConnectionError>) -> bool {
         _ => true,
     };
     if !allowed {
-        eprintln!("Connection error: {err:?}");
+        error!(
+            ?err,
+            "Got an error that's unexpected in quinn <-> quinn interaction"
+        );
     }
     allowed
 }
