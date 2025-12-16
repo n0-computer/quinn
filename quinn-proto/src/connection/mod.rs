@@ -6286,7 +6286,7 @@ impl Connection {
         let mut probed_addresses = Vec::with_capacity(addresses_to_probe.len());
         let ipv6 = self.paths.values().any(|p| p.data.remote.is_ipv6());
 
-        for (ip, port) in addresses_to_probe {
+        for (id, (ip, port)) in addresses_to_probe {
             // If this endpoint is an IPv6 endpoint we use IPv6 addresses for all remotes.
             let remote = match ip {
                 IpAddr::V4(addr) if ipv6 => SocketAddr::new(addr.to_ipv6_mapped().into(), port),
@@ -6307,6 +6307,12 @@ impl Connection {
                 }
                 Err(e) => {
                     debug!(%remote, %e,"nat traversal: failed to probe remote");
+                    if matches!(
+                        e,
+                        PathError::MaxPathIdReached | PathError::RemoteCidsExhausted
+                    ) {
+                        // TODO(@divma): mark to retry
+                    }
                     err.get_or_insert(e);
                 }
             }

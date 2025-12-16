@@ -37,13 +37,13 @@ pub enum Error {
 }
 
 pub(crate) struct NatTraversalRound {
-    /// Sequence number to use for the new reach out frames
+    /// Sequence number to use for the new reach out frames.
     pub(crate) new_round: VarInt,
-    /// Addresses to use to send reach out frames
-    pub(crate) reach_out_at: Vec<(IpAddr, u16)>,
-    /// Remotes to probe by attempting to open new paths
-    pub(crate) addresses_to_probe: Vec<(IpAddr, u16)>,
-    /// [`PathId`]s of the cancelled round
+    /// Addresses to use to send reach out frames.
+    pub(crate) reach_out_at: Vec<IpPort>,
+    /// Remotes to probe by attempting to open new paths.
+    pub(crate) addresses_to_probe: Vec<(VarInt, IpPort)>,
+    /// [`PathId`]s of the cancelled round.
     pub(crate) prev_round_path_ids: Vec<PathId>,
 }
 
@@ -77,10 +77,13 @@ pub(crate) struct ClientState {
     max_local_addresses: usize,
     /// Candidate addresses the remote server reports as potentially reachable, to use for nat
     /// traversal attempts.
-    remote_addresses: FxHashMap<VarInt, (IpAddr, u16)>,
+    ///
+    /// For each address, whether the address should be reported in nat traversal continuations is
+    /// kept.
+    remote_addresses: FxHashMap<VarInt, (IpPort, bool)>,
     /// Candidate addresses the local client reports as potentially reachable, to use for nat
     /// traversal attempts. Always canonical.
-    local_addresses: FxHashSet<(IpAddr, u16)>,
+    local_addresses: FxHashSet<IpPort>,
     /// Current nat holepunching round.
     round: VarInt,
     /// [`PathId`]s used to probe remotes assigned to this round.
@@ -129,13 +132,41 @@ impl ClientState {
 
         let prev_round_path_ids = std::mem::take(&mut self.round_path_ids);
         self.round = self.round.saturating_add(1u8);
+        let mut addresses_to_probe = Vec::with_capacity(self.remote_addresses.len());
+        for (id, (address, report_in_continuation)) in self.remote_addresses.iter_mut() {
+            addresses_to_probe.push((*id, *address));
+            *report_in_continuation = false;
+        }
 
         Ok(NatTraversalRound {
             new_round: self.round,
             reach_out_at: self.local_addresses.iter().copied().collect(),
-            addresses_to_probe: self.remote_addresses.values().copied().collect(),
+            addresses_to_probe,
             prev_round_path_ids,
         })
+    }
+
+    /// Mark a remote address to be reported back in a nat traversal continuation.
+    ///
+    /// Ids not present are silently ignored.
+    pub(crate) fn report_in_continuation(&mut self, id: VarInt) {
+        if let Some((_address, report_in_continuation)) = self.remote_addresses.get_mut(&id) {
+            *report_in_continuation = true;
+        }
+    }
+
+    /// Returns an address that needs to be probed, if any.
+    ///
+    /// The address will not be returned twice unless marked as such again with
+    /// [`Self::report_in_continuation`].
+    pub(crate) fn continue_nat_traversal_round(&mut self) -> Option<(VarInt, IpPort)> {
+        // this being random depends on iteration not returning always on the same order
+        let (id, (address, report_in_continuation)) = self
+            .remote_addresses
+            .iter_mut()
+            .find(|(_id, (_addr, report))| *report)?;
+        *report_in_continuation = false;
+        Some((*id, *address))
     }
 
     /// Add a [`PathId`] as part of the current attempts to create paths based on the server's
@@ -157,13 +188,16 @@ impl ClientState {
         let allow_new = self.remote_addresses.len() < self.max_remote_addresses;
         match self.remote_addresses.entry(seq_no) {
             Entry::Occupied(mut occupied_entry) => {
-                let old_value = occupied_entry.insert(address);
+                let is_update = occupied_entry.get().0 != address;
+                if is_update {
+                    occupied_entry.insert((address, false)).0;
+                }
                 // The value might be different. This should not happen, but we assume that the new
                 // address is more recent than the previous, and thus worth updating
-                Ok((address != old_value).then_some(address.into()))
+                Ok(is_update.then_some(address.into()))
             }
             Entry::Vacant(vacant_entry) if allow_new => {
-                vacant_entry.insert(address);
+                vacant_entry.insert((address, false));
                 Ok(Some(address.into()))
             }
             _ => Err(Error::TooManyAddresses),
@@ -179,22 +213,23 @@ impl ClientState {
     ) -> Option<SocketAddr> {
         self.remote_addresses
             .remove(&remove_addr.seq_no)
-            .map(Into::into)
+            .map(|(address, _report_in_continuation)| address.into())
     }
 
     /// Checks that a received remote address is valid
     ///
     /// An address is valid as long as it does not change the value of a known address id.
     pub(crate) fn check_remote_address(&self, add_addr: &AddAddress) -> bool {
-        let existing = self.remote_addresses.get(&add_addr.seq_no);
-        existing.is_none() || existing == Some(&add_addr.ip_port())
+        match self.remote_addresses.get(&add_addr.seq_no) {
+            None => true,
+            Some((existing, _)) => existing == &add_addr.ip_port(),
+        }
     }
 
     pub(crate) fn get_remote_nat_traversal_addresses(&self) -> Vec<SocketAddr> {
         self.remote_addresses
             .values()
-            .copied()
-            .map(Into::into)
+            .map(|(address, _report_in_continuation)| (*address).into())
             .collect()
     }
 }
