@@ -901,26 +901,6 @@ impl Connection {
         max_datagrams: usize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
-        if let Some(probing) = self
-            .iroh_hp
-            .server_side_mut()
-            .ok()
-            .and_then(iroh_hp::ServerState::next_probe)
-        {
-            let destination = probing.remote();
-            trace!(%destination, "RAND_DATA packet");
-            let token: u64 = self.rng.random();
-            buf.put_u64(token);
-            probing.finish(token);
-            return Some(Transmit {
-                destination,
-                ecn: None,
-                size: 8,
-                segment_size: None,
-                src_ip: None,
-            });
-        }
-
         assert!(max_datagrams != 0);
         let max_datagrams = match self.config.enable_segmentation_offload {
             false => 1,
@@ -1127,6 +1107,42 @@ impl Connection {
                     break;
                 }
 
+                if transmit.is_empty() {
+                    // Nothing to send on this path, and nothing yet built; try to send hole punching
+                    // path challenges.
+                    if let Some(probing) = self
+                        .iroh_hp
+                        .server_side_mut()
+                        .ok()
+                        .and_then(iroh_hp::ServerState::next_probe)
+                    {
+                        if let Some(new_cid) = self
+                            .rem_cids
+                            .get_mut(&path_id)
+                            .and_then(CidQueue::next_reserved)
+                        {
+                            let destination = probing.remote();
+                            let token: u64 = self.rng.random();
+                            let challenge = frame::PathChallenge(token);
+                            trace!(%destination, cid=%new_cid, %challenge, "Nat traversal: PATH_CHALLENGE packet");
+                            buf.write(challenge);
+                            QlogSentPacket::default().frame(&Frame::PathChallenge(challenge));
+                            self.stats.frame_tx.path_challenge += 1;
+
+                            // TODO(@divma): padding
+                            // Remember the token sent to this remote
+                            probing.finish(token);
+                            return Some(Transmit {
+                                destination,
+                                ecn: None,
+                                size: 8,
+                                segment_size: None,
+                                src_ip: None,
+                            });
+                        }
+                    }
+                }
+
                 match self.paths.keys().find(|&&next| next > path_id) {
                     Some(next_path_id) => {
                         // See if this next path can send anything.
@@ -1328,12 +1344,29 @@ impl Connection {
 
             // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
             // path validation can occur while the link is saturated.
-            if space_id == SpaceId::Data && builder.buf.num_datagrams() == 1 {
+            if space_id == SpaceId::Data && builder.buf.is_empty() {
                 let path = self.path_data_mut(path_id);
                 if let Some((token, remote)) = path.path_responses.pop_off_path(path.remote) {
-                    // TODO(flub): We need to use the right CID!  We shouldn't use the same
-                    //    CID as the current active one for the path.  Though see also
-                    //    https://github.com/quinn-rs/quinn/issues/2184
+                    let mut builder = if let Some(fresh_cid) = self
+                        .rem_cids
+                        .get_mut(&path_id)
+                        .and_then(CidQueue::next_reserved)
+                    {
+                        PacketBuilder::new(
+                            now,
+                            space_id,
+                            path_id,
+                            fresh_cid,
+                            &mut transmit,
+                            can_send.other,
+                            self,
+                            &mut qlog,
+                        )?
+                    } else {
+                        // TODO(@divma): keep the old logic. We would need to push the challenge
+                        // back, but we have lost the packet number.
+                        builder
+                    };
                     let response = frame::PathResponse(token);
                     trace!(%response, "(off-path)");
                     builder.frame_space_mut().write(response);
@@ -4281,6 +4314,9 @@ impl Connection {
                                 self.ping_path(path_id).ok();
                             }
                         }
+                    } else if self.iroh_hp.client_side().is_ok() {
+                        // TODO(@divma): temp log. This might be too much
+                        debug!("Potential Nat traversal PATH_CHALLENGE received");
                     }
                 }
                 Frame::PathResponse(response) => {
