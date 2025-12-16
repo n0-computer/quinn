@@ -6315,372 +6315,375 @@
 <a href=#6315 id=6315 data-nosnippet>6315</a>                        e,
 <a href=#6316 id=6316 data-nosnippet>6316</a>                        PathError::MaxPathIdReached | PathError::RemoteCidsExhausted
 <a href=#6317 id=6317 data-nosnippet>6317</a>                    ) {
-<a href=#6318 id=6318 data-nosnippet>6318</a>                        <span class="comment">// TODO(@divma): mark to retry
-<a href=#6319 id=6319 data-nosnippet>6319</a>                    </span>}
-<a href=#6320 id=6320 data-nosnippet>6320</a>                    err.get_or_insert(e);
-<a href=#6321 id=6321 data-nosnippet>6321</a>                }
-<a href=#6322 id=6322 data-nosnippet>6322</a>            }
-<a href=#6323 id=6323 data-nosnippet>6323</a>        }
-<a href=#6324 id=6324 data-nosnippet>6324</a>
-<a href=#6325 id=6325 data-nosnippet>6325</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(err) = err {
-<a href=#6326 id=6326 data-nosnippet>6326</a>            <span class="comment">// We failed to probe any addresses, bail out
-<a href=#6327 id=6327 data-nosnippet>6327</a>            </span><span class="kw">if </span>probed_addresses.is_empty() {
-<a href=#6328 id=6328 data-nosnippet>6328</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(iroh_hp::Error::Multipath(err));
-<a href=#6329 id=6329 data-nosnippet>6329</a>            }
-<a href=#6330 id=6330 data-nosnippet>6330</a>        }
-<a href=#6331 id=6331 data-nosnippet>6331</a>
-<a href=#6332 id=6332 data-nosnippet>6332</a>        <span class="self">self</span>.iroh_hp
-<a href=#6333 id=6333 data-nosnippet>6333</a>            .client_side_mut()
-<a href=#6334 id=6334 data-nosnippet>6334</a>            .expect(<span class="string">"connection side validated"</span>)
-<a href=#6335 id=6335 data-nosnippet>6335</a>            .set_round_path_ids(path_ids);
-<a href=#6336 id=6336 data-nosnippet>6336</a>
-<a href=#6337 id=6337 data-nosnippet>6337</a>        <span class="prelude-val">Ok</span>(probed_addresses)
-<a href=#6338 id=6338 data-nosnippet>6338</a>    }
-<a href=#6339 id=6339 data-nosnippet>6339</a>}
-<a href=#6340 id=6340 data-nosnippet>6340</a>
-<a href=#6341 id=6341 data-nosnippet>6341</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>Connection {
-<a href=#6342 id=6342 data-nosnippet>6342</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter) -&gt; fmt::Result {
-<a href=#6343 id=6343 data-nosnippet>6343</a>        f.debug_struct(<span class="string">"Connection"</span>)
-<a href=#6344 id=6344 data-nosnippet>6344</a>            .field(<span class="string">"handshake_cid"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.handshake_cid)
-<a href=#6345 id=6345 data-nosnippet>6345</a>            .finish()
-<a href=#6346 id=6346 data-nosnippet>6346</a>    }
-<a href=#6347 id=6347 data-nosnippet>6347</a>}
-<a href=#6348 id=6348 data-nosnippet>6348</a>
-<a href=#6349 id=6349 data-nosnippet>6349</a><span class="attr">#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-<a href=#6350 id=6350 data-nosnippet>6350</a></span><span class="kw">enum </span>PathBlocked {
-<a href=#6351 id=6351 data-nosnippet>6351</a>    No,
-<a href=#6352 id=6352 data-nosnippet>6352</a>    AntiAmplification,
-<a href=#6353 id=6353 data-nosnippet>6353</a>    Congestion,
-<a href=#6354 id=6354 data-nosnippet>6354</a>    Pacing,
-<a href=#6355 id=6355 data-nosnippet>6355</a>}
-<a href=#6356 id=6356 data-nosnippet>6356</a>
-<a href=#6357 id=6357 data-nosnippet>6357</a><span class="doccomment">/// Fields of `Connection` specific to it being client-side or server-side
-<a href=#6358 id=6358 data-nosnippet>6358</a></span><span class="kw">enum </span>ConnectionSide {
-<a href=#6359 id=6359 data-nosnippet>6359</a>    Client {
-<a href=#6360 id=6360 data-nosnippet>6360</a>        <span class="doccomment">/// Sent in every outgoing Initial packet. Always empty after Initial keys are discarded
-<a href=#6361 id=6361 data-nosnippet>6361</a>        </span>token: Bytes,
-<a href=#6362 id=6362 data-nosnippet>6362</a>        token_store: Arc&lt;<span class="kw">dyn </span>TokenStore&gt;,
-<a href=#6363 id=6363 data-nosnippet>6363</a>        server_name: String,
-<a href=#6364 id=6364 data-nosnippet>6364</a>    },
-<a href=#6365 id=6365 data-nosnippet>6365</a>    Server {
-<a href=#6366 id=6366 data-nosnippet>6366</a>        server_config: Arc&lt;ServerConfig&gt;,
+<a href=#6318 id=6318 data-nosnippet>6318</a>                        <span class="self">self</span>.iroh_hp
+<a href=#6319 id=6319 data-nosnippet>6319</a>                            .client_side_mut()
+<a href=#6320 id=6320 data-nosnippet>6320</a>                            .expect(<span class="string">"validated"</span>)
+<a href=#6321 id=6321 data-nosnippet>6321</a>                            .report_in_continuation(id);
+<a href=#6322 id=6322 data-nosnippet>6322</a>                    }
+<a href=#6323 id=6323 data-nosnippet>6323</a>                    err.get_or_insert(e);
+<a href=#6324 id=6324 data-nosnippet>6324</a>                }
+<a href=#6325 id=6325 data-nosnippet>6325</a>            }
+<a href=#6326 id=6326 data-nosnippet>6326</a>        }
+<a href=#6327 id=6327 data-nosnippet>6327</a>
+<a href=#6328 id=6328 data-nosnippet>6328</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(err) = err {
+<a href=#6329 id=6329 data-nosnippet>6329</a>            <span class="comment">// We failed to probe any addresses, bail out
+<a href=#6330 id=6330 data-nosnippet>6330</a>            </span><span class="kw">if </span>probed_addresses.is_empty() {
+<a href=#6331 id=6331 data-nosnippet>6331</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(iroh_hp::Error::Multipath(err));
+<a href=#6332 id=6332 data-nosnippet>6332</a>            }
+<a href=#6333 id=6333 data-nosnippet>6333</a>        }
+<a href=#6334 id=6334 data-nosnippet>6334</a>
+<a href=#6335 id=6335 data-nosnippet>6335</a>        <span class="self">self</span>.iroh_hp
+<a href=#6336 id=6336 data-nosnippet>6336</a>            .client_side_mut()
+<a href=#6337 id=6337 data-nosnippet>6337</a>            .expect(<span class="string">"connection side validated"</span>)
+<a href=#6338 id=6338 data-nosnippet>6338</a>            .set_round_path_ids(path_ids);
+<a href=#6339 id=6339 data-nosnippet>6339</a>
+<a href=#6340 id=6340 data-nosnippet>6340</a>        <span class="prelude-val">Ok</span>(probed_addresses)
+<a href=#6341 id=6341 data-nosnippet>6341</a>    }
+<a href=#6342 id=6342 data-nosnippet>6342</a>}
+<a href=#6343 id=6343 data-nosnippet>6343</a>
+<a href=#6344 id=6344 data-nosnippet>6344</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>Connection {
+<a href=#6345 id=6345 data-nosnippet>6345</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter) -&gt; fmt::Result {
+<a href=#6346 id=6346 data-nosnippet>6346</a>        f.debug_struct(<span class="string">"Connection"</span>)
+<a href=#6347 id=6347 data-nosnippet>6347</a>            .field(<span class="string">"handshake_cid"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.handshake_cid)
+<a href=#6348 id=6348 data-nosnippet>6348</a>            .finish()
+<a href=#6349 id=6349 data-nosnippet>6349</a>    }
+<a href=#6350 id=6350 data-nosnippet>6350</a>}
+<a href=#6351 id=6351 data-nosnippet>6351</a>
+<a href=#6352 id=6352 data-nosnippet>6352</a><span class="attr">#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+<a href=#6353 id=6353 data-nosnippet>6353</a></span><span class="kw">enum </span>PathBlocked {
+<a href=#6354 id=6354 data-nosnippet>6354</a>    No,
+<a href=#6355 id=6355 data-nosnippet>6355</a>    AntiAmplification,
+<a href=#6356 id=6356 data-nosnippet>6356</a>    Congestion,
+<a href=#6357 id=6357 data-nosnippet>6357</a>    Pacing,
+<a href=#6358 id=6358 data-nosnippet>6358</a>}
+<a href=#6359 id=6359 data-nosnippet>6359</a>
+<a href=#6360 id=6360 data-nosnippet>6360</a><span class="doccomment">/// Fields of `Connection` specific to it being client-side or server-side
+<a href=#6361 id=6361 data-nosnippet>6361</a></span><span class="kw">enum </span>ConnectionSide {
+<a href=#6362 id=6362 data-nosnippet>6362</a>    Client {
+<a href=#6363 id=6363 data-nosnippet>6363</a>        <span class="doccomment">/// Sent in every outgoing Initial packet. Always empty after Initial keys are discarded
+<a href=#6364 id=6364 data-nosnippet>6364</a>        </span>token: Bytes,
+<a href=#6365 id=6365 data-nosnippet>6365</a>        token_store: Arc&lt;<span class="kw">dyn </span>TokenStore&gt;,
+<a href=#6366 id=6366 data-nosnippet>6366</a>        server_name: String,
 <a href=#6367 id=6367 data-nosnippet>6367</a>    },
-<a href=#6368 id=6368 data-nosnippet>6368</a>}
-<a href=#6369 id=6369 data-nosnippet>6369</a>
-<a href=#6370 id=6370 data-nosnippet>6370</a><span class="kw">impl </span>ConnectionSide {
-<a href=#6371 id=6371 data-nosnippet>6371</a>    <span class="kw">fn </span>remote_may_migrate(<span class="kw-2">&amp;</span><span class="self">self</span>, state: <span class="kw-2">&amp;</span>State) -&gt; bool {
-<a href=#6372 id=6372 data-nosnippet>6372</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#6373 id=6373 data-nosnippet>6373</a>            <span class="self">Self</span>::Server { server_config } =&gt; server_config.migration,
-<a href=#6374 id=6374 data-nosnippet>6374</a>            <span class="self">Self</span>::Client { .. } =&gt; {
-<a href=#6375 id=6375 data-nosnippet>6375</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(hs) = state.as_handshake() {
-<a href=#6376 id=6376 data-nosnippet>6376</a>                    hs.allow_server_migration
-<a href=#6377 id=6377 data-nosnippet>6377</a>                } <span class="kw">else </span>{
-<a href=#6378 id=6378 data-nosnippet>6378</a>                    <span class="bool-val">false
-<a href=#6379 id=6379 data-nosnippet>6379</a>                </span>}
-<a href=#6380 id=6380 data-nosnippet>6380</a>            }
-<a href=#6381 id=6381 data-nosnippet>6381</a>        }
-<a href=#6382 id=6382 data-nosnippet>6382</a>    }
-<a href=#6383 id=6383 data-nosnippet>6383</a>
-<a href=#6384 id=6384 data-nosnippet>6384</a>    <span class="kw">fn </span>is_client(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
-<a href=#6385 id=6385 data-nosnippet>6385</a>        <span class="self">self</span>.side().is_client()
-<a href=#6386 id=6386 data-nosnippet>6386</a>    }
-<a href=#6387 id=6387 data-nosnippet>6387</a>
-<a href=#6388 id=6388 data-nosnippet>6388</a>    <span class="kw">fn </span>is_server(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
-<a href=#6389 id=6389 data-nosnippet>6389</a>        <span class="self">self</span>.side().is_server()
-<a href=#6390 id=6390 data-nosnippet>6390</a>    }
-<a href=#6391 id=6391 data-nosnippet>6391</a>
-<a href=#6392 id=6392 data-nosnippet>6392</a>    <span class="kw">fn </span>side(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Side {
-<a href=#6393 id=6393 data-nosnippet>6393</a>        <span class="kw">match </span><span class="kw-2">*</span><span class="self">self </span>{
-<a href=#6394 id=6394 data-nosnippet>6394</a>            <span class="self">Self</span>::Client { .. } =&gt; Side::Client,
-<a href=#6395 id=6395 data-nosnippet>6395</a>            <span class="self">Self</span>::Server { .. } =&gt; Side::Server,
-<a href=#6396 id=6396 data-nosnippet>6396</a>        }
-<a href=#6397 id=6397 data-nosnippet>6397</a>    }
-<a href=#6398 id=6398 data-nosnippet>6398</a>}
-<a href=#6399 id=6399 data-nosnippet>6399</a>
-<a href=#6400 id=6400 data-nosnippet>6400</a><span class="kw">impl </span>From&lt;SideArgs&gt; <span class="kw">for </span>ConnectionSide {
-<a href=#6401 id=6401 data-nosnippet>6401</a>    <span class="kw">fn </span>from(side: SideArgs) -&gt; <span class="self">Self </span>{
-<a href=#6402 id=6402 data-nosnippet>6402</a>        <span class="kw">match </span>side {
-<a href=#6403 id=6403 data-nosnippet>6403</a>            SideArgs::Client {
-<a href=#6404 id=6404 data-nosnippet>6404</a>                token_store,
-<a href=#6405 id=6405 data-nosnippet>6405</a>                server_name,
-<a href=#6406 id=6406 data-nosnippet>6406</a>            } =&gt; <span class="self">Self</span>::Client {
-<a href=#6407 id=6407 data-nosnippet>6407</a>                token: token_store.take(<span class="kw-2">&amp;</span>server_name).unwrap_or_default(),
-<a href=#6408 id=6408 data-nosnippet>6408</a>                token_store,
-<a href=#6409 id=6409 data-nosnippet>6409</a>                server_name,
-<a href=#6410 id=6410 data-nosnippet>6410</a>            },
-<a href=#6411 id=6411 data-nosnippet>6411</a>            SideArgs::Server {
-<a href=#6412 id=6412 data-nosnippet>6412</a>                server_config,
-<a href=#6413 id=6413 data-nosnippet>6413</a>                pref_addr_cid: <span class="kw">_</span>,
-<a href=#6414 id=6414 data-nosnippet>6414</a>                path_validated: <span class="kw">_</span>,
-<a href=#6415 id=6415 data-nosnippet>6415</a>            } =&gt; <span class="self">Self</span>::Server { server_config },
-<a href=#6416 id=6416 data-nosnippet>6416</a>        }
-<a href=#6417 id=6417 data-nosnippet>6417</a>    }
-<a href=#6418 id=6418 data-nosnippet>6418</a>}
-<a href=#6419 id=6419 data-nosnippet>6419</a>
-<a href=#6420 id=6420 data-nosnippet>6420</a><span class="doccomment">/// Parameters to `Connection::new` specific to it being client-side or server-side
-<a href=#6421 id=6421 data-nosnippet>6421</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">enum </span>SideArgs {
-<a href=#6422 id=6422 data-nosnippet>6422</a>    Client {
-<a href=#6423 id=6423 data-nosnippet>6423</a>        token_store: Arc&lt;<span class="kw">dyn </span>TokenStore&gt;,
-<a href=#6424 id=6424 data-nosnippet>6424</a>        server_name: String,
-<a href=#6425 id=6425 data-nosnippet>6425</a>    },
-<a href=#6426 id=6426 data-nosnippet>6426</a>    Server {
-<a href=#6427 id=6427 data-nosnippet>6427</a>        server_config: Arc&lt;ServerConfig&gt;,
-<a href=#6428 id=6428 data-nosnippet>6428</a>        pref_addr_cid: <span class="prelude-ty">Option</span>&lt;ConnectionId&gt;,
-<a href=#6429 id=6429 data-nosnippet>6429</a>        path_validated: bool,
-<a href=#6430 id=6430 data-nosnippet>6430</a>    },
-<a href=#6431 id=6431 data-nosnippet>6431</a>}
-<a href=#6432 id=6432 data-nosnippet>6432</a>
-<a href=#6433 id=6433 data-nosnippet>6433</a><span class="kw">impl </span>SideArgs {
-<a href=#6434 id=6434 data-nosnippet>6434</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>pref_addr_cid(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;ConnectionId&gt; {
-<a href=#6435 id=6435 data-nosnippet>6435</a>        <span class="kw">match </span><span class="kw-2">*</span><span class="self">self </span>{
-<a href=#6436 id=6436 data-nosnippet>6436</a>            <span class="self">Self</span>::Client { .. } =&gt; <span class="prelude-val">None</span>,
-<a href=#6437 id=6437 data-nosnippet>6437</a>            <span class="self">Self</span>::Server { pref_addr_cid, .. } =&gt; pref_addr_cid,
-<a href=#6438 id=6438 data-nosnippet>6438</a>        }
-<a href=#6439 id=6439 data-nosnippet>6439</a>    }
-<a href=#6440 id=6440 data-nosnippet>6440</a>
-<a href=#6441 id=6441 data-nosnippet>6441</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>path_validated(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
-<a href=#6442 id=6442 data-nosnippet>6442</a>        <span class="kw">match </span><span class="kw-2">*</span><span class="self">self </span>{
-<a href=#6443 id=6443 data-nosnippet>6443</a>            <span class="self">Self</span>::Client { .. } =&gt; <span class="bool-val">true</span>,
-<a href=#6444 id=6444 data-nosnippet>6444</a>            <span class="self">Self</span>::Server { path_validated, .. } =&gt; path_validated,
-<a href=#6445 id=6445 data-nosnippet>6445</a>        }
-<a href=#6446 id=6446 data-nosnippet>6446</a>    }
-<a href=#6447 id=6447 data-nosnippet>6447</a>
-<a href=#6448 id=6448 data-nosnippet>6448</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>side(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Side {
-<a href=#6449 id=6449 data-nosnippet>6449</a>        <span class="kw">match </span><span class="kw-2">*</span><span class="self">self </span>{
-<a href=#6450 id=6450 data-nosnippet>6450</a>            <span class="self">Self</span>::Client { .. } =&gt; Side::Client,
-<a href=#6451 id=6451 data-nosnippet>6451</a>            <span class="self">Self</span>::Server { .. } =&gt; Side::Server,
-<a href=#6452 id=6452 data-nosnippet>6452</a>        }
-<a href=#6453 id=6453 data-nosnippet>6453</a>    }
-<a href=#6454 id=6454 data-nosnippet>6454</a>}
-<a href=#6455 id=6455 data-nosnippet>6455</a>
-<a href=#6456 id=6456 data-nosnippet>6456</a><span class="doccomment">/// Reasons why a connection might be lost
-<a href=#6457 id=6457 data-nosnippet>6457</a></span><span class="attr">#[derive(Debug, Error, Clone, PartialEq, Eq)]
-<a href=#6458 id=6458 data-nosnippet>6458</a></span><span class="kw">pub enum </span>ConnectionError {
-<a href=#6459 id=6459 data-nosnippet>6459</a>    <span class="doccomment">/// The peer doesn't implement any supported version
-<a href=#6460 id=6460 data-nosnippet>6460</a>    </span><span class="attr">#[error(<span class="string">"peer doesn't implement any supported version"</span>)]
-<a href=#6461 id=6461 data-nosnippet>6461</a>    </span>VersionMismatch,
-<a href=#6462 id=6462 data-nosnippet>6462</a>    <span class="doccomment">/// The peer violated the QUIC specification as understood by this implementation
-<a href=#6463 id=6463 data-nosnippet>6463</a>    </span><span class="attr">#[error(transparent)]
-<a href=#6464 id=6464 data-nosnippet>6464</a>    </span>TransportError(<span class="attr">#[from] </span>TransportError),
-<a href=#6465 id=6465 data-nosnippet>6465</a>    <span class="doccomment">/// The peer's QUIC stack aborted the connection automatically
-<a href=#6466 id=6466 data-nosnippet>6466</a>    </span><span class="attr">#[error(<span class="string">"aborted by peer: {0}"</span>)]
-<a href=#6467 id=6467 data-nosnippet>6467</a>    </span>ConnectionClosed(frame::ConnectionClose),
-<a href=#6468 id=6468 data-nosnippet>6468</a>    <span class="doccomment">/// The peer closed the connection
-<a href=#6469 id=6469 data-nosnippet>6469</a>    </span><span class="attr">#[error(<span class="string">"closed by peer: {0}"</span>)]
-<a href=#6470 id=6470 data-nosnippet>6470</a>    </span>ApplicationClosed(frame::ApplicationClose),
-<a href=#6471 id=6471 data-nosnippet>6471</a>    <span class="doccomment">/// The peer is unable to continue processing this connection, usually due to having restarted
-<a href=#6472 id=6472 data-nosnippet>6472</a>    </span><span class="attr">#[error(<span class="string">"reset by peer"</span>)]
-<a href=#6473 id=6473 data-nosnippet>6473</a>    </span>Reset,
-<a href=#6474 id=6474 data-nosnippet>6474</a>    <span class="doccomment">/// Communication with the peer has lapsed for longer than the negotiated idle timeout
-<a href=#6475 id=6475 data-nosnippet>6475</a>    ///
-<a href=#6476 id=6476 data-nosnippet>6476</a>    /// If neither side is sending keep-alives, a connection will time out after a long enough idle
-<a href=#6477 id=6477 data-nosnippet>6477</a>    /// period even if the peer is still reachable. See also [`TransportConfig::max_idle_timeout()`]
-<a href=#6478 id=6478 data-nosnippet>6478</a>    /// and [`TransportConfig::keep_alive_interval()`].
-<a href=#6479 id=6479 data-nosnippet>6479</a>    </span><span class="attr">#[error(<span class="string">"timed out"</span>)]
-<a href=#6480 id=6480 data-nosnippet>6480</a>    </span>TimedOut,
-<a href=#6481 id=6481 data-nosnippet>6481</a>    <span class="doccomment">/// The local application closed the connection
-<a href=#6482 id=6482 data-nosnippet>6482</a>    </span><span class="attr">#[error(<span class="string">"closed"</span>)]
-<a href=#6483 id=6483 data-nosnippet>6483</a>    </span>LocallyClosed,
-<a href=#6484 id=6484 data-nosnippet>6484</a>    <span class="doccomment">/// The connection could not be created because not enough of the CID space is available
-<a href=#6485 id=6485 data-nosnippet>6485</a>    ///
-<a href=#6486 id=6486 data-nosnippet>6486</a>    /// Try using longer connection IDs.
-<a href=#6487 id=6487 data-nosnippet>6487</a>    </span><span class="attr">#[error(<span class="string">"CIDs exhausted"</span>)]
-<a href=#6488 id=6488 data-nosnippet>6488</a>    </span>CidsExhausted,
-<a href=#6489 id=6489 data-nosnippet>6489</a>}
-<a href=#6490 id=6490 data-nosnippet>6490</a>
-<a href=#6491 id=6491 data-nosnippet>6491</a><span class="kw">impl </span>From&lt;Close&gt; <span class="kw">for </span>ConnectionError {
-<a href=#6492 id=6492 data-nosnippet>6492</a>    <span class="kw">fn </span>from(x: Close) -&gt; <span class="self">Self </span>{
-<a href=#6493 id=6493 data-nosnippet>6493</a>        <span class="kw">match </span>x {
-<a href=#6494 id=6494 data-nosnippet>6494</a>            Close::Connection(reason) =&gt; <span class="self">Self</span>::ConnectionClosed(reason),
-<a href=#6495 id=6495 data-nosnippet>6495</a>            Close::Application(reason) =&gt; <span class="self">Self</span>::ApplicationClosed(reason),
-<a href=#6496 id=6496 data-nosnippet>6496</a>        }
-<a href=#6497 id=6497 data-nosnippet>6497</a>    }
-<a href=#6498 id=6498 data-nosnippet>6498</a>}
-<a href=#6499 id=6499 data-nosnippet>6499</a>
-<a href=#6500 id=6500 data-nosnippet>6500</a><span class="comment">// For compatibility with API consumers
-<a href=#6501 id=6501 data-nosnippet>6501</a></span><span class="kw">impl </span>From&lt;ConnectionError&gt; <span class="kw">for </span>io::Error {
-<a href=#6502 id=6502 data-nosnippet>6502</a>    <span class="kw">fn </span>from(x: ConnectionError) -&gt; <span class="self">Self </span>{
-<a href=#6503 id=6503 data-nosnippet>6503</a>        <span class="kw">use </span>ConnectionError::<span class="kw-2">*</span>;
-<a href=#6504 id=6504 data-nosnippet>6504</a>        <span class="kw">let </span>kind = <span class="kw">match </span>x {
-<a href=#6505 id=6505 data-nosnippet>6505</a>            TimedOut =&gt; io::ErrorKind::TimedOut,
-<a href=#6506 id=6506 data-nosnippet>6506</a>            Reset =&gt; io::ErrorKind::ConnectionReset,
-<a href=#6507 id=6507 data-nosnippet>6507</a>            ApplicationClosed(<span class="kw">_</span>) | ConnectionClosed(<span class="kw">_</span>) =&gt; io::ErrorKind::ConnectionAborted,
-<a href=#6508 id=6508 data-nosnippet>6508</a>            TransportError(<span class="kw">_</span>) | VersionMismatch | LocallyClosed | CidsExhausted =&gt; {
-<a href=#6509 id=6509 data-nosnippet>6509</a>                io::ErrorKind::Other
-<a href=#6510 id=6510 data-nosnippet>6510</a>            }
-<a href=#6511 id=6511 data-nosnippet>6511</a>        };
-<a href=#6512 id=6512 data-nosnippet>6512</a>        <span class="self">Self</span>::new(kind, x)
-<a href=#6513 id=6513 data-nosnippet>6513</a>    }
-<a href=#6514 id=6514 data-nosnippet>6514</a>}
-<a href=#6515 id=6515 data-nosnippet>6515</a>
-<a href=#6516 id=6516 data-nosnippet>6516</a><span class="doccomment">/// Errors that might trigger a path being closed
-<a href=#6517 id=6517 data-nosnippet>6517</a></span><span class="comment">// TODO(@divma): maybe needs to be reworked based on what we want to do with the public API
-<a href=#6518 id=6518 data-nosnippet>6518</a></span><span class="attr">#[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
-<a href=#6519 id=6519 data-nosnippet>6519</a></span><span class="kw">pub enum </span>PathError {
-<a href=#6520 id=6520 data-nosnippet>6520</a>    <span class="doccomment">/// The extension was not negotiated with the peer
-<a href=#6521 id=6521 data-nosnippet>6521</a>    </span><span class="attr">#[error(<span class="string">"multipath extension not negotiated"</span>)]
-<a href=#6522 id=6522 data-nosnippet>6522</a>    </span>MultipathNotNegotiated,
-<a href=#6523 id=6523 data-nosnippet>6523</a>    <span class="doccomment">/// Paths can only be opened client-side
-<a href=#6524 id=6524 data-nosnippet>6524</a>    </span><span class="attr">#[error(<span class="string">"the server side may not open a path"</span>)]
-<a href=#6525 id=6525 data-nosnippet>6525</a>    </span>ServerSideNotAllowed,
-<a href=#6526 id=6526 data-nosnippet>6526</a>    <span class="doccomment">/// Current limits do not allow us to open more paths
-<a href=#6527 id=6527 data-nosnippet>6527</a>    </span><span class="attr">#[error(<span class="string">"maximum number of concurrent paths reached"</span>)]
-<a href=#6528 id=6528 data-nosnippet>6528</a>    </span>MaxPathIdReached,
-<a href=#6529 id=6529 data-nosnippet>6529</a>    <span class="doccomment">/// No remote CIDs available to open a new path
-<a href=#6530 id=6530 data-nosnippet>6530</a>    </span><span class="attr">#[error(<span class="string">"remoted CIDs exhausted"</span>)]
-<a href=#6531 id=6531 data-nosnippet>6531</a>    </span>RemoteCidsExhausted,
-<a href=#6532 id=6532 data-nosnippet>6532</a>    <span class="doccomment">/// Path could not be validated and will be abandoned
-<a href=#6533 id=6533 data-nosnippet>6533</a>    </span><span class="attr">#[error(<span class="string">"path validation failed"</span>)]
-<a href=#6534 id=6534 data-nosnippet>6534</a>    </span>ValidationFailed,
-<a href=#6535 id=6535 data-nosnippet>6535</a>    <span class="doccomment">/// The remote address for the path is not supported by the endpoint
-<a href=#6536 id=6536 data-nosnippet>6536</a>    </span><span class="attr">#[error(<span class="string">"invalid remote address"</span>)]
-<a href=#6537 id=6537 data-nosnippet>6537</a>    </span>InvalidRemoteAddress(SocketAddr),
-<a href=#6538 id=6538 data-nosnippet>6538</a>}
-<a href=#6539 id=6539 data-nosnippet>6539</a>
-<a href=#6540 id=6540 data-nosnippet>6540</a><span class="doccomment">/// Errors triggered when abandoning a path
-<a href=#6541 id=6541 data-nosnippet>6541</a></span><span class="attr">#[derive(Debug, Error, Clone, Eq, PartialEq)]
-<a href=#6542 id=6542 data-nosnippet>6542</a></span><span class="kw">pub enum </span>ClosePathError {
-<a href=#6543 id=6543 data-nosnippet>6543</a>    <span class="doccomment">/// The path is already closed or was never opened
-<a href=#6544 id=6544 data-nosnippet>6544</a>    </span><span class="attr">#[error(<span class="string">"closed path"</span>)]
-<a href=#6545 id=6545 data-nosnippet>6545</a>    </span>ClosedPath,
-<a href=#6546 id=6546 data-nosnippet>6546</a>    <span class="doccomment">/// This is the last path, which can not be abandoned
-<a href=#6547 id=6547 data-nosnippet>6547</a>    </span><span class="attr">#[error(<span class="string">"last open path"</span>)]
-<a href=#6548 id=6548 data-nosnippet>6548</a>    </span>LastOpenPath,
-<a href=#6549 id=6549 data-nosnippet>6549</a>}
-<a href=#6550 id=6550 data-nosnippet>6550</a>
-<a href=#6551 id=6551 data-nosnippet>6551</a><span class="attr">#[derive(Debug, Error, Clone, Copy)]
-<a href=#6552 id=6552 data-nosnippet>6552</a>#[error(<span class="string">"Multipath extension not negotiated"</span>)]
-<a href=#6553 id=6553 data-nosnippet>6553</a></span><span class="kw">pub struct </span>MultipathNotNegotiated {
-<a href=#6554 id=6554 data-nosnippet>6554</a>    _private: (),
-<a href=#6555 id=6555 data-nosnippet>6555</a>}
-<a href=#6556 id=6556 data-nosnippet>6556</a>
-<a href=#6557 id=6557 data-nosnippet>6557</a><span class="doccomment">/// Events of interest to the application
-<a href=#6558 id=6558 data-nosnippet>6558</a></span><span class="attr">#[derive(Debug)]
-<a href=#6559 id=6559 data-nosnippet>6559</a></span><span class="kw">pub enum </span>Event {
-<a href=#6560 id=6560 data-nosnippet>6560</a>    <span class="doccomment">/// The connection's handshake data is ready
-<a href=#6561 id=6561 data-nosnippet>6561</a>    </span>HandshakeDataReady,
-<a href=#6562 id=6562 data-nosnippet>6562</a>    <span class="doccomment">/// The connection was successfully established
-<a href=#6563 id=6563 data-nosnippet>6563</a>    </span>Connected,
-<a href=#6564 id=6564 data-nosnippet>6564</a>    <span class="doccomment">/// The TLS handshake was confirmed
-<a href=#6565 id=6565 data-nosnippet>6565</a>    </span>HandshakeConfirmed,
-<a href=#6566 id=6566 data-nosnippet>6566</a>    <span class="doccomment">/// The connection was lost
-<a href=#6567 id=6567 data-nosnippet>6567</a>    ///
-<a href=#6568 id=6568 data-nosnippet>6568</a>    /// Emitted if the peer closes the connection or an error is encountered.
-<a href=#6569 id=6569 data-nosnippet>6569</a>    </span>ConnectionLost {
-<a href=#6570 id=6570 data-nosnippet>6570</a>        <span class="doccomment">/// Reason that the connection was closed
-<a href=#6571 id=6571 data-nosnippet>6571</a>        </span>reason: ConnectionError,
-<a href=#6572 id=6572 data-nosnippet>6572</a>    },
-<a href=#6573 id=6573 data-nosnippet>6573</a>    <span class="doccomment">/// Stream events
-<a href=#6574 id=6574 data-nosnippet>6574</a>    </span>Stream(StreamEvent),
-<a href=#6575 id=6575 data-nosnippet>6575</a>    <span class="doccomment">/// One or more application datagrams have been received
-<a href=#6576 id=6576 data-nosnippet>6576</a>    </span>DatagramReceived,
-<a href=#6577 id=6577 data-nosnippet>6577</a>    <span class="doccomment">/// One or more application datagrams have been sent after blocking
-<a href=#6578 id=6578 data-nosnippet>6578</a>    </span>DatagramsUnblocked,
-<a href=#6579 id=6579 data-nosnippet>6579</a>    <span class="doccomment">/// (Multi)Path events
-<a href=#6580 id=6580 data-nosnippet>6580</a>    </span>Path(PathEvent),
-<a href=#6581 id=6581 data-nosnippet>6581</a>    <span class="doccomment">/// Iroh's nat traversal events
-<a href=#6582 id=6582 data-nosnippet>6582</a>    </span>NatTraversal(iroh_hp::Event),
-<a href=#6583 id=6583 data-nosnippet>6583</a>}
-<a href=#6584 id=6584 data-nosnippet>6584</a>
-<a href=#6585 id=6585 data-nosnippet>6585</a><span class="kw">impl </span>From&lt;PathEvent&gt; <span class="kw">for </span>Event {
-<a href=#6586 id=6586 data-nosnippet>6586</a>    <span class="kw">fn </span>from(source: PathEvent) -&gt; <span class="self">Self </span>{
-<a href=#6587 id=6587 data-nosnippet>6587</a>        <span class="self">Self</span>::Path(source)
-<a href=#6588 id=6588 data-nosnippet>6588</a>    }
-<a href=#6589 id=6589 data-nosnippet>6589</a>}
-<a href=#6590 id=6590 data-nosnippet>6590</a>
-<a href=#6591 id=6591 data-nosnippet>6591</a><span class="kw">fn </span>get_max_ack_delay(params: <span class="kw-2">&amp;</span>TransportParameters) -&gt; Duration {
-<a href=#6592 id=6592 data-nosnippet>6592</a>    Duration::from_micros(params.max_ack_delay.<span class="number">0 </span>* <span class="number">1000</span>)
-<a href=#6593 id=6593 data-nosnippet>6593</a>}
-<a href=#6594 id=6594 data-nosnippet>6594</a>
-<a href=#6595 id=6595 data-nosnippet>6595</a><span class="comment">// Prevents overflow and improves behavior in extreme circumstances
-<a href=#6596 id=6596 data-nosnippet>6596</a></span><span class="kw">const </span>MAX_BACKOFF_EXPONENT: u32 = <span class="number">16</span>;
+<a href=#6368 id=6368 data-nosnippet>6368</a>    Server {
+<a href=#6369 id=6369 data-nosnippet>6369</a>        server_config: Arc&lt;ServerConfig&gt;,
+<a href=#6370 id=6370 data-nosnippet>6370</a>    },
+<a href=#6371 id=6371 data-nosnippet>6371</a>}
+<a href=#6372 id=6372 data-nosnippet>6372</a>
+<a href=#6373 id=6373 data-nosnippet>6373</a><span class="kw">impl </span>ConnectionSide {
+<a href=#6374 id=6374 data-nosnippet>6374</a>    <span class="kw">fn </span>remote_may_migrate(<span class="kw-2">&amp;</span><span class="self">self</span>, state: <span class="kw-2">&amp;</span>State) -&gt; bool {
+<a href=#6375 id=6375 data-nosnippet>6375</a>        <span class="kw">match </span><span class="self">self </span>{
+<a href=#6376 id=6376 data-nosnippet>6376</a>            <span class="self">Self</span>::Server { server_config } =&gt; server_config.migration,
+<a href=#6377 id=6377 data-nosnippet>6377</a>            <span class="self">Self</span>::Client { .. } =&gt; {
+<a href=#6378 id=6378 data-nosnippet>6378</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(hs) = state.as_handshake() {
+<a href=#6379 id=6379 data-nosnippet>6379</a>                    hs.allow_server_migration
+<a href=#6380 id=6380 data-nosnippet>6380</a>                } <span class="kw">else </span>{
+<a href=#6381 id=6381 data-nosnippet>6381</a>                    <span class="bool-val">false
+<a href=#6382 id=6382 data-nosnippet>6382</a>                </span>}
+<a href=#6383 id=6383 data-nosnippet>6383</a>            }
+<a href=#6384 id=6384 data-nosnippet>6384</a>        }
+<a href=#6385 id=6385 data-nosnippet>6385</a>    }
+<a href=#6386 id=6386 data-nosnippet>6386</a>
+<a href=#6387 id=6387 data-nosnippet>6387</a>    <span class="kw">fn </span>is_client(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+<a href=#6388 id=6388 data-nosnippet>6388</a>        <span class="self">self</span>.side().is_client()
+<a href=#6389 id=6389 data-nosnippet>6389</a>    }
+<a href=#6390 id=6390 data-nosnippet>6390</a>
+<a href=#6391 id=6391 data-nosnippet>6391</a>    <span class="kw">fn </span>is_server(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+<a href=#6392 id=6392 data-nosnippet>6392</a>        <span class="self">self</span>.side().is_server()
+<a href=#6393 id=6393 data-nosnippet>6393</a>    }
+<a href=#6394 id=6394 data-nosnippet>6394</a>
+<a href=#6395 id=6395 data-nosnippet>6395</a>    <span class="kw">fn </span>side(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Side {
+<a href=#6396 id=6396 data-nosnippet>6396</a>        <span class="kw">match </span><span class="kw-2">*</span><span class="self">self </span>{
+<a href=#6397 id=6397 data-nosnippet>6397</a>            <span class="self">Self</span>::Client { .. } =&gt; Side::Client,
+<a href=#6398 id=6398 data-nosnippet>6398</a>            <span class="self">Self</span>::Server { .. } =&gt; Side::Server,
+<a href=#6399 id=6399 data-nosnippet>6399</a>        }
+<a href=#6400 id=6400 data-nosnippet>6400</a>    }
+<a href=#6401 id=6401 data-nosnippet>6401</a>}
+<a href=#6402 id=6402 data-nosnippet>6402</a>
+<a href=#6403 id=6403 data-nosnippet>6403</a><span class="kw">impl </span>From&lt;SideArgs&gt; <span class="kw">for </span>ConnectionSide {
+<a href=#6404 id=6404 data-nosnippet>6404</a>    <span class="kw">fn </span>from(side: SideArgs) -&gt; <span class="self">Self </span>{
+<a href=#6405 id=6405 data-nosnippet>6405</a>        <span class="kw">match </span>side {
+<a href=#6406 id=6406 data-nosnippet>6406</a>            SideArgs::Client {
+<a href=#6407 id=6407 data-nosnippet>6407</a>                token_store,
+<a href=#6408 id=6408 data-nosnippet>6408</a>                server_name,
+<a href=#6409 id=6409 data-nosnippet>6409</a>            } =&gt; <span class="self">Self</span>::Client {
+<a href=#6410 id=6410 data-nosnippet>6410</a>                token: token_store.take(<span class="kw-2">&amp;</span>server_name).unwrap_or_default(),
+<a href=#6411 id=6411 data-nosnippet>6411</a>                token_store,
+<a href=#6412 id=6412 data-nosnippet>6412</a>                server_name,
+<a href=#6413 id=6413 data-nosnippet>6413</a>            },
+<a href=#6414 id=6414 data-nosnippet>6414</a>            SideArgs::Server {
+<a href=#6415 id=6415 data-nosnippet>6415</a>                server_config,
+<a href=#6416 id=6416 data-nosnippet>6416</a>                pref_addr_cid: <span class="kw">_</span>,
+<a href=#6417 id=6417 data-nosnippet>6417</a>                path_validated: <span class="kw">_</span>,
+<a href=#6418 id=6418 data-nosnippet>6418</a>            } =&gt; <span class="self">Self</span>::Server { server_config },
+<a href=#6419 id=6419 data-nosnippet>6419</a>        }
+<a href=#6420 id=6420 data-nosnippet>6420</a>    }
+<a href=#6421 id=6421 data-nosnippet>6421</a>}
+<a href=#6422 id=6422 data-nosnippet>6422</a>
+<a href=#6423 id=6423 data-nosnippet>6423</a><span class="doccomment">/// Parameters to `Connection::new` specific to it being client-side or server-side
+<a href=#6424 id=6424 data-nosnippet>6424</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">enum </span>SideArgs {
+<a href=#6425 id=6425 data-nosnippet>6425</a>    Client {
+<a href=#6426 id=6426 data-nosnippet>6426</a>        token_store: Arc&lt;<span class="kw">dyn </span>TokenStore&gt;,
+<a href=#6427 id=6427 data-nosnippet>6427</a>        server_name: String,
+<a href=#6428 id=6428 data-nosnippet>6428</a>    },
+<a href=#6429 id=6429 data-nosnippet>6429</a>    Server {
+<a href=#6430 id=6430 data-nosnippet>6430</a>        server_config: Arc&lt;ServerConfig&gt;,
+<a href=#6431 id=6431 data-nosnippet>6431</a>        pref_addr_cid: <span class="prelude-ty">Option</span>&lt;ConnectionId&gt;,
+<a href=#6432 id=6432 data-nosnippet>6432</a>        path_validated: bool,
+<a href=#6433 id=6433 data-nosnippet>6433</a>    },
+<a href=#6434 id=6434 data-nosnippet>6434</a>}
+<a href=#6435 id=6435 data-nosnippet>6435</a>
+<a href=#6436 id=6436 data-nosnippet>6436</a><span class="kw">impl </span>SideArgs {
+<a href=#6437 id=6437 data-nosnippet>6437</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>pref_addr_cid(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;ConnectionId&gt; {
+<a href=#6438 id=6438 data-nosnippet>6438</a>        <span class="kw">match </span><span class="kw-2">*</span><span class="self">self </span>{
+<a href=#6439 id=6439 data-nosnippet>6439</a>            <span class="self">Self</span>::Client { .. } =&gt; <span class="prelude-val">None</span>,
+<a href=#6440 id=6440 data-nosnippet>6440</a>            <span class="self">Self</span>::Server { pref_addr_cid, .. } =&gt; pref_addr_cid,
+<a href=#6441 id=6441 data-nosnippet>6441</a>        }
+<a href=#6442 id=6442 data-nosnippet>6442</a>    }
+<a href=#6443 id=6443 data-nosnippet>6443</a>
+<a href=#6444 id=6444 data-nosnippet>6444</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>path_validated(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+<a href=#6445 id=6445 data-nosnippet>6445</a>        <span class="kw">match </span><span class="kw-2">*</span><span class="self">self </span>{
+<a href=#6446 id=6446 data-nosnippet>6446</a>            <span class="self">Self</span>::Client { .. } =&gt; <span class="bool-val">true</span>,
+<a href=#6447 id=6447 data-nosnippet>6447</a>            <span class="self">Self</span>::Server { path_validated, .. } =&gt; path_validated,
+<a href=#6448 id=6448 data-nosnippet>6448</a>        }
+<a href=#6449 id=6449 data-nosnippet>6449</a>    }
+<a href=#6450 id=6450 data-nosnippet>6450</a>
+<a href=#6451 id=6451 data-nosnippet>6451</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>side(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Side {
+<a href=#6452 id=6452 data-nosnippet>6452</a>        <span class="kw">match </span><span class="kw-2">*</span><span class="self">self </span>{
+<a href=#6453 id=6453 data-nosnippet>6453</a>            <span class="self">Self</span>::Client { .. } =&gt; Side::Client,
+<a href=#6454 id=6454 data-nosnippet>6454</a>            <span class="self">Self</span>::Server { .. } =&gt; Side::Server,
+<a href=#6455 id=6455 data-nosnippet>6455</a>        }
+<a href=#6456 id=6456 data-nosnippet>6456</a>    }
+<a href=#6457 id=6457 data-nosnippet>6457</a>}
+<a href=#6458 id=6458 data-nosnippet>6458</a>
+<a href=#6459 id=6459 data-nosnippet>6459</a><span class="doccomment">/// Reasons why a connection might be lost
+<a href=#6460 id=6460 data-nosnippet>6460</a></span><span class="attr">#[derive(Debug, Error, Clone, PartialEq, Eq)]
+<a href=#6461 id=6461 data-nosnippet>6461</a></span><span class="kw">pub enum </span>ConnectionError {
+<a href=#6462 id=6462 data-nosnippet>6462</a>    <span class="doccomment">/// The peer doesn't implement any supported version
+<a href=#6463 id=6463 data-nosnippet>6463</a>    </span><span class="attr">#[error(<span class="string">"peer doesn't implement any supported version"</span>)]
+<a href=#6464 id=6464 data-nosnippet>6464</a>    </span>VersionMismatch,
+<a href=#6465 id=6465 data-nosnippet>6465</a>    <span class="doccomment">/// The peer violated the QUIC specification as understood by this implementation
+<a href=#6466 id=6466 data-nosnippet>6466</a>    </span><span class="attr">#[error(transparent)]
+<a href=#6467 id=6467 data-nosnippet>6467</a>    </span>TransportError(<span class="attr">#[from] </span>TransportError),
+<a href=#6468 id=6468 data-nosnippet>6468</a>    <span class="doccomment">/// The peer's QUIC stack aborted the connection automatically
+<a href=#6469 id=6469 data-nosnippet>6469</a>    </span><span class="attr">#[error(<span class="string">"aborted by peer: {0}"</span>)]
+<a href=#6470 id=6470 data-nosnippet>6470</a>    </span>ConnectionClosed(frame::ConnectionClose),
+<a href=#6471 id=6471 data-nosnippet>6471</a>    <span class="doccomment">/// The peer closed the connection
+<a href=#6472 id=6472 data-nosnippet>6472</a>    </span><span class="attr">#[error(<span class="string">"closed by peer: {0}"</span>)]
+<a href=#6473 id=6473 data-nosnippet>6473</a>    </span>ApplicationClosed(frame::ApplicationClose),
+<a href=#6474 id=6474 data-nosnippet>6474</a>    <span class="doccomment">/// The peer is unable to continue processing this connection, usually due to having restarted
+<a href=#6475 id=6475 data-nosnippet>6475</a>    </span><span class="attr">#[error(<span class="string">"reset by peer"</span>)]
+<a href=#6476 id=6476 data-nosnippet>6476</a>    </span>Reset,
+<a href=#6477 id=6477 data-nosnippet>6477</a>    <span class="doccomment">/// Communication with the peer has lapsed for longer than the negotiated idle timeout
+<a href=#6478 id=6478 data-nosnippet>6478</a>    ///
+<a href=#6479 id=6479 data-nosnippet>6479</a>    /// If neither side is sending keep-alives, a connection will time out after a long enough idle
+<a href=#6480 id=6480 data-nosnippet>6480</a>    /// period even if the peer is still reachable. See also [`TransportConfig::max_idle_timeout()`]
+<a href=#6481 id=6481 data-nosnippet>6481</a>    /// and [`TransportConfig::keep_alive_interval()`].
+<a href=#6482 id=6482 data-nosnippet>6482</a>    </span><span class="attr">#[error(<span class="string">"timed out"</span>)]
+<a href=#6483 id=6483 data-nosnippet>6483</a>    </span>TimedOut,
+<a href=#6484 id=6484 data-nosnippet>6484</a>    <span class="doccomment">/// The local application closed the connection
+<a href=#6485 id=6485 data-nosnippet>6485</a>    </span><span class="attr">#[error(<span class="string">"closed"</span>)]
+<a href=#6486 id=6486 data-nosnippet>6486</a>    </span>LocallyClosed,
+<a href=#6487 id=6487 data-nosnippet>6487</a>    <span class="doccomment">/// The connection could not be created because not enough of the CID space is available
+<a href=#6488 id=6488 data-nosnippet>6488</a>    ///
+<a href=#6489 id=6489 data-nosnippet>6489</a>    /// Try using longer connection IDs.
+<a href=#6490 id=6490 data-nosnippet>6490</a>    </span><span class="attr">#[error(<span class="string">"CIDs exhausted"</span>)]
+<a href=#6491 id=6491 data-nosnippet>6491</a>    </span>CidsExhausted,
+<a href=#6492 id=6492 data-nosnippet>6492</a>}
+<a href=#6493 id=6493 data-nosnippet>6493</a>
+<a href=#6494 id=6494 data-nosnippet>6494</a><span class="kw">impl </span>From&lt;Close&gt; <span class="kw">for </span>ConnectionError {
+<a href=#6495 id=6495 data-nosnippet>6495</a>    <span class="kw">fn </span>from(x: Close) -&gt; <span class="self">Self </span>{
+<a href=#6496 id=6496 data-nosnippet>6496</a>        <span class="kw">match </span>x {
+<a href=#6497 id=6497 data-nosnippet>6497</a>            Close::Connection(reason) =&gt; <span class="self">Self</span>::ConnectionClosed(reason),
+<a href=#6498 id=6498 data-nosnippet>6498</a>            Close::Application(reason) =&gt; <span class="self">Self</span>::ApplicationClosed(reason),
+<a href=#6499 id=6499 data-nosnippet>6499</a>        }
+<a href=#6500 id=6500 data-nosnippet>6500</a>    }
+<a href=#6501 id=6501 data-nosnippet>6501</a>}
+<a href=#6502 id=6502 data-nosnippet>6502</a>
+<a href=#6503 id=6503 data-nosnippet>6503</a><span class="comment">// For compatibility with API consumers
+<a href=#6504 id=6504 data-nosnippet>6504</a></span><span class="kw">impl </span>From&lt;ConnectionError&gt; <span class="kw">for </span>io::Error {
+<a href=#6505 id=6505 data-nosnippet>6505</a>    <span class="kw">fn </span>from(x: ConnectionError) -&gt; <span class="self">Self </span>{
+<a href=#6506 id=6506 data-nosnippet>6506</a>        <span class="kw">use </span>ConnectionError::<span class="kw-2">*</span>;
+<a href=#6507 id=6507 data-nosnippet>6507</a>        <span class="kw">let </span>kind = <span class="kw">match </span>x {
+<a href=#6508 id=6508 data-nosnippet>6508</a>            TimedOut =&gt; io::ErrorKind::TimedOut,
+<a href=#6509 id=6509 data-nosnippet>6509</a>            Reset =&gt; io::ErrorKind::ConnectionReset,
+<a href=#6510 id=6510 data-nosnippet>6510</a>            ApplicationClosed(<span class="kw">_</span>) | ConnectionClosed(<span class="kw">_</span>) =&gt; io::ErrorKind::ConnectionAborted,
+<a href=#6511 id=6511 data-nosnippet>6511</a>            TransportError(<span class="kw">_</span>) | VersionMismatch | LocallyClosed | CidsExhausted =&gt; {
+<a href=#6512 id=6512 data-nosnippet>6512</a>                io::ErrorKind::Other
+<a href=#6513 id=6513 data-nosnippet>6513</a>            }
+<a href=#6514 id=6514 data-nosnippet>6514</a>        };
+<a href=#6515 id=6515 data-nosnippet>6515</a>        <span class="self">Self</span>::new(kind, x)
+<a href=#6516 id=6516 data-nosnippet>6516</a>    }
+<a href=#6517 id=6517 data-nosnippet>6517</a>}
+<a href=#6518 id=6518 data-nosnippet>6518</a>
+<a href=#6519 id=6519 data-nosnippet>6519</a><span class="doccomment">/// Errors that might trigger a path being closed
+<a href=#6520 id=6520 data-nosnippet>6520</a></span><span class="comment">// TODO(@divma): maybe needs to be reworked based on what we want to do with the public API
+<a href=#6521 id=6521 data-nosnippet>6521</a></span><span class="attr">#[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
+<a href=#6522 id=6522 data-nosnippet>6522</a></span><span class="kw">pub enum </span>PathError {
+<a href=#6523 id=6523 data-nosnippet>6523</a>    <span class="doccomment">/// The extension was not negotiated with the peer
+<a href=#6524 id=6524 data-nosnippet>6524</a>    </span><span class="attr">#[error(<span class="string">"multipath extension not negotiated"</span>)]
+<a href=#6525 id=6525 data-nosnippet>6525</a>    </span>MultipathNotNegotiated,
+<a href=#6526 id=6526 data-nosnippet>6526</a>    <span class="doccomment">/// Paths can only be opened client-side
+<a href=#6527 id=6527 data-nosnippet>6527</a>    </span><span class="attr">#[error(<span class="string">"the server side may not open a path"</span>)]
+<a href=#6528 id=6528 data-nosnippet>6528</a>    </span>ServerSideNotAllowed,
+<a href=#6529 id=6529 data-nosnippet>6529</a>    <span class="doccomment">/// Current limits do not allow us to open more paths
+<a href=#6530 id=6530 data-nosnippet>6530</a>    </span><span class="attr">#[error(<span class="string">"maximum number of concurrent paths reached"</span>)]
+<a href=#6531 id=6531 data-nosnippet>6531</a>    </span>MaxPathIdReached,
+<a href=#6532 id=6532 data-nosnippet>6532</a>    <span class="doccomment">/// No remote CIDs available to open a new path
+<a href=#6533 id=6533 data-nosnippet>6533</a>    </span><span class="attr">#[error(<span class="string">"remoted CIDs exhausted"</span>)]
+<a href=#6534 id=6534 data-nosnippet>6534</a>    </span>RemoteCidsExhausted,
+<a href=#6535 id=6535 data-nosnippet>6535</a>    <span class="doccomment">/// Path could not be validated and will be abandoned
+<a href=#6536 id=6536 data-nosnippet>6536</a>    </span><span class="attr">#[error(<span class="string">"path validation failed"</span>)]
+<a href=#6537 id=6537 data-nosnippet>6537</a>    </span>ValidationFailed,
+<a href=#6538 id=6538 data-nosnippet>6538</a>    <span class="doccomment">/// The remote address for the path is not supported by the endpoint
+<a href=#6539 id=6539 data-nosnippet>6539</a>    </span><span class="attr">#[error(<span class="string">"invalid remote address"</span>)]
+<a href=#6540 id=6540 data-nosnippet>6540</a>    </span>InvalidRemoteAddress(SocketAddr),
+<a href=#6541 id=6541 data-nosnippet>6541</a>}
+<a href=#6542 id=6542 data-nosnippet>6542</a>
+<a href=#6543 id=6543 data-nosnippet>6543</a><span class="doccomment">/// Errors triggered when abandoning a path
+<a href=#6544 id=6544 data-nosnippet>6544</a></span><span class="attr">#[derive(Debug, Error, Clone, Eq, PartialEq)]
+<a href=#6545 id=6545 data-nosnippet>6545</a></span><span class="kw">pub enum </span>ClosePathError {
+<a href=#6546 id=6546 data-nosnippet>6546</a>    <span class="doccomment">/// The path is already closed or was never opened
+<a href=#6547 id=6547 data-nosnippet>6547</a>    </span><span class="attr">#[error(<span class="string">"closed path"</span>)]
+<a href=#6548 id=6548 data-nosnippet>6548</a>    </span>ClosedPath,
+<a href=#6549 id=6549 data-nosnippet>6549</a>    <span class="doccomment">/// This is the last path, which can not be abandoned
+<a href=#6550 id=6550 data-nosnippet>6550</a>    </span><span class="attr">#[error(<span class="string">"last open path"</span>)]
+<a href=#6551 id=6551 data-nosnippet>6551</a>    </span>LastOpenPath,
+<a href=#6552 id=6552 data-nosnippet>6552</a>}
+<a href=#6553 id=6553 data-nosnippet>6553</a>
+<a href=#6554 id=6554 data-nosnippet>6554</a><span class="attr">#[derive(Debug, Error, Clone, Copy)]
+<a href=#6555 id=6555 data-nosnippet>6555</a>#[error(<span class="string">"Multipath extension not negotiated"</span>)]
+<a href=#6556 id=6556 data-nosnippet>6556</a></span><span class="kw">pub struct </span>MultipathNotNegotiated {
+<a href=#6557 id=6557 data-nosnippet>6557</a>    _private: (),
+<a href=#6558 id=6558 data-nosnippet>6558</a>}
+<a href=#6559 id=6559 data-nosnippet>6559</a>
+<a href=#6560 id=6560 data-nosnippet>6560</a><span class="doccomment">/// Events of interest to the application
+<a href=#6561 id=6561 data-nosnippet>6561</a></span><span class="attr">#[derive(Debug)]
+<a href=#6562 id=6562 data-nosnippet>6562</a></span><span class="kw">pub enum </span>Event {
+<a href=#6563 id=6563 data-nosnippet>6563</a>    <span class="doccomment">/// The connection's handshake data is ready
+<a href=#6564 id=6564 data-nosnippet>6564</a>    </span>HandshakeDataReady,
+<a href=#6565 id=6565 data-nosnippet>6565</a>    <span class="doccomment">/// The connection was successfully established
+<a href=#6566 id=6566 data-nosnippet>6566</a>    </span>Connected,
+<a href=#6567 id=6567 data-nosnippet>6567</a>    <span class="doccomment">/// The TLS handshake was confirmed
+<a href=#6568 id=6568 data-nosnippet>6568</a>    </span>HandshakeConfirmed,
+<a href=#6569 id=6569 data-nosnippet>6569</a>    <span class="doccomment">/// The connection was lost
+<a href=#6570 id=6570 data-nosnippet>6570</a>    ///
+<a href=#6571 id=6571 data-nosnippet>6571</a>    /// Emitted if the peer closes the connection or an error is encountered.
+<a href=#6572 id=6572 data-nosnippet>6572</a>    </span>ConnectionLost {
+<a href=#6573 id=6573 data-nosnippet>6573</a>        <span class="doccomment">/// Reason that the connection was closed
+<a href=#6574 id=6574 data-nosnippet>6574</a>        </span>reason: ConnectionError,
+<a href=#6575 id=6575 data-nosnippet>6575</a>    },
+<a href=#6576 id=6576 data-nosnippet>6576</a>    <span class="doccomment">/// Stream events
+<a href=#6577 id=6577 data-nosnippet>6577</a>    </span>Stream(StreamEvent),
+<a href=#6578 id=6578 data-nosnippet>6578</a>    <span class="doccomment">/// One or more application datagrams have been received
+<a href=#6579 id=6579 data-nosnippet>6579</a>    </span>DatagramReceived,
+<a href=#6580 id=6580 data-nosnippet>6580</a>    <span class="doccomment">/// One or more application datagrams have been sent after blocking
+<a href=#6581 id=6581 data-nosnippet>6581</a>    </span>DatagramsUnblocked,
+<a href=#6582 id=6582 data-nosnippet>6582</a>    <span class="doccomment">/// (Multi)Path events
+<a href=#6583 id=6583 data-nosnippet>6583</a>    </span>Path(PathEvent),
+<a href=#6584 id=6584 data-nosnippet>6584</a>    <span class="doccomment">/// Iroh's nat traversal events
+<a href=#6585 id=6585 data-nosnippet>6585</a>    </span>NatTraversal(iroh_hp::Event),
+<a href=#6586 id=6586 data-nosnippet>6586</a>}
+<a href=#6587 id=6587 data-nosnippet>6587</a>
+<a href=#6588 id=6588 data-nosnippet>6588</a><span class="kw">impl </span>From&lt;PathEvent&gt; <span class="kw">for </span>Event {
+<a href=#6589 id=6589 data-nosnippet>6589</a>    <span class="kw">fn </span>from(source: PathEvent) -&gt; <span class="self">Self </span>{
+<a href=#6590 id=6590 data-nosnippet>6590</a>        <span class="self">Self</span>::Path(source)
+<a href=#6591 id=6591 data-nosnippet>6591</a>    }
+<a href=#6592 id=6592 data-nosnippet>6592</a>}
+<a href=#6593 id=6593 data-nosnippet>6593</a>
+<a href=#6594 id=6594 data-nosnippet>6594</a><span class="kw">fn </span>get_max_ack_delay(params: <span class="kw-2">&amp;</span>TransportParameters) -&gt; Duration {
+<a href=#6595 id=6595 data-nosnippet>6595</a>    Duration::from_micros(params.max_ack_delay.<span class="number">0 </span>* <span class="number">1000</span>)
+<a href=#6596 id=6596 data-nosnippet>6596</a>}
 <a href=#6597 id=6597 data-nosnippet>6597</a>
-<a href=#6598 id=6598 data-nosnippet>6598</a><span class="doccomment">/// Minimal remaining size to allow packet coalescing, excluding cryptographic tag
-<a href=#6599 id=6599 data-nosnippet>6599</a>///
-<a href=#6600 id=6600 data-nosnippet>6600</a>/// This must be at least as large as the header for a well-formed empty packet to be coalesced,
-<a href=#6601 id=6601 data-nosnippet>6601</a>/// plus some space for frames. We only care about handshake headers because short header packets
-<a href=#6602 id=6602 data-nosnippet>6602</a>/// necessarily have smaller headers, and initial packets are only ever the first packet in a
-<a href=#6603 id=6603 data-nosnippet>6603</a>/// datagram (because we coalesce in ascending packet space order and the only reason to split a
-<a href=#6604 id=6604 data-nosnippet>6604</a>/// packet is when packet space changes).
-<a href=#6605 id=6605 data-nosnippet>6605</a></span><span class="kw">const </span>MIN_PACKET_SPACE: usize = MAX_HANDSHAKE_OR_0RTT_HEADER_SIZE + <span class="number">32</span>;
-<a href=#6606 id=6606 data-nosnippet>6606</a>
-<a href=#6607 id=6607 data-nosnippet>6607</a><span class="doccomment">/// Largest amount of space that could be occupied by a Handshake or 0-RTT packet's header
-<a href=#6608 id=6608 data-nosnippet>6608</a>///
-<a href=#6609 id=6609 data-nosnippet>6609</a>/// Excludes packet-type-specific fields such as packet number or Initial token
-<a href=#6610 id=6610 data-nosnippet>6610</a></span><span class="comment">// https://www.rfc-editor.org/rfc/rfc9000.html#name-0-rtt: flags + version + dcid len + dcid +
-<a href=#6611 id=6611 data-nosnippet>6611</a>// scid len + scid + length + pn
-<a href=#6612 id=6612 data-nosnippet>6612</a></span><span class="kw">const </span>MAX_HANDSHAKE_OR_0RTT_HEADER_SIZE: usize =
-<a href=#6613 id=6613 data-nosnippet>6613</a>    <span class="number">1 </span>+ <span class="number">4 </span>+ <span class="number">1 </span>+ MAX_CID_SIZE + <span class="number">1 </span>+ MAX_CID_SIZE + VarInt::from_u32(u16::MAX <span class="kw">as </span>u32).size() + <span class="number">4</span>;
-<a href=#6614 id=6614 data-nosnippet>6614</a>
-<a href=#6615 id=6615 data-nosnippet>6615</a><span class="doccomment">/// Perform key updates this many packets before the AEAD confidentiality limit.
-<a href=#6616 id=6616 data-nosnippet>6616</a>///
-<a href=#6617 id=6617 data-nosnippet>6617</a>/// Chosen arbitrarily, intended to be large enough to prevent spurious connection loss.
-<a href=#6618 id=6618 data-nosnippet>6618</a></span><span class="kw">const </span>KEY_UPDATE_MARGIN: u64 = <span class="number">10_000</span>;
-<a href=#6619 id=6619 data-nosnippet>6619</a>
-<a href=#6620 id=6620 data-nosnippet>6620</a><span class="attr">#[derive(Default)]
-<a href=#6621 id=6621 data-nosnippet>6621</a></span><span class="kw">struct </span>SentFrames {
-<a href=#6622 id=6622 data-nosnippet>6622</a>    retransmits: ThinRetransmits,
-<a href=#6623 id=6623 data-nosnippet>6623</a>    <span class="doccomment">/// The packet number of the largest acknowledged packet for each path
-<a href=#6624 id=6624 data-nosnippet>6624</a>    </span>largest_acked: FxHashMap&lt;PathId, u64&gt;,
-<a href=#6625 id=6625 data-nosnippet>6625</a>    stream_frames: StreamMetaVec,
-<a href=#6626 id=6626 data-nosnippet>6626</a>    <span class="doccomment">/// Whether the packet contains non-retransmittable frames (like datagrams)
-<a href=#6627 id=6627 data-nosnippet>6627</a>    </span>non_retransmits: bool,
-<a href=#6628 id=6628 data-nosnippet>6628</a>    <span class="doccomment">/// If the datagram containing these frames should be padded to the min MTU
-<a href=#6629 id=6629 data-nosnippet>6629</a>    </span>requires_padding: bool,
-<a href=#6630 id=6630 data-nosnippet>6630</a>}
-<a href=#6631 id=6631 data-nosnippet>6631</a>
-<a href=#6632 id=6632 data-nosnippet>6632</a><span class="kw">impl </span>SentFrames {
-<a href=#6633 id=6633 data-nosnippet>6633</a>    <span class="doccomment">/// Returns whether the packet contains only ACKs
-<a href=#6634 id=6634 data-nosnippet>6634</a>    </span><span class="kw">fn </span>is_ack_only(<span class="kw-2">&amp;</span><span class="self">self</span>, streams: <span class="kw-2">&amp;</span>StreamsState) -&gt; bool {
-<a href=#6635 id=6635 data-nosnippet>6635</a>        !<span class="self">self</span>.largest_acked.is_empty()
-<a href=#6636 id=6636 data-nosnippet>6636</a>            &amp;&amp; !<span class="self">self</span>.non_retransmits
-<a href=#6637 id=6637 data-nosnippet>6637</a>            &amp;&amp; <span class="self">self</span>.stream_frames.is_empty()
-<a href=#6638 id=6638 data-nosnippet>6638</a>            &amp;&amp; <span class="self">self</span>.retransmits.is_empty(streams)
-<a href=#6639 id=6639 data-nosnippet>6639</a>    }
-<a href=#6640 id=6640 data-nosnippet>6640</a>}
-<a href=#6641 id=6641 data-nosnippet>6641</a>
-<a href=#6642 id=6642 data-nosnippet>6642</a><span class="doccomment">/// Compute the negotiated idle timeout based on local and remote max_idle_timeout transport parameters.
-<a href=#6643 id=6643 data-nosnippet>6643</a>///
-<a href=#6644 id=6644 data-nosnippet>6644</a>/// According to the definition of max_idle_timeout, a value of `0` means the timeout is disabled; see &lt;https://www.rfc-editor.org/rfc/rfc9000#section-18.2-4.4.1.&gt;
-<a href=#6645 id=6645 data-nosnippet>6645</a>///
-<a href=#6646 id=6646 data-nosnippet>6646</a>/// According to the negotiation procedure, either the minimum of the timeouts or one specified is used as the negotiated value; see &lt;https://www.rfc-editor.org/rfc/rfc9000#section-10.1-2.&gt;
-<a href=#6647 id=6647 data-nosnippet>6647</a>///
-<a href=#6648 id=6648 data-nosnippet>6648</a>/// Returns the negotiated idle timeout as a `Duration`, or `None` when both endpoints have opted out of idle timeout.
-<a href=#6649 id=6649 data-nosnippet>6649</a></span><span class="kw">fn </span>negotiate_max_idle_timeout(x: <span class="prelude-ty">Option</span>&lt;VarInt&gt;, y: <span class="prelude-ty">Option</span>&lt;VarInt&gt;) -&gt; <span class="prelude-ty">Option</span>&lt;Duration&gt; {
-<a href=#6650 id=6650 data-nosnippet>6650</a>    <span class="kw">match </span>(x, y) {
-<a href=#6651 id=6651 data-nosnippet>6651</a>        (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>) =&gt; <span class="prelude-val">None</span>,
-<a href=#6652 id=6652 data-nosnippet>6652</a>        (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(y)) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(y.<span class="number">0</span>)),
-<a href=#6653 id=6653 data-nosnippet>6653</a>        (<span class="prelude-val">Some</span>(x), <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(x.<span class="number">0</span>)),
-<a href=#6654 id=6654 data-nosnippet>6654</a>        (<span class="prelude-val">Some</span>(x), <span class="prelude-val">Some</span>(y)) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(cmp::min(x, y).<span class="number">0</span>)),
-<a href=#6655 id=6655 data-nosnippet>6655</a>    }
-<a href=#6656 id=6656 data-nosnippet>6656</a>}
-<a href=#6657 id=6657 data-nosnippet>6657</a>
-<a href=#6658 id=6658 data-nosnippet>6658</a><span class="attr">#[cfg(test)]
-<a href=#6659 id=6659 data-nosnippet>6659</a></span><span class="kw">mod </span>tests {
-<a href=#6660 id=6660 data-nosnippet>6660</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#6661 id=6661 data-nosnippet>6661</a>
-<a href=#6662 id=6662 data-nosnippet>6662</a>    <span class="attr">#[test]
-<a href=#6663 id=6663 data-nosnippet>6663</a>    </span><span class="kw">fn </span>negotiate_max_idle_timeout_commutative() {
-<a href=#6664 id=6664 data-nosnippet>6664</a>        <span class="kw">let </span>test_params = [
-<a href=#6665 id=6665 data-nosnippet>6665</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>),
-<a href=#6666 id=6666 data-nosnippet>6666</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">None</span>),
-<a href=#6667 id=6667 data-nosnippet>6667</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">2</span>)), <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">2</span>))),
-<a href=#6668 id=6668 data-nosnippet>6668</a>            (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">None</span>),
-<a href=#6669 id=6669 data-nosnippet>6669</a>            (
-<a href=#6670 id=6670 data-nosnippet>6670</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">2</span>)),
-<a href=#6671 id=6671 data-nosnippet>6671</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)),
-<a href=#6672 id=6672 data-nosnippet>6672</a>                <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">2</span>)),
-<a href=#6673 id=6673 data-nosnippet>6673</a>            ),
-<a href=#6674 id=6674 data-nosnippet>6674</a>            (
-<a href=#6675 id=6675 data-nosnippet>6675</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">1</span>)),
-<a href=#6676 id=6676 data-nosnippet>6676</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">4</span>)),
-<a href=#6677 id=6677 data-nosnippet>6677</a>                <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">1</span>)),
-<a href=#6678 id=6678 data-nosnippet>6678</a>            ),
-<a href=#6679 id=6679 data-nosnippet>6679</a>        ];
-<a href=#6680 id=6680 data-nosnippet>6680</a>
-<a href=#6681 id=6681 data-nosnippet>6681</a>        <span class="kw">for </span>(left, right, result) <span class="kw">in </span>test_params {
-<a href=#6682 id=6682 data-nosnippet>6682</a>            <span class="macro">assert_eq!</span>(negotiate_max_idle_timeout(left, right), result);
-<a href=#6683 id=6683 data-nosnippet>6683</a>            <span class="macro">assert_eq!</span>(negotiate_max_idle_timeout(right, left), result);
-<a href=#6684 id=6684 data-nosnippet>6684</a>        }
-<a href=#6685 id=6685 data-nosnippet>6685</a>    }
-<a href=#6686 id=6686 data-nosnippet>6686</a>}</code></pre></div></section></main></body></html>
+<a href=#6598 id=6598 data-nosnippet>6598</a><span class="comment">// Prevents overflow and improves behavior in extreme circumstances
+<a href=#6599 id=6599 data-nosnippet>6599</a></span><span class="kw">const </span>MAX_BACKOFF_EXPONENT: u32 = <span class="number">16</span>;
+<a href=#6600 id=6600 data-nosnippet>6600</a>
+<a href=#6601 id=6601 data-nosnippet>6601</a><span class="doccomment">/// Minimal remaining size to allow packet coalescing, excluding cryptographic tag
+<a href=#6602 id=6602 data-nosnippet>6602</a>///
+<a href=#6603 id=6603 data-nosnippet>6603</a>/// This must be at least as large as the header for a well-formed empty packet to be coalesced,
+<a href=#6604 id=6604 data-nosnippet>6604</a>/// plus some space for frames. We only care about handshake headers because short header packets
+<a href=#6605 id=6605 data-nosnippet>6605</a>/// necessarily have smaller headers, and initial packets are only ever the first packet in a
+<a href=#6606 id=6606 data-nosnippet>6606</a>/// datagram (because we coalesce in ascending packet space order and the only reason to split a
+<a href=#6607 id=6607 data-nosnippet>6607</a>/// packet is when packet space changes).
+<a href=#6608 id=6608 data-nosnippet>6608</a></span><span class="kw">const </span>MIN_PACKET_SPACE: usize = MAX_HANDSHAKE_OR_0RTT_HEADER_SIZE + <span class="number">32</span>;
+<a href=#6609 id=6609 data-nosnippet>6609</a>
+<a href=#6610 id=6610 data-nosnippet>6610</a><span class="doccomment">/// Largest amount of space that could be occupied by a Handshake or 0-RTT packet's header
+<a href=#6611 id=6611 data-nosnippet>6611</a>///
+<a href=#6612 id=6612 data-nosnippet>6612</a>/// Excludes packet-type-specific fields such as packet number or Initial token
+<a href=#6613 id=6613 data-nosnippet>6613</a></span><span class="comment">// https://www.rfc-editor.org/rfc/rfc9000.html#name-0-rtt: flags + version + dcid len + dcid +
+<a href=#6614 id=6614 data-nosnippet>6614</a>// scid len + scid + length + pn
+<a href=#6615 id=6615 data-nosnippet>6615</a></span><span class="kw">const </span>MAX_HANDSHAKE_OR_0RTT_HEADER_SIZE: usize =
+<a href=#6616 id=6616 data-nosnippet>6616</a>    <span class="number">1 </span>+ <span class="number">4 </span>+ <span class="number">1 </span>+ MAX_CID_SIZE + <span class="number">1 </span>+ MAX_CID_SIZE + VarInt::from_u32(u16::MAX <span class="kw">as </span>u32).size() + <span class="number">4</span>;
+<a href=#6617 id=6617 data-nosnippet>6617</a>
+<a href=#6618 id=6618 data-nosnippet>6618</a><span class="doccomment">/// Perform key updates this many packets before the AEAD confidentiality limit.
+<a href=#6619 id=6619 data-nosnippet>6619</a>///
+<a href=#6620 id=6620 data-nosnippet>6620</a>/// Chosen arbitrarily, intended to be large enough to prevent spurious connection loss.
+<a href=#6621 id=6621 data-nosnippet>6621</a></span><span class="kw">const </span>KEY_UPDATE_MARGIN: u64 = <span class="number">10_000</span>;
+<a href=#6622 id=6622 data-nosnippet>6622</a>
+<a href=#6623 id=6623 data-nosnippet>6623</a><span class="attr">#[derive(Default)]
+<a href=#6624 id=6624 data-nosnippet>6624</a></span><span class="kw">struct </span>SentFrames {
+<a href=#6625 id=6625 data-nosnippet>6625</a>    retransmits: ThinRetransmits,
+<a href=#6626 id=6626 data-nosnippet>6626</a>    <span class="doccomment">/// The packet number of the largest acknowledged packet for each path
+<a href=#6627 id=6627 data-nosnippet>6627</a>    </span>largest_acked: FxHashMap&lt;PathId, u64&gt;,
+<a href=#6628 id=6628 data-nosnippet>6628</a>    stream_frames: StreamMetaVec,
+<a href=#6629 id=6629 data-nosnippet>6629</a>    <span class="doccomment">/// Whether the packet contains non-retransmittable frames (like datagrams)
+<a href=#6630 id=6630 data-nosnippet>6630</a>    </span>non_retransmits: bool,
+<a href=#6631 id=6631 data-nosnippet>6631</a>    <span class="doccomment">/// If the datagram containing these frames should be padded to the min MTU
+<a href=#6632 id=6632 data-nosnippet>6632</a>    </span>requires_padding: bool,
+<a href=#6633 id=6633 data-nosnippet>6633</a>}
+<a href=#6634 id=6634 data-nosnippet>6634</a>
+<a href=#6635 id=6635 data-nosnippet>6635</a><span class="kw">impl </span>SentFrames {
+<a href=#6636 id=6636 data-nosnippet>6636</a>    <span class="doccomment">/// Returns whether the packet contains only ACKs
+<a href=#6637 id=6637 data-nosnippet>6637</a>    </span><span class="kw">fn </span>is_ack_only(<span class="kw-2">&amp;</span><span class="self">self</span>, streams: <span class="kw-2">&amp;</span>StreamsState) -&gt; bool {
+<a href=#6638 id=6638 data-nosnippet>6638</a>        !<span class="self">self</span>.largest_acked.is_empty()
+<a href=#6639 id=6639 data-nosnippet>6639</a>            &amp;&amp; !<span class="self">self</span>.non_retransmits
+<a href=#6640 id=6640 data-nosnippet>6640</a>            &amp;&amp; <span class="self">self</span>.stream_frames.is_empty()
+<a href=#6641 id=6641 data-nosnippet>6641</a>            &amp;&amp; <span class="self">self</span>.retransmits.is_empty(streams)
+<a href=#6642 id=6642 data-nosnippet>6642</a>    }
+<a href=#6643 id=6643 data-nosnippet>6643</a>}
+<a href=#6644 id=6644 data-nosnippet>6644</a>
+<a href=#6645 id=6645 data-nosnippet>6645</a><span class="doccomment">/// Compute the negotiated idle timeout based on local and remote max_idle_timeout transport parameters.
+<a href=#6646 id=6646 data-nosnippet>6646</a>///
+<a href=#6647 id=6647 data-nosnippet>6647</a>/// According to the definition of max_idle_timeout, a value of `0` means the timeout is disabled; see &lt;https://www.rfc-editor.org/rfc/rfc9000#section-18.2-4.4.1.&gt;
+<a href=#6648 id=6648 data-nosnippet>6648</a>///
+<a href=#6649 id=6649 data-nosnippet>6649</a>/// According to the negotiation procedure, either the minimum of the timeouts or one specified is used as the negotiated value; see &lt;https://www.rfc-editor.org/rfc/rfc9000#section-10.1-2.&gt;
+<a href=#6650 id=6650 data-nosnippet>6650</a>///
+<a href=#6651 id=6651 data-nosnippet>6651</a>/// Returns the negotiated idle timeout as a `Duration`, or `None` when both endpoints have opted out of idle timeout.
+<a href=#6652 id=6652 data-nosnippet>6652</a></span><span class="kw">fn </span>negotiate_max_idle_timeout(x: <span class="prelude-ty">Option</span>&lt;VarInt&gt;, y: <span class="prelude-ty">Option</span>&lt;VarInt&gt;) -&gt; <span class="prelude-ty">Option</span>&lt;Duration&gt; {
+<a href=#6653 id=6653 data-nosnippet>6653</a>    <span class="kw">match </span>(x, y) {
+<a href=#6654 id=6654 data-nosnippet>6654</a>        (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>) =&gt; <span class="prelude-val">None</span>,
+<a href=#6655 id=6655 data-nosnippet>6655</a>        (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(y)) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(y.<span class="number">0</span>)),
+<a href=#6656 id=6656 data-nosnippet>6656</a>        (<span class="prelude-val">Some</span>(x), <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(x.<span class="number">0</span>)),
+<a href=#6657 id=6657 data-nosnippet>6657</a>        (<span class="prelude-val">Some</span>(x), <span class="prelude-val">Some</span>(y)) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(cmp::min(x, y).<span class="number">0</span>)),
+<a href=#6658 id=6658 data-nosnippet>6658</a>    }
+<a href=#6659 id=6659 data-nosnippet>6659</a>}
+<a href=#6660 id=6660 data-nosnippet>6660</a>
+<a href=#6661 id=6661 data-nosnippet>6661</a><span class="attr">#[cfg(test)]
+<a href=#6662 id=6662 data-nosnippet>6662</a></span><span class="kw">mod </span>tests {
+<a href=#6663 id=6663 data-nosnippet>6663</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#6664 id=6664 data-nosnippet>6664</a>
+<a href=#6665 id=6665 data-nosnippet>6665</a>    <span class="attr">#[test]
+<a href=#6666 id=6666 data-nosnippet>6666</a>    </span><span class="kw">fn </span>negotiate_max_idle_timeout_commutative() {
+<a href=#6667 id=6667 data-nosnippet>6667</a>        <span class="kw">let </span>test_params = [
+<a href=#6668 id=6668 data-nosnippet>6668</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>),
+<a href=#6669 id=6669 data-nosnippet>6669</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">None</span>),
+<a href=#6670 id=6670 data-nosnippet>6670</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">2</span>)), <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">2</span>))),
+<a href=#6671 id=6671 data-nosnippet>6671</a>            (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">None</span>),
+<a href=#6672 id=6672 data-nosnippet>6672</a>            (
+<a href=#6673 id=6673 data-nosnippet>6673</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">2</span>)),
+<a href=#6674 id=6674 data-nosnippet>6674</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)),
+<a href=#6675 id=6675 data-nosnippet>6675</a>                <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">2</span>)),
+<a href=#6676 id=6676 data-nosnippet>6676</a>            ),
+<a href=#6677 id=6677 data-nosnippet>6677</a>            (
+<a href=#6678 id=6678 data-nosnippet>6678</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">1</span>)),
+<a href=#6679 id=6679 data-nosnippet>6679</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">4</span>)),
+<a href=#6680 id=6680 data-nosnippet>6680</a>                <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">1</span>)),
+<a href=#6681 id=6681 data-nosnippet>6681</a>            ),
+<a href=#6682 id=6682 data-nosnippet>6682</a>        ];
+<a href=#6683 id=6683 data-nosnippet>6683</a>
+<a href=#6684 id=6684 data-nosnippet>6684</a>        <span class="kw">for </span>(left, right, result) <span class="kw">in </span>test_params {
+<a href=#6685 id=6685 data-nosnippet>6685</a>            <span class="macro">assert_eq!</span>(negotiate_max_idle_timeout(left, right), result);
+<a href=#6686 id=6686 data-nosnippet>6686</a>            <span class="macro">assert_eq!</span>(negotiate_max_idle_timeout(right, left), result);
+<a href=#6687 id=6687 data-nosnippet>6687</a>        }
+<a href=#6688 id=6688 data-nosnippet>6688</a>    }
+<a href=#6689 id=6689 data-nosnippet>6689</a>}</code></pre></div></section></main></body></html>
