@@ -6315,7 +6315,10 @@ impl Connection {
                         e,
                         PathError::MaxPathIdReached | PathError::RemoteCidsExhausted
                     ) {
-                        // TODO(@divma): mark to retry
+                        self.iroh_hp
+                            .client_side_mut()
+                            .expect("validated")
+                            .report_in_continuation(id);
                     }
                     err.get_or_insert(e);
                 }
