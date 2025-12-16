@@ -1,4 +1,17 @@
-# Quinn fork of iroh
+# Iroh Quinn
+
+> This is a fork based on [quinn](https://github.com/quinn-rs/quinn), maintained
+> by [n0](https://github.com/n0-computer). Currently published to crates.io under
+> `iroh-quinn`.
+
+## Main differences to upstream quinn
+
+- Small API improvements
+- Implements additional QUIC extensions
+  - Multipath
+  - QAD
+  - QNT
+- Expanded support for QLOG
 
 Quinn is a pure-rust, async-compatible implementation of the IETF
 [QUIC][quic] transport protocol.
@@ -12,55 +25,21 @@ Quinn is a pure-rust, async-compatible implementation of the IETF
 - Future-based async API
 - Minimum supported Rust version of 1.83.0
 
-This is a fork incorporating some changes for use in iroh.  The aim is
-to contribute back any generally useful changes into upstream Quinn,
-so it is strongly discouraged to use this fork directly.
 
+## License
 
-## Git branches
+Copyright 2025 The quinn developers
+Copyright 2025 N0, INC.
 
-The upstream branches are kept unmodified and get occasionally synced
-(e.g. our `main` branch tracks `upstream/main` with a small delay).
-The iroh-specific branches are:
+This project is licensed under either of
 
-- `iroh-0.10.x` is the branch for quinn@0.10 series.
-- `iroh-0.11.x` is the branch for quinn@0.11 series.
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
+   http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or
+   http://opensource.org/licenses/MIT)
 
-The default branch should be set the currently actively used branch by
-iroh.
+at your option.
 
-### Updating a branch
+## Contribution
 
-To update a branch to include the upstream changes, merge the upstream
-branch.  E.g. when upstream is `main` and the current iroh branch is
-`iroh-0.11.x`:
-
-- Check which commits are new in main.
-
-  Using *magit*: `magit-cherry` (Y), from `main` to `iroh-0.11.x`
-
-- Find the commit to merge.
-
-  You probably want to find the last released commit on the `main`
-  branch, which might not be the last commit on main.  So you need to
-  find the commit hash as you can't use "main" in this case.
-
-- Merge this commit: `git merge abc123`
-
-- You can check the log and cherries again to see if the right commits
-  are left in main.
-
-### Upstream versions
-
-Usually we only try to merge tagged upstream versions. Currently (as
-of the 0.13 iroh-quinn release) we've released work that hasn't been
-released upstream yet.
-
-In the normal case, you'd be able to check the current matching
-upstream version by running:
-
-`git tag --merged`
-
-This shows all the tags which are in the ancestors of HEAD.  Look for
-the highest `quinn`, `quinn-proto` and `quinn-udp` tags which are
-found in all the ancestor commits.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this project by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
