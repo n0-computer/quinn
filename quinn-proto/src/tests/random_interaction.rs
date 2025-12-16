@@ -152,8 +152,8 @@ impl TestOp {
             }
             Self::CloseConn(side, error_code) => {
                 let state = match side {
-                    Side::Server => client,
-                    Side::Client => server,
+                    Side::Client => client,
+                    Side::Server => server,
                 };
                 let conn = state.conn(pair)?;
                 conn.close(now, error_code.into(), Bytes::new());

@@ -205,6 +205,14 @@ pub(super) struct PathData {
     /// irreversible, since it's not affected by the path being closed.
     pub(super) open: bool,
 
+    /// The time at which this path state should've received a PATH_ABANDON already.
+    ///
+    /// Receiving data on this path generates a transport error after that point in time.
+    /// This is checked in [`crate::Connection::on_packet_authenticated`].
+    ///
+    /// If set to `None`, then this path isn't abandoned yet and is allowed to receive data.
+    pub(super) last_allowed_receive: Option<Instant>,
+
     /// Snapshot of the qlog recovery metrics
     #[cfg(feature = "qlog")]
     recovery_metrics: RecoveryMetrics,
@@ -268,6 +276,7 @@ impl PathData {
             idle_timeout: None,
             keep_alive: None,
             open: false,
+            last_allowed_receive: None,
             #[cfg(feature = "qlog")]
             recovery_metrics: RecoveryMetrics::default(),
             generation,
@@ -308,6 +317,7 @@ impl PathData {
             idle_timeout: prev.idle_timeout,
             keep_alive: prev.keep_alive,
             open: false,
+            last_allowed_receive: None,
             #[cfg(feature = "qlog")]
             recovery_metrics: prev.recovery_metrics.clone(),
             generation,
