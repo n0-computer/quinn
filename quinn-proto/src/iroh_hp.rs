@@ -34,8 +34,8 @@ pub enum Error {
     /// Nat traversal attempt failed due to a multipath error
     #[error("Failed to establish paths {0}")]
     Multipath(super::PathError),
-    /// Attempt to initiate NAT traversal on a closed, or closing connection.
-    #[error("The connection is already close")]
+    /// Attempted to initiate NAT traversal on a closed, or closing connection.
+    #[error("The connection is already closed")]
     Closed,
 }
 
