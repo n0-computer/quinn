@@ -183,7 +183,7 @@ impl SendBufferData {
     fn to_vec(&self) -> Vec<u8> {
         let mut result = Vec::with_capacity(self.len);
         for segment in self.segments_iter() {
-            result.extend_from_slice(&segment);
+            result.extend_from_slice(segment);
         }
         result
     }
