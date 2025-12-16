@@ -27,9 +27,9 @@ use crate::{
     udp_transmit,
 };
 use proto::{
-    ConnectionError, ConnectionHandle, ConnectionStats, Dir, EndpointEvent, PathError, PathEvent,
-    PathId, PathStats, PathStatus, Side, StreamEvent, StreamId, TransportError, TransportErrorCode,
-    congestion::Controller, iroh_hp,
+    ConnectionError, ConnectionHandle, ConnectionStats, Dir, EndpointEvent, FourTuple, PathError,
+    PathEvent, PathId, PathStats, PathStatus, Side, StreamEvent, StreamId, TransportError,
+    TransportErrorCode, congestion::Controller, iroh_hp,
 };
 
 /// In-progress connection attempt future
@@ -170,25 +170,7 @@ impl Connecting {
             })
     }
 
-    /// The local IP address which was used when the peer established
-    /// the connection
-    ///
-    /// This can be different from the address the endpoint is bound to, in case
-    /// the endpoint is bound to a wildcard address like `0.0.0.0` or `::`.
-    ///
-    /// This will return `None` for clients, or when the platform does not expose this
-    /// information. See [`quinn_udp::RecvMeta::dst_ip`](udp::RecvMeta::dst_ip) for a list of
-    /// supported platforms when using [`quinn_udp`](udp) for I/O, which is the default.
-    ///
-    /// Will panic if called after `poll` has returned `Ready`.
-    pub fn local_ip(&self) -> Option<IpAddr> {
-        let conn = self.conn.as_ref().unwrap();
-        let inner = conn.state.lock("local_ip");
-
-        inner.inner.local_ip()
-    }
-
-    /// The peer's UDP address
+    /// The peer's UDP addresses
     ///
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn remote_address(&self) -> SocketAddr {
@@ -198,8 +180,9 @@ impl Connecting {
             .state
             .lock("remote_address")
             .inner
-            .path_remote_address(PathId::ZERO)
+            .path_addresses(PathId::ZERO)
             .expect("path exists when connecting")
+            .remote
     }
 }
 
@@ -390,8 +373,8 @@ impl Connection {
             .filter_map(|id| {
                 state
                     .inner
-                    .path_remote_address(*id)
-                    .map(|ip| ip.is_ipv6())
+                    .path_addresses(*id)
+                    .map(|addrs| addrs.remote.is_ipv6())
                     .ok()
             })
             .next()
@@ -406,7 +389,13 @@ impl Connection {
         };
 
         let now = state.runtime.now();
-        let open_res = state.inner.open_path_ensure(addr, initial_status, now);
+        // TODO(matheus23): For now this means it's impossible to make use of short-circuiting path validation currently.
+        // However, changing that would mean changing the API.
+        let addrs = FourTuple {
+            remote: addr,
+            local_ip: None,
+        };
+        let open_res = state.inner.open_path_ensure(addrs, initial_status, now);
         state.wake();
         match open_res {
             Ok((path_id, existed)) if existed => {
@@ -453,8 +442,8 @@ impl Connection {
             .filter_map(|id| {
                 state
                     .inner
-                    .path_remote_address(*id)
-                    .map(|ip| ip.is_ipv6())
+                    .path_addresses(*id)
+                    .map(|addrs| addrs.remote.is_ipv6())
                     .ok()
             })
             .next()
@@ -470,7 +459,11 @@ impl Connection {
 
         let (on_open_path_send, on_open_path_recv) = watch::channel(Ok(()));
         let now = state.runtime.now();
-        let open_res = state.inner.open_path(addr, initial_status, now);
+        let addrs = FourTuple {
+            remote: addr,
+            local_ip: None,
+        };
+        let open_res = state.inner.open_path(addrs, initial_status, now);
         state.wake();
         match open_res {
             Ok(path_id) => {
@@ -724,9 +717,10 @@ impl Connection {
             .inner
             .paths()
             .iter()
-            .filter_map(|id| state.inner.path_remote_address(*id).ok())
+            .filter_map(|id| state.inner.path_addresses(*id).ok())
             .next()
             .unwrap()
+            .remote
     }
 
     /// The local IP address which was used when the peer established
@@ -739,7 +733,16 @@ impl Connection {
     /// information. See [`quinn_udp::RecvMeta::dst_ip`](udp::RecvMeta::dst_ip) for a list of
     /// supported platforms when using [`quinn_udp`](udp) for I/O, which is the default.
     pub fn local_ip(&self) -> Option<IpAddr> {
-        self.0.state.lock("local_ip").inner.local_ip()
+        // TODO: an unwrap again
+        let state = self.0.state.lock("remote_address");
+        state
+            .inner
+            .paths()
+            .iter()
+            .filter_map(|id| state.inner.path_addresses(*id).ok())
+            .next()
+            .unwrap()
+            .local_ip
     }
 
     /// Current best estimate of this connection's latency (round-trip-time)

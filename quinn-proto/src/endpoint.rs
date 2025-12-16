@@ -15,8 +15,8 @@ use thiserror::Error;
 use tracing::{debug, error, trace, warn};
 
 use crate::{
-    Duration, INITIAL_MTU, Instant, MAX_CID_SIZE, MIN_INITIAL_SIZE, PathId, RESET_TOKEN_SIZE,
-    ResetToken, Side, Transmit, TransportConfig, TransportError,
+    Duration, FourTuple, INITIAL_MTU, Instant, MAX_CID_SIZE, MIN_INITIAL_SIZE, PathId,
+    RESET_TOKEN_SIZE, ResetToken, Side, Transmit, TransportConfig, TransportError,
     cid_generator::ConnectionIdGenerator,
     coding::BufMutExt,
     config::{ClientConfig, EndpointConfig, ServerConfig},
@@ -152,8 +152,7 @@ impl Endpoint {
     pub fn handle(
         &mut self,
         now: Instant,
-        remote: SocketAddr,
-        local_ip: Option<IpAddr>,
+        addresses: FourTuple,
         ecn: Option<EcnCodepoint>,
         data: BytesMut,
         buf: &mut Vec<u8>,
@@ -168,7 +167,7 @@ impl Endpoint {
         ) {
             Ok((first_decode, remaining)) => DatagramConnectionEvent {
                 now,
-                remote,
+                addresses,
                 path_id: PathId::ZERO, // Corrected later for existing paths
                 ecn,
                 first_decode,
@@ -200,11 +199,11 @@ impl Endpoint {
                     buf.write(version);
                 }
                 return Some(DatagramEvent::Response(Transmit {
-                    destination: remote,
+                    destination: addresses.remote,
                     ecn: None,
                     size: buf.len(),
                     segment_size: None,
-                    src_ip: local_ip,
+                    src_ip: addresses.local_ip,
                 }));
             }
             Err(e) => {
@@ -213,7 +212,6 @@ impl Endpoint {
             }
         };
 
-        let addresses = FourTuple { remote, local_ip };
         let dst_cid = event.first_decode.dst_cid();
 
         if let Some(route_to) = self.index.get(&addresses, &event.first_decode) {
@@ -663,7 +661,7 @@ impl Endpoint {
 
         match conn.handle_first_packet(
             incoming.received_at,
-            incoming.addresses.remote,
+            incoming.addresses,
             incoming.ecn,
             packet_number,
             incoming.packet,
@@ -848,8 +846,7 @@ impl Endpoint {
             init_cid,
             loc_cid,
             rem_cid,
-            addresses.remote,
-            addresses.local_ip,
+            addresses,
             tls,
             self.local_cid_generator.as_ref(),
             now,
@@ -1023,7 +1020,7 @@ struct ConnectionIndex {
     /// Identifies outgoing connections with zero-length CIDs
     ///
     /// We don't yet support explicit source addresses for client connections, and zero-length CIDs
-    /// require a unique four-tuple, so at most one client connection with zero-length local CIDs
+    /// require a unique 4-tuple, so at most one client connection with zero-length local CIDs
     /// may be established per remote. We must omit the local address from the key because we don't
     /// necessarily know what address we're sending from, and hence receiving at.
     ///
@@ -1385,15 +1382,4 @@ impl ResetTokenTable {
         let token = ResetToken::from(<[u8; RESET_TOKEN_SIZE]>::try_from(token).ok()?);
         self.0.get(&remote)?.get(&token)
     }
-}
-
-/// Identifies a connection by the combination of remote and local addresses
-///
-/// Including the local ensures good behavior when the host has multiple IP addresses on the same
-/// subnet and zero-length connection IDs are in use.
-#[derive(Hash, Eq, PartialEq, Debug, Copy, Clone)]
-struct FourTuple {
-    remote: SocketAddr,
-    // A single socket can only listen on a single port, so no need to store it explicitly
-    local_ip: Option<IpAddr>,
 }

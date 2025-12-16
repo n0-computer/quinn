@@ -11,7 +11,7 @@ use super::{
     spaces::{PacketNumberSpace, SentPacket},
 };
 use crate::{
-    ConnectionId, Duration, Instant, TIMER_GRANULARITY, TransportConfig, VarInt, coding,
+    ConnectionId, Duration, FourTuple, Instant, TIMER_GRANULARITY, TransportConfig, VarInt, coding,
     congestion, frame::ObservedAddr, packet::SpaceId,
 };
 
@@ -124,14 +124,14 @@ impl PathState {
 pub(super) struct SentChallengeInfo {
     /// When was the challenge sent on the wire.
     pub(super) sent_instant: Instant,
-    /// The remote to which this path challenge was sent.
-    pub(super) remote: SocketAddr,
+    /// The 4-tuple on which this path challenge was sent.
+    pub(super) addresses: FourTuple,
 }
 
 /// Description of a particular network path
 #[derive(Debug)]
 pub(super) struct PathData {
-    pub(super) remote: SocketAddr,
+    pub(super) addresses: FourTuple,
     pub(super) rtt: RttEstimator,
     /// Whether we're enabling ECN on outgoing packets
     pub(super) sending_ecn: bool,
@@ -223,7 +223,7 @@ pub(super) struct PathData {
 
 impl PathData {
     pub(super) fn new(
-        remote: SocketAddr,
+        addresses: FourTuple,
         allow_mtud: bool,
         peer_max_udp_payload_size: Option<u16>,
         generation: u64,
@@ -235,7 +235,7 @@ impl PathData {
             .clone()
             .build(now, config.get_initial_mtu());
         Self {
-            remote,
+            addresses,
             rtt: RttEstimator::new(config.initial_rtt),
             sending_ecn: true,
             pacing: Pacer::new(
@@ -287,7 +287,7 @@ impl PathData {
     ///
     /// This should only be called when migrating paths.
     pub(super) fn from_previous(
-        remote: SocketAddr,
+        addresses: FourTuple,
         prev: &Self,
         generation: u64,
         now: Instant,
@@ -295,7 +295,7 @@ impl PathData {
         let congestion = prev.congestion.clone_box();
         let smoothed_rtt = prev.rtt.get();
         Self {
-            remote,
+            addresses,
             rtt: prev.rtt,
             pacing: Pacer::new(smoothed_rtt, congestion.window(), prev.current_mtu(), now),
             sending_ecn: true,
@@ -366,7 +366,7 @@ impl PathData {
         self.total_sent = self.total_sent.saturating_add(inc);
         if !self.validated {
             trace!(
-                remote = %self.remote,
+                addresses = %self.addresses,
                 anti_amplification_budget = %(self.total_recvd * 3).saturating_sub(self.total_sent),
                 "anti amplification budget decreased"
             );
@@ -378,7 +378,7 @@ impl PathData {
         self.total_recvd = self.total_recvd.saturating_add(inc);
         if !self.validated {
             trace!(
-                remote = %self.remote,
+                addresses = %self.addresses,
                 anti_amplification_budget = %(self.total_recvd * 3).saturating_sub(self.total_sent),
                 "anti amplification budget increased"
             );
@@ -403,18 +403,22 @@ impl PathData {
         &mut self,
         now: Instant,
         token: u64,
-        remote: SocketAddr,
+        addresses: FourTuple,
     ) -> OnPathResponseReceived {
         match self.challenges_sent.get(&token) {
             // Response to an on-path PathChallenge
-            Some(info) if info.remote == remote && self.remote == remote => {
+            Some(info)
+                if info.addresses.is_same_path(&addresses)
+                    && self.addresses.is_same_path(&addresses) =>
+            {
+                self.addresses.update_local_if_same_remote(&addresses);
                 let sent_instant = info.sent_instant;
                 if !std::mem::replace(&mut self.validated, true) {
                     trace!("new path validated");
                 }
                 // Clear any other on-path sent challenge.
                 self.challenges_sent
-                    .retain(|_token, info| info.remote != remote);
+                    .retain(|_token, info| !info.addresses.is_same_path(&addresses));
 
                 self.send_new_challenge = false;
 
@@ -427,14 +431,14 @@ impl PathData {
                 OnPathResponseReceived::OnPath { was_open }
             }
             // Response to an off-path PathChallenge
-            Some(info) if info.remote == remote => {
+            Some(info) if info.addresses.is_same_path(&addresses) => {
                 self.challenges_sent
-                    .retain(|_token, info| info.remote != remote);
+                    .retain(|_token, info| !info.addresses.is_same_path(&addresses));
                 OnPathResponseReceived::OffPath
             }
             // Response to a PathChallenge we recognize, but from an invalid remote
             Some(info) => OnPathResponseReceived::Invalid {
-                expected: info.remote,
+                expected: info.addresses,
             },
             // Response to an unknown PathChallenge
             None => OnPathResponseReceived::Unknown,
@@ -534,8 +538,8 @@ pub(super) enum OnPathResponseReceived {
     Unknown,
     /// The response is invalid.
     Invalid {
-        /// The remote that was expected for this token.
-        expected: SocketAddr,
+        /// The 4-tuple that was expected for this token.
+        expected: FourTuple,
     },
 }
 
@@ -708,15 +712,18 @@ pub(crate) struct PathResponses {
 }
 
 impl PathResponses {
-    pub(crate) fn push(&mut self, packet: u64, token: u64, remote: SocketAddr) {
+    pub(crate) fn push(&mut self, packet: u64, token: u64, addresses: FourTuple) {
         /// Arbitrary permissive limit to prevent abuse
         const MAX_PATH_RESPONSES: usize = 16;
         let response = PathResponse {
             packet,
             token,
-            remote,
+            addresses,
         };
-        let existing = self.pending.iter_mut().find(|x| x.remote == remote);
+        let existing = self
+            .pending
+            .iter_mut()
+            .find(|x| x.addresses.remote == addresses.remote);
         if let Some(existing) = existing {
             // Update a queued response
             if existing.packet <= packet {
@@ -733,20 +740,20 @@ impl PathResponses {
         }
     }
 
-    pub(crate) fn pop_off_path(&mut self, remote: SocketAddr) -> Option<(u64, SocketAddr)> {
+    pub(crate) fn pop_off_path(&mut self, addresses: FourTuple) -> Option<(u64, FourTuple)> {
         let response = *self.pending.last()?;
-        if response.remote == remote {
+        if response.addresses.is_same_path(&addresses) {
             // We don't bother searching further because we expect that the on-path response will
             // get drained in the immediate future by a call to `pop_on_path`
             return None;
         }
         self.pending.pop();
-        Some((response.token, response.remote))
+        Some((response.token, response.addresses))
     }
 
-    pub(crate) fn pop_on_path(&mut self, remote: SocketAddr) -> Option<u64> {
+    pub(crate) fn pop_on_path(&mut self, addresses: FourTuple) -> Option<u64> {
         let response = *self.pending.last()?;
-        if response.remote != remote {
+        if !response.addresses.is_same_path(&addresses) {
             // We don't bother searching further because we expect that the off-path response will
             // get drained in the immediate future by a call to `pop_off_path`
             return None;
@@ -766,8 +773,8 @@ struct PathResponse {
     packet: u64,
     /// The token of the PATH_CHALLENGE
     token: u64,
-    /// The address the corresponding PATH_CHALLENGE was received from
-    remote: SocketAddr,
+    /// The path the corresponding PATH_CHALLENGE was received from
+    addresses: FourTuple,
 }
 
 /// Summary statistics of packets that have been sent on a particular path, but which have not yet

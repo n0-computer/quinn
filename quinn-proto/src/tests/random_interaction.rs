@@ -9,7 +9,7 @@ use test_strategy::Arbitrary;
 use tracing::{debug, trace};
 
 use crate::{
-    Connection, ConnectionHandle, Dir, PathId, PathStatus, StreamId, TransportConfig,
+    Connection, ConnectionHandle, Dir, FourTuple, PathId, PathStatus, StreamId, TransportConfig,
     tests::{Pair, TestEndpoint, client_config},
 };
 
@@ -123,7 +123,11 @@ impl TestOp {
                     Side::Server => server,
                 };
                 let conn = state.conn(pair)?;
-                conn.open_path(remote, initial_status, now).ok();
+                let addresses = FourTuple {
+                    remote,
+                    local_ip: None,
+                };
+                conn.open_path(addresses, initial_status, now).ok();
             }
             Self::ClosePath(side, path_idx, error_code) => {
                 let state = match side {

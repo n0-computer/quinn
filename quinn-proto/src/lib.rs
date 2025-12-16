@@ -338,3 +338,69 @@ const MAX_UDP_PAYLOAD: u16 = 65527;
 const TIMER_GRANULARITY: Duration = Duration::from_millis(1);
 /// Maximum number of streams that can be uniquely identified by a stream ID
 const MAX_STREAM_COUNT: u64 = 1 << 60;
+
+/// Identifies a network path by the combination of remote and local addresses
+///
+/// Including the local ensures good behavior when the host has multiple IP addresses on the same
+/// subnet and zero-length connection IDs are in use or when multipath is enabled and multiple
+/// paths exist with the same remote, but different local IP interfaces.
+#[derive(Hash, Eq, PartialEq, Copy, Clone)]
+pub struct FourTuple {
+    /// The remote side of this tuple
+    pub remote: SocketAddr,
+    /// The local side of this tuple.
+    // A single socket can only listen on a single port, so no need to store it explicitly
+    // TODO(matheus23): add back the port. The comment above is wrong. There *can* be multiple sockets!
+    // Even ignoring multiple sockets behind a single abstract `AsyncUdpSocket`, there can
+    // be multiple `AsyncUdpSocket`s when you use `rebind`!
+    pub local_ip: Option<IpAddr>,
+}
+
+impl FourTuple {
+    /// Returns whether we know that these two tuples represent the same path.
+    ///
+    /// If any of these tuples doesn't have a local address, then we cannot know
+    /// if the two tuples represent the same path, even if the remote is the same
+    /// address, because the local address might be different.
+    // TODO(matheus23): Should this be the `PartialEq` definition on FourTuple? It might be too hidden.
+    pub fn is_same_path(&self, other: &Self) -> bool {
+        self.local_ip.is_some() && other.local_ip.is_some() && self == other
+    }
+
+    /// Updates this tuple's local address iff
+    /// - it was unset before,
+    /// - the other tuple has the same remote, and
+    /// - the other tuple has a local address set.
+    ///
+    /// Returns whether this and the other remote are now fully equal.
+    pub fn update_local_if_same_remote(&mut self, other: &Self) -> bool {
+        if self.remote != other.remote {
+            return false;
+        }
+        if self.local_ip.is_some() && self.local_ip != other.local_ip {
+            return false;
+        }
+        self.local_ip = other.local_ip;
+        true
+    }
+}
+
+impl fmt::Display for FourTuple {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("(")?;
+        if let Some(local_ip) = &self.local_ip {
+            local_ip.fmt(f)?;
+            f.write_str(":<port>, ")?;
+        } else {
+            f.write_str("<unknown>:<port>, ")?;
+        }
+        self.remote.fmt(f)?;
+        f.write_str(")")
+    }
+}
+
+impl fmt::Debug for FourTuple {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self, f)
+    }
+}

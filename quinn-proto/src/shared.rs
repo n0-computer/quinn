@@ -2,6 +2,7 @@ use std::{fmt, net::SocketAddr};
 
 use bytes::{Buf, BufMut, BytesMut};
 
+use crate::FourTuple;
 use crate::PathId;
 use crate::{Duration, Instant, MAX_CID_SIZE, ResetToken, coding::BufExt, packet::PartialDecode};
 
@@ -21,7 +22,7 @@ pub(crate) enum ConnectionEventInner {
 #[derive(Debug)]
 pub(crate) struct DatagramConnectionEvent {
     pub(crate) now: Instant,
-    pub(crate) remote: SocketAddr,
+    pub(crate) addresses: FourTuple,
     pub(crate) path_id: PathId,
     pub(crate) ecn: Option<EcnCodepoint>,
     pub(crate) first_decode: PartialDecode,

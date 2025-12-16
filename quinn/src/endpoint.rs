@@ -26,7 +26,7 @@ use bytes::{Bytes, BytesMut};
 use pin_project_lite::pin_project;
 use proto::{
     self as proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent,
-    EndpointEvent, ServerConfig,
+    EndpointEvent, FourTuple, ServerConfig,
 };
 use rustc_hash::FxHashMap;
 #[cfg(all(
@@ -850,10 +850,13 @@ impl RecvState {
                         while !data.is_empty() {
                             let buf = data.split_to(meta.stride.min(data.len()));
                             let mut response_buffer = Vec::new();
+                            let addresses = FourTuple {
+                                remote: meta.addr,
+                                local_ip: meta.dst_ip,
+                            };
                             match endpoint.handle(
                                 now,
-                                meta.addr,
-                                meta.dst_ip,
+                                addresses,
                                 meta.ecn.map(proto_ecn),
                                 buf,
                                 &mut response_buffer,
