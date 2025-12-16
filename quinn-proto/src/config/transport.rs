@@ -81,6 +81,8 @@ pub struct TransportConfig {
     pub(crate) default_path_max_idle_timeout: Option<Duration>,
     pub(crate) default_path_keep_alive_interval: Option<Duration>,
 
+    pub(crate) close_timer_cap: Option<Duration>,
+
     pub(crate) max_remote_nat_traversal_addresses: Option<NonZeroU8>,
 
     #[cfg(feature = "qlog")]
@@ -436,6 +438,18 @@ impl TransportConfig {
         self
     }
 
+    /// Maximum duration for the connection close timer
+    ///
+    /// The close timer is normally 3x the max PTO across all paths. With multipath and paths
+    /// that have no RTT samples, this can lead to excessively long close times. This cap
+    /// limits the close timer duration. Set to `None` to disable the cap.
+    ///
+    /// Defaults to 1 second.
+    pub fn close_timer_cap(&mut self, cap: Option<Duration>) -> &mut Self {
+        self.close_timer_cap = cap;
+        self
+    }
+
     /// Get the initial max [`crate::PathId`] this endpoint allows.
     ///
     /// Returns `None` if multipath is disabled.
@@ -552,7 +566,7 @@ impl Default for TransportConfig {
 
             packet_threshold: 3,
             time_threshold: 9.0 / 8.0,
-            initial_rtt: Duration::from_millis(333), // per spec, intentionally distinct from EXPECTED_RTT
+            initial_rtt: Duration::from_millis(250),
             initial_mtu: INITIAL_MTU,
             min_mtu: INITIAL_MTU,
             mtu_discovery_config: Some(MtuDiscoveryConfig::default()),
@@ -578,6 +592,7 @@ impl Default for TransportConfig {
             max_concurrent_multipath_paths: None,
             default_path_max_idle_timeout: None,
             default_path_keep_alive_interval: None,
+            close_timer_cap: Some(Duration::from_secs(1)),
 
             // nat traversal disabled by default
             max_remote_nat_traversal_addresses: None,
@@ -620,6 +635,7 @@ impl fmt::Debug for TransportConfig {
             max_concurrent_multipath_paths,
             default_path_max_idle_timeout,
             default_path_keep_alive_interval,
+            close_timer_cap,
             max_remote_nat_traversal_addresses,
             #[cfg(feature = "qlog")]
             qlog_factory,
@@ -665,6 +681,7 @@ impl fmt::Debug for TransportConfig {
                 "default_path_keep_alive_interval",
                 default_path_keep_alive_interval,
             )
+            .field("close_timer_cap", close_timer_cap)
             .field(
                 "max_remote_nat_traversal_addresses",
                 max_remote_nat_traversal_addresses,

@@ -5683,9 +5683,14 @@ impl Connection {
     fn set_close_timer(&mut self, now: Instant) {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO with PTO the max of
         // the PTO for all paths.
+        let close_duration = 3 * self.pto_max_path(self.highest_space);
+        let close_duration = match self.config.close_timer_cap {
+            Some(cap) => close_duration.min(cap),
+            None => close_duration,
+        };
         self.timers.set(
             Timer::Conn(ConnTimer::Close),
-            now + 3 * self.pto_max_path(self.highest_space),
+            now + close_duration,
             self.qlog.with_time(now),
         );
     }
