@@ -50,7 +50,7 @@ fn send_data(name: &str, c: &mut Criterion, data: &'static [u8], concurrent_stre
         (data.len() as u64) * (concurrent_streams as u64),
     ));
     group.bench_function("send_data", |b| {
-        b.to_async(&runtime).iter(async || {
+        b.to_async(&runtime).iter(|| async {
             let mut handles = Vec::new();
 
             for _ in 0..concurrent_streams {
