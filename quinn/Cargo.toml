@@ -88,7 +88,7 @@ web-time = { workspace = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 crc = { workspace = true }
-bencher = { workspace = true }
+criterion = { workspace = true }
 directories-next = { workspace = true }
 rand = { workspace = true }
 rcgen = { workspace = true }
