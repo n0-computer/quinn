@@ -4279,18 +4279,27 @@ impl Connection {
                         .get_mut(&path_id)
                         .expect("payload is processed only after the path becomes known");
 
+                    use PathTimer::*;
                     use paths::OnPathResponseReceived::*;
                     match path.data.on_path_response_received(now, response.0, remote) {
                         OnPath { was_open } => {
-                            // TODO(@divma): reset timers using the remaining off-path challenges
-                            use PathTimer::*;
                             let qlog = self.qlog.with_time(now);
 
                             self.timers
                                 .stop(Timer::PerPath(path_id, PathValidation), qlog.clone());
                             self.timers
-                                .stop(Timer::PerPath(path_id, PathChallengeLost), qlog.clone());
-                            self.timers.stop(Timer::PerPath(path_id, PathOpen), qlog);
+                                .stop(Timer::PerPath(path_id, PathOpen), qlog.clone());
+
+                            let next_challenge = path
+                                .data
+                                .earliest_expiring_challenge()
+                                .map(|time| time + self.ack_frequency.max_ack_delay_for_pto());
+                            self.timers.set_or_stop(
+                                Timer::PerPath(path_id, PathChallengeLost),
+                                next_challenge,
+                                qlog,
+                            );
+
                             if !was_open {
                                 self.events
                                     .push_back(Event::Path(PathEvent::Opened { id: path_id }));
@@ -4309,6 +4318,15 @@ impl Connection {
                         }
                         OffPath => {
                             debug!("Response to off-path PathChallenge!");
+                            let next_challenge = path
+                                .data
+                                .earliest_expiring_challenge()
+                                .map(|time| time + self.ack_frequency.max_ack_delay_for_pto());
+                            self.timers.set_or_stop(
+                                Timer::PerPath(path_id, PathChallengeLost),
+                                next_challenge,
+                                self.qlog.with_time(now),
+                            );
                         }
                         Invalid { expected } => {
                             debug!(%response, from=%remote, %expected, "ignoring invalid PATH_RESPONSE")
