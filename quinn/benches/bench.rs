@@ -4,7 +4,7 @@ use std::{
     thread,
 };
 
-use criterion::{BenchmarkGroup, Criterion, criterion_group, criterion_main, measurement::WallTime};
+use criterion::{Criterion, criterion_group, criterion_main};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use tokio::runtime::{Builder, Runtime};
 use tracing::error_span;
