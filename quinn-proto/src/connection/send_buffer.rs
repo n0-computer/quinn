@@ -509,12 +509,13 @@ pub mod send_buffer_benches {
     //!
     //! These are defined here and re-exported via `bench_exports` in lib.rs,
     //! so we can access the private `SendBuffer` struct.
-    use bencher::Bencher;
+    use criterion::Criterion;
     use bytes::Bytes;
     use super::SendBuffer;
 
     /// Pathological case: many segments, get from end
-    pub fn get_into_many_segments(bench: &mut Bencher) {
+    pub fn get_into_many_segments(criterion: &mut Criterion) {
+        let mut group = criterion.benchmark_group("get_into_many_segments");
         let mut buf = SendBuffer::new();
 
         const SEGMENTS: u64 = 10000;
@@ -528,15 +529,18 @@ pub mod send_buffer_benches {
         }
 
         let mut tgt = Vec::with_capacity(PACKET_SIZE as usize);
-        bench.iter(|| {
-            // Get from end (very slow - scans through all 1000 segments)
-            tgt.clear();
-            buf.get_into(BYTES - PACKET_SIZE..BYTES, bencher::black_box(&mut tgt));
+        group.bench_function("get_into", |b| {
+            b.iter(|| {
+                // Get from end (very slow - scans through all 1000 segments)
+                tgt.clear();
+                buf.get_into(BYTES - PACKET_SIZE..BYTES, std::hint::black_box(&mut tgt));
+            });
         });
     }
 
     /// Get segments in the old way, using a loop of get calls
-    pub fn get_loop_many_segments(bench: &mut Bencher) {
+    pub fn get_loop_many_segments(criterion: &mut Criterion) {
+        let mut group = criterion.benchmark_group("get_loop_many_segments");
         let mut buf = SendBuffer::new();
 
         const SEGMENTS: u64 = 10000;
@@ -550,15 +554,17 @@ pub mod send_buffer_benches {
         }
 
         let mut tgt = Vec::with_capacity(PACKET_SIZE as usize);
-        bench.iter(|| {
-            // Get from end (very slow - scans through all 1000 segments)
-            tgt.clear();
-            let mut range = BYTES - PACKET_SIZE..BYTES;
-            while range.start < range.end {
-                let slice = bencher::black_box(buf.get(range.clone()));
-                range.start += slice.len() as u64;
-                tgt.extend_from_slice(slice);
-            }
+        group.bench_function("get_loop", |b| {
+            b.iter(|| {
+                // Get from end (very slow - scans through all 1000 segments)
+                tgt.clear();
+                let mut range = BYTES - PACKET_SIZE..BYTES;
+                while range.start < range.end {
+                    let slice = std::hint::black_box(buf.get(range.clone()));
+                    range.start += slice.len() as u64;
+                    tgt.extend_from_slice(slice);
+                }
+            });
         });
     }
 }
