@@ -68,7 +68,7 @@ jobs:
         with:
           node-version: 20
       - uses: bytecodealliance/actions/wasm-tools/setup@v1
-      - uses: cargo-bins/cargo-binstall@main
+      - uses: cargo-bins/cargo-binstall@v1.16.3
 
       - name: wasm32 test build (iroh-quinn-proto)
         run: cargo test --locked -p iroh-quinn-proto --target wasm32-unknown-unknown --no-run
@@ -132,12 +132,16 @@ jobs:
           ndk-version: r23
           add-to-path: true
 
+      - name: Install cargo-ndk
+        run: |
+          if ! cargo ndk --version 2>/dev/null | grep -q "3.5.4"; then
+            cargo install --version 3.5.4 cargo-ndk
+          fi
+
       - name: Build
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: |
-          cargo install --version 3.5.4 cargo-ndk
-          cargo ndk --target ${{ matrix.target }} build
+        run: cargo ndk --target ${{ matrix.target }} build
 
   android_emulator_test:
     name: Android Emulator Tests
@@ -165,7 +169,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk
+        run: cargo install --version 3.5.4 cargo-ndk
 
       - name: Build unit tests for Android
         run: cargo ndk -t ${{ matrix.target }} test --no-run
@@ -294,5 +298,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - run: pip install --user codespell[toml]
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-codespell-2.4.1
+      - run: pip install --user codespell[toml]==2.4.1
       - run: codespell --ignore-words-list=ans,atmost,crate,ect,inout,keep-alives,ser,te,worl --skip=CHANGELOG.md,*.lock
