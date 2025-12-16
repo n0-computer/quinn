@@ -9,6 +9,7 @@ use proptest::{
     prop_assert,
 };
 use test_strategy::proptest;
+use tracing::error;
 
 use crate::{
     Connection, ConnectionClose, ConnectionError, Event, PathStatus, TransportConfig,
@@ -191,17 +192,24 @@ fn old_routing_table() -> RoutingTable {
 /// abiding. If we think that, clearly something is wrong, given we're controlling
 /// both ends of the connection.
 fn allowed_error(err: Option<ConnectionError>) -> bool {
-    match err {
+    let allowed = match &err {
         None => true,
         Some(ConnectionError::TransportError(err)) => {
             // keep in sync with connection/mod.rs
             &err.reason == "last path abandoned by peer"
         }
         Some(ConnectionError::ConnectionClosed(ConnectionClose { error_code, .. })) => {
-            error_code != TransportErrorCode::PROTOCOL_VIOLATION
+            *error_code != TransportErrorCode::PROTOCOL_VIOLATION
         }
         _ => true,
+    };
+    if !allowed {
+        error!(
+            ?err,
+            "Got an error that's unexpected in quinn <-> quinn interaction"
+        );
     }
+    allowed
 }
 
 fn poll_to_close(conn: &mut Connection) -> Option<ConnectionError> {
@@ -427,6 +435,71 @@ fn regression_peer_failed_to_respond_with_path_abandon2() {
 
     let _guard = subscribe();
     let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
+
+/// This test sets up two addresses for the server side:
+/// 2.2.2.0 and 2.2.2.1. The client side can send to either
+/// and the server side will receive them in both cases.
+///
+/// Such a situation happens in practice with multiple interfaces
+/// in a sending-to-my-own-machine situation, e.g. when you have
+/// both a WiFi and bridge(?) or docker interface, where sending
+/// to the docker address of yourself results in the kernel
+/// translating that to sending via WiFi and the incoming "remote"
+/// address that comes in looks like it's been sent via WiFi.
+///
+/// The test here is slightly simplified in that the sides don't
+/// share the same IP address and don't both have the same two
+/// interfaces, but the resulting situation is the same:
+///
+/// - The server sees the remote as 1.1.1.0 and had previously
+///   sent and received on that address in this connection and
+///   thus considers it valid, while
+/// - the client side first sends to 2.2.2.1 but gets the response
+///   from the remote 2.2.2.0, thus it fails validation on the
+///   client side and it ignores the packet.
+///
+/// Originally this test produced a "PATH_ABANDON was ignored"
+/// error message, but that's secondary to the original problem.
+/// The reason it was even possible to produce this error is that
+/// we were able to abandon the last open path (path 0) on the
+/// server because it incorrectly thought path 1 was fully validated
+/// and working (and it was not).
+/// Or another way to look at what went wrong would be that the
+/// server kept sending PATH_ABANDON on path 1, even though it is
+/// a broken path.
+#[test]
+fn regression_path_validation() {
+    let prefix = "regression_path_validation";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
+        TestOp::Drive(Side::Client),
+        TestOp::AdvanceTime,
+        TestOp::Drive(Side::Server),
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
+        TestOp::ClosePath(Side::Server, 0, 0),
+    ];
+    let routes = RoutingTable::from_routes(
+        vec![("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0)],
+        vec![
+            ("[::ffff:2.2.2.0]:4433".parse().unwrap(), 0),
+            ("[::ffff:2.2.2.1]:4433".parse().unwrap(), 0),
+        ],
+    );
+
+    let _guard = subscribe();
     let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
