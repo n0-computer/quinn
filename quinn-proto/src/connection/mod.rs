@@ -6253,6 +6253,10 @@ impl Connection {
         &mut self,
         now: Instant,
     ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+        if self.state.is_closed() {
+            return Err(iroh_hp::Error::Closed);
+        }
+
         let client_state = self.iroh_hp.client_side_mut()?;
         let iroh_hp::NatTraversalRound {
             new_round,
