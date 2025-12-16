@@ -822,15 +822,6 @@ impl Connection {
         &mut self.paths.get_mut(&path_id).expect("known path").data
     }
 
-    /// Check if the remote has been validated in any active path
-    fn is_remote_validated(&self, remote: SocketAddr) -> bool {
-        self.paths
-            .values()
-            .any(|path_state| path_state.data.remote == remote && path_state.data.validated)
-        // TODO(@divma): we might want to ensure the path has been recently active to consider the
-        // address validated
-    }
-
     fn ensure_path(
         &mut self,
         path_id: PathId,
@@ -838,7 +829,6 @@ impl Connection {
         now: Instant,
         pn: Option<u64>,
     ) -> &mut PathData {
-        let validated = self.is_remote_validated(remote);
         let vacant_entry = match self.paths.entry(path_id) {
             btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
             btree_map::Entry::Occupied(occupied_entry) => {
@@ -846,7 +836,9 @@ impl Connection {
             }
         };
 
-        debug!(%validated, %path_id, ?remote, "path added");
+        // TODO(matheus23): Add back short-circuiting path.validated = true, if we know that the
+        // path's four-tuple was already validated.
+        debug!(%path_id, ?remote, "path added");
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
         self.path_counter = self.path_counter.wrapping_add(1);
@@ -858,8 +850,6 @@ impl Connection {
             now,
             &self.config,
         );
-
-        data.validated = validated;
 
         let pto = self.ack_frequency.max_ack_delay_for_pto() + data.rtt.pto_base();
         self.timers.set(
