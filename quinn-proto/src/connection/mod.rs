@@ -4470,31 +4470,7 @@ impl Connection {
                         Ok(None) if self.path(path_id).is_none() => {
                             // if this gives us CIDs to open a new path and a nat traversal attempt
                             // is underway we could try to probe a pending remote
-
-                            if let Some((id, address)) = self
-                                .iroh_hp
-                                .client_side_mut()
-                                .ok()
-                                .and_then(iroh_hp::ClientState::continue_nat_traversal_round)
-                            {
-                                let ipv6 = self.paths.values().any(|p| p.data.remote.is_ipv6());
-                                let open_result = self.open_nat_traversal_path(address, ipv6, now);
-                                let client_state =
-                                    self.iroh_hp.client_side_mut().expect("validated");
-                                match open_result {
-                                    Ok(None) => {}
-                                    Ok(Some((path_id, _remote, path_was_known))) => {
-                                        if !path_was_known {
-                                            client_state.add_round_path_id(path_id);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        if e == PathError::MaxPathIdReached {
-                                            client_state.report_in_continuation(id);
-                                        }
-                                    }
-                                }
-                            }
+                            self.continue_nat_traversal_round(now);
                         }
                         Ok(None) => {}
                         Ok(Some((retired, reset_token))) => {
@@ -4721,6 +4697,7 @@ impl Connection {
                     if path_id > self.remote_max_path_id {
                         self.remote_max_path_id = path_id;
                         self.issue_first_path_cids(now);
+                        while let Some(true) = self.continue_nat_traversal_round(now) {}
                     }
                 }
                 Frame::PathsBlocked(frame::PathsBlocked(max_path_id)) => {
@@ -6407,6 +6384,36 @@ impl Connection {
             .set_round_path_ids(path_ids);
 
         Ok(probed_addresses)
+    }
+
+    /// Attempts to continue a nat traversal round by trying to open paths for pending client probes.
+    ///
+    /// If there was nothing to do, it returns `None`. Otherwise it returns whether the path was
+    /// successfully open.
+    fn continue_nat_traversal_round(&mut self, now: Instant) -> Option<bool> {
+        let client_state = self.iroh_hp.client_side_mut().ok()?;
+        let (id, address) = client_state.continue_nat_traversal_round()?;
+        let ipv6 = self.paths.values().any(|p| p.data.remote.is_ipv6());
+        let open_result = self.open_nat_traversal_path(address, ipv6, now);
+        let client_state = self.iroh_hp.client_side_mut().expect("validated");
+        match open_result {
+            Ok(None) => Some(true),
+            Ok(Some((path_id, _remote, path_was_known))) => {
+                if !path_was_known {
+                    client_state.add_round_path_id(path_id);
+                }
+                Some(true)
+            }
+            Err(e) => {
+                if matches!(
+                    e,
+                    PathError::MaxPathIdReached | PathError::RemoteCidsExhausted
+                ) {
+                    client_state.report_in_continuation(id);
+                }
+                Some(false)
+            }
+        }
     }
 }
 
