@@ -53,7 +53,7 @@ impl Connecting {
         let (on_handshake_data_send, on_handshake_data_recv) = oneshot::channel();
         let (on_connected_send, on_connected_recv) = oneshot::channel();
 
-        let conn = ConnectionRef(Arc::new(ConnectionInner {
+        let conn = ConnectionRef(Arc::new(Arc::new(ConnectionInner {
             state: Mutex::new(State::new(
                 conn,
                 handle,
@@ -65,7 +65,7 @@ impl Connecting {
                 runtime.clone(),
             )),
             shared: Shared::default(),
-        }));
+        })));
 
         let driver = ConnectionDriver(conn.clone());
         runtime.spawn(Box::pin(
@@ -1222,10 +1222,10 @@ impl Future for OnClosed {
 }
 
 #[derive(Debug)]
-pub(crate) struct ConnectionRef(Arc<ConnectionInner>);
+pub(crate) struct ConnectionRef(Arc<Arc<ConnectionInner>>);
 
 impl ConnectionRef {
-    fn from_arc(inner: Arc<ConnectionInner>) -> Self {
+    fn from_arc(inner: Arc<Arc<ConnectionInner>>) -> Self {
         inner.state.lock("from_arc").ref_count += 1;
         Self(inner)
     }
@@ -1275,7 +1275,7 @@ pub(crate) struct ConnectionInner {
 /// This contains a weak reference to the connection so will not itself keep the connection
 /// alive.
 #[derive(Debug, Clone)]
-pub struct WeakConnectionHandle(Weak<ConnectionInner>);
+pub struct WeakConnectionHandle(Weak<Arc<ConnectionInner>>);
 
 impl WeakConnectionHandle {
     /// Returns `true` if the [`Connection`] associated with this handle is still alive.
