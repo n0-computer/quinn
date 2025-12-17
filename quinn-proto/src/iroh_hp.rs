@@ -178,6 +178,12 @@ impl ClientState {
         self.round_path_ids = path_ids;
     }
 
+    /// Add a [`PathId`] as part of the current attempts to create paths based on the server's
+    /// advertised addresses.
+    pub(crate) fn add_round_path_id(&mut self, path_id: PathId) {
+        self.round_path_ids.push(path_id);
+    }
+
     /// Adds an address to the remote set
     ///
     /// On success returns the address if it was new to the set. It will error when the set has no

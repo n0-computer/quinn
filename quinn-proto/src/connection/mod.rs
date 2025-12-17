@@ -4455,7 +4455,6 @@ impl Connection {
                         .entry(path_id)
                         .or_insert_with(|| CidQueue::new(frame.id));
                     if rem_cids.active().is_empty() {
-                        // TODO(@divma): is the entry removed later? (rem_cids.entry)
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "NEW_CONNECTION_ID when CIDs aren't in use",
                         ));
@@ -4468,6 +4467,35 @@ impl Connection {
 
                     use crate::cid_queue::InsertError;
                     match rem_cids.insert(frame) {
+                        Ok(None) if self.path(path_id).is_none() => {
+                            // if this gives us CIDs to open a new path and a nat traversal attempt
+                            // is underway we could try to probe a pending remote
+
+                            if let Some((id, address)) = self
+                                .iroh_hp
+                                .client_side_mut()
+                                .ok()
+                                .and_then(iroh_hp::ClientState::continue_nat_traversal_round)
+                            {
+                                let ipv6 = self.paths.values().any(|p| p.data.remote.is_ipv6());
+                                let open_result = self.open_nat_traversal_path(address, ipv6, now);
+                                let client_state =
+                                    self.iroh_hp.client_side_mut().expect("validated");
+                                match open_result {
+                                    Ok(None) => {}
+                                    Ok(Some((path_id, _remote, path_was_known))) => {
+                                        if !path_was_known {
+                                            client_state.add_round_path_id(path_id);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        if e == PathError::MaxPathIdReached {
+                                            client_state.report_in_continuation(id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         Ok(None) => {}
                         Ok(Some((retired, reset_token))) => {
                             let pending_retired =
@@ -6255,6 +6283,43 @@ impl Connection {
             .get_remote_nat_traversal_addresses())
     }
 
+    /// Attempts to open a path for nat traversal.
+    ///
+    /// `ipv6` indicates if the path should be opened using an IPV6 remote. If the address is
+    /// ignored, it will return `None`.
+    ///
+    /// On success returns the [`PathId`] and remote address of the path, as well as whether the path
+    /// existed for the adjusted remote.
+    fn open_nat_traversal_path(
+        &mut self,
+        (ip, port): (IpAddr, u16),
+        ipv6: bool,
+        now: Instant,
+    ) -> Result<Option<(PathId, SocketAddr, bool)>, PathError> {
+        // If this endpoint is an IPv6 endpoint we use IPv6 addresses for all remotes.
+        let remote = match ip {
+            IpAddr::V4(addr) if ipv6 => SocketAddr::new(addr.to_ipv6_mapped().into(), port),
+            IpAddr::V4(addr) => SocketAddr::new(addr.into(), port),
+            IpAddr::V6(_) if ipv6 => SocketAddr::new(ip, port),
+            IpAddr::V6(_) => {
+                trace!("not using IPv6 nat candidate for IPv4 socket");
+                return Ok(None);
+            }
+        };
+        match self.open_path_ensure(remote, PathStatus::Backup, now) {
+            Ok((path_id, path_was_known)) => {
+                if path_was_known {
+                    trace!(%path_id, %remote, "nat traversal: path existed for remote");
+                }
+                Ok(Some((path_id, remote, path_was_known)))
+            }
+            Err(e) => {
+                debug!(%remote, %e, "nat traversal: failed to probe remote");
+                Err(e)
+            }
+        }
+    }
+
     /// Initiates a new nat traversal round
     ///
     /// A nat traversal round involves advertising the client's local addresses in `REACH_OUT`
@@ -6262,6 +6327,8 @@ impl Connection {
     /// initiated, the previous one is cancelled, and paths that have not been opened are closed.
     ///
     /// Returns the server addresses that are now being probed.
+    /// If addresses fail due to spurious errors, these might succeed later and not be returned in
+    /// this set.
     pub fn initiate_nat_traversal_round(
         &mut self,
         now: Instant,
@@ -6303,27 +6370,16 @@ impl Connection {
         let mut probed_addresses = Vec::with_capacity(addresses_to_probe.len());
         let ipv6 = self.paths.values().any(|p| p.data.remote.is_ipv6());
 
-        for (id, (ip, port)) in addresses_to_probe {
-            // If this endpoint is an IPv6 endpoint we use IPv6 addresses for all remotes.
-            let remote = match ip {
-                IpAddr::V4(addr) if ipv6 => SocketAddr::new(addr.to_ipv6_mapped().into(), port),
-                IpAddr::V4(addr) => SocketAddr::new(addr.into(), port),
-                IpAddr::V6(_) if ipv6 => SocketAddr::new(ip, port),
-                IpAddr::V6(_) => {
-                    trace!("not using IPv6 nat candidate for IPv4 socket");
-                    continue;
-                }
-            };
-            match self.open_path_ensure(remote, PathStatus::Backup, now) {
-                Ok((path_id, path_was_known)) if !path_was_known => {
-                    path_ids.push(path_id);
-                    probed_addresses.push(remote);
-                }
-                Ok((path_id, _)) => {
-                    trace!(%path_id, %remote,"nat traversal: path existed for remote")
+        for (id, address) in addresses_to_probe {
+            match self.open_nat_traversal_path(address, ipv6, now) {
+                Ok(None) => {}
+                Ok(Some((path_id, remote, path_was_known))) => {
+                    if !path_was_known {
+                        path_ids.push(path_id);
+                        probed_addresses.push(remote);
+                    }
                 }
                 Err(e) => {
-                    debug!(%remote, %e,"nat traversal: failed to probe remote");
                     if matches!(
                         e,
                         PathError::MaxPathIdReached | PathError::RemoteCidsExhausted
