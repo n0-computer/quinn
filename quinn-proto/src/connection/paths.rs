@@ -152,6 +152,8 @@ pub(super) struct PathData {
     pub(super) validated: bool,
     /// Total size of all UDP datagrams sent on this path
     pub(super) total_sent: u64,
+    /// When did we last send data.
+    pub(super) last_sent: Option<Instant>,
     /// Total size of all UDP datagrams received on this path
     pub(super) total_recvd: u64,
     /// The state of the MTU discovery process
@@ -250,6 +252,7 @@ impl PathData {
             path_responses: PathResponses::default(),
             validated: false,
             total_sent: 0,
+            last_sent: None,
             total_recvd: 0,
             mtud: config
                 .mtu_discovery_config
@@ -305,6 +308,7 @@ impl PathData {
             path_responses: PathResponses::default(),
             validated: false,
             total_sent: 0,
+            last_sent: None,
             total_recvd: 0,
             mtud: prev.mtud.clone(),
             first_packet_after_rtt_sample: prev.first_packet_after_rtt_sample,
@@ -341,7 +345,14 @@ impl PathData {
     }
 
     /// Account for transmission of `packet` with number `pn` in `space`
-    pub(super) fn sent(&mut self, pn: u64, packet: SentPacket, space: &mut PacketNumberSpace) {
+    pub(super) fn sent(
+        &mut self,
+        now: Instant,
+        pn: u64,
+        packet: SentPacket,
+        space: &mut PacketNumberSpace,
+    ) {
+        self.last_sent.replace(now);
         self.in_flight.insert(&packet);
         if self.first_packet.is_none() {
             self.first_packet = Some(pn);
@@ -349,6 +360,15 @@ impl PathData {
         if let Some(forgotten) = space.sent(pn, packet) {
             self.remove_in_flight(&forgotten);
         }
+    }
+
+    pub(crate) fn timer_offset(&self, now: Instant, duration: Duration) -> Instant {
+        let start = self.last_sent.unwrap_or(now);
+        let end = start + duration;
+        if end > start {
+            return now;
+        }
+        end
     }
 
     /// Remove `packet` with number `pn` from this path's congestion control counters, or return
