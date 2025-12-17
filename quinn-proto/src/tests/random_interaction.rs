@@ -123,7 +123,7 @@ impl TestOp {
                     Side::Server => server,
                 };
                 let conn = state.conn(pair)?;
-                conn.open_path(remote, initial_status, now).ok();
+                conn.open_path(remote, initial_status, now, None).ok();
             }
             Self::ClosePath(side, path_idx, error_code) => {
                 let state = match side {
@@ -177,7 +177,7 @@ impl TestOp {
                     Side::Server => server,
                 };
                 let conn = state.conn(pair)?;
-                let addrs = conn.initiate_nat_traversal_round(now).ok()?;
+                let addrs = conn.initiate_nat_traversal_round(now, |_| None).ok()?;
                 trace!(?addrs, "initiating NAT Traversal");
             }
         }
