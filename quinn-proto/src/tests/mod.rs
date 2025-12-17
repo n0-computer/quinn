@@ -1355,9 +1355,7 @@ fn migration() {
     assert_ne!(pair.server_conn_mut(server_ch).total_recvd(), 0);
 
     pair.drive();
-    // TODO(matheus23): Currently this returns PathEvents::Opened for path ID 0, which is weird,
-    // and just a side-effect of receiving a PATH_RESPONSE frame on path 0.
-    // assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
+    assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
     assert_eq!(
         pair.server_conn_mut(server_ch)
             .path_addresses(PathId::ZERO)
