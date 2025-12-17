@@ -199,7 +199,7 @@ impl ClientState {
             Entry::Occupied(mut occupied_entry) => {
                 let is_update = occupied_entry.get().0 != address;
                 if is_update {
-                    occupied_entry.insert((address, false)).0;
+                    occupied_entry.insert((address, false));
                 }
                 // The value might be different. This should not happen, but we assume that the new
                 // address is more recent than the previous, and thus worth updating
