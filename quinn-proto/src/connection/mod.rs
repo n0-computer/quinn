@@ -1081,7 +1081,7 @@ impl Connection {
                     !can_send.is_empty()
                 };
                 let needs_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
-                path_should_send || needs_loss_probe || can_send.close
+                path_should_send || needs_loss_probe
             };
 
             if !path_should_send && space_id < SpaceId::Data {
