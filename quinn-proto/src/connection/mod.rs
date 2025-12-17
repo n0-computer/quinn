@@ -675,7 +675,7 @@ impl Connection {
         self.endpoint_events
             .push_back(EndpointEventInner::RetireResetToken(path_id));
 
-        let pto = self.pto_max_path(SpaceId::Data);
+        let pto = self.pto_max_path(SpaceId::Data, false);
 
         let path = self.paths.get_mut(&path_id).expect("checked above");
 
@@ -2599,7 +2599,7 @@ impl Connection {
         // QUIC-MULTIPATH § 2.5 Key Phase Update Process: use largest PTO off all paths.
         self.timers.set(
             Timer::Conn(ConnTimer::KeyDiscard),
-            start + self.pto_max_path(space) * 3,
+            start + self.pto_max_path(space, false) * 3,
             self.qlog.with_time(now),
         );
     }
@@ -3079,14 +3079,24 @@ impl Connection {
 
     /// The maximum probe timeout across all paths
     ///
+    /// If `is_closing` is set to `true` it will filter out paths that have not yet been used.
+    ///
     /// See [`Connection::pto`]
-    fn pto_max_path(&self, space: SpaceId) -> Duration {
+    fn pto_max_path(&self, space: SpaceId, is_closing: bool) -> Duration {
         match space {
             SpaceId::Initial | SpaceId::Handshake => self.pto(space, PathId::ZERO),
             SpaceId::Data => self
                 .paths
-                .keys()
-                .map(|path_id| self.pto(space, *path_id))
+                .iter()
+                .filter_map(|(path_id, state)| {
+                    if is_closing && state.data.total_sent == 0 && state.data.total_recvd == 0 {
+                        // If we are closing and haven't sent anything yet, do not include
+                        None
+                    } else {
+                        let pto = self.pto(space, *path_id);
+                        Some(pto)
+                    }
+                })
                 .max()
                 .expect("there should be one at least path"),
         }
@@ -3199,7 +3209,7 @@ impl Connection {
                 self.timers
                     .stop(Timer::Conn(ConnTimer::Idle), self.qlog.with_time(now));
             } else {
-                let dt = cmp::max(timeout, 3 * self.pto_max_path(space));
+                let dt = cmp::max(timeout, 3 * self.pto_max_path(space, false));
                 self.timers.set(
                     Timer::Conn(ConnTimer::Idle),
                     now + dt,
@@ -5175,6 +5185,8 @@ impl Connection {
         if buf.remaining_mut() > frame::PathChallenge::SIZE_BOUND
             && space_id == SpaceId::Data
             && path.send_new_challenge
+            && !self.state.is_closed()
+        // we don't want to send new challenges if we are already closing
         {
             path.send_new_challenge = false;
 
@@ -5701,9 +5713,10 @@ impl Connection {
     fn set_close_timer(&mut self, now: Instant) {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO with PTO the max of
         // the PTO for all paths.
+        let pto_max = self.pto_max_path(self.highest_space, true);
         self.timers.set(
             Timer::Conn(ConnTimer::Close),
-            now + 3 * self.pto_max_path(self.highest_space),
+            now + 3 * pto_max,
             self.qlog.with_time(now),
         );
     }
