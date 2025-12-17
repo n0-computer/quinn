@@ -311,6 +311,7 @@ impl ServerState {
         }
 
         if round > self.round {
+            self.round = round;
             self.pending_probes.clear();
             // TODO(@divma): This log is here because I'm not sure if dropping the challenges
             // without further interaction with the connection is going to cause issues.
@@ -453,5 +454,44 @@ impl State {
                 .map(Into::into)
                 .collect()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic_server_state() {
+        let mut state = ServerState::new(2, 2);
+
+        state
+            .handle_reach_out(ReachOut {
+                round: 1u32.into(),
+                ip: std::net::Ipv4Addr::LOCALHOST.into(),
+                port: 1,
+            })
+            .unwrap();
+
+        state
+            .handle_reach_out(ReachOut {
+                round: 1u32.into(),
+                ip: "1.1.1.1".parse().unwrap(), //std::net::Ipv4Addr::LOCALHOST.into(),
+                port: 2,
+            })
+            .unwrap();
+
+        dbg!(&state);
+        assert_eq!(state.pending_probes.len(), 2);
+        assert_eq!(state.active_probes.len(), 0);
+
+        let probe = state.next_probe().unwrap();
+        probe.finish(1);
+        let probe = state.next_probe().unwrap();
+        probe.finish(2);
+
+        assert!(state.next_probe().is_none());
+        assert_eq!(state.pending_probes.len(), 0);
+        assert_eq!(state.active_probes.len(), 2);
     }
 }
