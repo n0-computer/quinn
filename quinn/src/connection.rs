@@ -306,7 +306,7 @@ pub struct Connection(ConnectionRef);
 impl Connection {
     /// Returns a weak reference to the inner connection struct.
     pub fn weak_handle(&self) -> WeakConnectionHandle {
-        WeakConnectionHandle(Arc::downgrade(&self.0.0))
+        WeakConnectionHandle(Arc::downgrade(&Arc::new(self.0.0.clone())))
     }
 
     /// Initiate a new outgoing unidirectional stream.
@@ -1247,7 +1247,7 @@ pub(crate) struct ConnectionInner {
 /// This contains a weak reference to the connection so will not itself keep the connection
 /// alive.
 #[derive(Debug, Clone)]
-pub struct WeakConnectionHandle(Weak<ConnectionInner>);
+pub struct WeakConnectionHandle(Weak<Arc<ConnectionInner>>);
 
 impl WeakConnectionHandle {
     /// Returns `true` if the [`Connection`] associated with this handle is still alive.
@@ -1259,7 +1259,7 @@ impl WeakConnectionHandle {
     pub fn upgrade(&self) -> Option<Connection> {
         self.0
             .upgrade()
-            .map(|inner| Connection(ConnectionRef::from_arc(inner)))
+            .map(|inner| Connection(ConnectionRef::from_arc((*inner).clone())))
     }
 }
 
