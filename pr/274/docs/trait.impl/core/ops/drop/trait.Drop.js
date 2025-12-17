@@ -1,0 +1,9 @@
+(function() {
+    var implementors = Object.fromEntries([["iroh_quinn",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"iroh_quinn/struct.Incoming.html\" title=\"struct iroh_quinn::Incoming\">Incoming</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"iroh_quinn/struct.OnClosed.html\" title=\"struct iroh_quinn::OnClosed\">OnClosed</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"iroh_quinn/struct.RecvStream.html\" title=\"struct iroh_quinn::RecvStream\">RecvStream</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"iroh_quinn/struct.SendStream.html\" title=\"struct iroh_quinn::SendStream\">SendStream</a>"]]],["iroh_quinn_proto",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"iroh_quinn_proto/struct.Chunks.html\" title=\"struct iroh_quinn_proto::Chunks\">Chunks</a>&lt;'_&gt;"]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[1084,303]}
