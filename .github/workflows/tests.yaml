@@ -170,6 +170,8 @@ jobs:
       # Using self-hosted runners so use local cache for sccache and
       # not SCCACHE_GHA_ENABLED.
       RUSTC_WRAPPER: "sccache"
+      # Force clang/bindgen to use MSVC target to avoid mingw headers from msys2
+      BINDGEN_EXTRA_CLANG_ARGS: "--target=x86_64-pc-windows-msvc"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -273,6 +275,9 @@ jobs:
         run: |
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Setup MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: build tests
         run: |
