@@ -122,7 +122,7 @@ fn path_status() {
     let prev_status = client_conn
         .set_path_status(PathId::ZERO, PathStatus::Backup)
         .unwrap();
-    assert_eq!(prev_status, PathStatus::Available);
+    assert_eq!(prev_status, Some(PathStatus::Available));
 
     // Send the frame to the server
     pair.drive();

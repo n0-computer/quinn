@@ -79,6 +79,11 @@ impl PathId {
     pub(crate) fn as_u32(&self) -> u32 {
         self.0
     }
+
+    /// Returns a range of `self..other`
+    pub(crate) fn range(&self, other: &Self) -> impl Iterator<Item = Self> {
+        (self.0..other.0).map(PathId)
+    }
 }
 
 impl std::fmt::Display for PathId {
