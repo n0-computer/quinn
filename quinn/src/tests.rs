@@ -1009,7 +1009,11 @@ async fn test_multipath_observed_address() {
         // this sleep after the poll_transmit unwraps have been addressed
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         let path = conn
-            .open_path(server_addr, proto::PathStatus::Available)
+            .open_path(
+                server_addr,
+                proto::PathStatus::Available,
+                Some(Duration::from_millis(50)),
+            )
             .await
             .unwrap();
         let mut reports = path.observed_external_addr().unwrap();

@@ -376,7 +376,12 @@ impl Connection {
     /// Otherwise behaves exactly as [`open_path`].
     ///
     /// [`open_path`]: Self::open_path
-    pub fn open_path_ensure(&self, addr: SocketAddr, initial_status: PathStatus) -> OpenPath {
+    pub fn open_path_ensure(
+        &self,
+        addr: SocketAddr,
+        initial_status: PathStatus,
+        rtt_hint: Option<Duration>,
+    ) -> OpenPath {
         let mut state = self.0.state.lock("open_path");
 
         // If endpoint::State::ipv6 is true we want to keep all our IP addresses as IPv6.
@@ -406,7 +411,9 @@ impl Connection {
         };
 
         let now = state.runtime.now();
-        let open_res = state.inner.open_path_ensure(addr, initial_status, now);
+        let open_res = state
+            .inner
+            .open_path_ensure(addr, initial_status, now, rtt_hint);
         state.wake();
         match open_res {
             Ok((path_id, existed)) if existed => {
@@ -439,7 +446,12 @@ impl Connection {
     /// future, or at a later time.  If the failure is immediate [`OpenPath::path_id`] will
     /// return `None` and the future will be ready immediately.  If the failure happens
     /// later, a [`PathEvent`] will be emitted.
-    pub fn open_path(&self, addr: SocketAddr, initial_status: PathStatus) -> OpenPath {
+    pub fn open_path(
+        &self,
+        addr: SocketAddr,
+        initial_status: PathStatus,
+        rtt_hint: Option<Duration>,
+    ) -> OpenPath {
         let mut state = self.0.state.lock("open_path");
 
         // If endpoint::State::ipv6 is true we want to keep all our IP addresses as IPv6.
@@ -470,7 +482,7 @@ impl Connection {
 
         let (on_open_path_send, on_open_path_recv) = watch::channel(Ok(()));
         let now = state.runtime.now();
-        let open_res = state.inner.open_path(addr, initial_status, now);
+        let open_res = state.inner.open_path(addr, initial_status, now, rtt_hint);
         state.wake();
         match open_res {
             Ok(path_id) => {
@@ -932,10 +944,16 @@ impl Connection {
     /// initiated, the previous one is cancelled, and paths that have not been opened are closed.
     ///
     /// Returns the server addresses that are now being probed.
-    pub fn initiate_nat_traversal_round(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    pub fn initiate_nat_traversal_round<F>(
+        &self,
+        rtt_hints: F,
+    ) -> Result<Vec<SocketAddr>, iroh_hp::Error>
+    where
+        F: Fn(&SocketAddr) -> Option<Duration>,
+    {
         let mut conn = self.0.state.lock("initiate_nat_traversal_round");
         let now = conn.runtime.now();
-        conn.inner.initiate_nat_traversal_round(now)
+        conn.inner.initiate_nat_traversal_round(now, rtt_hints)
     }
 }
 

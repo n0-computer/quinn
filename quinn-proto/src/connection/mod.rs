@@ -556,6 +556,7 @@ impl Connection {
         remote: SocketAddr,
         initial_status: PathStatus,
         now: Instant,
+        rtt_hint: Option<Duration>,
     ) -> Result<(PathId, bool), PathError> {
         match self
             .paths
@@ -564,7 +565,7 @@ impl Connection {
         {
             Some((path_id, _state)) => Ok((*path_id, true)),
             None => self
-                .open_path(remote, initial_status, now)
+                .open_path(remote, initial_status, now, rtt_hint)
                 .map(|id| (id, false)),
         }
     }
@@ -578,6 +579,7 @@ impl Connection {
         remote: SocketAddr,
         initial_status: PathStatus,
         now: Instant,
+        rtt_hint: Option<Duration>,
     ) -> Result<PathId, PathError> {
         if !self.is_multipath_negotiated() {
             return Err(PathError::MultipathNotNegotiated);
@@ -608,7 +610,7 @@ impl Connection {
             return Err(PathError::RemoteCidsExhausted);
         }
 
-        let path = self.ensure_path(path_id, remote, now, None);
+        let path = self.ensure_path(path_id, remote, now, None, rtt_hint);
         path.status.local_update(initial_status);
 
         Ok(path_id)
@@ -828,6 +830,7 @@ impl Connection {
         remote: SocketAddr,
         now: Instant,
         pn: Option<u64>,
+        rtt_hint: Option<Duration>,
     ) -> &mut PathData {
         let vacant_entry = match self.paths.entry(path_id) {
             btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
@@ -851,7 +854,14 @@ impl Connection {
             &self.config,
         );
 
-        let pto = self.ack_frequency.max_ack_delay_for_pto() + data.rtt.pto_base();
+        let pto = match rtt_hint {
+            Some(rtt_hint) => rtt_hint,
+            None => {
+                // Fallback to the pessimistic calculation
+                // TODO: we could consider using known PTOs in this case
+                self.ack_frequency.max_ack_delay_for_pto() + data.rtt.pto_base()
+            }
+        };
         self.timers.set(
             Timer::PerPath(path_id, PathTimer::PathOpen),
             now + 3 * pto,
@@ -3699,7 +3709,7 @@ impl Connection {
 
                         if self.side().is_server() && !self.abandoned_paths.contains(&path_id) {
                             // Only the client is allowed to open paths
-                            self.ensure_path(path_id, remote, now, number);
+                            self.ensure_path(path_id, remote, now, number, None);
                         }
                         if self.paths.contains_key(&path_id) {
                             self.on_packet_authenticated(
@@ -6262,10 +6272,14 @@ impl Connection {
     /// initiated, the previous one is cancelled, and paths that have not been opened are closed.
     ///
     /// Returns the server addresses that are now being probed.
-    pub fn initiate_nat_traversal_round(
+    pub fn initiate_nat_traversal_round<F>(
         &mut self,
         now: Instant,
-    ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+        rtt_hints: F,
+    ) -> Result<Vec<SocketAddr>, iroh_hp::Error>
+    where
+        F: Fn(&SocketAddr) -> Option<Duration>,
+    {
         if self.state.is_closed() {
             return Err(iroh_hp::Error::Closed);
         }
@@ -6314,7 +6328,8 @@ impl Connection {
                     continue;
                 }
             };
-            match self.open_path_ensure(remote, PathStatus::Backup, now) {
+            let rtt_hint = rtt_hints(&remote);
+            match self.open_path_ensure(remote, PathStatus::Backup, now, rtt_hint) {
                 Ok((path_id, path_was_known)) if !path_was_known => {
                     path_ids.push(path_id);
                     probed_addresses.push(remote);

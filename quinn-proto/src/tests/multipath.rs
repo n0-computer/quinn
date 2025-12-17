@@ -463,7 +463,7 @@ fn open_path() {
     let server_addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, now)
+        .open_path(server_addr, PathStatus::Available, now, None)
         .unwrap();
     pair.drive();
     let client_conn = pair.client_conn_mut(client_ch);
@@ -488,7 +488,7 @@ fn open_path_key_update() {
     let server_addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, now)
+        .open_path(server_addr, PathStatus::Available, now, None)
         .unwrap();
 
     // Do a key-update at the same time as opening the new path.
@@ -523,7 +523,7 @@ fn open_path_validation_fails_server_side() {
     let now = pair.time;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(different_addr, PathStatus::Available, now)
+        .open_path(different_addr, PathStatus::Available, now, None)
         .unwrap();
 
     // block the server from receiving anything
@@ -556,7 +556,7 @@ fn open_path_validation_fails_client_side() {
     let addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(addr, PathStatus::Available, now)
+        .open_path(addr, PathStatus::Available, now, None)
         .unwrap();
 
     // block the client from receiving anything
@@ -577,7 +577,7 @@ fn close_path() {
     let server_addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, now)
+        .open_path(server_addr, PathStatus::Available, now, None)
         .unwrap();
     pair.drive();
     assert_ne!(path_id, PathId::ZERO);
@@ -613,7 +613,7 @@ fn close_last_path() {
     let server_addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, now)
+        .open_path(server_addr, PathStatus::Available, now, None)
         .unwrap();
     pair.drive();
     assert_ne!(path_id, PathId::ZERO);
@@ -686,7 +686,9 @@ fn per_path_observed_address() {
     let now = pair.time;
     let remote = pair.server.addr;
     let conn = pair.client_conn_mut(client_ch);
-    let _new_path_id = conn.open_path(remote, PathStatus::Available, now).unwrap();
+    let _new_path_id = conn
+        .open_path(remote, PathStatus::Available, now, None)
+        .unwrap();
 
     pair.drive();
     let conn = pair.client_conn_mut(client_ch);
@@ -739,7 +741,7 @@ fn mtud_on_two_paths() {
     let server_addr = pair.server.addr;
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(server_addr, PathStatus::Available, now)
+        .open_path(server_addr, PathStatus::Available, now, None)
         .unwrap();
     pair.drive();
     let client_conn = pair.client_conn_mut(client_ch);
