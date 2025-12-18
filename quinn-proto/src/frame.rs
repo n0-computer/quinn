@@ -204,12 +204,12 @@ impl fmt::Display for Frame {
         // Eventually all our frames will support fmt::Display and be able to be used to log
         // consistently. For now we fall back to fmt::Debug.
         match self {
-            Frame::Padding => write!(f, "PADDING"),
-            Frame::Ping => write!(f, "PING"),
-            Frame::PathChallenge(frame) => write!(f, "{frame}"),
-            Frame::PathResponse(frame) => write!(f, "{frame}"),
-            Frame::ImmediateAck => write!(f, "IMMEDIATE_ACK"),
-            Frame::HandshakeDone => write!(f, "HANDSHAKE_DONE"),
+            Self::Padding => write!(f, "PADDING"),
+            Self::Ping => write!(f, "PING"),
+            Self::PathChallenge(frame) => write!(f, "{frame}"),
+            Self::PathResponse(frame) => write!(f, "{frame}"),
+            Self::ImmediateAck => write!(f, "IMMEDIATE_ACK"),
+            Self::HandshakeDone => write!(f, "HANDSHAKE_DONE"),
             _ => write!(f, "{self:?}"),
         }
     }
