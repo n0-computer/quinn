@@ -1304,7 +1304,7 @@ pub(crate) struct State {
     pub(crate) runtime: Arc<dyn Runtime>,
     send_buffer: Vec<u8>,
     /// We buffer a transmit when the underlying I/O would block
-    buffered_transmit: Option<proto::Transmit>,
+    buffered_transmits: Vec<BufferedTransmit>,
     /// Our last external address reported by the peer. When multipath is enabled, this will be the
     /// last report across all paths.
     pub(crate) observed_external_addr: watch::Sender<Option<SocketAddr>>,
@@ -1346,7 +1346,7 @@ impl State {
             sender,
             runtime,
             send_buffer: Vec::new(),
-            buffered_transmit: None,
+            buffered_transmits: Vec::new(),
             path_events: tokio::sync::broadcast::channel(32).0,
             observed_external_addr: watch::Sender::new(None),
             nat_traversal_updates: tokio::sync::broadcast::channel(32).0,
@@ -1363,49 +1363,39 @@ impl State {
             .max_transmit_segments()
             .min(MAX_TRANSMIT_SEGMENTS);
 
-        loop {
-            // Retry the last transmit, or get a new one.
-            let t = match self.buffered_transmit.take() {
-                Some(t) => t,
-                None => {
-                    self.send_buffer.clear();
-                    match self
-                        .inner
-                        .poll_transmit(now, max_datagrams, &mut self.send_buffer)
-                    {
-                        Some(t) => {
-                            datagrams += t.datagrams();
-                            t
-                        }
-                        None => break,
-                    }
+        // Phase 1: Fill
+        while datagrams < MAX_TRANSMIT_DATAGRAMS {
+            self.send_buffer.clear();
+            match self.inner.poll_transmit(now, max_datagrams, &mut self.send_buffer) {
+                Some(t) => {
+                    datagrams += t.datagrams();
+                    self.buffered_transmits.push(BufferedTransmit {
+                        data: self.send_buffer[..t.size].to_vec(),
+                        meta: t,
+                    });
                 }
-            };
-
-            let len = t.size;
-            match self
-                .sender
-                .as_mut()
-                .poll_send(&[udp_transmit(&t, &self.send_buffer[..len])], cx)
-            {
-                Poll::Pending => {
-                    self.buffered_transmit = Some(t);
-                    return Ok(false);
-                }
-                Poll::Ready(Err(e)) => return Err(e),
-                Poll::Ready(Ok(_)) => {}
-            }
-
-            if datagrams >= MAX_TRANSMIT_DATAGRAMS {
-                // TODO: What isn't ideal here yet is that if we don't poll all
-                // datagrams that could be sent we don't go into the `app_limited`
-                // state and CWND continues to grow until we get here the next time.
-                // See https://github.com/quinn-rs/quinn/issues/1126
-                return Ok(true);
+                None => break,
             }
         }
 
-        Ok(false)
+        // Phase 2: Drain
+        while !self.buffered_transmits.is_empty() {
+            // todo: avoid allocation
+            let transmits: Vec<_> = self.buffered_transmits
+                .iter()
+                .map(|bt| udp_transmit(&bt.meta, &bt.data))
+                .collect();
+            
+            match self.sender.as_mut().poll_send(&transmits, cx) {
+                Poll::Ready(Ok(n)) => {
+                    self.buffered_transmits.drain(..n);
+                }
+                Poll::Pending => return Ok(false),
+                Poll::Ready(Err(e)) => return Err(e),
+            }
+        }
+        
+        Ok(datagrams >= MAX_TRANSMIT_DATAGRAMS)
     }
 
     fn forward_endpoint_events(&mut self) {
@@ -1664,6 +1654,11 @@ impl Drop for State {
             }
         }
     }
+}
+
+struct BufferedTransmit {
+    meta: proto::Transmit,
+    data: Vec<u8>,
 }
 
 impl fmt::Debug for State {
