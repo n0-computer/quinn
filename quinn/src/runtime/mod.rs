@@ -95,9 +95,9 @@ pub trait UdpSender: Send + Sync + Debug + 'static {
     /// unlike [`Future::poll`], so calling it again after readiness should not panic.
     fn poll_send(
         self: Pin<&mut Self>,
-        transmit: &Transmit,
+        transmit: &[Transmit],
         cx: &mut Context,
-    ) -> Poll<io::Result<()>>;
+    ) -> Poll<io::Result<usize>>;
 
     /// Maximum number of datagrams that a [`Transmit`] may encode.
     fn max_transmit_segments(&self) -> usize {
@@ -160,9 +160,9 @@ where
 {
     fn poll_send(
         self: Pin<&mut Self>,
-        transmit: &udp::Transmit,
+        transmits: &[udp::Transmit],
         cx: &mut Context,
-    ) -> Poll<io::Result<()>> {
+    ) -> Poll<io::Result<usize>> {
         let mut this = self.project();
         loop {
             if this.writable_fut.is_none() {
@@ -183,7 +183,7 @@ where
             // If .writable() fails, propagate the error
             result?;
 
-            match this.socket.try_send(transmit) {
+            match this.socket.try_send_batch(transmits) {
                 // We thought the socket was writable, but it wasn't, then retry so that either another
                 // `writable().await` call determines that the socket is indeed not writable and
                 // registers us for a wakeup, or the send succeeds if this really was just a
@@ -210,6 +210,18 @@ trait UdpSenderHelperSocket: Send + Sync + 'static {
     ///
     /// The [`UdpSenderHelper`] will use this to implement [`UdpSender::poll_send`].
     fn try_send(&self, transmit: &udp::Transmit) -> io::Result<()>;
+
+    fn try_send_batch(&self, transmits: &[udp::Transmit]) -> io::Result<usize> {
+        let mut sent = 0;
+        if let Some(transmit) = transmits.iter().next() {
+            match self.try_send(transmit) {
+                Ok(()) => sent += 1,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Err(e),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(sent)
+    }
 
     /// See [`UdpSender::max_transmit_segments`].
     fn max_transmit_segments(&self) -> usize;

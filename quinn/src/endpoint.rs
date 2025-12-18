@@ -626,7 +626,7 @@ fn respond(
     let waker = unsafe { Waker::from_raw(NOOP) };
     let mut cx = Context::from_waker(&waker);
     _ = sender.as_mut().poll_send(
-        &udp_transmit(&transmit, &response_buffer[..transmit.size]),
+        &[udp_transmit(&transmit, &response_buffer[..transmit.size])],
         &mut cx,
     );
 }
