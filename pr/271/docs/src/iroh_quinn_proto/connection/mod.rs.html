@@ -1081,7 +1081,7 @@
 <a href=#1081 id=1081 data-nosnippet>1081</a>                    !can_send.is_empty()
 <a href=#1082 id=1082 data-nosnippet>1082</a>                };
 <a href=#1083 id=1083 data-nosnippet>1083</a>                <span class="kw">let </span>needs_loss_probe = <span class="self">self</span>.spaces[space_id].for_path(path_id).loss_probes &gt; <span class="number">0</span>;
-<a href=#1084 id=1084 data-nosnippet>1084</a>                path_should_send || needs_loss_probe || can_send.close
+<a href=#1084 id=1084 data-nosnippet>1084</a>                path_should_send || needs_loss_probe
 <a href=#1085 id=1085 data-nosnippet>1085</a>            };
 <a href=#1086 id=1086 data-nosnippet>1086</a>
 <a href=#1087 id=1087 data-nosnippet>1087</a>            <span class="kw">if </span>!path_should_send &amp;&amp; space_id &lt; SpaceId::Data {
