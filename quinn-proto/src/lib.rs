@@ -357,14 +357,14 @@ pub struct FourTuple {
 }
 
 impl FourTuple {
-    /// Returns whether we know that these two tuples represent the same path.
+    /// Returns whether we think the other address probably represents the same path
+    /// as ours.
     ///
-    /// If any of these tuples doesn't have a local address, then we cannot know
-    /// if the two tuples represent the same path, even if the remote is the same
-    /// address, because the local address might be different.
-    // TODO(matheus23): Should this be the `PartialEq` definition on FourTuple? It might be too hidden.
-    pub fn is_same_path(&self, other: &Self) -> bool {
-        self.local_ip.is_some() && other.local_ip.is_some() && self == other
+    /// If we have a local IP set, then we're exact and only match if the 4-tuples are
+    /// exactly equal.
+    /// If we don't have a local IP set, then we only check the remote addresses for equality.
+    pub fn is_probably_same_path(&self, other: &Self) -> bool {
+        self.remote == other.remote && (self.local_ip.is_none() || self.local_ip == other.local_ip)
     }
 
     /// Updates this tuple's local address iff

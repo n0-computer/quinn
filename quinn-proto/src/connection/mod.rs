@@ -553,16 +553,16 @@ impl Connection {
         initial_status: PathStatus,
         now: Instant,
     ) -> Result<(PathId, bool), PathError> {
-        match self
-            .paths
-            .iter()
-            .find(|(_id, path)| path.data.addresses.is_same_path(&addresses))
-        {
-            Some((path_id, _state)) => Ok((*path_id, true)),
-            None => self
-                .open_path(addresses, initial_status, now)
-                .map(|id| (id, false)),
-        }
+        Ok(
+            match self
+                .paths
+                .iter()
+                .find(|(_id, path)| addresses.is_probably_same_path(&path.data.addresses))
+            {
+                Some((path_id, _state)) => (*path_id, true),
+                None => (self.open_path(addresses, initial_status, now)?, false),
+            },
+        )
     }
 
     /// Opens a new path
@@ -820,9 +820,9 @@ impl Connection {
 
     /// Check if the 4-tuple path (as in RFC9000 Path, not multipath path) had already been validated.
     fn is_path_validated(&self, addresses: FourTuple) -> bool {
-        self.paths.values().any(|path_state| {
-            path_state.data.validated && path_state.data.addresses.is_same_path(&addresses)
-        })
+        self.paths
+            .values()
+            .any(|path_state| path_state.data.validated && path_state.data.addresses == addresses)
         // TODO(@divma): we might want to ensure the path has been recently active to consider the
         // address validated
     }
@@ -1828,18 +1828,34 @@ impl Connection {
                 // forbids migration, drop the datagram. This could be relaxed to heuristically
                 // permit NAT-rebinding-like migration.
                 let remote_may_migrate = self.side.remote_may_migrate(&self.state);
+                let local_ip_may_migrate = self.side.is_client();
                 if let Some(known_path) = self.path_mut(path_id) {
-                    // If this path hadn't set its local_ip yet, we set it now if `addresses` has it.
                     if addresses.remote != known_path.addresses.remote && !remote_may_migrate {
                         trace!(
                             %path_id,
                             %addresses,
-                            path_remote = ?self.path(path_id).map(|p| p.addresses),
+                            %known_path.addresses,
                             "discarding packet from unrecognized peer"
                         );
                         return;
                     }
+                    if known_path.addresses.local_ip.is_some()
+                        && addresses.local_ip.is_some()
+                        && known_path.addresses != addresses
+                        && !local_ip_may_migrate
+                    {
+                        trace!(
+                            %path_id,
+                            %addresses,
+                            %known_path.addresses,
+                            "discarding packet sent to incorrect interface"
+                        );
+                        return;
+                    }
                     // If the datagram indicates that we've changed our local IP, we update it.
+                    // This is alluded to in Section 5.2 of the Multipath RFC draft 18:
+                    // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#name-using-multiple-paths-on-the
+                    // > Client receives the packet, recognizes a path migration, updates the source address of path 2 to 192.0.2.1.
                     if let Some(local_ip) = addresses.local_ip {
                         // If we already had a local_ip, but it changed, then we need to re-trigger path validation.
                         if known_path
@@ -1847,11 +1863,17 @@ impl Connection {
                             .local_ip
                             .is_some_and(|ip| ip != local_ip)
                         {
-                            known_path.validated = false;
-                            // We send a new path challenge, even if `known_path.is_validating_path()` is true,
-                            // to ensure we immediately send a new challenge on the new 4-tuple.
-                            known_path.send_new_challenge = true;
+                            debug!(
+                                %path_id,
+                                %addresses,
+                                %known_path.addresses,
+                                "path's local address seemingly migrated"
+                            )
                         }
+                        // We update the address without path validation on the client side.
+                        // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#section-5.1
+                        // > Servers observing a 4-tuple change will perform path validation (see Section 9 of [QUIC-TRANSPORT]).
+                        // This sounds like it's *only* the server endpoints that do this.
                         known_path.addresses.local_ip = Some(local_ip);
                     }
                 }
@@ -5588,7 +5610,7 @@ impl Connection {
                 panic!("NEW_TOKEN frames should not be enqueued by clients");
             };
 
-            if !addresses.is_same_path(&path.addresses) {
+            if !addresses.is_probably_same_path(&path.addresses) {
                 // NEW_TOKEN frames contain tokens bound to a client's IP address, and are only
                 // useful if used from the same IP address.  Thus, we abandon enqueued NEW_TOKEN
                 // frames upon an path change. Instead, when the new path becomes validated,
@@ -6354,10 +6376,10 @@ impl Connection {
                     probed_addresses.push(remote);
                 }
                 Ok((path_id, _)) => {
-                    trace!(%path_id, %remote,"nat traversal: path existed for remote")
+                    trace!(%path_id, %remote, "nat traversal: path existed for remote")
                 }
                 Err(e) => {
-                    debug!(%remote, %e,"nat traversal: failed to probe remote");
+                    debug!(%remote, %e, "nat traversal: failed to probe remote");
                     err.get_or_insert(e);
                 }
             }

@@ -408,8 +408,8 @@ impl PathData {
         match self.challenges_sent.get(&token) {
             // Response to an on-path PathChallenge
             Some(info)
-                if info.addresses.is_same_path(&addresses)
-                    && self.addresses.is_same_path(&addresses) =>
+                if info.addresses.is_probably_same_path(&addresses)
+                    && self.addresses.is_probably_same_path(&addresses) =>
             {
                 self.addresses.update_local_if_same_remote(&addresses);
                 let sent_instant = info.sent_instant;
@@ -418,7 +418,7 @@ impl PathData {
                 }
                 // Clear any other on-path sent challenge.
                 self.challenges_sent
-                    .retain(|_token, info| !info.addresses.is_same_path(&addresses));
+                    .retain(|_token, info| !info.addresses.is_probably_same_path(&addresses));
 
                 self.send_new_challenge = false;
 
@@ -431,9 +431,9 @@ impl PathData {
                 OnPathResponseReceived::OnPath { was_open }
             }
             // Response to an off-path PathChallenge
-            Some(info) if info.addresses.is_same_path(&addresses) => {
+            Some(info) if info.addresses.is_probably_same_path(&addresses) => {
                 self.challenges_sent
-                    .retain(|_token, info| !info.addresses.is_same_path(&addresses));
+                    .retain(|_token, info| !info.addresses.is_probably_same_path(&addresses));
                 OnPathResponseReceived::OffPath
             }
             // Response to a PathChallenge we recognize, but from an invalid remote
@@ -742,7 +742,10 @@ impl PathResponses {
 
     pub(crate) fn pop_off_path(&mut self, addresses: FourTuple) -> Option<(u64, FourTuple)> {
         let response = *self.pending.last()?;
-        if response.addresses.is_same_path(&addresses) {
+        // We use an exact comparison here, because once we've received for the first time,
+        // we really should either already have a local_ip, or we will never get one
+        // (because our OS doesn't support it).
+        if response.addresses == addresses {
             // We don't bother searching further because we expect that the on-path response will
             // get drained in the immediate future by a call to `pop_on_path`
             return None;
@@ -753,7 +756,8 @@ impl PathResponses {
 
     pub(crate) fn pop_on_path(&mut self, addresses: FourTuple) -> Option<u64> {
         let response = *self.pending.last()?;
-        if !response.addresses.is_same_path(&addresses) {
+        // Using an exact comparison. See explanation in `pop_off_path`.
+        if response.addresses != addresses {
             // We don't bother searching further because we expect that the off-path response will
             // get drained in the immediate future by a call to `pop_off_path`
             return None;
