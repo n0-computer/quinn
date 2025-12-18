@@ -29,9 +29,11 @@ impl Runtime for TokioRuntime {
     }
 
     fn wrap_udp_socket(&self, sock: std::net::UdpSocket) -> io::Result<Box<dyn AsyncUdpSocket>> {
+        let port = sock.local_addr()?.port();
         Ok(Box::new(UdpSocket {
             inner: Arc::new(udp::UdpSocketState::new((&sock).into())?),
             io: Arc::new(tokio::net::UdpSocket::from_std(sock)?),
+            port,
         }))
     }
 
@@ -53,6 +55,7 @@ impl AsyncTimer for Sleep {
 struct UdpSocket {
     io: Arc<tokio::net::UdpSocket>,
     inner: Arc<udp::UdpSocketState>,
+    port: u16,
 }
 
 impl UdpSenderHelperSocket for UdpSocket {
@@ -80,13 +83,13 @@ impl AsyncUdpSocket for UdpSocket {
         cx: &mut Context,
         bufs: &mut [std::io::IoSliceMut<'_>],
         meta: &mut [udp::RecvMeta],
-    ) -> Poll<io::Result<usize>> {
+    ) -> Poll<io::Result<(usize, u16)>> {
         loop {
             ready!(self.io.poll_recv_ready(cx))?;
             if let Ok(res) = self.io.try_io(Interest::READABLE, || {
                 self.inner.recv((&self.io).into(), bufs, meta)
             }) {
-                return Poll::Ready(Ok(res));
+                return Poll::Ready(Ok((res, self.port)));
             }
         }
     }

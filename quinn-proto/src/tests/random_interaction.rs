@@ -125,7 +125,7 @@ impl TestOp {
                 let conn = state.conn(pair)?;
                 let addresses = FourTuple {
                     remote,
-                    local_ip: None,
+                    local: None,
                 };
                 conn.open_path(addresses, initial_status, now).ok();
             }

@@ -521,7 +521,7 @@ fn open_path_validation_fails_server_side() {
             [9, 8, 7, 6].into(),
             SERVER_PORTS.lock().unwrap().next().unwrap(),
         ),
-        local_ip: None,
+        local: None,
     };
     let now = pair.time;
     let path_id = pair
@@ -559,7 +559,7 @@ fn open_path_validation_fails_client_side() {
     let addr = pair.server.addr;
     let addresses = FourTuple {
         remote: addr,
-        local_ip: None,
+        local: None,
     };
     let path_id = pair
         .client_conn_mut(client_ch)

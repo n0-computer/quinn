@@ -393,7 +393,7 @@ impl Connection {
         // However, changing that would mean changing the API.
         let addrs = FourTuple {
             remote: addr,
-            local_ip: None,
+            local: None,
         };
         let open_res = state.inner.open_path_ensure(addrs, initial_status, now);
         state.wake();
@@ -461,7 +461,7 @@ impl Connection {
         let now = state.runtime.now();
         let addrs = FourTuple {
             remote: addr,
-            local_ip: None,
+            local: None,
         };
         let open_res = state.inner.open_path(addrs, initial_status, now);
         state.wake();
@@ -742,7 +742,8 @@ impl Connection {
             .filter_map(|id| state.inner.path_addresses(*id).ok())
             .next()
             .unwrap()
-            .local_ip
+            .local
+            .map(|l| l.ip())
     }
 
     /// Current best estimate of this connection's latency (round-trip-time)

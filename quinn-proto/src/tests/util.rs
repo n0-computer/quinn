@@ -367,14 +367,14 @@ impl Pair {
     pub(super) fn addrs_to_server(&self) -> FourTuple {
         FourTuple {
             remote: self.server.addr,
-            local_ip: Some(self.client.addr.ip()),
+            local: Some(self.client.addr),
         }
     }
 
     pub(super) fn addrs_to_client(&self) -> FourTuple {
         FourTuple {
             remote: self.client.addr,
-            local_ip: Some(self.server.addr.ip()),
+            local: Some(self.server.addr),
         }
     }
 }
@@ -484,7 +484,7 @@ impl TestEndpoint {
             } = self.inbound.pop_front().unwrap();
             let addresses = FourTuple {
                 remote,
-                local_ip: dst_ip,
+                local: dst_ip.map(|ip| SocketAddr::new(ip, self.addr.port())),
             };
             if let Some(event) = self
                 .endpoint

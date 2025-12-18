@@ -142,7 +142,7 @@ impl QlogSink {
         loc_cid: ConnectionId,
         rem_cid: ConnectionId,
         remote: SocketAddr,
-        local_ip: Option<IpAddr>,
+        local: Option<SocketAddr>,
         transport_params: &TransportParameters,
     ) {
         #[cfg(feature = "qlog")]
@@ -152,7 +152,11 @@ impl QlogSink {
             };
             stream.emit_event(
                 EventData::ConnectionStarted(ConnectionStarted {
-                    local: tuple_endpoint_info(local_ip, None, Some(loc_cid)),
+                    local: tuple_endpoint_info(
+                        local.map(|l| l.ip()),
+                        local.map(|l| l.port()),
+                        Some(loc_cid),
+                    ),
                     remote: tuple_endpoint_info(
                         Some(remote.ip()),
                         Some(remote.port()),
@@ -252,8 +256,8 @@ impl QlogSink {
             let event = TupleAssigned {
                 tuple_id,
                 tuple_local: tuple
-                    .local_ip
-                    .map(|local_ip| tuple_endpoint_info(Some(local_ip), None, None)),
+                    .local
+                    .map(|local| tuple_endpoint_info(Some(local.ip()), Some(local.port()), None)),
                 tuple_remote: Some(tuple_endpoint_info(
                     Some(tuple.remote.ip()),
                     Some(tuple.remote.port()),

@@ -59,7 +59,7 @@ pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
         cx: &mut Context,
         bufs: &mut [IoSliceMut<'_>],
         meta: &mut [RecvMeta],
-    ) -> Poll<io::Result<usize>>;
+    ) -> Poll<io::Result<(usize, u16)>>;
 
     /// Look up the local IP address and port used by this socket
     fn local_addr(&self) -> io::Result<SocketAddr>;

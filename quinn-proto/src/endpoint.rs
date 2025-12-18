@@ -203,7 +203,7 @@ impl Endpoint {
                     ecn: None,
                     size: buf.len(),
                     segment_size: None,
-                    src_ip: addresses.local_ip,
+                    src_ip: addresses.local.map(|l| l.ip()),
                 }));
             }
             Err(e) => {
@@ -330,7 +330,7 @@ impl Endpoint {
             ecn: None,
             size: buf.len(),
             segment_size: None,
-            src_ip: addresses.local_ip,
+            src_ip: addresses.local.map(|l| l.ip()),
         })
     }
 
@@ -377,7 +377,7 @@ impl Endpoint {
             remote_id,
             FourTuple {
                 remote,
-                local_ip: None,
+                local: None,
             },
             now,
             tls,
@@ -788,7 +788,7 @@ impl Endpoint {
             ecn: None,
             size: buf.len(),
             segment_size: None,
-            src_ip: incoming.addresses.local_ip,
+            src_ip: incoming.addresses.local.map(|l| l.ip()),
         })
     }
 
@@ -836,7 +836,7 @@ impl Endpoint {
             loc_cid,
             rem_cid,
             addresses.remote,
-            addresses.local_ip,
+            addresses.local,
             params,
         );
 
@@ -918,7 +918,7 @@ impl Endpoint {
             ecn: None,
             size: buf.len(),
             segment_size: None,
-            src_ip: addresses.local_ip,
+            src_ip: addresses.local.map(|l| l.ip()),
         }
     }
 
@@ -1231,7 +1231,8 @@ impl Incoming {
     ///
     /// This has the same behavior as [`Connection::local_ip`].
     pub fn local_ip(&self) -> Option<IpAddr> {
-        self.addresses.local_ip
+        // TODO(matheus23): Change this fn to be `local_address` and return an `Option<SocketAddr>`?
+        self.addresses.local.map(|l| l.ip())
     }
 
     /// The peer's UDP address

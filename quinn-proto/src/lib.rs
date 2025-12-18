@@ -349,11 +349,7 @@ pub struct FourTuple {
     /// The remote side of this tuple
     pub remote: SocketAddr,
     /// The local side of this tuple.
-    // A single socket can only listen on a single port, so no need to store it explicitly
-    // TODO(matheus23): add back the port. The comment above is wrong. There *can* be multiple sockets!
-    // Even ignoring multiple sockets behind a single abstract `AsyncUdpSocket`, there can
-    // be multiple `AsyncUdpSocket`s when you use `rebind`!
-    pub local_ip: Option<IpAddr>,
+    pub local: Option<SocketAddr>,
 }
 
 impl FourTuple {
@@ -364,7 +360,7 @@ impl FourTuple {
     /// exactly equal.
     /// If we don't have a local IP set, then we only check the remote addresses for equality.
     pub fn is_probably_same_path(&self, other: &Self) -> bool {
-        self.remote == other.remote && (self.local_ip.is_none() || self.local_ip == other.local_ip)
+        self.remote == other.remote && (self.local.is_none() || self.local == other.local)
     }
 
     /// Updates this tuple's local address iff
@@ -377,10 +373,10 @@ impl FourTuple {
         if self.remote != other.remote {
             return false;
         }
-        if self.local_ip.is_some() && self.local_ip != other.local_ip {
+        if self.local.is_some() && self.local != other.local {
             return false;
         }
-        self.local_ip = other.local_ip;
+        self.local = other.local;
         true
     }
 }
@@ -388,11 +384,11 @@ impl FourTuple {
 impl fmt::Display for FourTuple {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("(")?;
-        if let Some(local_ip) = &self.local_ip {
+        if let Some(local_ip) = &self.local {
             local_ip.fmt(f)?;
-            f.write_str(":<port>, ")?;
+            f.write_str(", ")?;
         } else {
-            f.write_str("<unknown>:<port>, ")?;
+            f.write_str("<unknown>, ")?;
         }
         self.remote.fmt(f)?;
         f.write_str(")")

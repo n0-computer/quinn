@@ -843,7 +843,7 @@ impl RecvState {
         };
         loop {
             match socket.poll_recv(cx, &mut iovs, &mut metas) {
-                Poll::Ready(Ok(msgs)) => {
+                Poll::Ready(Ok((msgs, port))) => {
                     self.recv_limiter.record_work(msgs);
                     for (meta, buf) in metas.iter().zip(iovs.iter()).take(msgs) {
                         let mut data: BytesMut = buf[0..meta.len].into();
@@ -852,7 +852,7 @@ impl RecvState {
                             let mut response_buffer = Vec::new();
                             let addresses = FourTuple {
                                 remote: meta.addr,
-                                local_ip: meta.dst_ip,
+                                local: meta.dst_ip.map(|ip| SocketAddr::new(ip, port)),
                             };
                             match endpoint.handle(
                                 now,

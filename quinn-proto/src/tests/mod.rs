@@ -66,7 +66,7 @@ fn version_negotiate_server() {
         now,
         FourTuple {
             remote: client_addr,
-            local_ip: None,
+            local: None,
         },
         None,
         // Long-header packet with reserved version number
@@ -110,7 +110,7 @@ fn version_negotiate_client() {
         now,
         FourTuple {
             remote: server_addr,
-            local_ip: None,
+            local: None,
         },
         None,
         // Version negotiation packet for reserved version, with empty DCID
@@ -274,7 +274,7 @@ fn stateless_reset_limit() {
     let mut buf = Vec::new();
     let addresses = FourTuple {
         remote,
-        local_ip: None,
+        local: None,
     };
     let event = endpoint.handle(time, addresses, None, [0u8; 1024][..].into(), &mut buf);
     assert!(matches!(event, Some(DatagramEvent::Response(_))));
@@ -2409,7 +2409,7 @@ fn malformed_token_len() {
         Instant::now(),
         FourTuple {
             remote: client_addr,
-            local_ip: None,
+            local: None,
         },
         None,
         hex!("8900 0000 0101 0000 1b1b 841b 0000 0000 3f00")[..].into(),
@@ -3841,7 +3841,7 @@ fn reject_short_idcid() {
     let client_addr = "[::2]:7890".parse().unwrap();
     let addresses = FourTuple {
         remote: client_addr,
-        local_ip: None,
+        local: None,
     };
     let mut server = Endpoint::new(
         Default::default(),

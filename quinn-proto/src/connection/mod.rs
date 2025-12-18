@@ -1352,7 +1352,7 @@ impl Connection {
                         size: transmit.len(),
                         ecn: None,
                         segment_size: None,
-                        src_ip: addresses.local_ip,
+                        src_ip: addresses.local.map(|l| l.ip()),
                     });
                 }
             }
@@ -1613,7 +1613,7 @@ impl Connection {
                 1 => None,
                 _ => Some(transmit.segment_size()),
             },
-            src_ip: addresses.local_ip,
+            src_ip: addresses.local.map(|l| l.ip()),
         })
     }
 
@@ -1769,7 +1769,7 @@ impl Connection {
             size: buf.len(),
             ecn: None,
             segment_size: None,
-            src_ip: addresses.local_ip,
+            src_ip: addresses.local.map(|l| l.ip()),
         })
     }
 
@@ -1839,9 +1839,9 @@ impl Connection {
                         );
                         return;
                     }
-                    if known_path.addresses.local_ip.is_some()
-                        && addresses.local_ip.is_some()
-                        && known_path.addresses.local_ip != addresses.local_ip
+                    if known_path.addresses.local.is_some()
+                        && addresses.local.is_some()
+                        && known_path.addresses.local != addresses.local
                         && !local_ip_may_migrate
                     {
                         trace!(
@@ -1856,13 +1856,9 @@ impl Connection {
                     // This is alluded to in Section 5.2 of the Multipath RFC draft 18:
                     // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#name-using-multiple-paths-on-the
                     // > Client receives the packet, recognizes a path migration, updates the source address of path 2 to 192.0.2.1.
-                    if let Some(local_ip) = addresses.local_ip {
+                    if let Some(local_ip) = addresses.local {
                         // If we already had a local_ip, but it changed, then we need to re-trigger path validation.
-                        if known_path
-                            .addresses
-                            .local_ip
-                            .is_some_and(|ip| ip != local_ip)
-                        {
+                        if known_path.addresses.local.is_some_and(|ip| ip != local_ip) {
                             debug!(
                                 %path_id,
                                 %addresses,
@@ -1874,7 +1870,7 @@ impl Connection {
                         // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#section-5.1
                         // > Servers observing a 4-tuple change will perform path validation (see Section 9 of [QUIC-TRANSPORT]).
                         // This sounds like it's *only* the server endpoints that do this.
-                        known_path.addresses.local_ip = Some(local_ip);
+                        known_path.addresses.local = Some(local_ip);
                     }
                 }
 
@@ -6366,7 +6362,7 @@ impl Connection {
             match self.open_path_ensure(
                 FourTuple {
                     remote,
-                    local_ip: None,
+                    local: None,
                 },
                 PathStatus::Backup,
                 now,
