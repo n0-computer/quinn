@@ -6269,9 +6269,9 @@ impl Connection {
     /// existed for the adjusted remote.
     fn open_nat_traversal_path(
         &mut self,
+        now: Instant,
         (ip, port): (IpAddr, u16),
         ipv6: bool,
-        now: Instant,
     ) -> Result<Option<(PathId, SocketAddr, bool)>, PathError> {
         // If this endpoint is an IPv6 endpoint we use IPv6 addresses for all remotes.
         let remote = match ip {
@@ -6348,7 +6348,7 @@ impl Connection {
         let ipv6 = self.paths.values().any(|p| p.data.remote.is_ipv6());
 
         for (id, address) in addresses_to_probe {
-            match self.open_nat_traversal_path(address, ipv6, now) {
+            match self.open_nat_traversal_path(now, address, ipv6) {
                 Ok(None) => {}
                 Ok(Some((path_id, remote, path_was_known))) => {
                     if !path_was_known {
@@ -6389,7 +6389,7 @@ impl Connection {
         let client_state = self.iroh_hp.client_side_mut().ok()?;
         let (id, address) = client_state.continue_nat_traversal_round()?;
         let ipv6 = self.paths.values().any(|p| p.data.remote.is_ipv6());
-        let open_result = self.open_nat_traversal_path(address, ipv6, now);
+        let open_result = self.open_nat_traversal_path(now, address, ipv6);
         let client_state = self.iroh_hp.client_side_mut().expect("validated");
         match open_result {
             Ok(None) => Some(true),
