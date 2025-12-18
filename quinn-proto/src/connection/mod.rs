@@ -819,12 +819,16 @@ impl Connection {
     }
 
     /// Check if the 4-tuple path (as in RFC9000 Path, not multipath path) had already been validated.
-    fn is_path_validated(&self, addresses: FourTuple) -> bool {
-        self.paths
-            .values()
-            .any(|path_state| path_state.data.validated && path_state.data.addresses == addresses)
+    fn find_open_path_on_addresses(&self, addresses: FourTuple) -> Option<(&PathId, &PathState)> {
+        self.paths.iter().find(|(path_id, path_state)| {
+            path_state.data.validated
+                // Would this use the same network path, if addresses were used to send right now?
+                && addresses.is_probably_same_path(&path_state.data.addresses)
+                && !self.abandoned_paths.contains(path_id)
+        })
         // TODO(@divma): we might want to ensure the path has been recently active to consider the
         // address validated
+        // matheus23: Perhaps looking at !self.abandoned_paths.contains(path_id) is enough, given keep-alives?
     }
 
     fn ensure_path(
@@ -834,7 +838,9 @@ impl Connection {
         now: Instant,
         pn: Option<u64>,
     ) -> &mut PathData {
-        let validated = self.is_path_validated(addresses);
+        let valid_path = self.find_open_path_on_addresses(addresses);
+        let validated = valid_path.is_some();
+        let initial_rtt = valid_path.map(|(_, state)| state.data.rtt.conservative());
         let vacant_entry = match self.paths.entry(path_id) {
             btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
             btree_map::Entry::Occupied(occupied_entry) => {
@@ -856,6 +862,9 @@ impl Connection {
         );
 
         data.validated = validated;
+        if let Some(initial_rtt) = initial_rtt {
+            data.rtt.reset_initial_rtt(initial_rtt);
+        }
 
         let pto = self.ack_frequency.max_ack_delay_for_pto() + data.rtt.pto_base();
         self.timers.set(
