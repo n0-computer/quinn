@@ -1841,7 +1841,7 @@ impl Connection {
                     }
                     if known_path.addresses.local_ip.is_some()
                         && addresses.local_ip.is_some()
-                        && known_path.addresses != addresses
+                        && known_path.addresses.local_ip != addresses.local_ip
                         && !local_ip_may_migrate
                     {
                         trace!(
