@@ -199,6 +199,22 @@ pub(crate) enum Frame {
     RemoveAddress(RemoveAddress),
 }
 
+impl fmt::Display for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // Eventually all our frames will support fmt::Display and be able to be used to log
+        // consistently. For now we fall back to fmt::Debug.
+        match self {
+            Frame::Padding => write!(f, "PADDING"),
+            Frame::Ping => write!(f, "PING"),
+            Frame::PathChallenge(frame) => write!(f, "{frame}"),
+            Frame::PathResponse(frame) => write!(f, "{frame}"),
+            Frame::ImmediateAck => write!(f, "IMMEDIATE_ACK"),
+            Frame::HandshakeDone => write!(f, "HANDSHAKE_DONE"),
+            _ => write!(f, "{self:?}"),
+        }
+    }
+}
+
 impl Frame {
     pub(crate) fn ty(&self) -> FrameType {
         use Frame::*;
@@ -296,7 +312,8 @@ impl Frame {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, derive_more::Display)]
-pub(crate) struct PathChallenge(#[display("PATH_CHALLENGE({:08x})")] pub(crate) u64);
+#[display("PATH_CHALLENGE({_0:08x})")]
+pub(crate) struct PathChallenge(pub(crate) u64);
 
 impl PathChallenge {
     pub(crate) const SIZE_BOUND: usize = 9;
@@ -315,7 +332,8 @@ impl coding::Codec for PathChallenge {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, derive_more::Display)]
-pub(crate) struct PathResponse(#[display("PATH_RESPONSE({:08x})")] pub(crate) u64);
+#[display("PATH_RESPONSE({_0:08x})")]
+pub(crate) struct PathResponse(pub(crate) u64);
 
 impl PathResponse {
     pub(crate) const SIZE_BOUND: usize = 9;
