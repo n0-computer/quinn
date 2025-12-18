@@ -854,14 +854,11 @@ impl Connection {
             &self.config,
         );
 
-        let pto = match rtt_hint {
-            Some(rtt_hint) => rtt_hint,
-            None => {
-                // Fallback to the pessimistic calculation
-                // TODO: we could consider using known PTOs in this case
-                self.ack_frequency.max_ack_delay_for_pto() + data.rtt.pto_base()
-            }
-        };
+        if let Some(rtt_hint) = rtt_hint {
+            data.rtt.reset_initial_rtt(rtt_hint);
+        }
+
+        let pto = self.ack_frequency.max_ack_delay_for_pto() + data.rtt.pto_base();
         self.timers.set(
             Timer::PerPath(path_id, PathTimer::PathOpen),
             now + 3 * pto,
