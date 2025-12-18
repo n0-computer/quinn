@@ -45,6 +45,9 @@ pub(crate) struct NatTraversalRound {
     /// Addresses to use to send reach out frames.
     pub(crate) reach_out_at: Vec<IpPort>,
     /// Remotes to probe by attempting to open new paths.
+    ///
+    /// The addresses include their Id, so that it can be used to signal these should be returned
+    /// in a nat traversal continuation by calling [`ClientState::report_in_continuation`].
     pub(crate) addresses_to_probe: Vec<(VarInt, IpPort)>,
     /// [`PathId`]s of the cancelled round.
     pub(crate) prev_round_path_ids: Vec<PathId>,
@@ -81,11 +84,11 @@ pub(crate) struct ClientState {
     /// Candidate addresses the remote server reports as potentially reachable, to use for nat
     /// traversal attempts.
     ///
-    /// For each address, whether the address should be reported in nat traversal continuations is
-    /// kept.
+    /// These are indexed by their advertised Id. For each address, whether the address should be
+    /// reported in nat traversal continuations is kept.
     remote_addresses: FxHashMap<VarInt, (IpPort, bool)>,
     /// Candidate addresses the local client reports as potentially reachable, to use for nat
-    /// traversal attempts. Always canonical.
+    /// traversal attempts.
     local_addresses: FxHashSet<IpPort>,
     /// Current nat holepunching round.
     round: VarInt,
@@ -149,12 +152,19 @@ impl ClientState {
         })
     }
 
-    /// Mark a remote address to be reported back in a nat traversal continuation.
+    /// Mark a remote address to be reported back in a nat traversal continuation if the error is
+    /// considered spurious from a nat traversal point of view.
     ///
     /// Ids not present are silently ignored.
-    pub(crate) fn report_in_continuation(&mut self, id: VarInt) {
-        if let Some((_address, report_in_continuation)) = self.remote_addresses.get_mut(&id) {
-            *report_in_continuation = true;
+    pub(crate) fn report_in_continuation(&mut self, id: VarInt, e: crate::PathError) {
+        match e {
+            crate::PathError::MaxPathIdReached | crate::PathError::RemoteCidsExhausted => {
+                if let Some((_address, report_in_continuation)) = self.remote_addresses.get_mut(&id)
+                {
+                    *report_in_continuation = true;
+                }
+            }
+            _ => {}
         }
     }
 

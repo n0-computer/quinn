@@ -6357,15 +6357,10 @@ impl Connection {
                     }
                 }
                 Err(e) => {
-                    if matches!(
-                        e,
-                        PathError::MaxPathIdReached | PathError::RemoteCidsExhausted
-                    ) {
-                        self.iroh_hp
-                            .client_side_mut()
-                            .expect("validated")
-                            .report_in_continuation(id);
-                    }
+                    self.iroh_hp
+                        .client_side_mut()
+                        .expect("validated")
+                        .report_in_continuation(id, e);
                     err.get_or_insert(e);
                 }
             }
@@ -6405,12 +6400,7 @@ impl Connection {
                 Some(true)
             }
             Err(e) => {
-                if matches!(
-                    e,
-                    PathError::MaxPathIdReached | PathError::RemoteCidsExhausted
-                ) {
-                    client_state.report_in_continuation(id);
-                }
+                client_state.report_in_continuation(id, e);
                 Some(false)
             }
         }
