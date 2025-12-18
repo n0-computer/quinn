@@ -818,15 +818,6 @@ impl Connection {
         &mut self.paths.get_mut(&path_id).expect("known path").data
     }
 
-    /// Check if the 4-tuple path (as in RFC9000 Path, not multipath path) had already been validated.
-    fn is_path_validated(&self, addresses: FourTuple) -> bool {
-        self.paths
-            .values()
-            .any(|path_state| path_state.data.validated && path_state.data.addresses == addresses)
-        // TODO(@divma): we might want to ensure the path has been recently active to consider the
-        // address validated
-    }
-
     fn ensure_path(
         &mut self,
         path_id: PathId,
@@ -834,7 +825,17 @@ impl Connection {
         now: Instant,
         pn: Option<u64>,
     ) -> &mut PathData {
-        let validated = self.is_path_validated(addresses);
+        let path_on_same_address = self
+            .paths
+            .iter()
+            .find(|(path_id, state)| {
+                addresses.is_probably_same_path(&state.data.addresses)
+                    && state.data.validated
+                    && !self.abandoned_paths.contains(path_id)
+            })
+            .clone();
+        let validated = path_on_same_address.is_some();
+        let initial_rtt = path_on_same_address.map(|(_, state)| state.data.rtt.conservative());
         let vacant_entry = match self.paths.entry(path_id) {
             btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
             btree_map::Entry::Occupied(occupied_entry) => {
@@ -856,6 +857,9 @@ impl Connection {
         );
 
         data.validated = validated;
+        if let Some(rtt_hint) = initial_rtt.or_else(|| (self.config.rtt_hint)(addresses)) {
+            data.rtt.reset_initial_rtt(rtt_hint);
+        }
 
         let pto = self.ack_frequency.max_ack_delay_for_pto() + data.rtt.pto_base();
         self.timers.set(
