@@ -4205,7 +4205,7 @@ impl Connection {
                     trace!(len = f.data.len(), "got datagram frame");
                 }
                 f => {
-                    trace!("got frame {:?}", f);
+                    trace!("got frame {f}");
                 }
             }
 
@@ -5200,7 +5200,7 @@ impl Connection {
             sent.non_retransmits = true;
             sent.requires_padding = true;
             let challenge = frame::PathChallenge(token);
-            trace!(%challenge, "sending new challenge");
+            trace!(frame = %challenge);
             buf.write(challenge);
             qlog.frame(&Frame::PathChallenge(challenge));
             self.stats.frame_tx.path_challenge += 1;
@@ -5246,7 +5246,7 @@ impl Connection {
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
                 let response = frame::PathResponse(token);
-                trace!(%response, "sending response");
+                trace!(frame = %response);
                 buf.write(response);
                 qlog.frame(&Frame::PathResponse(response));
                 self.stats.frame_tx.path_response += 1;
