@@ -357,14 +357,14 @@
 <a href=#357 id=357 data-nosnippet>357</a>}
 <a href=#358 id=358 data-nosnippet>358</a>
 <a href=#359 id=359 data-nosnippet>359</a><span class="kw">impl </span>FourTuple {
-<a href=#360 id=360 data-nosnippet>360</a>    <span class="doccomment">/// Returns whether we know that these two tuples represent the same path.
-<a href=#361 id=361 data-nosnippet>361</a>    ///
-<a href=#362 id=362 data-nosnippet>362</a>    /// If any of these tuples doesn't have a local address, then we cannot know
-<a href=#363 id=363 data-nosnippet>363</a>    /// if the two tuples represent the same path, even if the remote is the same
-<a href=#364 id=364 data-nosnippet>364</a>    /// address, because the local address might be different.
-<a href=#365 id=365 data-nosnippet>365</a>    </span><span class="comment">// TODO(matheus23): Should this be the `PartialEq` definition on FourTuple? It might be too hidden.
-<a href=#366 id=366 data-nosnippet>366</a>    </span><span class="kw">pub fn </span>is_same_path(<span class="kw-2">&amp;</span><span class="self">self</span>, other: <span class="kw-2">&amp;</span><span class="self">Self</span>) -&gt; bool {
-<a href=#367 id=367 data-nosnippet>367</a>        <span class="self">self</span>.local_ip.is_some() &amp;&amp; other.local_ip.is_some() &amp;&amp; <span class="self">self </span>== other
+<a href=#360 id=360 data-nosnippet>360</a>    <span class="doccomment">/// Returns whether we think the other address probably represents the same path
+<a href=#361 id=361 data-nosnippet>361</a>    /// as ours.
+<a href=#362 id=362 data-nosnippet>362</a>    ///
+<a href=#363 id=363 data-nosnippet>363</a>    /// If we have a local IP set, then we're exact and only match if the 4-tuples are
+<a href=#364 id=364 data-nosnippet>364</a>    /// exactly equal.
+<a href=#365 id=365 data-nosnippet>365</a>    /// If we don't have a local IP set, then we only check the remote addresses for equality.
+<a href=#366 id=366 data-nosnippet>366</a>    </span><span class="kw">pub fn </span>is_probably_same_path(<span class="kw-2">&amp;</span><span class="self">self</span>, other: <span class="kw-2">&amp;</span><span class="self">Self</span>) -&gt; bool {
+<a href=#367 id=367 data-nosnippet>367</a>        <span class="self">self</span>.remote == other.remote &amp;&amp; (<span class="self">self</span>.local_ip.is_none() || <span class="self">self</span>.local_ip == other.local_ip)
 <a href=#368 id=368 data-nosnippet>368</a>    }
 <a href=#369 id=369 data-nosnippet>369</a>
 <a href=#370 id=370 data-nosnippet>370</a>    <span class="doccomment">/// Updates this tuple's local address iff
