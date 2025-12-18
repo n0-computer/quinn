@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    ConnectionId, Duration, FourTuple, INITIAL_MTU, Instant, MAX_UDP_PAYLOAD, Side, VarInt,
+    ConnectionId, Duration, INITIAL_MTU, Instant, MAX_UDP_PAYLOAD, Side, VarInt,
     VarIntBoundsExceeded, address_discovery, congestion, connection::qlog::QlogSink,
 };
 #[cfg(feature = "qlog")]
@@ -82,8 +82,6 @@ pub struct TransportConfig {
     pub(crate) default_path_keep_alive_interval: Option<Duration>,
 
     pub(crate) max_remote_nat_traversal_addresses: Option<NonZeroU8>,
-
-    pub(crate) rtt_hint: Arc<dyn Fn(FourTuple) -> Option<Duration> + Send + Sync>,
 
     #[cfg(feature = "qlog")]
     pub(crate) qlog_factory: Option<Arc<dyn QlogFactory>>,
@@ -469,27 +467,6 @@ impl TransportConfig {
         self
     }
 
-    /// Sets the rtt hint function.
-    ///
-    /// This function is consulted any time a new path is opened on a 4-tuple that we don't
-    /// yet have a good rtt estimate for yet.
-    ///
-    /// If the function returns some RTT, then this RTT is used as the initial RTT in the path's
-    /// rtt estimator.
-    /// If the function returns None, then we use the default rtt estimator's initial RTT value
-    /// (see also [`Self::initial_rtt`]).
-    ///
-    /// Be sure to always use conservative estimates of RTT, as the initial RTT value is used
-    /// for setting the path's timeout. If the RTT estimate is about 9x lower than the actual
-    /// RTT, then the path will be abandoned before a response could even be processed.
-    pub fn set_rtt_hint(
-        &mut self,
-        rtt_hint: impl Fn(FourTuple) -> Option<Duration> + Send + Sync + 'static,
-    ) -> &mut Self {
-        self.rtt_hint = Arc::new(rtt_hint);
-        self
-    }
-
     /// Configures qlog capturing by setting a [`QlogFactory`].
     ///
     /// This assigns a [`QlogFactory`] that produces qlog capture configurations for
@@ -605,8 +582,6 @@ impl Default for TransportConfig {
             // nat traversal disabled by default
             max_remote_nat_traversal_addresses: None,
 
-            rtt_hint: Arc::new(|_| None),
-
             #[cfg(feature = "qlog")]
             qlog_factory: None,
         }
@@ -646,7 +621,6 @@ impl fmt::Debug for TransportConfig {
             default_path_max_idle_timeout,
             default_path_keep_alive_interval,
             max_remote_nat_traversal_addresses,
-            rtt_hint: _,
             #[cfg(feature = "qlog")]
             qlog_factory,
         } = self;

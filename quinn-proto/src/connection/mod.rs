@@ -312,6 +312,8 @@ pub struct Connection {
     //    paths.  Or a set together with a minimum.  Or something.
     abandoned_paths: FxHashSet<PathId>,
 
+    rtt_hint: Arc<dyn Fn(FourTuple) -> Option<Duration> + Send + Sync>,
+
     iroh_hp: iroh_hp::State,
     qlog: QlogSink,
 }
@@ -451,6 +453,8 @@ impl Connection {
             remote_max_path_id: PathId::ZERO,
             max_path_id_with_cids: PathId::ZERO,
             abandoned_paths: Default::default(),
+
+            rtt_hint: Arc::new(|_| None),
 
             // iroh's nat traversal
             iroh_hp: Default::default(),
@@ -857,7 +861,7 @@ impl Connection {
         );
 
         data.validated = validated;
-        if let Some(rtt_hint) = initial_rtt.or_else(|| (self.config.rtt_hint)(addresses)) {
+        if let Some(rtt_hint) = initial_rtt.or_else(|| (self.rtt_hint)(addresses)) {
             data.rtt.reset_initial_rtt(rtt_hint);
         }
 
@@ -2314,6 +2318,27 @@ impl Connection {
         self.spaces[SpaceId::Data].pending.max_path_id = true;
 
         self.issue_first_path_cids(now);
+    }
+
+    /// Sets the rtt hint function.
+    ///
+    /// This function is consulted any time a new path is opened on a 4-tuple that we don't
+    /// yet have a good rtt estimate for yet.
+    ///
+    /// If the function returns some RTT, then this RTT is used as the initial RTT in the path's
+    /// rtt estimator.
+    /// If the function returns None, then we use the default rtt estimator's initial RTT value
+    /// (see also [`Self::initial_rtt`]).
+    ///
+    /// Be sure to always use conservative estimates of RTT, as the initial RTT value is used
+    /// for setting the path's timeout. If the RTT estimate is about 9x lower than the actual
+    /// RTT, then the path will be abandoned before a response could even be processed.
+    pub fn set_rtt_hint(
+        &mut self,
+        rtt_hint: Arc<dyn Fn(FourTuple) -> Option<Duration> + Send + Sync>,
+    ) -> &mut Self {
+        self.rtt_hint = rtt_hint;
+        self
     }
 
     /// Current number of remotely initiated streams that may be concurrently open
