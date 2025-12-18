@@ -6269,9 +6269,9 @@
 <a href=#6269 id=6269 data-nosnippet>6269</a>    /// existed for the adjusted remote.
 <a href=#6270 id=6270 data-nosnippet>6270</a>    </span><span class="kw">fn </span>open_nat_traversal_path(
 <a href=#6271 id=6271 data-nosnippet>6271</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#6272 id=6272 data-nosnippet>6272</a>        (ip, port): (IpAddr, u16),
-<a href=#6273 id=6273 data-nosnippet>6273</a>        ipv6: bool,
-<a href=#6274 id=6274 data-nosnippet>6274</a>        now: Instant,
+<a href=#6272 id=6272 data-nosnippet>6272</a>        now: Instant,
+<a href=#6273 id=6273 data-nosnippet>6273</a>        (ip, port): (IpAddr, u16),
+<a href=#6274 id=6274 data-nosnippet>6274</a>        ipv6: bool,
 <a href=#6275 id=6275 data-nosnippet>6275</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(PathId, SocketAddr, bool)&gt;, PathError&gt; {
 <a href=#6276 id=6276 data-nosnippet>6276</a>        <span class="comment">// If this endpoint is an IPv6 endpoint we use IPv6 addresses for all remotes.
 <a href=#6277 id=6277 data-nosnippet>6277</a>        </span><span class="kw">let </span>remote = <span class="kw">match </span>ip {
@@ -6348,7 +6348,7 @@
 <a href=#6348 id=6348 data-nosnippet>6348</a>        <span class="kw">let </span>ipv6 = <span class="self">self</span>.paths.values().any(|p| p.data.remote.is_ipv6());
 <a href=#6349 id=6349 data-nosnippet>6349</a>
 <a href=#6350 id=6350 data-nosnippet>6350</a>        <span class="kw">for </span>(id, address) <span class="kw">in </span>addresses_to_probe {
-<a href=#6351 id=6351 data-nosnippet>6351</a>            <span class="kw">match </span><span class="self">self</span>.open_nat_traversal_path(address, ipv6, now) {
+<a href=#6351 id=6351 data-nosnippet>6351</a>            <span class="kw">match </span><span class="self">self</span>.open_nat_traversal_path(now, address, ipv6) {
 <a href=#6352 id=6352 data-nosnippet>6352</a>                <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) =&gt; {}
 <a href=#6353 id=6353 data-nosnippet>6353</a>                <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>((path_id, remote, path_was_known))) =&gt; {
 <a href=#6354 id=6354 data-nosnippet>6354</a>                    <span class="kw">if </span>!path_was_known {
@@ -6389,7 +6389,7 @@
 <a href=#6389 id=6389 data-nosnippet>6389</a>        <span class="kw">let </span>client_state = <span class="self">self</span>.iroh_hp.client_side_mut().ok()<span class="question-mark">?</span>;
 <a href=#6390 id=6390 data-nosnippet>6390</a>        <span class="kw">let </span>(id, address) = client_state.continue_nat_traversal_round()<span class="question-mark">?</span>;
 <a href=#6391 id=6391 data-nosnippet>6391</a>        <span class="kw">let </span>ipv6 = <span class="self">self</span>.paths.values().any(|p| p.data.remote.is_ipv6());
-<a href=#6392 id=6392 data-nosnippet>6392</a>        <span class="kw">let </span>open_result = <span class="self">self</span>.open_nat_traversal_path(address, ipv6, now);
+<a href=#6392 id=6392 data-nosnippet>6392</a>        <span class="kw">let </span>open_result = <span class="self">self</span>.open_nat_traversal_path(now, address, ipv6);
 <a href=#6393 id=6393 data-nosnippet>6393</a>        <span class="kw">let </span>client_state = <span class="self">self</span>.iroh_hp.client_side_mut().expect(<span class="string">"validated"</span>);
 <a href=#6394 id=6394 data-nosnippet>6394</a>        <span class="kw">match </span>open_result {
 <a href=#6395 id=6395 data-nosnippet>6395</a>            <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) =&gt; <span class="prelude-val">Some</span>(<span class="bool-val">true</span>),
