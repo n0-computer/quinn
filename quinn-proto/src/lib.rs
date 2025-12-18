@@ -323,6 +323,16 @@ pub struct Transmit {
     pub src_ip: Option<IpAddr>,
 }
 
+impl Transmit {
+    /// Number of datagrams encoded in this transmit
+    pub fn datagrams(&self) -> usize {
+        match self.segment_size {
+            None => 1,
+            Some(s) => self.size.div_ceil(s), // round up
+        }
+    }
+}
+
 //
 // Useful internal constants
 //

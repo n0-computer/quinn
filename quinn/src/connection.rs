@@ -1356,7 +1356,7 @@ impl State {
 
     fn drive_transmit(&mut self, cx: &mut Context) -> io::Result<bool> {
         let now = self.runtime.now();
-        let mut transmits = 0;
+        let mut datagrams = 0;
 
         let max_datagrams = self
             .sender
@@ -1374,10 +1374,7 @@ impl State {
                         .poll_transmit(now, max_datagrams, &mut self.send_buffer)
                     {
                         Some(t) => {
-                            transmits += match t.segment_size {
-                                None => 1,
-                                Some(s) => t.size.div_ceil(s), // round up
-                            };
+                            datagrams += t.datagrams();
                             t
                         }
                         None => break,
@@ -1399,7 +1396,7 @@ impl State {
                 Poll::Ready(Ok(_)) => {}
             }
 
-            if transmits >= MAX_TRANSMIT_DATAGRAMS {
+            if datagrams >= MAX_TRANSMIT_DATAGRAMS {
                 // TODO: What isn't ideal here yet is that if we don't poll all
                 // datagrams that could be sent we don't go into the `app_limited`
                 // state and CWND continues to grow until we get here the next time.
