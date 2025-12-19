@@ -490,15 +490,29 @@ pub enum Close {
 }
 
 impl Close {
-    pub(crate) fn encode<W: BufMut>(&self, out: &mut W, max_len: usize) {
-        match *self {
-            Self::Connection(ref x) => x.encode(out, max_len),
-            Self::Application(ref x) => x.encode(out, max_len),
+    pub(crate) fn encoder(&self, max_len: usize) -> CloseEncoder<'_> {
+        CloseEncoder {
+            close: &self,
+            max_len,
         }
     }
 
     pub(crate) fn is_transport_layer(&self) -> bool {
         matches!(*self, Self::Connection(_))
+    }
+}
+
+pub(crate) struct CloseEncoder<'a> {
+    close: &'a Close,
+    max_len: usize,
+}
+
+impl<'a> Encodable for CloseEncoder<'a> {
+    fn encode<W: BufMut>(&self, out: &mut W) {
+        match self.close {
+            Close::Connection(x) => x.encode(out, self.max_len),
+            Close::Application(x) => x.encode(out, self.max_len),
+        }
     }
 }
 

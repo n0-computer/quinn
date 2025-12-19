@@ -1273,7 +1273,9 @@ impl Connection {
                             let reason: Close =
                                 self.state.as_closed().expect("checked").clone().into();
                             if space_id == SpaceId::Data || reason.is_transport_layer() {
-                                reason.encode(&mut builder.frame_space_mut(), max_frame_size);
+                                reason
+                                    .encoder(max_frame_size)
+                                    .encode(&mut builder.frame_space_mut());
                                 qlog.frame(&Frame::Close(reason));
                             } else {
                                 let frame = frame::ConnectionClose {
