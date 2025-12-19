@@ -58,19 +58,21 @@ macro_rules! frame_types {
     // Final generation step.
     (enum_defs: [$($enum_defs: tt)+] try_from_arms: [$($try_from_arms: tt)+] to_u64_arms: [$($to_u64_arms: tt)+]) => {
         /// A QUIC frame type
-        #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+        #[derive(Copy, Clone, Eq, PartialEq, derive_more::Debug, derive_more::Display)]
+        #[display(rename_all = "SCREAMING_SNAKE_CASE")]
+        #[allow(missing_docs)]
         pub enum FrameType {
             $($enum_defs)*
         }
 
-        pub struct InvalidFrameId;
+        pub struct InvalidFrameId(u64);
 
         impl TryFrom<u64> for FrameType {
             type Error = InvalidFrameId;
             fn try_from(value: u64) -> Result<Self, Self::Error> {
                 let me = match value {
                     $($try_from_arms)*
-                    _ => return Err(InvalidFrameId)
+                    other => return Err(InvalidFrameId(other))
                 };
 
                 Ok(me)
@@ -167,9 +169,10 @@ pub(crate) trait FrameStruct {
     const SIZE_BOUND: usize;
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub(crate) enum MaybeFrame {
+#[derive(Copy, Clone, Eq, PartialEq, Debug, derive_more::Display)]
+pub enum MaybeFrame {
     None,
+    #[display("TYPE{:02x}", _0)]
     Unknown(u64),
     Known(FrameType),
 }
@@ -191,7 +194,7 @@ impl coding::Codec for MaybeFrame {
         match FrameType::try_from(frame_id) {
             Ok(FrameType::Padding) => Ok(MaybeFrame::None),
             Ok(other_frame) => Ok(MaybeFrame::Known(other_frame)),
-            Err(InvalidFrameId) => Ok(MaybeFrame::Unknown(frame_id)),
+            Err(InvalidFrameId(other)) => Ok(MaybeFrame::Unknown(other)),
         }
     }
 
@@ -204,8 +207,9 @@ impl coding::Codec for MaybeFrame {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-struct StreamInfo(u8);
+#[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display)]
+#[display("STREAM")]
+pub struct StreamInfo(u8);
 
 impl StreamInfo {
     const VALUES: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
@@ -223,19 +227,13 @@ impl StreamInfo {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-struct DatagramInfo(u8);
+#[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display)]
+#[display("DATAGRAM")]
+pub struct DatagramInfo(u8);
 
 impl DatagramInfo {
     const VALUES: RangeInclusive<u64> = RangeInclusive::new(0x30, 0x31);
 
-    fn new(val: u64) -> Option<Self> {
-        if Self::VALUES.contains(&val) {
-            Some(Self(val as u8))
-        } else {
-            None
-        }
-    }
     fn len(self) -> bool {
         self.0 & 0x01 != 0
     }
@@ -442,14 +440,14 @@ pub(crate) struct RetireConnectionId {
 impl RetireConnectionId {
     /// Maximum size of this frame when the frame type is [`FrameType::RetireConnectionId`]
     pub(crate) const SIZE_BOUND: usize = {
-        let type_len = VarInt(FrameType::RetireConnectionId.to_u64()).size();
+        let type_len = FrameType::RetireConnectionId.size();
         let seq_max_len = 8usize;
         type_len + seq_max_len
     };
 
     /// Maximum size of this frame when the frame type is [`FrameType::PathRetireConnectionId`]
     pub(crate) const SIZE_BOUND_MULTIPATH: usize = {
-        let type_len = VarInt(FrameType::PathRetireConnectionId.to_u64()).size();
+        let type_len = FrameType::PathRetireConnectionId.size();
         let path_id_len = VarInt::from_u32(u32::MAX).size();
         let seq_max_len = 8usize;
         type_len + path_id_len + seq_max_len
@@ -1013,9 +1011,12 @@ impl Iter {
 
     #[track_caller]
     fn try_next(&mut self) -> Result<Frame, IterErr> {
-        let ty: u64 = self.bytes.get()?;
-        let ty = FrameType::try_from(ty).map_err(|_| IterErr::InvalidFrameId(ty))?;
-        self.last_ty = MaybeFrame::Known(ty);
+        self.last_ty = self.bytes.get()?;
+        let ty = match self.last_ty {
+            MaybeFrame::None => Err(IterErr::UnexpectedEnd),
+            MaybeFrame::Unknown(_other) => Err(IterErr::InvalidFrameId),
+            MaybeFrame::Known(frame_type) => Ok(frame_type),
+        }?;
         Ok(match ty {
             FrameType::Padding => Frame::Padding,
             FrameType::ResetStream => Frame::ResetStream(ResetStream {
@@ -1238,7 +1239,7 @@ fn scan_ack_blocks(mut buf: &[u8], largest: u64, n: usize) -> Result<usize, Iter
 #[derive(Debug)]
 enum IterErr {
     UnexpectedEnd,
-    InvalidFrameId(u64),
+    InvalidFrameId,
     Malformed,
 }
 
@@ -1247,7 +1248,7 @@ impl IterErr {
         use IterErr::*;
         match *self {
             UnexpectedEnd => "unexpected end",
-            InvalidFrameId(_) => "invalid frame ID",
+            InvalidFrameId => "invalid frame ID",
             Malformed => "malformed",
         }
     }
