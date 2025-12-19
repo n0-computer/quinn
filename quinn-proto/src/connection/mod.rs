@@ -3827,7 +3827,7 @@ impl Connection {
                         continue;
                     };
 
-                    self.stats.frame_rx.record(&frame);
+                    self.stats.frame_rx.record(frame.ty());
 
                     if let Frame::Close(_error) = frame {
                         self.state.move_to_draining(None);
@@ -4113,7 +4113,7 @@ impl Connection {
                 _ => Some(trace_span!("frame", ty = %frame.ty(), path = tracing::field::Empty)),
             };
 
-            self.stats.frame_rx.record(&frame);
+            self.stats.frame_rx.record(frame.ty());
 
             let _guard = span.as_ref().map(|x| x.enter());
             ack_eliciting |= frame.is_ack_eliciting();
@@ -4189,7 +4189,7 @@ impl Connection {
                 _ => trace_span!("frame", ty = %frame.ty(), path = tracing::field::Empty),
             };
 
-            self.stats.frame_rx.record(&frame);
+            self.stats.frame_rx.record(frame.ty());
             // Crypto, Stream and Datagram frames are special cased in order no pollute
             // the log with payload data
             match &frame {
