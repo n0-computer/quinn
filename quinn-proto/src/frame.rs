@@ -72,7 +72,7 @@ macro_rules! frame_types {
             fn try_from(value: u64) -> Result<Self, Self::Error> {
                 let me = match value {
                     $($try_from_arms)*
-                    other => return Err(InvalidFrameId(other))
+                    other => return Err(InvalidFrameId(dbg!(other)))
                 };
 
                 Ok(me)
@@ -1013,10 +1013,10 @@ impl Iter {
         self.last_ty = dbg!(self.bytes.get()?);
 
         let ty = match self.last_ty {
-            MaybeFrame::None => Err(IterErr::UnexpectedEnd),
-            MaybeFrame::Unknown(_other) => Err(IterErr::InvalidFrameId),
-            MaybeFrame::Known(frame_type) => Ok(frame_type),
-        }?;
+            MaybeFrame::None => FrameType::Padding,
+            MaybeFrame::Unknown(_other) => return Err(IterErr::InvalidFrameId),
+            MaybeFrame::Known(frame_type) => frame_type,
+        };
         Ok(match ty {
             FrameType::Padding => Frame::Padding,
             FrameType::ResetStream => Frame::ResetStream(ResetStream {
