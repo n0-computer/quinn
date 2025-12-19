@@ -103,7 +103,7 @@ enum ConnectionEvent {
         error_code: VarInt,
         reason: bytes::Bytes,
     },
-    Proto(proto::ConnectionEvent),
+    Proto(Vec<proto::ConnectionEvent>),
     Rebind(Pin<Box<dyn UdpSender>>),
 }
 
