@@ -349,10 +349,10 @@ pub struct FourTuple {
     /// The remote side of this tuple
     pub remote: SocketAddr,
     /// The local side of this tuple.
-    // A single socket can only listen on a single port, so no need to store it explicitly
-    // TODO(matheus23): add back the port. The comment above is wrong. There *can* be multiple sockets!
-    // Even ignoring multiple sockets behind a single abstract `AsyncUdpSocket`, there can
-    // be multiple `AsyncUdpSocket`s when you use `rebind`!
+    ///
+    /// The socket is irrelevant for our intents and purposes:
+    /// When we send, we can only specify the `src_ip`, not the source port.
+    /// So even if we track the port, we won't be able to make use of it.
     pub local_ip: Option<IpAddr>,
 }
 
@@ -390,9 +390,9 @@ impl fmt::Display for FourTuple {
         f.write_str("(")?;
         if let Some(local_ip) = &self.local_ip {
             local_ip.fmt(f)?;
-            f.write_str(":<port>, ")?;
+            f.write_str(", ")?;
         } else {
-            f.write_str("<unknown>:<port>, ")?;
+            f.write_str("<unknown>, ")?;
         }
         self.remote.fmt(f)?;
         f.write_str(")")

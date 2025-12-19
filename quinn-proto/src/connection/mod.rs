@@ -1877,12 +1877,14 @@ impl Connection {
                                 %addresses,
                                 %known_path.addresses,
                                 "path's local address seemingly migrated"
-                            )
+                            );
                         }
                         // We update the address without path validation on the client side.
                         // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#section-5.1
                         // > Servers observing a 4-tuple change will perform path validation (see Section 9 of [QUIC-TRANSPORT]).
                         // This sounds like it's *only* the server endpoints that do this.
+                        // TODO(matheus23): We should still consider doing a proper migration on the client side in the future.
+                        // For now, this preserves the behavior of this code pre 4-tuple tracking.
                         known_path.addresses.local_ip = Some(local_ip);
                     }
                 }
@@ -5768,9 +5770,11 @@ impl Connection {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO with PTO the max of
         // the PTO for all paths.
         let pto_max = self.pto_max_path(self.highest_space, true);
+        let close_timeout = 3 * pto_max;
+        warn!(?close_timeout, "setting close timer");
         self.timers.set(
             Timer::Conn(ConnTimer::Close),
-            now + 3 * pto_max,
+            now + close_timeout,
             self.qlog.with_time(now),
         );
     }
