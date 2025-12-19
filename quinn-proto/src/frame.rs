@@ -24,6 +24,7 @@ use arbitrary::Arbitrary;
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct FrameType(u64);
 
+/// Generates the [`FrameType`] enum, and its associated conversions from and to u64
 macro_rules! frame_kind {
     // Process the unit variants.
     (
