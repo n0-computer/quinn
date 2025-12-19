@@ -173,9 +173,9 @@ impl MaybeFrame {
     /// Encoded size of this [`MaybeFrame`].
     const fn size(&self) -> usize {
         match self {
-            MaybeFrame::None => VarInt(0).size(),
-            MaybeFrame::Unknown(other) => VarInt(*other).size(),
-            MaybeFrame::Known(frame_type) => frame_type.size(),
+            Self::None => VarInt(0).size(),
+            Self::Unknown(other) => VarInt(*other).size(),
+            Self::Known(frame_type) => frame_type.size(),
         }
     }
 }
@@ -183,17 +183,17 @@ impl MaybeFrame {
 impl coding::Codec for MaybeFrame {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
         match FrameType::try_from(buf.get_var()?) {
-            Ok(FrameType::Padding) => Ok(MaybeFrame::None),
-            Ok(other_frame) => Ok(MaybeFrame::Known(other_frame)),
-            Err(InvalidFrameId(other)) => Ok(MaybeFrame::Unknown(other)),
+            Ok(FrameType::Padding) => Ok(Self::None),
+            Ok(other_frame) => Ok(Self::Known(other_frame)),
+            Err(InvalidFrameId(other)) => Ok(Self::Unknown(other)),
         }
     }
 
     fn encode<B: BufMut>(&self, buf: &mut B) {
         match self {
-            MaybeFrame::None => buf.write(0u64),
-            MaybeFrame::Unknown(frame_id) => buf.write(*frame_id),
-            MaybeFrame::Known(frame_type) => buf.write(*frame_type),
+            Self::None => buf.write(0u64),
+            Self::Unknown(frame_id) => buf.write(*frame_id),
+            Self::Known(frame_type) => buf.write(*frame_type),
         }
     }
 }
