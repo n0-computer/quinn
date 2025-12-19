@@ -209,24 +209,25 @@ impl UdpSocketState {
     ///
     /// If you would like to handle these errors yourself, use [`UdpSocketState::try_send`]
     /// instead.
-    pub fn send(&self, socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
-        match send(self, socket.0, transmit) {
-            Ok(()) => Ok(()),
+    pub fn send(&self, socket: UdpSockRef<'_>, transmits: &[Transmit<'_>]) -> io::Result<usize> {
+        match send(self, socket.0, transmits) {
+            Ok(n) => Ok(n),
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Err(e),
             // - EMSGSIZE is expected for MTU probes. Future work might be able to avoid
             //   these by automatically clamping the MTUD upper bound to the interface MTU.
-            Err(e) if e.raw_os_error() == Some(libc::EMSGSIZE) => Ok(()),
+            Err(e) if e.raw_os_error() == Some(libc::EMSGSIZE) => Ok(0),
             Err(e) => {
-                log_sendmsg_error(&self.last_send_error, e, transmit);
+                log_sendmsg_error(&self.last_send_error, e, transmits);
 
-                Ok(())
+                Ok(0)
             }
         }
     }
 
     /// Sends a [`Transmit`] on the given socket without any additional error handling.
     pub fn try_send(&self, socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
-        send(self, socket.0, transmit)
+        send(self, socket.0, std::slice::from_ref(transmit))?;
+        Ok(())
     }
 
     pub fn recv(
@@ -387,48 +388,61 @@ fn send(
 }
 
 #[cfg(apple_fast)]
-fn send(state: &UdpSocketState, io: SockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
+fn send(state: &UdpSocketState, io: SockRef<'_>, transmits: &[Transmit<'_>]) -> io::Result<usize> {
     let mut hdrs = unsafe { mem::zeroed::<[msghdr_x; BATCH_SIZE]>() };
     let mut iovs = unsafe { mem::zeroed::<[libc::iovec; BATCH_SIZE]>() };
     let mut ctrls = [cmsg::Aligned([0u8; CMSG_LEN]); BATCH_SIZE];
-    let addr = socket2::SockAddr::from(transmit.destination);
-    let segment_size = transmit.segment_size.unwrap_or(transmit.contents.len());
+    let mut addrs: [MaybeUninit<socket2::SockAddr>; BATCH_SIZE] = std::array::from_fn(|_| MaybeUninit::uninit());
+    
     let mut cnt = 0;
-    debug_assert!(transmit.contents.len().div_ceil(segment_size) <= BATCH_SIZE);
-    for (i, chunk) in transmit
-        .contents
-        .chunks(segment_size)
-        .enumerate()
-        .take(BATCH_SIZE)
-    {
-        prepare_msg(
-            &Transmit {
-                destination: transmit.destination,
-                ecn: transmit.ecn,
-                contents: chunk,
-                segment_size: Some(chunk.len()),
-                src_ip: transmit.src_ip,
-            },
-            &addr,
-            &mut hdrs[i],
-            &mut iovs[i],
-            &mut ctrls[i],
-            true,
-            state.sendmsg_einval(),
-        );
-        hdrs[i].msg_datalen = chunk.len();
-        cnt += 1;
+    let mut transmits_sent = 0;
+    
+    for transmit in transmits {
+        let segment_size = transmit.segment_size.unwrap_or(transmit.contents.len());
+        let segments = transmit.datagrams();
+        
+        // Only include if fully fits
+        if cnt + segments > BATCH_SIZE {
+            break;
+        }
+        
+        for chunk in transmit.contents.chunks(segment_size) {
+            addrs[cnt].write(socket2::SockAddr::from(transmit.destination));
+            prepare_msg(
+                &Transmit {
+                    destination: transmit.destination,
+                    ecn: transmit.ecn,
+                    contents: chunk,
+                    segment_size: Some(chunk.len()),
+                    src_ip: transmit.src_ip,
+                },
+                unsafe { addrs[cnt].assume_init_ref() },
+                &mut hdrs[cnt],
+                &mut iovs[cnt],
+                &mut ctrls[cnt],
+                true,
+                state.sendmsg_einval(),
+            );
+            hdrs[cnt].msg_datalen = chunk.len();
+            cnt += 1;
+        }
+        transmits_sent += 1;
     }
+    
+    if cnt == 0 {
+        return Ok(0);
+    }
+    
     loop {
         let n = unsafe { sendmsg_x(io.as_raw_fd(), hdrs.as_ptr(), cnt as u32, 0) };
 
         if n >= 0 {
-            return Ok(());
+            // todo: compute number of actual transmits from n
+            return Ok(transmits_sent);
         }
 
         let e = io::Error::last_os_error();
         match e.kind() {
-            // Retry the transmission
             io::ErrorKind::Interrupted => continue,
             _ => return Err(e),
         }
@@ -436,7 +450,10 @@ fn send(state: &UdpSocketState, io: SockRef<'_>, transmit: &Transmit<'_>) -> io:
 }
 
 #[cfg(any(target_os = "openbsd", target_os = "netbsd", apple_slow))]
-fn send(state: &UdpSocketState, io: SockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
+fn send(state: &UdpSocketState, io: SockRef<'_>, transmits: &[Transmit<'_>]) -> io::Result<usize> {
+    let Some(transmit) = transmits.first() else {
+        return Ok(0);
+    };
     let mut hdr: libc::msghdr = unsafe { mem::zeroed() };
     let mut iov: libc::iovec = unsafe { mem::zeroed() };
     let mut ctrl = cmsg::Aligned([0u8; CMSG_LEN]);
@@ -454,7 +471,7 @@ fn send(state: &UdpSocketState, io: SockRef<'_>, transmit: &Transmit<'_>) -> io:
         let n = unsafe { libc::sendmsg(io.as_raw_fd(), &hdr, 0) };
 
         if n >= 0 {
-            return Ok(());
+            return Ok(1);
         }
 
         let e = io::Error::last_os_error();

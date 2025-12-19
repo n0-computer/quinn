@@ -150,6 +150,17 @@ pub struct Transmit<'a> {
     pub src_ip: Option<IpAddr>,
 }
 
+impl<'a> Transmit<'a> {
+
+    /// Number of datagrams encoded in this transmit
+    pub fn datagrams(&self) -> usize {
+        match self.segment_size {
+            None => 1,
+            Some(s) => self.contents.len().div_ceil(s), // round up
+        }
+    }
+}
+
 /// Log at most 1 IO error per minute
 #[cfg(not(wasm_browser))]
 const IO_ERROR_LOG_INTERVAL: Duration = std::time::Duration::from_secs(60);
@@ -162,21 +173,23 @@ const IO_ERROR_LOG_INTERVAL: Duration = std::time::Duration::from_secs(60);
 fn log_sendmsg_error(
     last_send_error: &Mutex<Instant>,
     err: impl core::fmt::Debug,
-    transmit: &Transmit,
+    transmits: &[Transmit],
 ) {
     let now = Instant::now();
     let last_send_error = &mut *last_send_error.lock().expect("poisend lock");
     if now.saturating_duration_since(*last_send_error) > IO_ERROR_LOG_INTERVAL {
         *last_send_error = now;
-        log::warn!(
-            "sendmsg error: {:?}, Transmit: {{ destination: {:?}, src_ip: {:?}, ecn: {:?}, len: {:?}, segment_size: {:?} }}",
-            err,
-            transmit.destination,
-            transmit.src_ip,
-            transmit.ecn,
-            transmit.contents.len(),
-            transmit.segment_size
-        );
+        if let Some(transmit) = transmits.first() {
+            log::warn!(
+                "sendmsg error: {:?}, Transmit: {{ destination: {:?}, src_ip: {:?}, ecn: {:?}, len: {:?}, segment_size: {:?} }}",
+                err,
+                transmit.destination,
+                transmit.src_ip,
+                transmit.ecn,
+                transmit.contents.len(),
+                transmit.segment_size
+            );
+        }
     }
 }
 
