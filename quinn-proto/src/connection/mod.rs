@@ -5696,7 +5696,7 @@ impl Connection {
         if is_multipath_negotiated && space_id == SpaceId::Data {
             if !ranges.is_empty() {
                 trace!("PATH_ACK {path_id:?} {ranges:?}, Delay = {delay_micros}us");
-                frame::PathAck::encode(path_id, delay as _, ranges, ecn, buf);
+                frame::PathAck::encoder(path_id, delay as _, ranges, ecn).encode(buf);
                 qlog.frame_path_ack(path_id, delay as _, ranges, ecn);
                 stats.frame_tx.path_acks += 1;
             }

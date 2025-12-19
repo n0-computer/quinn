@@ -649,19 +649,53 @@ impl<'a> IntoIterator for &'a PathAck {
 }
 
 impl PathAck {
+    pub fn into_ack(self) -> (Ack, PathId) {
+        let ack = Ack {
+            largest: self.largest,
+            delay: self.delay,
+            additional: self.additional,
+            ecn: self.ecn,
+        };
+
+        (ack, self.path_id)
+    }
+
+    pub(crate) fn encoder<'a>(
+        path_id: PathId,
+        delay: u64,
+        ranges: &'a ArrayRangeSet,
+        ecn: Option<&'a EcnCounts>,
+    ) -> PathAckEncoder<'a> {
+        PathAckEncoder {
+            path_id,
+            delay,
+            ranges,
+            ecn,
+        }
+    }
+}
+
+pub(crate) struct PathAckEncoder<'a> {
+    path_id: PathId,
+    delay: u64,
+    ranges: &'a ArrayRangeSet,
+    ecn: Option<&'a EcnCounts>,
+}
+
+impl<'a> Encodable for PathAckEncoder<'a> {
     /// Encode [`Self`] into the given buffer
     ///
     /// The [`FrameType`] will be either [`FrameType::PathAckEcn`] or [`FrameType::PathAck`]
     /// depending on whether [`EcnCounts`] are provided.
     ///
     /// PANICS: if `ranges` is empty.
-    pub fn encode<W: BufMut>(
-        path_id: PathId,
-        delay: u64,
-        ranges: &ArrayRangeSet,
-        ecn: Option<&EcnCounts>,
-        buf: &mut W,
-    ) {
+    fn encode<W: BufMut>(&self, buf: &mut W) {
+        let PathAckEncoder {
+            path_id,
+            delay,
+            ranges,
+            ecn,
+        } = self;
         let mut rest = ranges.iter().rev();
         let first = rest
             .next()
@@ -673,9 +707,9 @@ impl PathAck {
             false => FrameType::PathAck,
         };
         buf.write(kind);
-        buf.write(path_id);
+        buf.write(*path_id);
         buf.write_var(largest);
-        buf.write_var(delay);
+        buf.write_var(*delay);
         buf.write_var(ranges.len() as u64 - 1);
         buf.write_var(first_size - 1);
         let mut prev = first.start;
@@ -688,17 +722,6 @@ impl PathAck {
         if let Some(x) = ecn {
             x.encode(buf)
         }
-    }
-
-    pub fn into_ack(self) -> (Ack, PathId) {
-        let ack = Ack {
-            largest: self.largest,
-            delay: self.delay,
-            additional: self.additional,
-            ecn: self.ecn,
-        };
-
-        (ack, self.path_id)
     }
 }
 
@@ -1943,7 +1966,7 @@ mod test {
             ce: 12,
         };
         const PATH_ID: PathId = PathId::MAX;
-        PathAck::encode(PATH_ID, 42, &ranges, Some(&ECN), &mut buf);
+        PathAck::encoder(PATH_ID, 42, &ranges, Some(&ECN)).encode(&mut buf);
         let frames = frames(buf);
         assert_eq!(frames.len(), 1);
         match frames[0] {
