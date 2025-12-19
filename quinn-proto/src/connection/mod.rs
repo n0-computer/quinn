@@ -27,6 +27,7 @@ use crate::{
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     connection::{
+        paths::AbandonState,
         qlog::{QlogRecvPacket, QlogSentPacket, QlogSink},
         spaces::LostPacket,
         timer::{ConnTimer, PathTimer},
@@ -3109,12 +3110,12 @@ impl Connection {
         is_1rtt: bool,
     ) {
         self.total_authed_packets += 1;
-        if let Some(last_allowed_receive) = self
+        if let Some(AbandonState::ExpectingPathAbandon { deadline }) = self
             .paths
             .get(&path_id)
-            .and_then(|path| path.data.path_abandon_deadline)
+            .map(|path| &path.data.abandon_state)
         {
-            if now > last_allowed_receive {
+            if now > *deadline {
                 warn!("received data on path which we abandoned more than 3 * PTO ago");
                 // The peer failed to respond with a PATH_ABANDON in time.
                 if !self.state.is_closed() {
@@ -4613,10 +4614,9 @@ impl Connection {
                 }) => {
                     span.record("path", tracing::field::debug(&path_id));
                     // TODO(flub): don't really know which error code to use here.
-                    let already_abandoned = match self.close_path(now, path_id, error_code.into()) {
+                    match self.close_path(now, path_id, error_code.into()) {
                         Ok(()) => {
                             trace!("peer abandoned path");
-                            false
                         }
                         Err(ClosePathError::LastOpenPath) => {
                             trace!("peer abandoned last path, closing connection");
@@ -4625,7 +4625,6 @@ impl Connection {
                         }
                         Err(ClosePathError::ClosedPath) => {
                             trace!("peer abandoned already closed path");
-                            true
                         }
                     };
                     // If we receive a retransmit of PATH_ABANDON then we may already have
@@ -4633,7 +4632,7 @@ impl Connection {
                     // may already have fired and we no longer have any state for this path.
                     // Only set this timer if we still have path state.
                     if let Some(path) = self.paths.get_mut(&path_id) {
-                        if !already_abandoned {
+                        if !matches!(path.data.abandon_state, AbandonState::ReceivedPathAbandon) {
                             let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
                             let pto = path.data.rtt.pto_base() + ack_delay;
                             self.timers.set(
@@ -4641,10 +4640,8 @@ impl Connection {
                                 now + 3 * pto,
                                 self.qlog.with_time(now),
                             );
-                            // We received a PATH_ABANDON, we don't expect another one by a certain time
-                            // TODO(matheus23): Probably should be an enum. This is a hack
-                            path.data.path_abandon_deadline =
-                                Some(now + Duration::from_hours(10_000));
+                            // We received a PATH_ABANDON, we don't expect another one by a certain time.
+                            path.data.abandon_state = AbandonState::ReceivedPathAbandon;
                         }
                     }
                 }
@@ -5344,13 +5341,18 @@ impl Connection {
             if let Some(abandoned_path) = self.paths.get_mut(&abandoned_path_id) {
                 // We only want to set the deadline on the *first* PATH_ABANDON we send.
                 // Retransmits shouldn't run this code again
-                if abandoned_path.data.path_abandon_deadline.is_none() {
+                if matches!(
+                    abandoned_path.data.abandon_state,
+                    AbandonState::NotAbandoned
+                ) {
                     // The peer MUST respond with a corresponding PATH_ABANDON frame.
                     // The other peer has 3 * PTO to do that.
                     // This uses the PTO of the path we send on!
                     // Once the PATH_ABANDON comes in, we set the path_abandon_deadline far
                     // into the future, so that receiving data on that path doesn't cause errors.
-                    abandoned_path.data.path_abandon_deadline = Some(now + 3 * send_pto);
+                    abandoned_path.data.abandon_state = AbandonState::ExpectingPathAbandon {
+                        deadline: now + 3 * send_pto,
+                    };
 
                     // At some point, we need to forget about the path.
                     // If we do so too early, then we'll have discarded the CIDs of that path and won't

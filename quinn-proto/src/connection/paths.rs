@@ -207,13 +207,8 @@ pub(super) struct PathData {
     /// irreversible, since it's not affected by the path being closed.
     pub(super) open: bool,
 
-    /// The time at which this path state should've received a PATH_ABANDON already.
-    ///
-    /// Receiving data on this path generates a transport error after that point in time.
-    /// This is checked in [`crate::Connection::on_packet_authenticated`].
-    ///
-    /// If set to `None`, then this path isn't abandoned yet and is allowed to receive data.
-    pub(super) path_abandon_deadline: Option<Instant>,
+    /// State relevant to sending and receiving PATH_ABANDON frames.
+    pub(super) abandon_state: AbandonState,
 
     /// Snapshot of the qlog recovery metrics
     #[cfg(feature = "qlog")]
@@ -221,6 +216,24 @@ pub(super) struct PathData {
 
     /// Tag uniquely identifying a path in a connection
     generation: u64,
+}
+
+/// The abandon-relevant state a path can be in.
+#[derive(Debug)]
+pub(super) enum AbandonState {
+    /// This path wasn't abandoned yet.
+    NotAbandoned,
+    /// A PATH_ABANDON frame was sent for this path, and we're expecting a response
+    /// by the given deadline.
+    ///
+    /// If we don't receive PATH_ABANDON by that time *and* we receive a packet on this
+    /// path, then we assume our peer has ignored our PATH_ABANDON and error out.
+    ///
+    /// This is checked in [`crate::Connection::on_packet_authenticated`].
+    ExpectingPathAbandon { deadline: Instant },
+    /// We received a PATH_ABANDON and are just waiting for the path's packets to drain
+    /// and eventually will discard the path.
+    ReceivedPathAbandon,
 }
 
 impl PathData {
@@ -278,7 +291,7 @@ impl PathData {
             idle_timeout: config.default_path_max_idle_timeout,
             keep_alive: config.default_path_keep_alive_interval,
             open: false,
-            path_abandon_deadline: None,
+            abandon_state: AbandonState::NotAbandoned,
             #[cfg(feature = "qlog")]
             recovery_metrics: RecoveryMetrics::default(),
             generation,
@@ -319,7 +332,7 @@ impl PathData {
             idle_timeout: prev.idle_timeout,
             keep_alive: prev.keep_alive,
             open: false,
-            path_abandon_deadline: None,
+            abandon_state: AbandonState::NotAbandoned,
             #[cfg(feature = "qlog")]
             recovery_metrics: prev.recovery_metrics.clone(),
             generation,
