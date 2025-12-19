@@ -24,6 +24,116 @@ use arbitrary::Arbitrary;
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct FrameType(u64);
 
+macro_rules! frame_kind {
+    // Process the unit variants.
+    (
+        enum_defs: [$($enum_defs: tt)*]
+        try_from_arms: [$($try_from_arms: tt)*]
+        $variant: ident = $value: literal,
+        $($token: tt)*
+    ) => {
+        frame_kind!{
+            enum_defs: [$($enum_defs)* $variant,]
+            try_from_arms: [$($try_from_arms)* $value => Self::$variant,]
+
+            $($token)*
+        }
+    };
+
+    // Process the tuple variants.
+    (
+        enum_defs: [$($enum_defs: tt)*]
+        try_from_arms: [$($try_from_arms: tt)*]
+        $variant: ident($inner: ident),
+        $($token: tt)*
+    ) => {
+        frame_kind!{
+            enum_defs: [$($enum_defs)* $variant($inner),]
+            try_from_arms: [$($try_from_arms)* value if <$inner>::VALUES.contains(&value) => Self::$variant($inner(value as u8)),]
+            $($token)*
+        }
+    };
+
+    // Final generation step.
+    (enum_defs: [$($enum_defs: tt)+] try_from_arms: [$($try_from_arms: tt)+]) => {
+        pub enum FrameKind {
+            $($enum_defs)*
+        }
+
+        pub struct InvalidFrameId;
+
+        impl TryFrom<u64> for FrameKind {
+            type Error = InvalidFrameId;
+            fn try_from(value: u64) -> Result<Self, Self::Error> {
+                let me = match value {
+                    $($try_from_arms)*
+                    _ => return Err(InvalidFrameId)
+                };
+
+                Ok(me)
+            }
+
+        }
+    };
+}
+
+const A: FrameKind = FrameKind::Stream(StreamInfo(4));
+
+frame_kind! {
+    enum_defs: []
+    try_from_arms: []
+    // Padding = 0x00,
+    // Ping = 0x01,
+    // Ack = 0x02,
+    // AckEcn = 0x03,
+    // ResetStream = 0x04,
+    // StopSending = 0x05,
+    // Crypto = 0x06,
+    // NewToken = 0x07,
+    // STREAM
+    Stream(StreamInfo),
+    MaxData = 0x10,
+    MaxStreamData = 0x11,
+    MaxStreamsBidi = 0x12,
+    MaxStreamsUni = 0x13,
+    DataBlocked = 0x14,
+    StreamDataBlocked = 0x15,
+    StreamsBlockedBidi = 0x16,
+    StreamsBlockedUni = 0x17,
+    NewConnectionId = 0x18,
+    RetireConnectionId = 0x19,
+    PathChallenge = 0x1a,
+    PathResponse = 0x1b,
+    ConnectionClose = 0x1c,
+    ApplicationClose = 0x1d,
+    HandshakeDone = 0x1e,
+    // ACK Frequency
+    AckFrequency = 0xaf,
+    ImmediateAck = 0x1f,
+    // DATAGRAM
+    Datagram(DatagramInfo),
+    // ADDRESS DISCOVERY REPORT
+    ObservedIpv4Addr = 0x9f81a6,
+    ObservedIpv6Addr = 0x9f81a7,
+    // Multipath
+    PathAck = 0x15228c00,
+    PathAckEcn = 0x15228c01,
+    PathAbandon = 0x15228c05,
+    PathStatusBackup = 0x15228c07,
+    PathStatusAvailable = 0x15228c08,
+    PathNewConnectionId = 0x15228c09,
+    PathRetireConnectionId = 0x15228c0a,
+    MaxPathId = 0x15228c0c,
+    PathsBlocked = 0x15228c0d,
+    PathCidsBlocked = 0x15228c0e,
+    // IROH'S NAT TRAVERSAL
+    AddIpv4Address = 0x3d7f90,
+    AddIpv6Address = 0x3d7f91,
+    ReachOutAtIpv4 = 0x3d7f92,
+    ReachOutAtIpv6 = 0x3d7f93,
+    RemoveAddress = 0x3d7f94,
+}
+
 impl FrameType {
     fn stream(self) -> Option<StreamInfo> {
         if STREAM_TYS.contains(&self.0) {
@@ -87,12 +197,24 @@ macro_rules! frame_types {
 struct StreamInfo(u8);
 
 impl StreamInfo {
+    const VALUES: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
+
+    fn new(val: u64) -> Option<Self> {
+        if Self::VALUES.contains(&val) {
+            Some(Self(val as u8))
+        } else {
+            None
+        }
+    }
+
     fn fin(self) -> bool {
         self.0 & 0x01 != 0
     }
+
     fn len(self) -> bool {
         self.0 & 0x02 != 0
     }
+
     fn off(self) -> bool {
         self.0 & 0x04 != 0
     }
@@ -102,6 +224,15 @@ impl StreamInfo {
 struct DatagramInfo(u8);
 
 impl DatagramInfo {
+    const VALUES: RangeInclusive<u64> = RangeInclusive::new(0x30, 0x31);
+
+    fn new(val: u64) -> Option<Self> {
+        if Self::VALUES.contains(&val) {
+            Some(Self(val as u8))
+        } else {
+            None
+        }
+    }
     fn len(self) -> bool {
         self.0 & 0x01 != 0
     }
