@@ -138,12 +138,14 @@ impl State {
             "invalid state transition {:?} -> closed",
             self.as_type()
         );
+        let remote_reason = reason.into();
+        let is_local = false;
+        trace!(?remote_reason, ?is_local, "connection state: closed");
         self.inner = InnerState::Closed {
             error_read: false,
-            remote_reason: reason.into(),
-            is_local: false,
+            remote_reason,
+            is_local,
         };
-        trace!("connection state: closed");
     }
 
     /// Moves to a closed state after a local error.
@@ -158,12 +160,14 @@ impl State {
             "invalid state transition {:?} -> closed (local)",
             self.as_type()
         );
+        let remote_reason = reason.into();
+        let is_local = true;
+        trace!(?remote_reason, ?is_local, "connection state: closed");
         self.inner = InnerState::Closed {
             error_read: false,
-            remote_reason: reason.into(),
-            is_local: true,
+            remote_reason,
+            is_local,
         };
-        trace!("connection state: closed");
     }
 
     pub(super) fn is_handshake(&self) -> bool {
