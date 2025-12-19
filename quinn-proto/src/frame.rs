@@ -742,12 +742,28 @@ impl<'a> IntoIterator for &'a Ack {
 }
 
 impl Ack {
-    pub fn encode<W: BufMut>(
+    pub(crate) fn encoder<'a>(
         delay: u64,
-        ranges: &ArrayRangeSet,
-        ecn: Option<&EcnCounts>,
-        buf: &mut W,
-    ) {
+        ranges: &'a ArrayRangeSet,
+        ecn: Option<&'a EcnCounts>,
+    ) -> AckEncoder<'a> {
+        AckEncoder { delay, ranges, ecn }
+    }
+
+    pub fn iter(&self) -> AckIter<'_> {
+        self.into_iter()
+    }
+}
+
+pub(crate) struct AckEncoder<'a> {
+    delay: u64,
+    ranges: &'a ArrayRangeSet,
+    ecn: Option<&'a EcnCounts>,
+}
+
+impl<'a> Encodable for AckEncoder<'a> {
+    fn encode<W: BufMut>(&self, buf: &mut W) {
+        let AckEncoder { delay, ranges, ecn } = self;
         let mut rest = ranges.iter().rev();
         let first = rest.next().unwrap();
         let largest = first.end - 1;
@@ -758,7 +774,7 @@ impl Ack {
         };
         buf.write(kind);
         buf.write_var(largest);
-        buf.write_var(delay);
+        buf.write_var(*delay);
         buf.write_var(ranges.len() as u64 - 1);
         buf.write_var(first_size - 1);
         let mut prev = first.start;
@@ -771,10 +787,6 @@ impl Ack {
         if let Some(x) = ecn {
             x.encode(buf)
         }
-    }
-
-    pub fn iter(&self) -> AckIter<'_> {
-        self.into_iter()
     }
 }
 
@@ -1902,7 +1914,7 @@ mod test {
             ect1: 24,
             ce: 12,
         };
-        Ack::encode(42, &ranges, Some(&ECN), &mut buf);
+        Ack::encoder(42, &ranges, Some(&ECN)).encode(&mut buf);
         let frames = frames(buf);
         assert_eq!(frames.len(), 1);
         match frames[0] {

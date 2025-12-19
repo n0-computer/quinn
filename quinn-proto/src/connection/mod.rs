@@ -5702,7 +5702,7 @@ impl Connection {
             }
         } else {
             trace!("ACK {ranges:?}, Delay = {delay_micros}us");
-            frame::Ack::encode(delay as _, ranges, ecn, buf);
+            frame::Ack::encoder(delay as _, ranges, ecn).encode(buf);
             stats.frame_tx.acks += 1;
             qlog.frame_ack(delay, ranges, ecn);
         }
