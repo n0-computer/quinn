@@ -213,7 +213,7 @@ pub(super) struct PathData {
     /// This is checked in [`crate::Connection::on_packet_authenticated`].
     ///
     /// If set to `None`, then this path isn't abandoned yet and is allowed to receive data.
-    pub(super) last_allowed_receive: Option<Instant>,
+    pub(super) path_abandon_deadline: Option<Instant>,
 
     /// Snapshot of the qlog recovery metrics
     #[cfg(feature = "qlog")]
@@ -278,7 +278,7 @@ impl PathData {
             idle_timeout: config.default_path_max_idle_timeout,
             keep_alive: config.default_path_keep_alive_interval,
             open: false,
-            last_allowed_receive: None,
+            path_abandon_deadline: None,
             #[cfg(feature = "qlog")]
             recovery_metrics: RecoveryMetrics::default(),
             generation,
@@ -319,7 +319,7 @@ impl PathData {
             idle_timeout: prev.idle_timeout,
             keep_alive: prev.keep_alive,
             open: false,
-            last_allowed_receive: None,
+            path_abandon_deadline: None,
             #[cfg(feature = "qlog")]
             recovery_metrics: prev.recovery_metrics.clone(),
             generation,

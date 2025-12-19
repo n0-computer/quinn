@@ -675,25 +675,10 @@ impl Connection {
         self.endpoint_events
             .push_back(EndpointEventInner::RetireResetToken(path_id));
 
-        let pto = self.pto_max_path(SpaceId::Data, false);
-
-        let path = self.paths.get_mut(&path_id).expect("checked above");
-
-        // We record the time after which receiving data on this path generates a transport error.
-        path.data.last_allowed_receive = Some(now + 3 * pto);
         self.abandoned_paths.insert(path_id);
 
         self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
 
-        // The peer MUST respond with a corresponding PATH_ABANDON frame.
-        // If we receive packets on the abandoned path after 3 * PTO we trigger a transport error.
-        // In any case, we completely discard the path after 6 * PTO whether we receive a
-        // PATH_ABANDON or not.
-        self.timers.set(
-            Timer::PerPath(path_id, PathTimer::DiscardPath),
-            now + 6 * pto,
-            self.qlog.with_time(now),
-        );
         Ok(())
     }
 
@@ -3097,7 +3082,7 @@ impl Connection {
                     }
                 })
                 .max()
-                .expect("there should be one at least path"),
+                .expect("there should be at least one path"),
         }
     }
 
@@ -3127,7 +3112,7 @@ impl Connection {
         if let Some(last_allowed_receive) = self
             .paths
             .get(&path_id)
-            .and_then(|path| path.data.last_allowed_receive)
+            .and_then(|path| path.data.path_abandon_deadline)
         {
             if now > last_allowed_receive {
                 warn!("received data on path which we abandoned more than 3 * PTO ago");
@@ -4647,17 +4632,20 @@ impl Connection {
                     // abandoned this path locally.  In that case the DiscardPath timer
                     // may already have fired and we no longer have any state for this path.
                     // Only set this timer if we still have path state.
-                    if self.path(path_id).is_some() && !already_abandoned {
-                        // TODO(flub): Checking is_some() here followed by a number of calls
-                        //    that would panic if it was None is really ugly.  If only we
-                        //    could do something like PathData::pto().  One day we'll have
-                        //    unified SpaceId and PathId and this will be possible.
-                        let delay = self.pto(SpaceId::Data, path_id) * 3;
-                        self.timers.set(
-                            Timer::PerPath(path_id, PathTimer::DiscardPath),
-                            now + delay,
-                            self.qlog.with_time(now),
-                        );
+                    if let Some(path) = self.paths.get_mut(&path_id) {
+                        if !already_abandoned {
+                            let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
+                            let pto = path.data.rtt.pto_base() + ack_delay;
+                            self.timers.set(
+                                Timer::PerPath(path_id, PathTimer::DiscardPath),
+                                now + 3 * pto,
+                                self.qlog.with_time(now),
+                            );
+                            // We received a PATH_ABANDON, we don't expect another one by a certain time
+                            // TODO(matheus23): Probably should be an enum. This is a hack
+                            path.data.path_abandon_deadline =
+                                Some(now + Duration::from_hours(10_000));
+                        }
                     }
                 }
                 Frame::PathStatusAvailable(info) => {
@@ -5332,22 +5320,58 @@ impl Connection {
             && space_id == SpaceId::Data
             && frame::PathAbandon::SIZE_BOUND <= buf.remaining_mut()
         {
-            let Some((path_id, error_code)) = space.pending.path_abandon.pop_first() else {
+            let Some((abandoned_path_id, error_code)) = space.pending.path_abandon.pop_first()
+            else {
                 break;
             };
             let frame = frame::PathAbandon {
-                path_id,
+                path_id: abandoned_path_id,
                 error_code,
             };
             frame.encode(buf);
             qlog.frame(&Frame::PathAbandon(frame));
             self.stats.frame_tx.path_abandon += 1;
-            trace!(%path_id, "PATH_ABANDON");
+            trace!(%abandoned_path_id, "PATH_ABANDON");
             sent.retransmits
                 .get_or_create()
                 .path_abandon
-                .entry(path_id)
+                .entry(abandoned_path_id)
                 .or_insert(error_code);
+
+            let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
+            // We can't access path here anymore due to borrowing issues.
+            let send_pto = self.paths.get(&path_id).unwrap().data.rtt.pto_base() + ack_delay;
+            if let Some(abandoned_path) = self.paths.get_mut(&abandoned_path_id) {
+                // We only want to set the deadline on the *first* PATH_ABANDON we send.
+                // Retransmits shouldn't run this code again
+                if abandoned_path.data.path_abandon_deadline.is_none() {
+                    // The peer MUST respond with a corresponding PATH_ABANDON frame.
+                    // The other peer has 3 * PTO to do that.
+                    // This uses the PTO of the path we send on!
+                    // Once the PATH_ABANDON comes in, we set the path_abandon_deadline far
+                    // into the future, so that receiving data on that path doesn't cause errors.
+                    abandoned_path.data.path_abandon_deadline = Some(now + 3 * send_pto);
+
+                    // At some point, we need to forget about the path.
+                    // If we do so too early, then we'll have discarded the CIDs of that path and won't
+                    // handle incoming packets on that path correctly.
+                    // To give this path enough time, we assume that the peer will have received our
+                    // PATH_ABANDON within 3 * PTO of the path we sent the abandon on,
+                    // and then we give the path 3 * PTO time to make it very unlikely that there will
+                    // still be packets incoming on the path at that point.
+                    // This timer will actually get reset to a value that's likely to be even earlier
+                    // once we actually receive the PATH_ABANDON frame itself.
+                    let abandoned_pto =
+                        self.paths.get(&path_id).unwrap().data.rtt.pto_base() + ack_delay;
+                    self.timers.set(
+                        Timer::PerPath(abandoned_path_id, PathTimer::DiscardPath),
+                        now + 3 * send_pto + 3 * abandoned_pto,
+                        self.qlog.with_time(now),
+                    );
+                }
+            } else {
+                warn!("sent PATH_ABANDON after path was already discarded");
+            }
         }
 
         // PATH_STATUS_AVAILABLE & PATH_STATUS_BACKUP
@@ -5556,47 +5580,46 @@ impl Connection {
         let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
 
         // NEW_TOKEN
-        while let Some(remote_addr) = space.pending.new_tokens.pop() {
-            if path_exclusive_only {
-                break;
+        if !path_exclusive_only {
+            while let Some(remote_addr) = space.pending.new_tokens.pop() {
+                debug_assert_eq!(space_id, SpaceId::Data);
+                let ConnectionSide::Server { server_config } = &self.side else {
+                    panic!("NEW_TOKEN frames should not be enqueued by clients");
+                };
+
+                if remote_addr != path.remote {
+                    // NEW_TOKEN frames contain tokens bound to a client's IP address, and are only
+                    // useful if used from the same IP address.  Thus, we abandon enqueued NEW_TOKEN
+                    // frames upon an path change. Instead, when the new path becomes validated,
+                    // NEW_TOKEN frames may be enqueued for the new path instead.
+                    continue;
+                }
+
+                let token = Token::new(
+                    TokenPayload::Validation {
+                        ip: remote_addr.ip(),
+                        issued: server_config.time_source.now(),
+                    },
+                    &mut self.rng,
+                );
+                let new_token = NewToken {
+                    token: token.encode(&*server_config.token_key).into(),
+                };
+
+                if buf.remaining_mut() < new_token.size() {
+                    space.pending.new_tokens.push(remote_addr);
+                    break;
+                }
+
+                trace!("NEW_TOKEN");
+                new_token.encode(buf);
+                qlog.frame(&Frame::NewToken(new_token));
+                sent.retransmits
+                    .get_or_create()
+                    .new_tokens
+                    .push(remote_addr);
+                self.stats.frame_tx.new_token += 1;
             }
-            debug_assert_eq!(space_id, SpaceId::Data);
-            let ConnectionSide::Server { server_config } = &self.side else {
-                panic!("NEW_TOKEN frames should not be enqueued by clients");
-            };
-
-            if remote_addr != path.remote {
-                // NEW_TOKEN frames contain tokens bound to a client's IP address, and are only
-                // useful if used from the same IP address.  Thus, we abandon enqueued NEW_TOKEN
-                // frames upon an path change. Instead, when the new path becomes validated,
-                // NEW_TOKEN frames may be enqueued for the new path instead.
-                continue;
-            }
-
-            let token = Token::new(
-                TokenPayload::Validation {
-                    ip: remote_addr.ip(),
-                    issued: server_config.time_source.now(),
-                },
-                &mut self.rng,
-            );
-            let new_token = NewToken {
-                token: token.encode(&*server_config.token_key).into(),
-            };
-
-            if buf.remaining_mut() < new_token.size() {
-                space.pending.new_tokens.push(remote_addr);
-                break;
-            }
-
-            trace!("NEW_TOKEN");
-            new_token.encode(buf);
-            qlog.frame(&Frame::NewToken(new_token));
-            sent.retransmits
-                .get_or_create()
-                .new_tokens
-                .push(remote_addr);
-            self.stats.frame_tx.new_token += 1;
         }
 
         // STREAM
