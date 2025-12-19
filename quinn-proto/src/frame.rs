@@ -169,11 +169,15 @@ pub(crate) trait FrameStruct {
     const SIZE_BOUND: usize;
 }
 
+/// The type used to refer to [`FrameType`]s in closing and transport errors.
 #[derive(Copy, Clone, Eq, PartialEq, Debug, derive_more::Display)]
 pub enum MaybeFrame {
+    /// Not attributed to any particular [`FrameType`].
     None,
+    /// Attributed to some frame type this implementation does not recognize.
     #[display("TYPE{:02x}", _0)]
     Unknown(u64),
+    /// Attributed to a specific [`FrameType`], never [`FrameType::Padding`].
     Known(FrameType),
 }
 
