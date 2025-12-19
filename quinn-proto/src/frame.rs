@@ -288,7 +288,7 @@ impl fmt::Display for Frame {
 impl Frame {
     pub(crate) fn ty(&self) -> FrameType {
         use Frame::*;
-        match *self {
+        match &self {
             Padding => FrameType::Padding,
             ResetStream(_) => FrameType::ResetStream,
             Close(self::Close::Connection(_)) => FrameType::ConnectionClose,
@@ -303,9 +303,9 @@ impl Frame {
             StreamsBlocked { dir: Dir::Bi, .. } => FrameType::StreamsBlockedBidi,
             StreamsBlocked { dir: Dir::Uni, .. } => FrameType::StreamsBlockedUni,
             StopSending { .. } => FrameType::StopSending,
-            RetireConnectionId { .. } => FrameType::RetireConnectionId,
-            Ack(_) => FrameType::Ack,
-            PathAck(_) => FrameType::PathAck,
+            RetireConnectionId(retire_frame) => retire_frame.get_type(),
+            Ack(ack) => ack.get_type(),
+            PathAck(path_ack) => path_ack.get_type(),
             Stream(ref x) => {
                 let mut ty = *StreamInfo::VALUES.start() as u8;
                 if x.fin {
@@ -674,6 +674,14 @@ impl PathAck {
         (ack, self.path_id)
     }
 
+    fn get_type(&self) -> FrameType {
+        if self.ecn.is_some() {
+            FrameType::PathAckEcn
+        } else {
+            FrameType::PathAck
+        }
+    }
+
     pub(crate) fn encoder<'a>(
         path_id: PathId,
         delay: u64,
@@ -789,6 +797,14 @@ impl Ack {
 
     pub fn iter(&self) -> AckIter<'_> {
         self.into_iter()
+    }
+
+    pub(crate) const fn get_type(&self) -> FrameType {
+        if self.ecn.is_some() {
+            FrameType::AckEcn
+        } else {
+            FrameType::Ack
+        }
     }
 }
 
