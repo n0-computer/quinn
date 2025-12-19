@@ -6457,7 +6457,10 @@ impl Connection {
     fn continue_nat_traversal_round(&mut self, now: Instant) -> Option<bool> {
         let client_state = self.iroh_hp.client_side_mut().ok()?;
         let (id, address) = client_state.continue_nat_traversal_round()?;
-        let ipv6 = self.paths.values().any(|p| p.data.remote.is_ipv6());
+        let ipv6 = self
+            .paths
+            .values()
+            .any(|p| p.data.addresses.remote.is_ipv6());
         let open_result = self.open_nat_traversal_path(now, address, ipv6);
         let client_state = self.iroh_hp.client_side_mut().expect("validated");
         match open_result {
