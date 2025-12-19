@@ -1488,23 +1488,23 @@ impl FrameStruct for Datagram {
 }
 
 impl Datagram {
-    pub(crate) fn encode(&self, length: bool, out: &mut impl BufMut) {
-        out.write(FrameType::Datagram(DatagramInfo(
-            *DatagramInfo::VALUES.start() as u8 | u8::from(length),
-        ))); // 1 byte
-        if length {
-            // Safe to unwrap because we check length sanity before queueing datagrams
-            out.write(VarInt::from_u64(self.data.len() as u64).unwrap()); // <= 8 bytes
-        }
-        out.put_slice(&self.data);
-    }
-
     pub(crate) fn size(&self, length: bool) -> usize {
         1 + if length {
             VarInt::from_u64(self.data.len() as u64).unwrap().size()
         } else {
             0
         } + self.data.len()
+    }
+}
+
+impl Encodable for Datagram {
+    fn encode<B: BufMut>(&self, out: &mut B) {
+        out.write(FrameType::Datagram(DatagramInfo(
+            *DatagramInfo::VALUES.start() as u8 | u8::from(true),
+        ))); // 1 byte
+        // Safe to unwrap because we check length sanity before queueing datagrams
+        out.write(VarInt::from_u64(self.data.len() as u64).unwrap()); // <= 8 bytes
+        out.put_slice(&self.data);
     }
 }
 
