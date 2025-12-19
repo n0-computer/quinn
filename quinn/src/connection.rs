@@ -1366,7 +1366,10 @@ impl State {
         // Phase 1: Fill
         while datagrams < MAX_TRANSMIT_DATAGRAMS {
             self.send_buffer.clear();
-            match self.inner.poll_transmit(now, max_datagrams, &mut self.send_buffer) {
+            match self
+                .inner
+                .poll_transmit(now, max_datagrams, &mut self.send_buffer)
+            {
                 Some(t) => {
                     datagrams += t.datagrams();
                     self.buffered_transmits.push(BufferedTransmit {
@@ -1381,11 +1384,12 @@ impl State {
         // Phase 2: Drain
         while !self.buffered_transmits.is_empty() {
             // todo: avoid allocation
-            let transmits: Vec<_> = self.buffered_transmits
+            let transmits: Vec<_> = self
+                .buffered_transmits
                 .iter()
                 .map(|bt| udp_transmit(&bt.meta, &bt.data))
                 .collect();
-            
+
             match self.sender.as_mut().poll_send(&transmits, cx) {
                 Poll::Ready(Ok(n)) => {
                     self.buffered_transmits.drain(..n);
@@ -1394,7 +1398,7 @@ impl State {
                 Poll::Ready(Err(e)) => return Err(e),
             }
         }
-        
+
         Ok(datagrams >= MAX_TRANSMIT_DATAGRAMS)
     }
 

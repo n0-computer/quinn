@@ -151,7 +151,6 @@ pub struct Transmit<'a> {
 }
 
 impl<'a> Transmit<'a> {
-
     /// Number of datagrams encoded in this transmit
     pub fn datagrams(&self) -> usize {
         match self.segment_size {

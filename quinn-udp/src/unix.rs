@@ -392,23 +392,26 @@ fn send(state: &UdpSocketState, io: SockRef<'_>, transmits: &[Transmit<'_>]) -> 
     let mut hdrs = unsafe { mem::zeroed::<[msghdr_x; BATCH_SIZE]>() };
     let mut iovs = unsafe { mem::zeroed::<[libc::iovec; BATCH_SIZE]>() };
     let mut ctrls = [cmsg::Aligned([0u8; CMSG_LEN]); BATCH_SIZE];
-    let mut addrs: [MaybeUninit<socket2::SockAddr>; BATCH_SIZE] = std::array::from_fn(|_| MaybeUninit::uninit());
-    
+    let mut addrs: [MaybeUninit<socket2::SockAddr>; BATCH_SIZE] =
+        std::array::from_fn(|_| MaybeUninit::uninit());
+
     let mut cnt = 0;
     let mut transmits_sent = 0;
-    // let t = std::thread::current();
-    // let tn = t.name().unwrap_or("unknown");
-    // println!("send {} t {} d {}", tn, transmits.len(), transmits.iter().map(|t| t.datagrams()).sum::<usize>());
-    
+    tracing::info!(
+        "send transmits={} datagrams={}",
+        transmits.len(),
+        transmits.iter().map(|t| t.datagrams()).sum::<usize>()
+    );
+
     for transmit in transmits {
         let segment_size = transmit.segment_size.unwrap_or(transmit.contents.len());
         let segments = transmit.datagrams();
-        
+
         // Only include if fully fits
         if cnt + segments > BATCH_SIZE {
             break;
         }
-        
+
         for chunk in transmit.contents.chunks(segment_size) {
             addrs[cnt].write(socket2::SockAddr::from(transmit.destination));
             prepare_msg(
@@ -431,11 +434,11 @@ fn send(state: &UdpSocketState, io: SockRef<'_>, transmits: &[Transmit<'_>]) -> 
         }
         transmits_sent += 1;
     }
-    
+
     if cnt == 0 {
         return Ok(0);
     }
-    
+
     loop {
         let n = unsafe { sendmsg_x(io.as_raw_fd(), hdrs.as_ptr(), cnt as u32, 0) };
 
