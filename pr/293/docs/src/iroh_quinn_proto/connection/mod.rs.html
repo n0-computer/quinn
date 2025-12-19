@@ -5060,7 +5060,7 @@
 <a href=#5060 id=5060 data-nosnippet>5060</a>                <span class="kw">let </span>reach_out = frame::ReachOut::new(<span class="kw-2">*</span>round, local_addr);
 <a href=#5061 id=5061 data-nosnippet>5061</a>                <span class="kw">if </span>buf.remaining_mut() &gt; reach_out.size() {
 <a href=#5062 id=5062 data-nosnippet>5062</a>                    <span class="macro">trace!</span>(%round, <span class="question-mark">?</span>local_addr, <span class="string">"REACH_OUT"</span>);
-<a href=#5063 id=5063 data-nosnippet>5063</a>                    reach_out.write(buf);
+<a href=#5063 id=5063 data-nosnippet>5063</a>                    reach_out.encode(buf);
 <a href=#5064 id=5064 data-nosnippet>5064</a>                    <span class="kw">let </span>sent_reachouts = sent
 <a href=#5065 id=5065 data-nosnippet>5065</a>                        .retransmits
 <a href=#5066 id=5066 data-nosnippet>5066</a>                        .get_or_create()
@@ -5617,7 +5617,7 @@
 <a href=#5617 id=5617 data-nosnippet>5617</a>                    port = added_address.port,
 <a href=#5618 id=5618 data-nosnippet>5618</a>                    <span class="string">"ADD_ADDRESS"</span>,
 <a href=#5619 id=5619 data-nosnippet>5619</a>                );
-<a href=#5620 id=5620 data-nosnippet>5620</a>                added_address.write(buf);
+<a href=#5620 id=5620 data-nosnippet>5620</a>                added_address.encode(buf);
 <a href=#5621 id=5621 data-nosnippet>5621</a>                sent.retransmits
 <a href=#5622 id=5622 data-nosnippet>5622</a>                    .get_or_create()
 <a href=#5623 id=5623 data-nosnippet>5623</a>                    .add_address
@@ -5633,7 +5633,7 @@
 <a href=#5633 id=5633 data-nosnippet>5633</a>        </span><span class="kw">while </span>space_id == SpaceId::Data &amp;&amp; frame::RemoveAddress::SIZE_BOUND &lt;= buf.remaining_mut() {
 <a href=#5634 id=5634 data-nosnippet>5634</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(removed_address) = space.pending.remove_address.pop_last() {
 <a href=#5635 id=5635 data-nosnippet>5635</a>                <span class="macro">trace!</span>(seq = %removed_address.seq_no, <span class="string">"REMOVE_ADDRESS"</span>);
-<a href=#5636 id=5636 data-nosnippet>5636</a>                removed_address.write(buf);
+<a href=#5636 id=5636 data-nosnippet>5636</a>                removed_address.encode(buf);
 <a href=#5637 id=5637 data-nosnippet>5637</a>                sent.retransmits
 <a href=#5638 id=5638 data-nosnippet>5638</a>                    .get_or_create()
 <a href=#5639 id=5639 data-nosnippet>5639</a>                    .remove_address
