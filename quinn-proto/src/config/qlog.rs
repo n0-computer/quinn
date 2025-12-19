@@ -10,7 +10,7 @@ use crate::{ConnectionId, Instant, Side};
 ///
 /// This is set via [`TransportConfig::qlog_factory`].
 ///
-/// [`TransportConfig::qlog_factory]: crate::config::TransportConfig::qlog_factory
+/// [`TransportConfig::qlog_factory`]: crate::TransportConfig::qlog_factory
 pub trait QlogFactory: Send + Sync + 'static {
     /// Returns a [`QlogConfig`] for a connection, if logging should be enabled.
     ///

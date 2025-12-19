@@ -141,7 +141,9 @@ pub(super) struct PathData {
     pub(super) pacing: Pacer,
     /// Actually sent challenges (on the wire).
     pub(super) challenges_sent: IntMap<u64, SentChallengeInfo>,
-    /// Whether to *immediately* trigger another PATH_CHALLENGE (via [`super::Connection::can_send`])
+    /// Whether to *immediately* trigger another PATH_CHALLENGE.
+    ///
+    /// This is picked up by [`super::Connection::space_can_send`].
     pub(super) send_new_challenge: bool,
     /// Pending responses to PATH_CHALLENGE frames
     pub(super) path_responses: PathResponses,

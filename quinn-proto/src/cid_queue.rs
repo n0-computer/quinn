@@ -14,7 +14,7 @@ struct CidData(ConnectionId, Option<ResetToken>);
 /// - Zero to `Self::LEN - 1` reserved CIDs from `self.cursor` up to `self.cursor_reserved`.
 /// - More "available"/"ready" CIDs after `self.cursor_reserved`.
 ///
-/// The range of reserved CIDs is grown by calling [`CidQueue::next_reserved`], which takes one of
+/// The range of reserved CIDs is grown by calling `CidQueue::next_reserved`, which takes one of
 /// the available ones and returns the CID that was reserved.
 ///
 /// New available/ready CIDs are added by calling [`CidQueue::insert`].
