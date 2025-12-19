@@ -23,30 +23,21 @@ use arbitrary::Arbitrary;
 /// Generates the [`FrameType`] enum, and its associated conversions from and to u64
 macro_rules! frame_types {
     // Process the unit variants.
-    (
-        enum_defs: [$($enum_defs: tt)*]
-        try_from_arms: [$($try_from_arms: tt)*]
-        to_u64_arms: [$($to_u64_arms: tt)*]
-        $variant: ident = $value: literal,
-        $($token: tt)*
-    ) => {
+    (enum_defs: [$($enum_defs: tt)*] try_from_arms: [$($try_from_arms: tt)*] to_u64_arms:[$($to_u64_arms: tt)*] // accumulators
+     $variant: ident = $value: literal, // VariantName = value,
+     $($token: tt)*) => {
         frame_types!{
             enum_defs: [$($enum_defs)* $variant,]
             try_from_arms: [$($try_from_arms)* $value => Self::$variant,]
             to_u64_arms: [$($to_u64_arms)* FrameType::$variant => $value,]
-
             $($token)*
         }
     };
 
     // Process the tuple variants.
-    (
-        enum_defs: [$($enum_defs: tt)*]
-        try_from_arms: [$($try_from_arms: tt)*]
-        to_u64_arms: [$($to_u64_arms: tt)*]
-        $variant: ident($inner: ident),
-        $($token: tt)*
-    ) => {
+    (enum_defs: [$($enum_defs: tt)*] try_from_arms: [$($try_from_arms: tt)*] to_u64_arms:[$($to_u64_arms: tt)*] // accumulators
+     $variant: ident($inner: ident), // VariantName(InnerType),
+     $($token: tt)*) => {
         frame_types!{
             enum_defs: [$($enum_defs)* $variant($inner),]
             try_from_arms: [$($try_from_arms)* value if <$inner>::VALUES.contains(&value) => Self::$variant($inner(value as u8)),]
@@ -70,14 +61,11 @@ macro_rules! frame_types {
         impl TryFrom<u64> for FrameType {
             type Error = InvalidFrameId;
             fn try_from(value: u64) -> Result<Self, Self::Error> {
-                let me = match value {
+                Ok(match value {
                     $($try_from_arms)*
                     other => return Err(InvalidFrameId(other))
-                };
-
-                Ok(me)
+                })
             }
-
         }
 
         impl FrameType {
