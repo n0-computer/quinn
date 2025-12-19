@@ -5633,7 +5633,7 @@ impl Connection {
         while space_id == SpaceId::Data && frame::RemoveAddress::SIZE_BOUND <= buf.remaining_mut() {
             if let Some(removed_address) = space.pending.remove_address.pop_last() {
                 trace!(seq = %removed_address.seq_no, "REMOVE_ADDRESS");
-                removed_address.write(buf);
+                removed_address.encode(buf);
                 sent.retransmits
                     .get_or_create()
                     .remove_address

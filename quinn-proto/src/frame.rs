@@ -1857,12 +1857,6 @@ impl RemoveAddress {
         type_size + seq_no_bytes
     }
 
-    /// Unconditionally write this frame to `buf`
-    pub(crate) fn write<W: BufMut>(&self, buf: &mut W) {
-        buf.write(Self::TYPE);
-        buf.write(self.seq_no);
-    }
-
     /// Read the frame contents from the buffer
     ///
     /// Should only be called when the frame type has been identified as
@@ -1871,6 +1865,13 @@ impl RemoveAddress {
         Ok(Self {
             seq_no: bytes.get()?,
         })
+    }
+}
+
+impl Encodable for RemoveAddress {
+    fn encode<W: BufMut>(&self, buf: &mut W) {
+        buf.write(Self::TYPE);
+        buf.write(self.seq_no);
     }
 }
 
@@ -2164,7 +2165,7 @@ mod test {
     fn test_remove_address_roundrip() {
         let remove_addr = RemoveAddress::new(VarInt(10));
         let mut buf = Vec::with_capacity(remove_addr.size());
-        remove_addr.write(&mut buf);
+        remove_addr.encode(&mut buf);
 
         assert_eq!(
             remove_addr.size(),
