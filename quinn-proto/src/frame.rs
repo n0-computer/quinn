@@ -72,7 +72,7 @@ macro_rules! frame_types {
             fn try_from(value: u64) -> Result<Self, Self::Error> {
                 let me = match value {
                     $($try_from_arms)*
-                    other => return Err(InvalidFrameId(dbg!(other)))
+                    other => return Err(InvalidFrameId(other))
                 };
 
                 Ok(me)
@@ -1010,7 +1010,7 @@ impl Iter {
 
     #[track_caller]
     fn try_next(&mut self) -> Result<Frame, IterErr> {
-        self.last_ty = dbg!(self.bytes.get()?);
+        self.last_ty = self.bytes.get()?;
 
         let ty = match self.last_ty {
             MaybeFrame::None => FrameType::Padding,
