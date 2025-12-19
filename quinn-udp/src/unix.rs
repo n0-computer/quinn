@@ -4,6 +4,7 @@ use std::{
     io::{self, IoSliceMut},
     mem::{self, MaybeUninit},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    num::NonZeroUsize,
     os::unix::io::AsRawFd,
     sync::{
         Mutex,
@@ -71,7 +72,7 @@ type IpTosTy = libc::c_int;
 pub struct UdpSocketState {
     last_send_error: Mutex<Instant>,
     max_gso_segments: AtomicUsize,
-    gro_segments: usize,
+    gro_segments: NonZeroUsize,
     may_fragment: bool,
 
     /// True if we have received EINVAL error from `sendmsg` system call at least once.
@@ -245,8 +246,11 @@ impl UdpSocketState {
     /// This is 1 if the platform doesn't support GSO. Subject to change if errors are detected
     /// while using GSO.
     #[inline]
-    pub fn max_gso_segments(&self) -> usize {
-        self.max_gso_segments.load(Ordering::Relaxed)
+    pub fn max_gso_segments(&self) -> NonZeroUsize {
+        self.max_gso_segments
+            .load(Ordering::Relaxed)
+            .try_into()
+            .expect("must have non zero GSO segments")
     }
 
     /// The number of segments to read when GRO is enabled. Used as a factor to
@@ -254,7 +258,7 @@ impl UdpSocketState {
     ///
     /// Returns 1 if the platform doesn't support GRO.
     #[inline]
-    pub fn gro_segments(&self) -> usize {
+    pub fn gro_segments(&self) -> NonZeroUsize {
         self.gro_segments
     }
 
@@ -355,7 +359,7 @@ fn send(
                 if let Some(libc::EIO) | Some(libc::EINVAL) = e.raw_os_error() {
                     // Prevent new transmits from being scheduled using GSO. Existing GSO transmits
                     // may already be in the pipeline, so we need to tolerate additional failures.
-                    if state.max_gso_segments() > 1 {
+                    if state.max_gso_segments().get() > 1 {
                         crate::log::info!(
                             "`libc::sendmsg` failed with {e}; halting segmentation offload"
                         );
@@ -1046,12 +1050,12 @@ mod gro {
     // TODO: Add this to libc
     pub(crate) const UDP_GRO: libc::c_int = 104;
 
-    pub(crate) fn gro_segments() -> usize {
+    pub(crate) fn gro_segments() -> NonZeroUsize {
         let socket = match std::net::UdpSocket::bind("[::]:0")
             .or_else(|_| std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
         {
             Ok(socket) => socket,
-            Err(_) => return 1,
+            Err(_) => return NonZeroUsize::MIN,
         };
 
         // As defined in net/ipv4/udp_offload.c
@@ -1062,8 +1066,8 @@ mod gro {
         // list the kernel might potentially produce. See
         // https://github.com/quinn-rs/quinn/pull/1354.
         match set_socket_option(&socket, libc::SOL_UDP, UDP_GRO, OPTION_ON) {
-            Ok(()) => 64,
-            Err(_) => 1,
+            Ok(()) => NonZeroUsize::new(64).expect("known"),
+            Err(_) => NonZeroUsize::MIN,
         }
     }
 }
@@ -1112,7 +1116,9 @@ const OPTION_ON: libc::c_int = 1;
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 mod gro {
-    pub(super) fn gro_segments() -> usize {
-        1
+    use std::num::NonZeroUsize;
+
+    pub(super) fn gro_segments() -> NonZeroUsize {
+        NonZeroUsize::MIN
     }
 }

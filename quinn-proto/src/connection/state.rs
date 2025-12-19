@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use tracing::trace;
 
 use crate::frame::Close;
 use crate::{ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode};
@@ -54,13 +55,15 @@ impl State {
 
     pub(super) fn move_to_handshake(&mut self, hs: Handshake) {
         self.inner = InnerState::Handshake(hs);
+        trace!("connection state: handshake");
     }
 
     pub(super) fn move_to_established(&mut self) {
         self.inner = InnerState::Established;
+        trace!("connection state: established");
     }
 
-    /// Moves to a draining state.
+    /// Moves to the drained state.
     ///
     /// Panics if the state was already drained.
     pub(super) fn move_to_drained(&mut self, error: Option<ConnectionError>) {
@@ -93,6 +96,7 @@ impl State {
             (error, self.is_local_close())
         };
         self.inner = InnerState::Drained { error, is_local };
+        trace!("connection state: drained");
     }
 
     /// Moves to a draining state.
@@ -109,6 +113,7 @@ impl State {
         );
         let is_local = self.is_local_close();
         self.inner = InnerState::Draining { error, is_local };
+        trace!("connection state: draining");
     }
 
     fn is_local_close(&self) -> bool {
@@ -133,10 +138,13 @@ impl State {
             "invalid state transition {:?} -> closed",
             self.as_type()
         );
+        let remote_reason = reason.into();
+        let is_local = false;
+        trace!(?remote_reason, ?is_local, "connection state: closed");
         self.inner = InnerState::Closed {
             error_read: false,
-            remote_reason: reason.into(),
-            is_local: false,
+            remote_reason,
+            is_local,
         };
     }
 
@@ -152,10 +160,13 @@ impl State {
             "invalid state transition {:?} -> closed (local)",
             self.as_type()
         );
+        let remote_reason = reason.into();
+        let is_local = true;
+        trace!(?remote_reason, ?is_local, "connection state: closed");
         self.inner = InnerState::Closed {
             error_read: false,
-            remote_reason: reason.into(),
-            is_local: true,
+            remote_reason,
+            is_local,
         };
     }
 

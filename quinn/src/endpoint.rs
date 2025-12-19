@@ -5,6 +5,7 @@ use std::{
     io::{self, IoSliceMut},
     mem,
     net::{SocketAddr, SocketAddrV6},
+    num::NonZeroUsize,
     pin::Pin,
     str,
     sync::{Arc, Mutex},
@@ -798,13 +799,13 @@ struct RecvState {
 impl RecvState {
     fn new(
         sender: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>,
-        max_receive_segments: usize,
+        max_receive_segments: NonZeroUsize,
         endpoint: &proto::Endpoint,
     ) -> Self {
         let recv_buf = vec![
             0;
             endpoint.config().get_max_udp_payload_size().min(64 * 1024) as usize
-                * max_receive_segments
+                * max_receive_segments.get()
                 * BATCH_SIZE
         ];
         Self {

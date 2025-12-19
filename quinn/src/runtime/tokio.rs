@@ -2,6 +2,7 @@ use std::{
     fmt::Debug,
     future::Future,
     io,
+    num::NonZeroUsize,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll, ready},
@@ -56,7 +57,7 @@ struct UdpSocket {
 }
 
 impl UdpSenderHelperSocket for UdpSocket {
-    fn max_transmit_segments(&self) -> usize {
+    fn max_transmit_segments(&self) -> NonZeroUsize {
         self.inner.max_gso_segments()
     }
 
@@ -99,7 +100,7 @@ impl AsyncUdpSocket for UdpSocket {
         self.inner.may_fragment()
     }
 
-    fn max_receive_segments(&self) -> usize {
+    fn max_receive_segments(&self) -> NonZeroUsize {
         self.inner.gro_segments()
     }
 }
