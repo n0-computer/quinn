@@ -567,7 +567,7 @@ impl State {
                 .senders
                 .get_mut(&ch)
                 .unwrap()
-                .send(ConnectionEvent::Proto(event));
+                .send(ConnectionEvent::Proto(vec![event]));
         }
 
         true
@@ -842,9 +842,17 @@ impl RecvState {
             // exactly BATCH_SIZE times.
             std::array::from_fn(|_| bufs.next().expect("BATCH_SIZE elements"))
         };
-        loop {
+        let mut buffered_events =
+            FxHashMap::<ConnectionHandle, Vec<proto::ConnectionEvent>>::default();
+        let res = loop {
             match socket.poll_recv(cx, &mut iovs, &mut metas) {
                 Poll::Ready(Ok(msgs)) => {
+                    let dgrams = metas
+                        .iter()
+                        .take(msgs)
+                        .map(|meta| meta.len.div_ceil(meta.stride))
+                        .sum::<usize>();
+                    tracing::info!("Received {} msgs, {} datagrams", msgs, dgrams);
                     self.recv_limiter.record_work(msgs);
                     for (meta, buf) in metas.iter().zip(iovs.iter()).take(msgs) {
                         let mut data: BytesMut = buf[0..meta.len].into();
@@ -871,12 +879,7 @@ impl RecvState {
                                 Some(DatagramEvent::ConnectionEvent(handle, event)) => {
                                     // Ignoring errors from dropped connections that haven't yet been cleaned up
                                     received_connection_packet = true;
-                                    let _ = self
-                                        .connections
-                                        .senders
-                                        .get_mut(&handle)
-                                        .unwrap()
-                                        .send(ConnectionEvent::Proto(event));
+                                    buffered_events.entry(handle).or_default().push(event);
                                 }
                                 Some(DatagramEvent::Response(transmit)) => {
                                     respond(transmit, &response_buffer, sender);
@@ -887,7 +890,7 @@ impl RecvState {
                     }
                 }
                 Poll::Pending => {
-                    return Ok(PollProgress {
+                    break Ok(PollProgress {
                         received_connection_packet,
                         keep_going: false,
                     });
@@ -898,16 +901,25 @@ impl RecvState {
                     continue;
                 }
                 Poll::Ready(Err(e)) => {
-                    return Err(e);
+                    break Err(e);
                 }
             }
             if !self.recv_limiter.allow_work(|| runtime.now()) {
-                return Ok(PollProgress {
+                break Ok(PollProgress {
                     received_connection_packet,
                     keep_going: true,
                 });
             }
+        };
+        for (handle, events) in buffered_events {
+            let _ = self
+                .connections
+                .senders
+                .get_mut(&handle)
+                .unwrap()
+                .send(ConnectionEvent::Proto(events));
         }
+        res
     }
 }
 
