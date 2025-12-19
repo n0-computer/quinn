@@ -143,8 +143,7 @@ impl FrameType {
 
 impl coding::Codec for FrameType {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
-        let id: u64 = buf.get_var()?;
-        Self::try_from(id).map_err(|_| coding::UnexpectedEnd)
+        Self::try_from(buf.get_var()?).map_err(|_| coding::UnexpectedEnd)
     }
 
     fn encode<B: BufMut>(&self, buf: &mut B) {
@@ -158,12 +157,13 @@ pub(crate) trait FrameStruct {
 }
 
 /// The type used to refer to [`FrameType`]s in closing and transport errors.
-#[derive(Copy, Clone, Eq, PartialEq, Debug, derive_more::Display)]
+#[derive(Copy, Clone, Eq, PartialEq, derive_more::Debug, derive_more::Display)]
 pub enum MaybeFrame {
     /// Not attributed to any particular [`FrameType`].
     None,
     /// Attributed to some frame type this implementation does not recognize.
-    #[display("TYPE{:02x}", _0)]
+    #[display("UNKNOWN{:02x}", _0)]
+    #[debug("Unknown{:02x}", _0)]
     Unknown(u64),
     /// Attributed to a specific [`FrameType`], never [`FrameType::Padding`].
     Known(FrameType),
@@ -204,15 +204,12 @@ pub struct StreamInfo(u8);
 
 impl StreamInfo {
     const VALUES: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
-
     fn fin(self) -> bool {
         self.0 & 0x01 != 0
     }
-
     fn len(self) -> bool {
         self.0 & 0x02 != 0
     }
-
     fn off(self) -> bool {
         self.0 & 0x04 != 0
     }
