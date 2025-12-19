@@ -349,10 +349,10 @@
 <a href=#349 id=349 data-nosnippet>349</a>    <span class="doccomment">/// The remote side of this tuple
 <a href=#350 id=350 data-nosnippet>350</a>    </span><span class="kw">pub </span>remote: SocketAddr,
 <a href=#351 id=351 data-nosnippet>351</a>    <span class="doccomment">/// The local side of this tuple.
-<a href=#352 id=352 data-nosnippet>352</a>    </span><span class="comment">// A single socket can only listen on a single port, so no need to store it explicitly
-<a href=#353 id=353 data-nosnippet>353</a>    // TODO(matheus23): add back the port. The comment above is wrong. There *can* be multiple sockets!
-<a href=#354 id=354 data-nosnippet>354</a>    // Even ignoring multiple sockets behind a single abstract `AsyncUdpSocket`, there can
-<a href=#355 id=355 data-nosnippet>355</a>    // be multiple `AsyncUdpSocket`s when you use `rebind`!
+<a href=#352 id=352 data-nosnippet>352</a>    ///
+<a href=#353 id=353 data-nosnippet>353</a>    /// The socket is irrelevant for our intents and purposes:
+<a href=#354 id=354 data-nosnippet>354</a>    /// When we send, we can only specify the `src_ip`, not the source port.
+<a href=#355 id=355 data-nosnippet>355</a>    /// So even if we track the port, we won't be able to make use of it.
 <a href=#356 id=356 data-nosnippet>356</a>    </span><span class="kw">pub </span>local_ip: <span class="prelude-ty">Option</span>&lt;IpAddr&gt;,
 <a href=#357 id=357 data-nosnippet>357</a>}
 <a href=#358 id=358 data-nosnippet>358</a>
@@ -390,9 +390,9 @@
 <a href=#390 id=390 data-nosnippet>390</a>        f.write_str(<span class="string">"("</span>)<span class="question-mark">?</span>;
 <a href=#391 id=391 data-nosnippet>391</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(local_ip) = <span class="kw-2">&amp;</span><span class="self">self</span>.local_ip {
 <a href=#392 id=392 data-nosnippet>392</a>            local_ip.fmt(f)<span class="question-mark">?</span>;
-<a href=#393 id=393 data-nosnippet>393</a>            f.write_str(<span class="string">":&lt;port&gt;, "</span>)<span class="question-mark">?</span>;
+<a href=#393 id=393 data-nosnippet>393</a>            f.write_str(<span class="string">", "</span>)<span class="question-mark">?</span>;
 <a href=#394 id=394 data-nosnippet>394</a>        } <span class="kw">else </span>{
-<a href=#395 id=395 data-nosnippet>395</a>            f.write_str(<span class="string">"&lt;unknown&gt;:&lt;port&gt;, "</span>)<span class="question-mark">?</span>;
+<a href=#395 id=395 data-nosnippet>395</a>            f.write_str(<span class="string">"&lt;unknown&gt;, "</span>)<span class="question-mark">?</span>;
 <a href=#396 id=396 data-nosnippet>396</a>        }
 <a href=#397 id=397 data-nosnippet>397</a>        <span class="self">self</span>.remote.fmt(f)<span class="question-mark">?</span>;
 <a href=#398 id=398 data-nosnippet>398</a>        f.write_str(<span class="string">")"</span>)
