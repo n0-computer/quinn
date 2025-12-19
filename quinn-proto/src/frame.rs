@@ -20,12 +20,8 @@ use crate::{
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 
-/// A QUIC frame type
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub struct FrameType(u64);
-
 /// Generates the [`FrameType`] enum, and its associated conversions from and to u64
-macro_rules! frame_kind {
+macro_rules! frame_types {
     // Process the unit variants.
     (
         enum_defs: [$($enum_defs: tt)*]
@@ -34,10 +30,10 @@ macro_rules! frame_kind {
         $variant: ident = $value: literal,
         $($token: tt)*
     ) => {
-        frame_kind!{
+        frame_types!{
             enum_defs: [$($enum_defs)* $variant,]
             try_from_arms: [$($try_from_arms)* $value => Self::$variant,]
-            from_arms: [$($from_arms)* FrameKind::$variant => $value,]
+            from_arms: [$($from_arms)* FrameType::$variant => $value,]
 
             $($token)*
         }
@@ -51,23 +47,25 @@ macro_rules! frame_kind {
         $variant: ident($inner: ident),
         $($token: tt)*
     ) => {
-        frame_kind!{
+        frame_types!{
             enum_defs: [$($enum_defs)* $variant($inner),]
             try_from_arms: [$($try_from_arms)* value if <$inner>::VALUES.contains(&value) => Self::$variant($inner(value as u8)),]
-            from_arms: [$($from_arms)* FrameKind::$variant($inner(value)) => value.into(),]
+            from_arms: [$($from_arms)* FrameType::$variant($inner(value)) => value.into(),]
             $($token)*
         }
     };
 
     // Final generation step.
     (enum_defs: [$($enum_defs: tt)+] try_from_arms: [$($try_from_arms: tt)+] from_arms: [$($from_arms: tt)+]) => {
-        pub enum FrameKind {
+        /// A QUIC frame type
+        #[derive(Copy, Clone, Eq, PartialEq)]
+        pub enum FrameType {
             $($enum_defs)*
         }
 
         pub struct InvalidFrameId;
 
-        impl TryFrom<u64> for FrameKind {
+        impl TryFrom<u64> for FrameType {
             type Error = InvalidFrameId;
             fn try_from(value: u64) -> Result<Self, Self::Error> {
                 let me = match value {
@@ -80,9 +78,9 @@ macro_rules! frame_kind {
 
         }
 
-        impl From<FrameKind> for u64 {
-            fn from(value: FrameKind) -> Self {
-                match value {
+        impl FrameType {
+            pub(crate) const fn to_u64(self) -> u64 {
+                match self {
                     $($from_arms)*
                 }
             }
@@ -90,20 +88,18 @@ macro_rules! frame_kind {
     };
 }
 
-const A: FrameKind = FrameKind::Stream(StreamInfo(4));
-
-frame_kind! {
+frame_types! {
     enum_defs: []
     try_from_arms: []
     from_arms: []
-    // Padding = 0x00,
-    // Ping = 0x01,
-    // Ack = 0x02,
-    // AckEcn = 0x03,
-    // ResetStream = 0x04,
-    // StopSending = 0x05,
-    // Crypto = 0x06,
-    // NewToken = 0x07,
+    Padding = 0x00,
+    Ping = 0x01,
+    Ack = 0x02,
+    AckEcn = 0x03,
+    ResetStream = 0x04,
+    StopSending = 0x05,
+    Crypto = 0x06,
+    NewToken = 0x07,
     // STREAM
     Stream(StreamInfo),
     MaxData = 0x10,
@@ -167,44 +163,18 @@ impl FrameType {
 
 impl coding::Codec for FrameType {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
-        Ok(Self(buf.get_var()?))
+        let id: u64 = buf.get_var()?;
+        Self::try_from(id).map_err(|_| coding::UnexpectedEnd)
     }
+
     fn encode<B: BufMut>(&self, buf: &mut B) {
-        buf.write_var(self.0);
+        buf.write_var((*self).into());
     }
 }
 
 pub(crate) trait FrameStruct {
     /// Smallest number of bytes this type of frame is guaranteed to fit within.
     const SIZE_BOUND: usize;
-}
-
-macro_rules! frame_types {
-    {$($name:ident = $val:expr,)*} => {
-        impl FrameType {
-            $(pub(crate) const $name: FrameType = FrameType($val);)*
-        }
-
-        impl fmt::Debug for FrameType {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                match self.0 {
-                    $($val => f.write_str(stringify!($name)),)*
-                    _ => write!(f, "Type({:02x})", self.0)
-                }
-            }
-        }
-
-        impl fmt::Display for FrameType {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                match self.0 {
-                    $($val => f.write_str(stringify!($name)),)*
-                    x if STREAM_TYS.contains(&x) => f.write_str("STREAM"),
-                    x if DATAGRAM_TYS.contains(&x) => f.write_str("DATAGRAM"),
-                    _ => write!(f, "<unknown {:02x}>", self.0),
-                }
-            }
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -250,57 +220,6 @@ impl DatagramInfo {
     fn len(self) -> bool {
         self.0 & 0x01 != 0
     }
-}
-
-frame_types! {
-    PADDING = 0x00,
-    PING = 0x01,
-    ACK = 0x02,
-    ACK_ECN = 0x03,
-    RESET_STREAM = 0x04,
-    STOP_SENDING = 0x05,
-    CRYPTO = 0x06,
-    NEW_TOKEN = 0x07,
-    // STREAM
-    MAX_DATA = 0x10,
-    MAX_STREAM_DATA = 0x11,
-    MAX_STREAMS_BIDI = 0x12,
-    MAX_STREAMS_UNI = 0x13,
-    DATA_BLOCKED = 0x14,
-    STREAM_DATA_BLOCKED = 0x15,
-    STREAMS_BLOCKED_BIDI = 0x16,
-    STREAMS_BLOCKED_UNI = 0x17,
-    NEW_CONNECTION_ID = 0x18,
-    RETIRE_CONNECTION_ID = 0x19,
-    PATH_CHALLENGE = 0x1a,
-    PATH_RESPONSE = 0x1b,
-    CONNECTION_CLOSE = 0x1c,
-    APPLICATION_CLOSE = 0x1d,
-    HANDSHAKE_DONE = 0x1e,
-    // ACK Frequency
-    ACK_FREQUENCY = 0xaf,
-    IMMEDIATE_ACK = 0x1f,
-    // DATAGRAM
-    // ADDRESS DISCOVERY REPORT
-    OBSERVED_IPV4_ADDR = 0x9f81a6,
-    OBSERVED_IPV6_ADDR = 0x9f81a7,
-    // Multipath
-    PATH_ACK = 0x15228c00,
-    PATH_ACK_ECN = 0x15228c01,
-    PATH_ABANDON = 0x15228c05,
-    PATH_STATUS_BACKUP = 0x15228c07,
-    PATH_STATUS_AVAILABLE = 0x15228c08,
-    PATH_NEW_CONNECTION_ID = 0x15228c09,
-    PATH_RETIRE_CONNECTION_ID = 0x15228c0a,
-    MAX_PATH_ID = 0x15228c0c,
-    PATHS_BLOCKED = 0x15228c0d,
-    PATH_CIDS_BLOCKED = 0x15228c0e,
-    // IROH'S NAT TRAVERSAL
-    ADD_IPV4_ADDRESS = 0x3d7f90,
-    ADD_IPV6_ADDRESS = 0x3d7f91,
-    REACH_OUT_AT_IPV4 = 0x3d7f92,
-    REACH_OUT_AT_IPV6 = 0x3d7f93,
-    REMOVE_ADDRESS = 0x3d7f94,
 }
 
 const STREAM_TYS: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
@@ -364,49 +283,50 @@ impl Frame {
     pub(crate) fn ty(&self) -> FrameType {
         use Frame::*;
         match *self {
-            Padding => FrameType::PADDING,
-            ResetStream(_) => FrameType::RESET_STREAM,
-            Close(self::Close::Connection(_)) => FrameType::CONNECTION_CLOSE,
-            Close(self::Close::Application(_)) => FrameType::APPLICATION_CLOSE,
-            MaxData(_) => FrameType::MAX_DATA,
-            MaxStreamData { .. } => FrameType::MAX_STREAM_DATA,
-            MaxStreams { dir: Dir::Bi, .. } => FrameType::MAX_STREAMS_BIDI,
-            MaxStreams { dir: Dir::Uni, .. } => FrameType::MAX_STREAMS_UNI,
-            Ping => FrameType::PING,
-            DataBlocked { .. } => FrameType::DATA_BLOCKED,
-            StreamDataBlocked { .. } => FrameType::STREAM_DATA_BLOCKED,
-            StreamsBlocked { dir: Dir::Bi, .. } => FrameType::STREAMS_BLOCKED_BIDI,
-            StreamsBlocked { dir: Dir::Uni, .. } => FrameType::STREAMS_BLOCKED_UNI,
-            StopSending { .. } => FrameType::STOP_SENDING,
-            RetireConnectionId { .. } => FrameType::RETIRE_CONNECTION_ID,
-            Ack(_) => FrameType::ACK,
-            PathAck(_) => FrameType::PATH_ACK,
+            Padding => FrameType::Padding,
+            ResetStream(_) => FrameType::ResetStream,
+            Close(self::Close::Connection(_)) => FrameType::ConnectionClose,
+            Close(self::Close::Application(_)) => FrameType::ConnectionClose,
+            MaxData(_) => FrameType::MaxData,
+            MaxStreamData { .. } => FrameType::MaxStreamData,
+            MaxStreams { dir: Dir::Bi, .. } => FrameType::MaxStreamsBidi,
+            MaxStreams { dir: Dir::Uni, .. } => FrameType::MaxStreamsUni,
+            Ping => FrameType::Ping,
+            DataBlocked { .. } => FrameType::DataBlocked,
+            StreamDataBlocked { .. } => FrameType::StreamDataBlocked,
+            StreamsBlocked { dir: Dir::Bi, .. } => FrameType::StreamsBlockedBidi,
+            StreamsBlocked { dir: Dir::Uni, .. } => FrameType::StreamsBlockedUni,
+            StopSending { .. } => FrameType::StopSending,
+            RetireConnectionId { .. } => FrameType::RetireConnectionId,
+            Ack(_) => FrameType::Ack,
+            PathAck(_) => FrameType::PathAck,
             Stream(ref x) => {
-                let mut ty = *STREAM_TYS.start();
+                let mut ty = *StreamInfo::VALUES.start() as u8;
                 if x.fin {
                     ty |= 0x01;
                 }
                 if x.offset != 0 {
                     ty |= 0x04;
                 }
-                FrameType(ty)
+                // TODO(@divma): move all this to getframetype for Stream
+                FrameType::Stream(StreamInfo(ty))
             }
-            PathChallenge(_) => FrameType::PATH_CHALLENGE,
-            PathResponse(_) => FrameType::PATH_RESPONSE,
+            PathChallenge(_) => FrameType::PathChallenge,
+            PathResponse(_) => FrameType::PathResponse,
             NewConnectionId(cid) => cid.get_type(),
-            Crypto(_) => FrameType::CRYPTO,
-            NewToken(_) => FrameType::NEW_TOKEN,
-            Datagram(_) => FrameType(*DATAGRAM_TYS.start()),
-            AckFrequency(_) => FrameType::ACK_FREQUENCY,
-            ImmediateAck => FrameType::IMMEDIATE_ACK,
-            HandshakeDone => FrameType::HANDSHAKE_DONE,
+            Crypto(_) => FrameType::Crypto,
+            NewToken(_) => FrameType::NewToken,
+            Datagram(_) => FrameType::Datagram(DatagramInfo(*DatagramInfo::VALUES.start() as u8)),
+            AckFrequency(_) => FrameType::AckFrequency,
+            ImmediateAck => FrameType::ImmediateAck,
+            HandshakeDone => FrameType::HandshakeDone,
             ObservedAddr(ref observed) => observed.get_type(),
-            PathAbandon(_) => FrameType::PATH_ABANDON,
-            PathStatusAvailable(_) => FrameType::PATH_STATUS_AVAILABLE,
-            PathStatusBackup(_) => FrameType::PATH_STATUS_BACKUP,
-            MaxPathId(_) => FrameType::MAX_PATH_ID,
-            PathsBlocked(_) => FrameType::PATHS_BLOCKED,
-            PathCidsBlocked(_) => FrameType::PATH_CIDS_BLOCKED,
+            PathAbandon(_) => FrameType::PathAbandon,
+            PathStatusAvailable(_) => FrameType::PathStatusAvailable,
+            PathStatusBackup(_) => FrameType::PathStatusBackup,
+            MaxPathId(_) => FrameType::MaxPathId,
+            PathsBlocked(_) => FrameType::PathsBlocked,
+            PathCidsBlocked(_) => FrameType::PathCidsBlocked,
             AddAddress(ref frame) => frame.get_type(),
             ReachOut(ref frame) => frame.get_type(),
             RemoveAddress(_) => self::RemoveAddress::TYPE,
@@ -471,7 +391,7 @@ impl coding::Codec for PathChallenge {
 
     /// Encode [`Self`] into the given buffer
     fn encode<B: BufMut>(&self, buf: &mut B) {
-        buf.write(FrameType::PATH_CHALLENGE);
+        buf.write(FrameType::PathChallenge);
         buf.write(self.0);
     }
 }
@@ -492,7 +412,7 @@ impl coding::Codec for PathResponse {
 
     /// Encode [`Self`] into the given buffer
     fn encode<B: BufMut>(&self, buf: &mut B) {
-        buf.write(FrameType::PATH_RESPONSE);
+        buf.write(FrameType::PathResponse);
         buf.write(self.0);
     }
 }
@@ -506,7 +426,7 @@ pub(crate) struct RetireConnectionId {
 impl RetireConnectionId {
     /// Maximum size of this frame when the frame type is [`FrameType::RETIRE_CONNECTION_ID`]
     pub(crate) const SIZE_BOUND: usize = {
-        let type_len = VarInt(FrameType::RETIRE_CONNECTION_ID.0).size();
+        let type_len = VarInt(FrameType::RetireConnectionId.into()).size();
         let seq_max_len = 8usize;
         type_len + seq_max_len
     };
