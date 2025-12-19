@@ -396,6 +396,9 @@ fn send(state: &UdpSocketState, io: SockRef<'_>, transmits: &[Transmit<'_>]) -> 
     
     let mut cnt = 0;
     let mut transmits_sent = 0;
+    // let t = std::thread::current();
+    // let tn = t.name().unwrap_or("unknown");
+    // println!("send {} t {} d {}", tn, transmits.len(), transmits.iter().map(|t| t.datagrams()).sum::<usize>());
     
     for transmit in transmits {
         let segment_size = transmit.segment_size.unwrap_or(transmit.contents.len());
