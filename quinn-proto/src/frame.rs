@@ -29,12 +29,14 @@ macro_rules! frame_kind {
     (
         enum_defs: [$($enum_defs: tt)*]
         try_from_arms: [$($try_from_arms: tt)*]
+        from_arms: [$($from_arms: tt)*]
         $variant: ident = $value: literal,
         $($token: tt)*
     ) => {
         frame_kind!{
             enum_defs: [$($enum_defs)* $variant,]
             try_from_arms: [$($try_from_arms)* $value => Self::$variant,]
+            from_arms: [$($from_arms)* FrameKind::$variant => $value,]
 
             $($token)*
         }
@@ -44,18 +46,20 @@ macro_rules! frame_kind {
     (
         enum_defs: [$($enum_defs: tt)*]
         try_from_arms: [$($try_from_arms: tt)*]
+        from_arms: [$($from_arms: tt)*]
         $variant: ident($inner: ident),
         $($token: tt)*
     ) => {
         frame_kind!{
             enum_defs: [$($enum_defs)* $variant($inner),]
             try_from_arms: [$($try_from_arms)* value if <$inner>::VALUES.contains(&value) => Self::$variant($inner(value as u8)),]
+            from_arms: [$($from_arms)* FrameKind::$variant($inner(value)) => value.into(),]
             $($token)*
         }
     };
 
     // Final generation step.
-    (enum_defs: [$($enum_defs: tt)+] try_from_arms: [$($try_from_arms: tt)+]) => {
+    (enum_defs: [$($enum_defs: tt)+] try_from_arms: [$($try_from_arms: tt)+] from_arms: [$($from_arms: tt)+]) => {
         pub enum FrameKind {
             $($enum_defs)*
         }
@@ -74,6 +78,14 @@ macro_rules! frame_kind {
             }
 
         }
+
+        impl From<FrameKind> for u64 {
+            fn from(value: FrameKind) -> Self {
+                match value {
+                    $($from_arms)*
+                }
+            }
+        }
     };
 }
 
@@ -82,6 +94,7 @@ const A: FrameKind = FrameKind::Stream(StreamInfo(4));
 frame_kind! {
     enum_defs: []
     try_from_arms: []
+    from_arms: []
     // Padding = 0x00,
     // Ping = 0x01,
     // Ack = 0x02,
