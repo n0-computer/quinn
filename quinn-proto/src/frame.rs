@@ -190,8 +190,7 @@ impl MaybeFrame {
 
 impl coding::Codec for MaybeFrame {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
-        let frame_id: u64 = buf.get()?;
-        match FrameType::try_from(frame_id) {
+        match FrameType::try_from(buf.get_var()?) {
             Ok(FrameType::Padding) => Ok(MaybeFrame::None),
             Ok(other_frame) => Ok(MaybeFrame::Known(other_frame)),
             Err(InvalidFrameId(other)) => Ok(MaybeFrame::Unknown(other)),
@@ -200,7 +199,7 @@ impl coding::Codec for MaybeFrame {
 
     fn encode<B: BufMut>(&self, buf: &mut B) {
         match self {
-            MaybeFrame::None => buf.write(0u8),
+            MaybeFrame::None => buf.write(0u64),
             MaybeFrame::Unknown(frame_id) => buf.write(*frame_id),
             MaybeFrame::Known(frame_type) => buf.write(*frame_type),
         }
@@ -1011,7 +1010,8 @@ impl Iter {
 
     #[track_caller]
     fn try_next(&mut self) -> Result<Frame, IterErr> {
-        self.last_ty = self.bytes.get()?;
+        self.last_ty = dbg!(self.bytes.get()?);
+
         let ty = match self.last_ty {
             MaybeFrame::None => Err(IterErr::UnexpectedEnd),
             MaybeFrame::Unknown(_other) => Err(IterErr::InvalidFrameId),
