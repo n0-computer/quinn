@@ -23,7 +23,7 @@ use crate::{
     TransportErrorCode, VarInt,
     cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
-    coding::BufMutExt,
+    coding::{BufMutExt, Encodable},
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     connection::{
@@ -5091,7 +5091,7 @@ impl Connection {
             let frame = frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
             if buf.remaining_mut() > frame.size() {
                 trace!(seq = %frame.seq_no, ip = %frame.ip, port = frame.port, "OBSERVED_ADDRESS");
-                frame.write(buf);
+                frame.encode(buf);
 
                 self.next_observed_addr_seq_no = self.next_observed_addr_seq_no.saturating_add(1u8);
                 path.observed_addr_sent = true;
@@ -5229,7 +5229,7 @@ impl Connection {
             {
                 let frame = frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
                 if buf.remaining_mut() > frame.size() {
-                    frame.write(buf);
+                    frame.encode(buf);
                     qlog.frame(&Frame::ObservedAddr(frame));
 
                     self.next_observed_addr_seq_no =
@@ -5266,7 +5266,7 @@ impl Connection {
                     let frame =
                         frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
                     if buf.remaining_mut() > frame.size() {
-                        frame.write(buf);
+                        frame.encode(buf);
                         qlog.frame(&Frame::ObservedAddr(frame));
 
                         self.next_observed_addr_seq_no =

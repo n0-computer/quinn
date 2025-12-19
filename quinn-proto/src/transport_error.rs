@@ -4,7 +4,7 @@ use bytes::{Buf, BufMut};
 
 use crate::{
     VarInt,
-    coding::{self, BufExt, BufMutExt},
+    coding::{self, BufExt, BufMutExt, Decodable, Encodable},
     frame::MaybeFrame,
 };
 
@@ -72,10 +72,13 @@ impl Code {
     }
 }
 
-impl coding::Codec for Code {
+impl Decodable for Code {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
         Ok(Self(buf.get_var()?))
     }
+}
+
+impl Encodable for Code {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.write_var(self.0)
     }

@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
-    coding::BufMutExt,
+    coding::{BufMutExt, Encodable},
     connection::{qlog::QlogSentPacket, stats::FrameStats},
     frame::{self, Frame, FrameStruct, StreamMetaVec},
     transport_parameters::TransportParameters,
