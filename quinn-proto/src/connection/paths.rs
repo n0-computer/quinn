@@ -141,7 +141,9 @@ pub(super) struct PathData {
     pub(super) pacing: Pacer,
     /// Actually sent challenges (on the wire).
     pub(super) challenges_sent: IntMap<u64, SentChallengeInfo>,
-    /// Whether to *immediately* trigger another PATH_CHALLENGE (via [`super::Connection::can_send`])
+    /// Whether to *immediately* trigger another PATH_CHALLENGE.
+    ///
+    /// This is picked up by [`super::Connection::space_can_send`].
     pub(super) send_new_challenge: bool,
     /// Pending responses to PATH_CHALLENGE frames
     pub(super) path_responses: PathResponses,
@@ -273,8 +275,8 @@ impl PathData {
             status: Default::default(),
             first_packet: None,
             pto_count: 0,
-            idle_timeout: None,
-            keep_alive: None,
+            idle_timeout: config.default_path_max_idle_timeout,
+            keep_alive: config.default_path_keep_alive_interval,
             open: false,
             last_allowed_receive: None,
             #[cfg(feature = "qlog")]

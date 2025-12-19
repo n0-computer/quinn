@@ -4,7 +4,7 @@ use std::{
     convert::TryFrom,
     fmt, io, mem,
     net::{IpAddr, SocketAddr},
-    num::NonZeroU32,
+    num::{NonZeroU32, NonZeroUsize},
     ops::Not,
     sync::Arc,
 };
@@ -888,7 +888,7 @@ impl Connection {
     pub fn poll_transmit(
         &mut self,
         now: Instant,
-        max_datagrams: usize,
+        max_datagrams: NonZeroUsize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
         if let Some(probing) = self
@@ -911,9 +911,8 @@ impl Connection {
             });
         }
 
-        assert!(max_datagrams != 0);
         let max_datagrams = match self.config.enable_segmentation_offload {
-            false => 1,
+            false => NonZeroUsize::MIN,
             true => max_datagrams,
         };
 
@@ -1154,7 +1153,7 @@ impl Connection {
 
             // If the datagram is full, we need to start a new one.
             if transmit.datagram_remaining_mut() == 0 {
-                if transmit.num_datagrams() >= transmit.max_datagrams() {
+                if transmit.num_datagrams() >= transmit.max_datagrams().get() {
                     // No more datagrams allowed
                     break;
                 }
@@ -3831,7 +3830,6 @@ impl Connection {
                     self.stats.frame_rx.record(&frame);
 
                     if let Frame::Close(_error) = frame {
-                        trace!("draining");
                         self.state.move_to_draining(None);
                         break;
                     }
