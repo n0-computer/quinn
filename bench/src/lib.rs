@@ -152,10 +152,19 @@ pub fn rt(runtime_type: RuntimeType) -> Runtime {
         RuntimeType::Tokio => {
             let counter = std::sync::atomic::AtomicUsize::new(0);
             Builder::new_multi_thread()
-            .thread_name_fn(move || format!("tokio-runtime-{}", counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)))
-            .enable_all().build().unwrap()
-        },
-        RuntimeType::TokioCurrentThread => Builder::new_current_thread().enable_all().build().unwrap()
+                .thread_name_fn(move || {
+                    format!(
+                        "tokio-runtime-{}",
+                        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    )
+                })
+                .enable_all()
+                .build()
+                .unwrap()
+        }
+        RuntimeType::TokioCurrentThread => {
+            Builder::new_current_thread().enable_all().build().unwrap()
+        }
     }
 }
 
