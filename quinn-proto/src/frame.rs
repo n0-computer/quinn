@@ -144,6 +144,13 @@ frame_types! {
     RemoveAddress = 0x3d7f94,
 }
 
+impl FrameType {
+    /// The encoded size of this [`FrameType`].
+    const fn size(&self) -> usize {
+        VarInt(self.to_u64()).size()
+    }
+}
+
 impl coding::Codec for FrameType {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
         let id: u64 = buf.get_var()?;
@@ -160,19 +167,48 @@ pub(crate) trait FrameStruct {
     const SIZE_BOUND: usize;
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub(crate) enum MaybeFrame {
+    None,
+    Unknown(u64),
+    Known(FrameType),
+}
+
+impl MaybeFrame {
+    /// Encoded size of this [`MaybeFrame`].
+    const fn size(&self) -> usize {
+        match self {
+            MaybeFrame::None => VarInt(0).size(),
+            MaybeFrame::Unknown(other) => VarInt(*other).size(),
+            MaybeFrame::Known(frame_type) => frame_type.size(),
+        }
+    }
+}
+
+impl coding::Codec for MaybeFrame {
+    fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
+        let frame_id: u64 = buf.get()?;
+        match FrameType::try_from(frame_id) {
+            Ok(FrameType::Padding) => Ok(MaybeFrame::None),
+            Ok(other_frame) => Ok(MaybeFrame::Known(other_frame)),
+            Err(InvalidFrameId) => Ok(MaybeFrame::Unknown(frame_id)),
+        }
+    }
+
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        match self {
+            MaybeFrame::None => buf.write(0u8),
+            MaybeFrame::Unknown(frame_id) => buf.write(*frame_id),
+            MaybeFrame::Known(frame_type) => buf.write(*frame_type),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct StreamInfo(u8);
 
 impl StreamInfo {
     const VALUES: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
-
-    fn new(val: u64) -> Option<Self> {
-        if Self::VALUES.contains(&val) {
-            Some(Self(val as u8))
-        } else {
-            None
-        }
-    }
 
     fn fin(self) -> bool {
         self.0 & 0x01 != 0
@@ -499,7 +535,7 @@ pub struct ConnectionClose {
     /// Class of error as encoded in the specification
     pub error_code: TransportErrorCode,
     /// Type of frame that caused the close
-    pub frame_type: Option<FrameType>,
+    pub frame_type: MaybeFrame,
     /// Human-readable reason for the close
     pub reason: Bytes,
 }
@@ -533,11 +569,10 @@ impl ConnectionClose {
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W, max_len: usize) {
         out.write(FrameType::ConnectionClose); // 1 byte
         out.write(self.error_code); // <= 8 bytes
-        let ty = self.frame_type.map_or(0, |x| x.0);
-        out.write_var(ty); // <= 8 bytes
+        out.write(self.frame_type); // <= 8 bytes
         let max_len = max_len
             - 3
-            - VarInt::from_u64(ty).unwrap().size()
+            - self.frame_type.size()
             - VarInt::from_u64(self.reason.len() as u64).unwrap().size();
         let actual_len = self.reason.len().min(max_len);
         out.write_var(actual_len as u64); // <= 8 bytes
@@ -627,7 +662,7 @@ impl<'a> IntoIterator for &'a PathAck {
 impl PathAck {
     /// Encode [`Self`] into the given buffer
     ///
-    /// The [`FrameType`] will be either [`FrameType::PATH_ACK_ECN`] or [`FrameType::PATH_ACK`]
+    /// The [`FrameType`] will be either [`FrameType::PathAckEcn`] or [`FrameType::PathAck`]
     /// depending on whether [`EcnCounts`] are provided.
     ///
     /// PANICS: if `ranges` is empty.
@@ -645,8 +680,8 @@ impl PathAck {
         let largest = first.end - 1;
         let first_size = first.end - first.start;
         let kind = match ecn.is_some() {
-            true => FrameType::PATH_ACK_ECN,
-            false => FrameType::PATH_ACK,
+            true => FrameType::PathAckEcn,
+            false => FrameType::PathAck,
         };
         buf.write(kind);
         buf.write(path_id);
@@ -729,8 +764,8 @@ impl Ack {
         let largest = first.end - 1;
         let first_size = first.end - first.start;
         let kind = match ecn.is_some() {
-            true => FrameType::ACK_ECN,
-            false => FrameType::ACK,
+            true => FrameType::AckEcn,
+            false => FrameType::Ack,
         };
         buf.write(kind);
         buf.write_var(largest);
@@ -824,7 +859,7 @@ impl Default for StreamMeta {
 
 impl StreamMeta {
     pub(crate) fn encode<W: BufMut>(&self, length: bool, out: &mut W) {
-        let mut ty = *STREAM_TYS.start();
+        let mut ty = *StreamInfo::VALUES.start();
         if self.offsets.start != 0 {
             ty |= 0x04;
         }
@@ -858,7 +893,7 @@ impl Crypto {
     pub(crate) const SIZE_BOUND: usize = 17;
 
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
-        out.write(FrameType::CRYPTO);
+        out.write(FrameType::Crypto);
         out.write_var(self.offset);
         out.write_var(self.data.len() as u64);
         out.put_slice(&self.data);
@@ -872,7 +907,7 @@ pub(crate) struct NewToken {
 
 impl NewToken {
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
-        out.write(FrameType::NEW_TOKEN);
+        out.write(FrameType::NewToken);
         out.write_var(self.token.len() as u64);
         out.put_slice(&self.token);
     }
@@ -887,7 +922,7 @@ pub(crate) struct MaxPathId(pub(crate) PathId);
 
 impl MaxPathId {
     pub(crate) const SIZE_BOUND: usize =
-        VarInt(FrameType::MAX_PATH_ID.0).size() + VarInt(u32::MAX as u64).size();
+        FrameType::MaxPathId.size() + VarInt(u32::MAX as u64).size();
 
     /// Decode [`Self`] from the buffer, provided that the frame type has been verified
     pub(crate) fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
@@ -896,7 +931,7 @@ impl MaxPathId {
 
     /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<B: BufMut>(&self, buf: &mut B) {
-        buf.write(FrameType::MAX_PATH_ID);
+        buf.write(FrameType::MaxPathId);
         buf.write(self.0);
     }
 }
@@ -906,11 +941,11 @@ pub(crate) struct PathsBlocked(pub(crate) PathId);
 
 impl PathsBlocked {
     pub(crate) const SIZE_BOUND: usize =
-        VarInt(FrameType::PATHS_BLOCKED.0).size() + VarInt(u32::MAX as u64).size();
+        FrameType::PathsBlocked.size() + VarInt(u32::MAX as u64).size();
 
     /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<B: BufMut>(&self, buf: &mut B) {
-        buf.write(FrameType::PATHS_BLOCKED);
+        buf.write(FrameType::PathsBlocked);
         buf.write(self.0);
     }
 
@@ -927,9 +962,8 @@ pub(crate) struct PathCidsBlocked {
 }
 
 impl PathCidsBlocked {
-    pub(crate) const SIZE_BOUND: usize = VarInt(FrameType::PATH_CIDS_BLOCKED.0).size()
-        + VarInt(u32::MAX as u64).size()
-        + VarInt::MAX.size();
+    pub(crate) const SIZE_BOUND: usize =
+        FrameType::PathCidsBlocked.size() + VarInt(u32::MAX as u64).size() + VarInt::MAX.size();
 
     /// Decode [`Self`] from the buffer, provided that the frame type has been verified
     pub(crate) fn decode<R: Buf>(buf: &mut R) -> coding::Result<Self> {
@@ -941,7 +975,7 @@ impl PathCidsBlocked {
 
     // Encode [`Self`] into the given buffer
     pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
-        buf.write(FrameType::PATH_CIDS_BLOCKED);
+        buf.write(FrameType::PathCidsBlocked);
         buf.write(self.path_id);
         buf.write(self.next_seq);
     }
@@ -949,7 +983,7 @@ impl PathCidsBlocked {
 
 pub(crate) struct Iter {
     bytes: Bytes,
-    last_ty: Option<FrameType>,
+    last_ty: MaybeFrame,
 }
 
 impl Iter {
@@ -965,7 +999,7 @@ impl Iter {
 
         Ok(Self {
             bytes: payload,
-            last_ty: None,
+            last_ty: MaybeFrame::None,
         })
     }
 
@@ -979,67 +1013,65 @@ impl Iter {
 
     #[track_caller]
     fn try_next(&mut self) -> Result<Frame, IterErr> {
-        let ty = self.bytes.get::<FrameType>()?;
-        self.last_ty = Some(ty);
+        let ty: u64 = self.bytes.get()?;
+        let ty = FrameType::try_from(ty).map_err(|_| IterErr::InvalidFrameId(ty))?;
+        self.last_ty = MaybeFrame::Known(ty);
         Ok(match ty {
-            FrameType::PADDING => Frame::Padding,
-            FrameType::RESET_STREAM => Frame::ResetStream(ResetStream {
+            FrameType::Padding => Frame::Padding,
+            FrameType::ResetStream => Frame::ResetStream(ResetStream {
                 id: self.bytes.get()?,
                 error_code: self.bytes.get()?,
                 final_offset: self.bytes.get()?,
             }),
-            FrameType::CONNECTION_CLOSE => Frame::Close(Close::Connection(ConnectionClose {
+            FrameType::ConnectionClose => Frame::Close(Close::Connection(ConnectionClose {
                 error_code: self.bytes.get()?,
-                frame_type: {
-                    let x = self.bytes.get_var()?;
-                    if x == 0 { None } else { Some(FrameType(x)) }
-                },
+                frame_type: self.bytes.get()?,
                 reason: self.take_len()?,
             })),
-            FrameType::APPLICATION_CLOSE => Frame::Close(Close::Application(ApplicationClose {
+            FrameType::ApplicationClose => Frame::Close(Close::Application(ApplicationClose {
                 error_code: self.bytes.get()?,
                 reason: self.take_len()?,
             })),
-            FrameType::MAX_DATA => Frame::MaxData(self.bytes.get()?),
-            FrameType::MAX_STREAM_DATA => Frame::MaxStreamData {
+            FrameType::MaxData => Frame::MaxData(self.bytes.get()?),
+            FrameType::MaxStreamData => Frame::MaxStreamData {
                 id: self.bytes.get()?,
                 offset: self.bytes.get_var()?,
             },
-            FrameType::MAX_STREAMS_BIDI => Frame::MaxStreams {
+            FrameType::MaxStreamsBidi => Frame::MaxStreams {
                 dir: Dir::Bi,
                 count: self.bytes.get_var()?,
             },
-            FrameType::MAX_STREAMS_UNI => Frame::MaxStreams {
+            FrameType::MaxStreamsUni => Frame::MaxStreams {
                 dir: Dir::Uni,
                 count: self.bytes.get_var()?,
             },
-            FrameType::PING => Frame::Ping,
-            FrameType::DATA_BLOCKED => Frame::DataBlocked {
+            FrameType::Ping => Frame::Ping,
+            FrameType::DataBlocked => Frame::DataBlocked {
                 offset: self.bytes.get_var()?,
             },
-            FrameType::STREAM_DATA_BLOCKED => Frame::StreamDataBlocked {
+            FrameType::StreamDataBlocked => Frame::StreamDataBlocked {
                 id: self.bytes.get()?,
                 offset: self.bytes.get_var()?,
             },
-            FrameType::STREAMS_BLOCKED_BIDI => Frame::StreamsBlocked {
+            FrameType::StreamsBlockedBidi => Frame::StreamsBlocked {
                 dir: Dir::Bi,
                 limit: self.bytes.get_var()?,
             },
-            FrameType::STREAMS_BLOCKED_UNI => Frame::StreamsBlocked {
+            FrameType::StreamsBlockedUni => Frame::StreamsBlocked {
                 dir: Dir::Uni,
                 limit: self.bytes.get_var()?,
             },
-            FrameType::STOP_SENDING => Frame::StopSending(StopSending {
+            FrameType::StopSending => Frame::StopSending(StopSending {
                 id: self.bytes.get()?,
                 error_code: self.bytes.get()?,
             }),
-            FrameType::RETIRE_CONNECTION_ID | FrameType::PATH_RETIRE_CONNECTION_ID => {
+            FrameType::RetireConnectionId | FrameType::PathRetireConnectionId => {
                 Frame::RetireConnectionId(RetireConnectionId::decode(
                     &mut self.bytes,
-                    ty == FrameType::PATH_RETIRE_CONNECTION_ID,
+                    ty == FrameType::PathRetireConnectionId,
                 )?)
             }
-            FrameType::ACK | FrameType::ACK_ECN => {
+            FrameType::Ack | FrameType::AckEcn => {
                 let largest = self.bytes.get_var()?;
                 let delay = self.bytes.get_var()?;
                 let extra_blocks = self.bytes.get_var()? as usize;
@@ -1048,7 +1080,7 @@ impl Iter {
                     delay,
                     largest,
                     additional: self.bytes.split_to(n),
-                    ecn: if ty != FrameType::ACK_ECN && ty != FrameType::PATH_ACK_ECN {
+                    ecn: if ty != FrameType::AckEcn && ty != FrameType::PathAckEcn {
                         None
                     } else {
                         Some(EcnCounts {
@@ -1059,7 +1091,7 @@ impl Iter {
                     },
                 })
             }
-            FrameType::PATH_ACK | FrameType::PATH_ACK_ECN => {
+            FrameType::PathAck | FrameType::PathAckEcn => {
                 let path_id = self.bytes.get()?;
                 let largest = self.bytes.get_var()?;
                 let delay = self.bytes.get_var()?;
@@ -1070,7 +1102,7 @@ impl Iter {
                     delay,
                     largest,
                     additional: self.bytes.split_to(n),
-                    ecn: if ty != FrameType::ACK_ECN && ty != FrameType::PATH_ACK_ECN {
+                    ecn: if ty != FrameType::AckEcn && ty != FrameType::PathAckEcn {
                         None
                     } else {
                         Some(EcnCounts {
@@ -1081,81 +1113,72 @@ impl Iter {
                     },
                 })
             }
-            FrameType::PATH_CHALLENGE => Frame::PathChallenge(self.bytes.get()?),
-            FrameType::PATH_RESPONSE => Frame::PathResponse(self.bytes.get()?),
-            FrameType::NEW_CONNECTION_ID | FrameType::PATH_NEW_CONNECTION_ID => {
-                let read_path = ty == FrameType::PATH_NEW_CONNECTION_ID;
+            FrameType::PathChallenge => Frame::PathChallenge(self.bytes.get()?),
+            FrameType::PathResponse => Frame::PathResponse(self.bytes.get()?),
+            FrameType::NewConnectionId | FrameType::PathNewConnectionId => {
+                let read_path = ty == FrameType::PathNewConnectionId;
                 Frame::NewConnectionId(NewConnectionId::read(&mut self.bytes, read_path)?)
             }
-            FrameType::CRYPTO => Frame::Crypto(Crypto {
+            FrameType::Crypto => Frame::Crypto(Crypto {
                 offset: self.bytes.get_var()?,
                 data: self.take_len()?,
             }),
-            FrameType::NEW_TOKEN => Frame::NewToken(NewToken {
+            FrameType::NewToken => Frame::NewToken(NewToken {
                 token: self.take_len()?,
             }),
-            FrameType::HANDSHAKE_DONE => Frame::HandshakeDone,
-            FrameType::ACK_FREQUENCY => Frame::AckFrequency(AckFrequency {
+            FrameType::HandshakeDone => Frame::HandshakeDone,
+            FrameType::AckFrequency => Frame::AckFrequency(AckFrequency {
                 sequence: self.bytes.get()?,
                 ack_eliciting_threshold: self.bytes.get()?,
                 request_max_ack_delay: self.bytes.get()?,
                 reordering_threshold: self.bytes.get()?,
             }),
-            FrameType::IMMEDIATE_ACK => Frame::ImmediateAck,
-            FrameType::OBSERVED_IPV4_ADDR | FrameType::OBSERVED_IPV6_ADDR => {
-                let is_ipv6 = ty == FrameType::OBSERVED_IPV6_ADDR;
+            FrameType::ImmediateAck => Frame::ImmediateAck,
+            FrameType::ObservedIpv4Addr | FrameType::ObservedIpv6Addr => {
+                let is_ipv6 = ty == FrameType::ObservedIpv6Addr;
                 let observed = ObservedAddr::read(&mut self.bytes, is_ipv6)?;
                 Frame::ObservedAddr(observed)
             }
-            FrameType::PATH_ABANDON => Frame::PathAbandon(PathAbandon::decode(&mut self.bytes)?),
-            FrameType::PATH_STATUS_AVAILABLE => {
+            FrameType::PathAbandon => Frame::PathAbandon(PathAbandon::decode(&mut self.bytes)?),
+            FrameType::PathStatusAvailable => {
                 Frame::PathStatusAvailable(PathStatusAvailable::decode(&mut self.bytes)?)
             }
-            FrameType::PATH_STATUS_BACKUP => {
+            FrameType::PathStatusBackup => {
                 Frame::PathStatusBackup(PathStatusBackup::decode(&mut self.bytes)?)
             }
-            FrameType::MAX_PATH_ID => Frame::MaxPathId(MaxPathId::decode(&mut self.bytes)?),
-            FrameType::PATHS_BLOCKED => Frame::PathsBlocked(PathsBlocked::decode(&mut self.bytes)?),
-            FrameType::PATH_CIDS_BLOCKED => {
+            FrameType::MaxPathId => Frame::MaxPathId(MaxPathId::decode(&mut self.bytes)?),
+            FrameType::PathsBlocked => Frame::PathsBlocked(PathsBlocked::decode(&mut self.bytes)?),
+            FrameType::PathCidsBlocked => {
                 Frame::PathCidsBlocked(PathCidsBlocked::decode(&mut self.bytes)?)
             }
-            FrameType::ADD_IPV4_ADDRESS | FrameType::ADD_IPV6_ADDRESS => {
-                let is_ipv6 = ty == FrameType::ADD_IPV6_ADDRESS;
+            FrameType::AddIpv4Address | FrameType::AddIpv6Address => {
+                let is_ipv6 = ty == FrameType::AddIpv6Address;
                 let add_address = AddAddress::read(&mut self.bytes, is_ipv6)?;
                 Frame::AddAddress(add_address)
             }
-            FrameType::REACH_OUT_AT_IPV4 | FrameType::REACH_OUT_AT_IPV6 => {
-                let is_ipv6 = ty == FrameType::REACH_OUT_AT_IPV6;
+            FrameType::ReachOutAtIpv4 | FrameType::ReachOutAtIpv6 => {
+                let is_ipv6 = ty == FrameType::ReachOutAtIpv6;
                 let reach_out = ReachOut::read(&mut self.bytes, is_ipv6)?;
                 Frame::ReachOut(reach_out)
             }
-            FrameType::REMOVE_ADDRESS => {
-                Frame::RemoveAddress(RemoveAddress::read(&mut self.bytes)?)
-            }
-            _ => {
-                if let Some(s) = ty.stream() {
-                    Frame::Stream(Stream {
-                        id: self.bytes.get()?,
-                        offset: if s.off() { self.bytes.get_var()? } else { 0 },
-                        fin: s.fin(),
-                        data: if s.len() {
-                            self.take_len()?
-                        } else {
-                            self.take_remaining()
-                        },
-                    })
-                } else if let Some(d) = ty.datagram() {
-                    Frame::Datagram(Datagram {
-                        data: if d.len() {
-                            self.take_len()?
-                        } else {
-                            self.take_remaining()
-                        },
-                    })
+            FrameType::RemoveAddress => Frame::RemoveAddress(RemoveAddress::read(&mut self.bytes)?),
+            FrameType::Stream(s) => Frame::Stream(Stream {
+                id: self.bytes.get()?,
+                offset: if s.off() { self.bytes.get_var()? } else { 0 },
+                fin: s.fin(),
+                data: if s.len() {
+                    self.take_len()?
                 } else {
-                    return Err(IterErr::InvalidFrameId);
-                }
-            }
+                    self.take_remaining()
+                },
+            }),
+            FrameType::Datagram(d) => Frame::Datagram(Datagram {
+                data: if d.len() {
+                    self.take_len()?
+                } else {
+                    self.take_remaining()
+                },
+            }),
         })
     }
 
@@ -1186,7 +1209,7 @@ impl Iterator for Iter {
 
 #[derive(Debug)]
 pub(crate) struct InvalidFrame {
-    pub(crate) ty: Option<FrameType>,
+    pub(crate) ty: MaybeFrame,
     pub(crate) reason: &'static str,
 }
 
@@ -1215,7 +1238,7 @@ fn scan_ack_blocks(mut buf: &[u8], largest: u64, n: usize) -> Result<usize, Iter
 #[derive(Debug)]
 enum IterErr {
     UnexpectedEnd,
-    InvalidFrameId,
+    InvalidFrameId(u64),
     Malformed,
 }
 
@@ -1224,7 +1247,7 @@ impl IterErr {
         use IterErr::*;
         match *self {
             UnexpectedEnd => "unexpected end",
-            InvalidFrameId => "invalid frame ID",
+            InvalidFrameId(_) => "invalid frame ID",
             Malformed => "malformed",
         }
     }
@@ -1278,7 +1301,7 @@ impl FrameStruct for ResetStream {
 
 impl ResetStream {
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
-        out.write(FrameType::RESET_STREAM); // 1 byte
+        out.write(FrameType::ResetStream); // 1 byte
         out.write(self.id); // <= 8 bytes
         out.write(self.error_code); // <= 8 bytes
         out.write(self.final_offset); // <= 8 bytes
@@ -1297,7 +1320,7 @@ impl FrameStruct for StopSending {
 
 impl StopSending {
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
-        out.write(FrameType::STOP_SENDING); // 1 byte
+        out.write(FrameType::StopSending); // 1 byte
         out.write(self.id); // <= 8 bytes
         out.write(self.error_code) // <= 8 bytes
     }
@@ -1313,9 +1336,9 @@ pub(crate) struct NewConnectionId {
 }
 
 impl NewConnectionId {
-    /// Maximum size of this frame when the frame type is [`FrameType::NEW_CONNECTION_ID`],
+    /// Maximum size of this frame when the frame type is [`FrameType::NewConnectionId`],
     pub(crate) const SIZE_BOUND: usize = {
-        let type_len = VarInt(FrameType::NEW_CONNECTION_ID.0).size();
+        let type_len = FrameType::NewConnectionId.size();
         let seq_max_len = 8usize;
         let retire_prior_to_max_len = 8usize;
         let cid_len_len = 1;
@@ -1324,9 +1347,9 @@ impl NewConnectionId {
         type_len + seq_max_len + retire_prior_to_max_len + cid_len_len + cid_len + reset_token_len
     };
 
-    /// Maximum size of this frame when the frame type is [`FrameType::PATH_NEW_CONNECTION_ID`],
+    /// Maximum size of this frame when the frame type is [`FrameType::PathNewConnectionId`],
     pub(crate) const SIZE_BOUND_MULTIPATH: usize = {
-        let type_len = VarInt(FrameType::PATH_NEW_CONNECTION_ID.0).size();
+        let type_len = FrameType::PathNewConnectionId.size();
         let path_id_len = VarInt::from_u32(u32::MAX).size();
         let seq_max_len = 8usize;
         let retire_prior_to_max_len = 8usize;
@@ -1356,9 +1379,9 @@ impl NewConnectionId {
 
     pub(crate) fn get_type(&self) -> FrameType {
         if self.path_id.is_some() {
-            FrameType::PATH_NEW_CONNECTION_ID
+            FrameType::PathNewConnectionId
         } else {
-            FrameType::NEW_CONNECTION_ID
+            FrameType::NewConnectionId
         }
     }
 
@@ -1423,7 +1446,9 @@ impl FrameStruct for Datagram {
 
 impl Datagram {
     pub(crate) fn encode(&self, length: bool, out: &mut impl BufMut) {
-        out.write(FrameType(*DATAGRAM_TYS.start() | u64::from(length))); // 1 byte
+        out.write(FrameType::Datagram(DatagramInfo(
+            *DatagramInfo::VALUES.start() as u8 | u8::from(length),
+        ))); // 1 byte
         if length {
             // Safe to unwrap because we check length sanity before queueing datagrams
             out.write(VarInt::from_u64(self.data.len() as u64).unwrap()); // <= 8 bytes
@@ -1450,7 +1475,7 @@ pub(crate) struct AckFrequency {
 
 impl AckFrequency {
     pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
-        buf.write(FrameType::ACK_FREQUENCY);
+        buf.write(FrameType::AckFrequency);
         buf.write(self.sequence);
         buf.write(self.ack_eliciting_threshold);
         buf.write(self.request_max_ack_delay);
@@ -1461,7 +1486,7 @@ impl AckFrequency {
 /* Address Discovery https://datatracker.ietf.org/doc/draft-seemann-quic-address-discovery/ */
 
 /// Conjunction of the information contained in the address discovery frames
-/// ([`FrameType::OBSERVED_IPV4_ADDR`], [`FrameType::OBSERVED_IPV6_ADDR`]).
+/// ([`FrameType::ObservedIpv4Addr`], [`FrameType::ObservedIpv6Addr`]).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct ObservedAddr {
     /// Monotonically increasing integer within the same connection.
@@ -1484,15 +1509,15 @@ impl ObservedAddr {
     /// Get the [`FrameType`] for this frame.
     pub(crate) fn get_type(&self) -> FrameType {
         if self.ip.is_ipv6() {
-            FrameType::OBSERVED_IPV6_ADDR
+            FrameType::ObservedIpv6Addr
         } else {
-            FrameType::OBSERVED_IPV4_ADDR
+            FrameType::ObservedIpv4Addr
         }
     }
 
     /// Compute the number of bytes needed to encode the frame.
     pub(crate) fn size(&self) -> usize {
-        let type_size = VarInt(self.get_type().0).size();
+        let type_size = self.get_type().size();
         let req_id_bytes = self.seq_no.size();
         let ip_bytes = if self.ip.is_ipv6() { 16 } else { 4 };
         let port_bytes = 2;
@@ -1517,7 +1542,7 @@ impl ObservedAddr {
     /// Reads the frame contents from the buffer.
     ///
     /// Should only be called when the frame type has been identified as
-    /// [`FrameType::OBSERVED_IPV4_ADDR`] or [`FrameType::OBSERVED_IPV6_ADDR`].
+    /// [`FrameType::ObservedIpv4Addr`] or [`FrameType::ObservedIpv6Addr`].
     pub(crate) fn read<R: Buf>(bytes: &mut R, is_ipv6: bool) -> coding::Result<Self> {
         let seq_no = bytes.get()?;
         let ip = if is_ipv6 {
@@ -1544,11 +1569,11 @@ pub(crate) struct PathAbandon {
 }
 
 impl PathAbandon {
-    pub(crate) const SIZE_BOUND: usize = VarInt(FrameType::PATH_ABANDON.0).size() + 8 + 8;
+    pub(crate) const SIZE_BOUND: usize = FrameType::PathAbandon.size() + 8 + 8;
 
     /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
-        buf.write(FrameType::PATH_ABANDON);
+        buf.write(FrameType::PathAbandon);
         buf.write(self.path_id);
         buf.write(self.error_code);
     }
@@ -1569,8 +1594,8 @@ pub(crate) struct PathStatusAvailable {
 }
 
 impl PathStatusAvailable {
-    const TYPE: FrameType = FrameType::PATH_STATUS_AVAILABLE;
-    pub(crate) const SIZE_BOUND: usize = VarInt(FrameType::PATH_STATUS_AVAILABLE.0).size() + 8 + 8;
+    const TYPE: FrameType = FrameType::PathStatusAvailable;
+    pub(crate) const SIZE_BOUND: usize = FrameType::PathStatusAvailable.size() + 8 + 8;
 
     /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
@@ -1595,7 +1620,7 @@ pub(crate) struct PathStatusBackup {
 }
 
 impl PathStatusBackup {
-    const TYPE: FrameType = FrameType::PATH_STATUS_BACKUP;
+    const TYPE: FrameType = FrameType::PathStatusBackup;
 
     /// Encode [`Self`] into the given buffer
     pub(crate) fn encode<W: BufMut>(&self, buf: &mut W) {
@@ -1616,7 +1641,7 @@ impl PathStatusBackup {
 /* Nat traversal frames */
 
 /// Conjunction of the information contained in the add address frames
-/// ([`FrameType::ADD_IPV4_ADDRESS`], [`FrameType::ADD_IPV6_ADDRESS`]).
+/// ([`FrameType::AddIpv4Address`], [`FrameType::AddIpv6Address`]).
 #[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
 // TODO(@divma): remove
 #[allow(dead_code)]
@@ -1648,15 +1673,15 @@ impl AddAddress {
     /// Get the [`FrameType`] for this frame.
     pub(crate) const fn get_type(&self) -> FrameType {
         if self.ip.is_ipv6() {
-            FrameType::ADD_IPV6_ADDRESS
+            FrameType::AddIpv6Address
         } else {
-            FrameType::ADD_IPV4_ADDRESS
+            FrameType::AddIpv4Address
         }
     }
 
     /// Compute the number of bytes needed to encode the frame
     pub(crate) const fn size(&self) -> usize {
-        let type_size = VarInt(self.get_type().0).size();
+        let type_size = self.get_type().size();
         let seq_no_bytes = self.seq_no.size();
         let ip_bytes = if self.ip.is_ipv6() { 16 } else { 4 };
         let port_bytes = 2;
@@ -1681,7 +1706,7 @@ impl AddAddress {
     /// Read the frame contents from the buffer
     ///
     /// Should only be called when the frame type has been identified as
-    /// [`FrameType::ADD_IPV4_ADDRESS`] or [`FrameType::ADD_IPV6_ADDRESS`].
+    /// [`FrameType::AddIpv4Address`] or [`FrameType::AddIpv6Address`].
     pub(crate) fn read<R: Buf>(bytes: &mut R, is_ipv6: bool) -> coding::Result<Self> {
         let seq_no = bytes.get()?;
         let ip = if is_ipv6 {
@@ -1704,7 +1729,7 @@ impl AddAddress {
 }
 
 /// Conjunction of the information contained in the reach out frames
-/// ([`FrameType::REACH_OUT_AT_IPV4`], [`FrameType::REACH_OUT_AT_IPV6`])
+/// ([`FrameType::ReachOutAtIpv4`], [`FrameType::ReachOutAtIpv6`])
 #[derive(Debug, PartialEq, Eq, Clone)]
 // TODO(@divma): remove
 #[allow(dead_code)]
@@ -1735,15 +1760,15 @@ impl ReachOut {
     /// Get the [`FrameType`] for this frame
     pub(crate) const fn get_type(&self) -> FrameType {
         if self.ip.is_ipv6() {
-            FrameType::REACH_OUT_AT_IPV6
+            FrameType::ReachOutAtIpv6
         } else {
-            FrameType::REACH_OUT_AT_IPV4
+            FrameType::ReachOutAtIpv4
         }
     }
 
     /// Compute the number of bytes needed to encode the frame
     pub(crate) const fn size(&self) -> usize {
-        let type_size = VarInt(self.get_type().0).size();
+        let type_size = self.get_type().size();
         let round_bytes = self.round.size();
         let ip_bytes = if self.ip.is_ipv6() { 16 } else { 4 };
         let port_bytes = 2;
@@ -1768,7 +1793,7 @@ impl ReachOut {
     /// Read the frame contents from the buffer
     ///
     /// Should only be called when the frame type has been identified as
-    /// [`FrameType::REACH_OUT_AT_IPV4`] or [`FrameType::REACH_OUT_AT_IPV6`].
+    /// [`FrameType::ReachOutAtIpv4`] or [`FrameType::ReachOutAtIpv6`].
     pub(crate) fn read<R: Buf>(bytes: &mut R, is_ipv6: bool) -> coding::Result<Self> {
         let round = bytes.get()?;
         let ip = if is_ipv6 {
@@ -1799,7 +1824,7 @@ pub(crate) struct RemoveAddress {
 #[allow(dead_code)]
 impl RemoveAddress {
     /// [`FrameType`] of this frame
-    pub(crate) const TYPE: FrameType = FrameType::REMOVE_ADDRESS;
+    pub(crate) const TYPE: FrameType = FrameType::RemoveAddress;
 
     /// Smallest number of bytes this type of frame is guaranteed to fit within
     pub(crate) const SIZE_BOUND: usize = Self::new(VarInt::MAX).size();
@@ -1810,7 +1835,7 @@ impl RemoveAddress {
 
     /// Compute the number of bytes needed to encode the frame
     pub(crate) const fn size(&self) -> usize {
-        let type_size = VarInt(Self::TYPE.0).size();
+        let type_size = Self::TYPE.size();
         let seq_no_bytes = self.seq_no.size();
         type_size + seq_no_bytes
     }
@@ -1824,7 +1849,7 @@ impl RemoveAddress {
     /// Read the frame contents from the buffer
     ///
     /// Should only be called when the frame type has been identified as
-    /// [`FrameType::REMOVE_ADDRESS`].
+    /// [`FrameType::RemoveAddress`].
     pub(crate) fn read<R: Buf>(bytes: &mut R) -> coding::Result<Self> {
         Ok(Self {
             seq_no: bytes.get()?,
@@ -1924,7 +1949,7 @@ mod test {
     #[test]
     fn immediate_ack_coding() {
         let mut buf = Vec::new();
-        FrameType::IMMEDIATE_ACK.encode(&mut buf);
+        FrameType::ImmediateAck.encode(&mut buf);
         let frames = frames(buf);
         assert_eq!(frames.len(), 1);
         assert_matches!(&frames[0], Frame::ImmediateAck);

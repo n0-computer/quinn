@@ -19,7 +19,7 @@ pub struct Error {
     /// Type of error
     pub code: Code,
     /// Frame type that triggered the error
-    pub frame: Option<frame::FrameType>,
+    pub frame: frame::MaybeFrame,
     /// Human-readable explanation of the reason
     pub reason: String,
     /// An underlying crypto (e.g. TLS) layer error
@@ -31,7 +31,7 @@ impl Error {
     pub fn new(code: Code, reason: String) -> Self {
         Self {
             code,
-            frame: None,
+            frame: frame::MaybeFrame::None,
             reason,
             crypto: None,
         }

@@ -480,7 +480,7 @@ impl StreamsState {
             }
 
             retransmits.get_or_create().max_data = true;
-            buf.write(frame::FrameType::MAX_DATA);
+            buf.write(frame::FrameType::MaxData);
             buf.write(max);
             qlog.frame(&Frame::MaxData(max));
             stats.max_data += 1;
@@ -511,7 +511,7 @@ impl StreamsState {
             rs.record_sent_max_stream_data(max);
 
             trace!(stream = %id, max = max, "MAX_STREAM_DATA");
-            buf.write(frame::FrameType::MAX_STREAM_DATA);
+            buf.write(frame::FrameType::MaxStreamData);
             buf.write(id);
             buf.write_var(max);
             qlog.frame(&Frame::MaxStreamData { id, offset: max });
@@ -532,8 +532,8 @@ impl StreamsState {
                 "MAX_STREAMS ({:?})", dir
             );
             buf.write(match dir {
-                Dir::Uni => frame::FrameType::MAX_STREAMS_UNI,
-                Dir::Bi => frame::FrameType::MAX_STREAMS_BIDI,
+                Dir::Uni => frame::FrameType::MaxStreamsUni,
+                Dir::Bi => frame::FrameType::MaxStreamsBidi,
             });
             let count = self.max_remote[dir as usize];
             buf.write_var(count);
