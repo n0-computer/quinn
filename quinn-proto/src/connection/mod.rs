@@ -5617,7 +5617,7 @@ impl Connection {
                     port = added_address.port,
                     "ADD_ADDRESS",
                 );
-                added_address.write(buf);
+                added_address.encode(buf);
                 sent.retransmits
                     .get_or_create()
                     .add_address
