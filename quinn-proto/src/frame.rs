@@ -26,14 +26,14 @@ macro_rules! frame_types {
     (
         enum_defs: [$($enum_defs: tt)*]
         try_from_arms: [$($try_from_arms: tt)*]
-        from_arms: [$($from_arms: tt)*]
+        to_u64_arms: [$($to_u64_arms: tt)*]
         $variant: ident = $value: literal,
         $($token: tt)*
     ) => {
         frame_types!{
             enum_defs: [$($enum_defs)* $variant,]
             try_from_arms: [$($try_from_arms)* $value => Self::$variant,]
-            from_arms: [$($from_arms)* FrameType::$variant => $value,]
+            to_u64_arms: [$($to_u64_arms)* FrameType::$variant => $value,]
 
             $($token)*
         }
@@ -43,22 +43,22 @@ macro_rules! frame_types {
     (
         enum_defs: [$($enum_defs: tt)*]
         try_from_arms: [$($try_from_arms: tt)*]
-        from_arms: [$($from_arms: tt)*]
+        to_u64_arms: [$($to_u64_arms: tt)*]
         $variant: ident($inner: ident),
         $($token: tt)*
     ) => {
         frame_types!{
             enum_defs: [$($enum_defs)* $variant($inner),]
             try_from_arms: [$($try_from_arms)* value if <$inner>::VALUES.contains(&value) => Self::$variant($inner(value as u8)),]
-            from_arms: [$($from_arms)* FrameType::$variant($inner(value)) => value.into(),]
+            to_u64_arms: [$($to_u64_arms)* FrameType::$variant($inner(value)) => value as u64,]
             $($token)*
         }
     };
 
     // Final generation step.
-    (enum_defs: [$($enum_defs: tt)+] try_from_arms: [$($try_from_arms: tt)+] from_arms: [$($from_arms: tt)+]) => {
+    (enum_defs: [$($enum_defs: tt)+] try_from_arms: [$($try_from_arms: tt)+] to_u64_arms: [$($to_u64_arms: tt)+]) => {
         /// A QUIC frame type
-        #[derive(Copy, Clone, Eq, PartialEq)]
+        #[derive(Copy, Clone, Eq, PartialEq, Debug)]
         pub enum FrameType {
             $($enum_defs)*
         }
@@ -81,7 +81,7 @@ macro_rules! frame_types {
         impl FrameType {
             pub(crate) const fn to_u64(self) -> u64 {
                 match self {
-                    $($from_arms)*
+                    $($to_u64_arms)*
                 }
             }
         }
@@ -91,7 +91,7 @@ macro_rules! frame_types {
 frame_types! {
     enum_defs: []
     try_from_arms: []
-    from_arms: []
+    to_u64_arms: []
     Padding = 0x00,
     Ping = 0x01,
     Ack = 0x02,
@@ -144,23 +144,6 @@ frame_types! {
     RemoveAddress = 0x3d7f94,
 }
 
-impl FrameType {
-    fn stream(self) -> Option<StreamInfo> {
-        if STREAM_TYS.contains(&self.0) {
-            Some(StreamInfo(self.0 as u8))
-        } else {
-            None
-        }
-    }
-    fn datagram(self) -> Option<DatagramInfo> {
-        if DATAGRAM_TYS.contains(&self.0) {
-            Some(DatagramInfo(self.0 as u8))
-        } else {
-            None
-        }
-    }
-}
-
 impl coding::Codec for FrameType {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
         let id: u64 = buf.get_var()?;
@@ -168,7 +151,7 @@ impl coding::Codec for FrameType {
     }
 
     fn encode<B: BufMut>(&self, buf: &mut B) {
-        buf.write_var((*self).into());
+        buf.write_var(self.to_u64());
     }
 }
 
@@ -221,9 +204,6 @@ impl DatagramInfo {
         self.0 & 0x01 != 0
     }
 }
-
-const STREAM_TYS: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
-const DATAGRAM_TYS: RangeInclusive<u64> = RangeInclusive::new(0x30, 0x31);
 
 #[derive(Debug)]
 pub(crate) enum Frame {
@@ -424,16 +404,16 @@ pub(crate) struct RetireConnectionId {
 }
 
 impl RetireConnectionId {
-    /// Maximum size of this frame when the frame type is [`FrameType::RETIRE_CONNECTION_ID`]
+    /// Maximum size of this frame when the frame type is [`FrameType::RetireConnectionId`]
     pub(crate) const SIZE_BOUND: usize = {
-        let type_len = VarInt(FrameType::RetireConnectionId.into()).size();
+        let type_len = VarInt(FrameType::RetireConnectionId.to_u64()).size();
         let seq_max_len = 8usize;
         type_len + seq_max_len
     };
 
-    /// Maximum size of this frame when the frame type is [`FrameType::PATH_RETIRE_CONNECTION_ID`]
+    /// Maximum size of this frame when the frame type is [`FrameType::PathRetireConnectionId`]
     pub(crate) const SIZE_BOUND_MULTIPATH: usize = {
-        let type_len = VarInt(FrameType::PATH_RETIRE_CONNECTION_ID.0).size();
+        let type_len = VarInt(FrameType::PathRetireConnectionId.to_u64()).size();
         let path_id_len = VarInt::from_u32(u32::MAX).size();
         let seq_max_len = 8usize;
         type_len + path_id_len + seq_max_len
@@ -449,7 +429,7 @@ impl RetireConnectionId {
     }
 
     /// Decode [`Self`] from the buffer, provided that the frame type has been verified (either
-    /// [`FrameType::PATH_RETIRE_CONNECTION_ID`], or [`FrameType::RETIRE_CONNECTION_ID`])
+    /// [`FrameType::PathRetireConnectionId`], or [`FrameType::RetireConnectionId`])
     pub(crate) fn decode<R: Buf>(bytes: &mut R, read_path: bool) -> coding::Result<Self> {
         Ok(Self {
             path_id: if read_path { Some(bytes.get()?) } else { None },
@@ -460,9 +440,9 @@ impl RetireConnectionId {
     /// Get the [`FrameType`] for this [`RetireConnectionId`]
     pub(crate) fn get_type(&self) -> FrameType {
         if self.path_id.is_some() {
-            FrameType::PATH_RETIRE_CONNECTION_ID
+            FrameType::PathRetireConnectionId
         } else {
-            FrameType::RETIRE_CONNECTION_ID
+            FrameType::RetireConnectionId
         }
     }
 
@@ -551,7 +531,7 @@ impl FrameStruct for ConnectionClose {
 
 impl ConnectionClose {
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W, max_len: usize) {
-        out.write(FrameType::CONNECTION_CLOSE); // 1 byte
+        out.write(FrameType::ConnectionClose); // 1 byte
         out.write(self.error_code); // <= 8 bytes
         let ty = self.frame_type.map_or(0, |x| x.0);
         out.write_var(ty); // <= 8 bytes
@@ -594,7 +574,7 @@ impl FrameStruct for ApplicationClose {
 
 impl ApplicationClose {
     pub(crate) fn encode<W: BufMut>(&self, out: &mut W, max_len: usize) {
-        out.write(FrameType::APPLICATION_CLOSE); // 1 byte
+        out.write(FrameType::ApplicationClose); // 1 byte
         out.write(self.error_code); // <= 8 bytes
         let max_len = max_len - 3 - VarInt::from_u64(self.reason.len() as u64).unwrap().size();
         let actual_len = self.reason.len().min(max_len);
