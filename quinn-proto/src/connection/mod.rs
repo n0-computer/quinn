@@ -5060,7 +5060,7 @@ impl Connection {
                 let reach_out = frame::ReachOut::new(*round, local_addr);
                 if buf.remaining_mut() > reach_out.size() {
                     trace!(%round, ?local_addr, "REACH_OUT");
-                    reach_out.write(buf);
+                    reach_out.encode(buf);
                     let sent_reachouts = sent
                         .retransmits
                         .get_or_create()

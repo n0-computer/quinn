@@ -1791,21 +1791,6 @@ impl ReachOut {
         type_size + round_bytes + ip_bytes + port_bytes
     }
 
-    /// Unconditionally write this frame to `buf`
-    pub(crate) fn write<W: BufMut>(&self, buf: &mut W) {
-        buf.write(self.get_type());
-        buf.write(self.round);
-        match self.ip {
-            IpAddr::V4(ipv4_addr) => {
-                buf.write(ipv4_addr);
-            }
-            IpAddr::V6(ipv6_addr) => {
-                buf.write(ipv6_addr);
-            }
-        }
-        buf.write::<u16>(self.port);
-    }
-
     /// Read the frame contents from the buffer
     ///
     /// Should only be called when the frame type has been identified as
@@ -1824,6 +1809,22 @@ impl ReachOut {
     /// Give the [`SocketAddr`] encoded in the frame
     pub(crate) fn socket_addr(&self) -> SocketAddr {
         (self.ip, self.port).into()
+    }
+}
+
+impl Encodable for ReachOut {
+    fn encode<W: BufMut>(&self, buf: &mut W) {
+        buf.write(self.get_type());
+        buf.write(self.round);
+        match self.ip {
+            IpAddr::V4(ipv4_addr) => {
+                buf.write(ipv4_addr);
+            }
+            IpAddr::V6(ipv6_addr) => {
+                buf.write(ipv6_addr);
+            }
+        }
+        buf.write::<u16>(self.port);
     }
 }
 
@@ -2142,7 +2143,7 @@ mod test {
             port: 4242,
         };
         let mut buf = Vec::with_capacity(reach_out.size());
-        reach_out.write(&mut buf);
+        reach_out.encode(&mut buf);
 
         assert_eq!(
             reach_out.size(),
