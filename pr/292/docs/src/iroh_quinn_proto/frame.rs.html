@@ -173,9 +173,9 @@
 <a href=#173 id=173 data-nosnippet>173</a>    <span class="doccomment">/// Encoded size of this [`MaybeFrame`].
 <a href=#174 id=174 data-nosnippet>174</a>    </span><span class="kw">const fn </span>size(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
 <a href=#175 id=175 data-nosnippet>175</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#176 id=176 data-nosnippet>176</a>            MaybeFrame::None =&gt; VarInt(<span class="number">0</span>).size(),
-<a href=#177 id=177 data-nosnippet>177</a>            MaybeFrame::Unknown(other) =&gt; VarInt(<span class="kw-2">*</span>other).size(),
-<a href=#178 id=178 data-nosnippet>178</a>            MaybeFrame::Known(frame_type) =&gt; frame_type.size(),
+<a href=#176 id=176 data-nosnippet>176</a>            <span class="self">Self</span>::None =&gt; VarInt(<span class="number">0</span>).size(),
+<a href=#177 id=177 data-nosnippet>177</a>            <span class="self">Self</span>::Unknown(other) =&gt; VarInt(<span class="kw-2">*</span>other).size(),
+<a href=#178 id=178 data-nosnippet>178</a>            <span class="self">Self</span>::Known(frame_type) =&gt; frame_type.size(),
 <a href=#179 id=179 data-nosnippet>179</a>        }
 <a href=#180 id=180 data-nosnippet>180</a>    }
 <a href=#181 id=181 data-nosnippet>181</a>}
@@ -183,17 +183,17 @@
 <a href=#183 id=183 data-nosnippet>183</a><span class="kw">impl </span>coding::Codec <span class="kw">for </span>MaybeFrame {
 <a href=#184 id=184 data-nosnippet>184</a>    <span class="kw">fn </span>decode&lt;B: Buf&gt;(buf: <span class="kw-2">&amp;mut </span>B) -&gt; coding::Result&lt;<span class="self">Self</span>&gt; {
 <a href=#185 id=185 data-nosnippet>185</a>        <span class="kw">match </span>FrameType::try_from(buf.get_var()<span class="question-mark">?</span>) {
-<a href=#186 id=186 data-nosnippet>186</a>            <span class="prelude-val">Ok</span>(FrameType::Padding) =&gt; <span class="prelude-val">Ok</span>(MaybeFrame::None),
-<a href=#187 id=187 data-nosnippet>187</a>            <span class="prelude-val">Ok</span>(other_frame) =&gt; <span class="prelude-val">Ok</span>(MaybeFrame::Known(other_frame)),
-<a href=#188 id=188 data-nosnippet>188</a>            <span class="prelude-val">Err</span>(InvalidFrameId(other)) =&gt; <span class="prelude-val">Ok</span>(MaybeFrame::Unknown(other)),
+<a href=#186 id=186 data-nosnippet>186</a>            <span class="prelude-val">Ok</span>(FrameType::Padding) =&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::None),
+<a href=#187 id=187 data-nosnippet>187</a>            <span class="prelude-val">Ok</span>(other_frame) =&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::Known(other_frame)),
+<a href=#188 id=188 data-nosnippet>188</a>            <span class="prelude-val">Err</span>(InvalidFrameId(other)) =&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::Unknown(other)),
 <a href=#189 id=189 data-nosnippet>189</a>        }
 <a href=#190 id=190 data-nosnippet>190</a>    }
 <a href=#191 id=191 data-nosnippet>191</a>
 <a href=#192 id=192 data-nosnippet>192</a>    <span class="kw">fn </span>encode&lt;B: BufMut&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, buf: <span class="kw-2">&amp;mut </span>B) {
 <a href=#193 id=193 data-nosnippet>193</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#194 id=194 data-nosnippet>194</a>            MaybeFrame::None =&gt; buf.write(<span class="number">0u64</span>),
-<a href=#195 id=195 data-nosnippet>195</a>            MaybeFrame::Unknown(frame_id) =&gt; buf.write(<span class="kw-2">*</span>frame_id),
-<a href=#196 id=196 data-nosnippet>196</a>            MaybeFrame::Known(frame_type) =&gt; buf.write(<span class="kw-2">*</span>frame_type),
+<a href=#194 id=194 data-nosnippet>194</a>            <span class="self">Self</span>::None =&gt; buf.write(<span class="number">0u64</span>),
+<a href=#195 id=195 data-nosnippet>195</a>            <span class="self">Self</span>::Unknown(frame_id) =&gt; buf.write(<span class="kw-2">*</span>frame_id),
+<a href=#196 id=196 data-nosnippet>196</a>            <span class="self">Self</span>::Known(frame_type) =&gt; buf.write(<span class="kw-2">*</span>frame_type),
 <a href=#197 id=197 data-nosnippet>197</a>        }
 <a href=#198 id=198 data-nosnippet>198</a>    }
 <a href=#199 id=199 data-nosnippet>199</a>}
