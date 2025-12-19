@@ -2046,11 +2046,15 @@ impl Connection {
                             path.data.send_new_challenge = true;
                         }
                         PathTimer::PathOpen => {
-                            let Some(path) = self.path_mut(path_id) else {
+                            let Some(path) = self.paths.get_mut(&path_id) else {
                                 continue;
                             };
-                            path.challenges_sent.clear();
-                            path.send_new_challenge = false;
+                            path.data.challenges_sent.clear();
+                            path.data.send_new_challenge = false;
+                            self.timers.stop(
+                                Timer::PerPath(path_id, PathTimer::PathChallengeLost),
+                                self.qlog.with_time(now),
+                            );
                             debug!("new path validation failed");
                             if let Err(err) = self.close_path(
                                 now,
