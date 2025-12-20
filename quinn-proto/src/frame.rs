@@ -899,10 +899,7 @@ impl Default for StreamMeta {
 
 impl StreamMeta {
     pub(crate) fn encoder(&self, length: bool) -> StreamMetaEncoder<'_> {
-        StreamMetaEncoder {
-            meta: self,
-            length,
-        }
+        StreamMetaEncoder { meta: self, length }
     }
 }
 
