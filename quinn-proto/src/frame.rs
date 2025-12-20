@@ -898,24 +898,39 @@ impl Default for StreamMeta {
 }
 
 impl StreamMeta {
-    pub(crate) fn encode<W: BufMut>(&self, length: bool, out: &mut W) {
+    pub(crate) fn encoder(&self, length: bool) -> StreamMetaEncoder<'_> {
+        StreamMetaEncoder {
+            meta: &self,
+            length,
+        }
+    }
+}
+
+pub(crate) struct StreamMetaEncoder<'a> {
+    meta: &'a StreamMeta,
+    length: bool,
+}
+
+impl<'a> Encodable for StreamMetaEncoder<'a> {
+    fn encode<W: BufMut>(&self, out: &mut W) {
+        let StreamMetaEncoder { meta, length } = self;
         let mut ty = *StreamInfo::VALUES.start();
-        if self.offsets.start != 0 {
+        if meta.offsets.start != 0 {
             ty |= 0x04;
         }
-        if length {
+        if *length {
             ty |= 0x02;
         }
-        if self.fin {
+        if meta.fin {
             ty |= 0x01;
         }
         out.write_var(ty); // 1 byte
-        out.write(self.id); // <=8 bytes
-        if self.offsets.start != 0 {
-            out.write_var(self.offsets.start); // <=8 bytes
+        out.write(meta.id); // <=8 bytes
+        if meta.offsets.start != 0 {
+            out.write_var(meta.offsets.start); // <=8 bytes
         }
-        if length {
-            out.write_var(self.offsets.end - self.offsets.start); // <=8 bytes
+        if *length {
+            out.write_var(meta.offsets.end - meta.offsets.start); // <=8 bytes
         }
     }
 }
