@@ -925,12 +925,12 @@ impl SpaceId {
 
     /// Returns the next higher packet space.
     ///
-    /// Keeps returning [`SpaceId::Data`] as the highest space.
-    pub fn next(&self) -> Self {
+    /// Returns `None` if at `Data`.
+    pub fn next(&self) -> Option<Self> {
         match self {
-            Self::Initial => Self::Handshake,
-            Self::Handshake => Self::Data,
-            Self::Data => Self::Data,
+            Self::Initial => Some(Self::Handshake),
+            Self::Handshake => Some(Self::Data),
+            Self::Data => None,
         }
     }
 }
