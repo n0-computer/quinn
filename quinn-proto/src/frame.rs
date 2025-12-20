@@ -492,7 +492,7 @@ pub enum Close {
 impl Close {
     pub(crate) fn encoder(&self, max_len: usize) -> CloseEncoder<'_> {
         CloseEncoder {
-            close: &self,
+            close: self,
             max_len,
         }
     }
@@ -900,7 +900,7 @@ impl Default for StreamMeta {
 impl StreamMeta {
     pub(crate) fn encoder(&self, length: bool) -> StreamMetaEncoder<'_> {
         StreamMetaEncoder {
-            meta: &self,
+            meta: self,
             length,
         }
     }
