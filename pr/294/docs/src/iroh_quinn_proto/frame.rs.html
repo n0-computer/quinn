@@ -492,7 +492,7 @@
 <a href=#492 id=492 data-nosnippet>492</a><span class="kw">impl </span>Close {
 <a href=#493 id=493 data-nosnippet>493</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>encoder(<span class="kw-2">&amp;</span><span class="self">self</span>, max_len: usize) -&gt; CloseEncoder&lt;<span class="lifetime">'_</span>&gt; {
 <a href=#494 id=494 data-nosnippet>494</a>        CloseEncoder {
-<a href=#495 id=495 data-nosnippet>495</a>            close: <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#495 id=495 data-nosnippet>495</a>            close: <span class="self">self</span>,
 <a href=#496 id=496 data-nosnippet>496</a>            max_len,
 <a href=#497 id=497 data-nosnippet>497</a>        }
 <a href=#498 id=498 data-nosnippet>498</a>    }
@@ -900,7 +900,7 @@
 <a href=#900 id=900 data-nosnippet>900</a><span class="kw">impl </span>StreamMeta {
 <a href=#901 id=901 data-nosnippet>901</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>encoder(<span class="kw-2">&amp;</span><span class="self">self</span>, length: bool) -&gt; StreamMetaEncoder&lt;<span class="lifetime">'_</span>&gt; {
 <a href=#902 id=902 data-nosnippet>902</a>        StreamMetaEncoder {
-<a href=#903 id=903 data-nosnippet>903</a>            meta: <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#903 id=903 data-nosnippet>903</a>            meta: <span class="self">self</span>,
 <a href=#904 id=904 data-nosnippet>904</a>            length,
 <a href=#905 id=905 data-nosnippet>905</a>        }
 <a href=#906 id=906 data-nosnippet>906</a>    }
