@@ -717,6 +717,32 @@ impl<'a> EncodableFrame<'a> {
                 path_status_sequence_number: frame.status_seq_no.into(),
                 raw: None,
             },
+            EncodableFrame::MaxPathId(id) => QuicFrame::MaxPathId {
+                maximum_path_id: id.0.as_u32().into(),
+                raw: None,
+            },
+            EncodableFrame::PathsBlocked(frame) => QuicFrame::PathsBlocked {
+                maximum_path_id: frame.0.as_u32().into(),
+                raw: None,
+            },
+            EncodableFrame::PathCidsBlocked(frame) => QuicFrame::PathCidsBlocked {
+                path_id: frame.path_id.as_u32().into(),
+                next_sequence_number: frame.next_seq.into(),
+                raw: None,
+            },
+            EncodableFrame::ResetStream(f) => QuicFrame::ResetStream {
+                stream_id: f.id.into(),
+                error_code: Some(f.error_code.into_inner()),
+                final_size: f.final_offset.into(),
+                error: ApplicationError::Unknown,
+                raw: None,
+            },
+            EncodableFrame::StopSending(f) => QuicFrame::StopSending {
+                stream_id: f.id.into(),
+                error_code: Some(f.error_code.into_inner()),
+                error: ApplicationError::Unknown,
+                raw: None,
+            },
         }
     }
 }
@@ -744,19 +770,6 @@ impl Frame {
                 ect1: f.ecn.as_ref().map(|e| e.ect1),
                 ect0: f.ecn.as_ref().map(|e| e.ect0),
                 ce: f.ecn.as_ref().map(|e| e.ce),
-                raw: None,
-            },
-            Self::ResetStream(f) => QuicFrame::ResetStream {
-                stream_id: f.id.into(),
-                error_code: Some(f.error_code.into_inner()),
-                final_size: f.final_offset.into(),
-                error: ApplicationError::Unknown,
-                raw: None,
-            },
-            Self::StopSending(f) => QuicFrame::StopSending {
-                stream_id: f.id.into(),
-                error_code: Some(f.error_code.into_inner()),
-                error: ApplicationError::Unknown,
                 raw: None,
             },
 
@@ -841,20 +854,6 @@ impl Frame {
                         .map(|range| (*range.start(), *range.end()))
                         .collect(),
                 )),
-            },
-
-            Self::PathsBlocked(frame) => QuicFrame::PathsBlocked {
-                maximum_path_id: frame.0.as_u32().into(),
-                raw: None,
-            },
-            Self::PathCidsBlocked(frame) => QuicFrame::PathCidsBlocked {
-                path_id: frame.path_id.as_u32().into(),
-                next_sequence_number: frame.next_seq.into(),
-                raw: None,
-            },
-            Self::MaxPathId(id) => QuicFrame::MaxPathId {
-                maximum_path_id: id.0.as_u32().into(),
-                raw: None,
             },
 
             Self::AddAddress(f) => QuicFrame::AddAddress {

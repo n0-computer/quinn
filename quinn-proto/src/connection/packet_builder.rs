@@ -4,7 +4,8 @@ use tracing::{debug, trace, trace_span};
 
 use super::{Connection, PathId, SentFrames, TransmitBuf, spaces::SentPacket};
 use crate::{
-    ConnectionId, ConnectionStats, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
+    ConnectionId, ConnectionStats, FrameStats, Instant, MIN_INITIAL_SIZE, TransportError,
+    TransportErrorCode,
     coding::Encodable,
     connection::{ConnectionSide, qlog::QlogSentPacket},
     frame::{self, Close, EncodableFrame},
@@ -205,11 +206,11 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
     pub(super) fn encode<'c>(
         &mut self,
         frame: impl Into<EncodableFrame<'c>>,
-        stats: &mut ConnectionStats,
+        stats: &mut FrameStats,
     ) {
         let frame = frame.into();
         frame.encode(&mut self.frame_space_mut());
-        stats.frame_tx.record(frame.get_type());
+        stats.record(frame.get_type());
         self.qlog.record(frame);
     }
 

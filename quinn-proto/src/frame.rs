@@ -174,6 +174,11 @@ pub(super) enum EncodableFrame<'a> {
     PathAbandon(PathAbandon),
     PathStatusAvailable(PathStatusAvailable),
     PathStatusBackup(PathStatusBackup),
+    MaxPathId(MaxPathId),
+    PathsBlocked(PathsBlocked),
+    PathCidsBlocked(PathCidsBlocked),
+    ResetStream(ResetStream),
+    StopSending(StopSending),
 }
 
 impl<'a> EncodableFrame<'a> {
@@ -195,6 +200,11 @@ impl<'a> EncodableFrame<'a> {
             PathAbandon(_) => FrameType::PathAbandon,
             PathStatusAvailable(_) => FrameType::PathStatusAvailable,
             PathStatusBackup(_) => FrameType::PathStatusBackup,
+            MaxPathId(_) => FrameType::MaxPathId,
+            PathsBlocked(_) => FrameType::PathsBlocked,
+            PathCidsBlocked(_) => FrameType::PathCidsBlocked,
+            ResetStream(_) => FrameType::ResetStream,
+            StopSending(_) => FrameType::StopSending,
         }
     }
 }
@@ -217,6 +227,11 @@ impl<'a> Encodable for EncodableFrame<'a> {
             EncodableFrame::PathAbandon(path_abandon) => path_abandon.encode(buf),
             EncodableFrame::PathStatusAvailable(path_status) => path_status.encode(buf),
             EncodableFrame::PathStatusBackup(path_status) => path_status.encode(buf),
+            EncodableFrame::MaxPathId(max_path_id) => max_path_id.encode(buf),
+            EncodableFrame::PathsBlocked(paths_blocked) => paths_blocked.encode(buf),
+            EncodableFrame::PathCidsBlocked(path_cids_blocked) => path_cids_blocked.encode(buf),
+            EncodableFrame::ResetStream(reset_stream) => reset_stream.encode(buf),
+            EncodableFrame::StopSending(stop_sending) => stop_sending.encode(buf),
         }
     }
 }

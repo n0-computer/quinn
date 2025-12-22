@@ -4981,7 +4981,7 @@ impl Connection {
         builder: &mut PacketBuilder<'a, 'b>,
     ) -> SentFrames {
         let pn = builder.exact_number;
-        let stats = &mut self.stats;
+        let stats = &mut self.stats.frame_tx;
         let mut sent = SentFrames::default();
         let is_multipath_negotiated = self.is_multipath_negotiated();
         let space = &mut self.spaces[space_id];
@@ -5314,33 +5314,30 @@ impl Connection {
         // MAX_PATH_ID
         if space_id == SpaceId::Data
             && space.pending.max_path_id
-            && frame::MaxPathId::SIZE_BOUND <= buf.remaining_mut()
+            && frame::MaxPathId::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let frame = frame::MaxPathId(self.local_max_path_id);
-            frame.encode(buf);
-            qlog.frame(&Frame::MaxPathId(frame));
+            builder.encode(frame, stats);
             space.pending.max_path_id = false;
             sent.retransmits.get_or_create().max_path_id = true;
             trace!(val = %self.local_max_path_id, "MAX_PATH_ID");
-            self.stats.frame_tx.max_path_id += 1;
         }
 
         // PATHS_BLOCKED
         if space_id == SpaceId::Data
             && space.pending.paths_blocked
-            && frame::PathsBlocked::SIZE_BOUND <= buf.remaining_mut()
+            && frame::PathsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let frame = frame::PathsBlocked(self.remote_max_path_id);
-            frame.encode(buf);
-            qlog.frame(&Frame::PathsBlocked(frame));
+            builder.encode(frame, stats);
             space.pending.paths_blocked = false;
             sent.retransmits.get_or_create().paths_blocked = true;
             trace!(max_path_id = ?self.remote_max_path_id, "PATHS_BLOCKED");
-            self.stats.frame_tx.paths_blocked += 1;
         }
 
         // PATH_CIDS_BLOCKED
-        while space_id == SpaceId::Data && frame::PathCidsBlocked::SIZE_BOUND <= buf.remaining_mut()
+        while space_id == SpaceId::Data
+            && frame::PathCidsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let Some(path_id) = space.pending.path_cids_blocked.pop() else {
                 break;
@@ -5353,24 +5350,21 @@ impl Connection {
                 path_id,
                 next_seq: VarInt(next_seq),
             };
-            frame.encode(buf);
-            qlog.frame(&Frame::PathCidsBlocked(frame));
+            builder.encode(frame, stats);
             sent.retransmits
                 .get_or_create()
                 .path_cids_blocked
                 .push(path_id);
             trace!(%path_id, next_seq, "PATH_CIDS_BLOCKED");
-            self.stats.frame_tx.path_cids_blocked += 1;
         }
 
         // RESET_STREAM, STOP_SENDING, MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS
         if space_id == SpaceId::Data {
             self.streams.write_control_frames(
-                buf,
+                builder,
                 &mut space.pending,
                 &mut sent.retransmits,
-                &mut self.stats.frame_tx,
-                qlog,
+                stats,
             );
         }
 
