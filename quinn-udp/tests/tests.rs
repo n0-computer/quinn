@@ -195,7 +195,7 @@ fn gso() {
         .max_gso_segments();
     let dst_addr = recv.local_addr().unwrap();
     const SEGMENT_SIZE: usize = 128;
-    let msg = vec![0xAB; SEGMENT_SIZE * max_segments];
+    let msg = vec![0xAB; SEGMENT_SIZE * max_segments.get()];
     test_send_recv(
         &send.into(),
         &recv.into(),
@@ -293,7 +293,7 @@ fn test_send_recv(send: &Socket, recv: &Socket, transmit: Transmit) {
         Ok(_) => (),
         Err(err) if err.kind() == io::ErrorKind::InvalidInput && cfg!(target_os = "windows") => {
             // GSO can fail on windows. It should have disabled GSO now.
-            assert_eq!(send_state.max_gso_segments(), 1);
+            assert_eq!(send_state.max_gso_segments().get(), 1);
             return;
         }
         Err(err) => panic!("send failed: {err:?}"),

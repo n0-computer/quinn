@@ -107,8 +107,8 @@ impl FrameStats {
                 None => self.new_connection_id += 1,
             },
             Frame::RetireConnectionId(frame) => match frame.get_type() {
-                FrameType::RETIRE_CONNECTION_ID => self.retire_connection_id += 1,
-                FrameType::PATH_RETIRE_CONNECTION_ID => self.path_retire_connection_id += 1,
+                FrameType::RetireConnectionId => self.retire_connection_id += 1,
+                FrameType::PathRetireConnectionId => self.path_retire_connection_id += 1,
                 _ => unreachable!(),
             },
             Frame::PathChallenge(_) => self.path_challenge += 1,

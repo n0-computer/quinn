@@ -211,6 +211,12 @@ impl Path {
         let state = self.conn.state.lock("per_path_remote_address");
         Ok(state.inner.path_addresses(self.id)?.remote)
     }
+
+    /// Ping the remote endpoint over this path.
+    pub fn ping(&self) -> Result<(), ClosedPath> {
+        let mut state = self.conn.state.lock("ping");
+        state.inner.ping_path(self.id)
+    }
 }
 
 /// Future produced by [`Path::close`]

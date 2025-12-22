@@ -11,8 +11,11 @@ use super::{
     spaces::{PacketNumberSpace, SentPacket},
 };
 use crate::{
-    ConnectionId, Duration, FourTuple, Instant, TIMER_GRANULARITY, TransportConfig, VarInt, coding,
-    congestion, frame::ObservedAddr, packet::SpaceId,
+    ConnectionId, Duration, FourTuple, Instant, TIMER_GRANULARITY, TransportConfig, VarInt,
+    coding::{self, Decodable, Encodable},
+    congestion,
+    frame::ObservedAddr,
+    packet::SpaceId,
 };
 
 #[cfg(feature = "qlog")]
@@ -30,13 +33,15 @@ impl std::hash::Hash for PathId {
 
 impl identity_hash::IdentityHashable for PathId {}
 
-impl coding::Codec for PathId {
+impl Decodable for PathId {
     fn decode<B: bytes::Buf>(r: &mut B) -> coding::Result<Self> {
         let v = VarInt::decode(r)?;
         let v = u32::try_from(v.0).map_err(|_| coding::UnexpectedEnd)?;
         Ok(Self(v))
     }
+}
 
+impl Encodable for PathId {
     fn encode<B: bytes::BufMut>(&self, w: &mut B) {
         VarInt(self.0.into()).encode(w)
     }
@@ -141,7 +146,9 @@ pub(super) struct PathData {
     pub(super) pacing: Pacer,
     /// Actually sent challenges (on the wire).
     pub(super) challenges_sent: IntMap<u64, SentChallengeInfo>,
-    /// Whether to *immediately* trigger another PATH_CHALLENGE (via [`super::Connection::can_send`])
+    /// Whether to *immediately* trigger another PATH_CHALLENGE.
+    ///
+    /// This is picked up by [`super::Connection::space_can_send`].
     pub(super) send_new_challenge: bool,
     /// Pending responses to PATH_CHALLENGE frames
     pub(super) path_responses: PathResponses,
@@ -273,8 +280,8 @@ impl PathData {
             status: Default::default(),
             first_packet: None,
             pto_count: 0,
-            idle_timeout: None,
-            keep_alive: None,
+            idle_timeout: config.default_path_max_idle_timeout,
+            keep_alive: config.default_path_keep_alive_interval,
             open: false,
             last_allowed_receive: None,
             #[cfg(feature = "qlog")]

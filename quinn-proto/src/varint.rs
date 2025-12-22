@@ -3,7 +3,7 @@ use std::{convert::TryInto, fmt};
 use bytes::{Buf, BufMut};
 use thiserror::Error;
 
-use crate::coding::{self, Codec, UnexpectedEnd};
+use crate::coding::{self, Decodable, Encodable, UnexpectedEnd};
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
@@ -147,7 +147,7 @@ impl<'arbitrary> Arbitrary<'arbitrary> for VarInt {
 #[error("value too large for varint encoding")]
 pub struct VarIntBoundsExceeded;
 
-impl Codec for VarInt {
+impl Decodable for VarInt {
     fn decode<B: Buf>(r: &mut B) -> coding::Result<Self> {
         if !r.has_remaining() {
             return Err(UnexpectedEnd);
@@ -183,7 +183,8 @@ impl Codec for VarInt {
         };
         Ok(Self(x))
     }
-
+}
+impl Encodable for VarInt {
     fn encode<B: BufMut>(&self, w: &mut B) {
         let x = self.0;
         if x < 2u64.pow(6) {

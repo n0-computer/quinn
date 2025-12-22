@@ -4,7 +4,7 @@ use std::{
     convert::TryFrom,
     fmt, io, mem,
     net::{IpAddr, SocketAddr},
-    num::NonZeroU32,
+    num::{NonZeroU32, NonZeroUsize},
     ops::Not,
     sync::Arc,
 };
@@ -23,7 +23,7 @@ use crate::{
     TransportError, TransportErrorCode, VarInt,
     cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
-    coding::BufMutExt,
+    coding::{BufMutExt, Encodable},
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     connection::{
@@ -903,7 +903,7 @@ impl Connection {
     pub fn poll_transmit(
         &mut self,
         now: Instant,
-        max_datagrams: usize,
+        max_datagrams: NonZeroUsize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
         if let Some(probing) = self
@@ -926,9 +926,8 @@ impl Connection {
             });
         }
 
-        assert!(max_datagrams != 0);
         let max_datagrams = match self.config.enable_segmentation_offload {
-            false => 1,
+            false => NonZeroUsize::MIN,
             true => max_datagrams,
         };
 
@@ -1169,7 +1168,7 @@ impl Connection {
 
             // If the datagram is full, we need to start a new one.
             if transmit.datagram_remaining_mut() == 0 {
-                if transmit.num_datagrams() >= transmit.max_datagrams() {
+                if transmit.num_datagrams() >= transmit.max_datagrams().get() {
                     // No more datagrams allowed
                     break;
                 }
@@ -1294,7 +1293,7 @@ impl Connection {
                             } else {
                                 let frame = frame::ConnectionClose {
                                     error_code: TransportErrorCode::APPLICATION_ERROR,
-                                    frame_type: None,
+                                    frame_type: frame::MaybeFrame::None,
                                     reason: Bytes::new(),
                                 };
                                 frame.encode(&mut builder.frame_space_mut(), max_frame_size);
@@ -1304,7 +1303,7 @@ impl Connection {
                         StateType::Draining => {
                             let frame = frame::ConnectionClose {
                                 error_code: TransportErrorCode::NO_ERROR,
-                                frame_type: None,
+                                frame_type: frame::MaybeFrame::None,
                                 reason: Bytes::new(),
                             };
                             frame.encode(&mut builder.frame_space_mut(), max_frame_size);
@@ -1556,7 +1555,7 @@ impl Connection {
                 // We implement MTU probes as ping packets padded up to the probe size
                 trace!(?probe_size, "writing MTUD probe");
                 trace!("PING");
-                builder.frame_space_mut().write(frame::FrameType::PING);
+                builder.frame_space_mut().write(frame::FrameType::Ping);
                 qlog.frame(&Frame::Ping);
                 self.stats.frame_tx.ping += 1;
 
@@ -1565,7 +1564,7 @@ impl Connection {
                     trace!("IMMEDIATE_ACK");
                     builder
                         .frame_space_mut()
-                        .write(frame::FrameType::IMMEDIATE_ACK);
+                        .write(frame::FrameType::ImmediateAck);
                     self.stats.frame_tx.immediate_ack += 1;
                     qlog.frame(&Frame::ImmediateAck);
                 }
@@ -3884,7 +3883,6 @@ impl Connection {
                     self.stats.frame_rx.record(&frame);
 
                     if let Frame::Close(_error) = frame {
-                        trace!("draining");
                         self.state.move_to_draining(None);
                         break;
                     }
@@ -4201,7 +4199,7 @@ impl Connection {
                 _ => {
                     let mut err =
                         TransportError::PROTOCOL_VIOLATION("illegal frame type in handshake");
-                    err.frame = Some(frame.ty());
+                    err.frame = frame::MaybeFrame::Known(frame.ty());
                     return Err(err);
                 }
             }
@@ -5106,7 +5104,7 @@ impl Connection {
         // HANDSHAKE_DONE
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
             trace!("HANDSHAKE_DONE");
-            buf.write(frame::FrameType::HANDSHAKE_DONE);
+            buf.write(frame::FrameType::HandshakeDone);
             qlog.frame(&Frame::HandshakeDone);
             sent.retransmits.get_or_create().handshake_done = true;
             // This is just a u8 counter and the frame is typically just sent once
@@ -5121,7 +5119,7 @@ impl Connection {
                 let reach_out = frame::ReachOut::new(*round, local_addr);
                 if buf.remaining_mut() > reach_out.size() {
                     trace!(%round, ?local_addr, "REACH_OUT");
-                    reach_out.write(buf);
+                    reach_out.encode(buf);
                     let sent_reachouts = sent
                         .retransmits
                         .get_or_create()
@@ -5153,7 +5151,7 @@ impl Connection {
                 frame::ObservedAddr::new(path.addresses.remote, self.next_observed_addr_seq_no);
             if buf.remaining_mut() > frame.size() {
                 trace!(seq = %frame.seq_no, ip = %frame.ip, port = frame.port, "OBSERVED_ADDRESS");
-                frame.write(buf);
+                frame.encode(buf);
 
                 self.next_observed_addr_seq_no = self.next_observed_addr_seq_no.saturating_add(1u8);
                 path.observed_addr_sent = true;
@@ -5168,7 +5166,7 @@ impl Connection {
         // PING
         if mem::replace(&mut space.for_path(path_id).ping_pending, false) {
             trace!("PING");
-            buf.write(frame::FrameType::PING);
+            buf.write(frame::FrameType::Ping);
             sent.non_retransmits = true;
             self.stats.frame_tx.ping += 1;
             qlog.frame(&Frame::Ping);
@@ -5182,7 +5180,7 @@ impl Connection {
                 "immediate acks must be sent in the data space"
             );
             trace!("IMMEDIATE_ACK");
-            buf.write(frame::FrameType::IMMEDIATE_ACK);
+            buf.write(frame::FrameType::ImmediateAck);
             sent.non_retransmits = true;
             self.stats.frame_tx.immediate_ack += 1;
             qlog.frame(&Frame::ImmediateAck);
@@ -5292,7 +5290,7 @@ impl Connection {
                 let frame =
                     frame::ObservedAddr::new(path.addresses.remote, self.next_observed_addr_seq_no);
                 if buf.remaining_mut() > frame.size() {
-                    frame.write(buf);
+                    frame.encode(buf);
                     qlog.frame(&Frame::ObservedAddr(frame));
 
                     self.next_observed_addr_seq_no =
@@ -5331,7 +5329,7 @@ impl Connection {
                         self.next_observed_addr_seq_no,
                     );
                     if buf.remaining_mut() > frame.size() {
-                        frame.write(buf);
+                        frame.encode(buf);
                         qlog.frame(&Frame::ObservedAddr(frame));
 
                         self.next_observed_addr_seq_no =
@@ -5679,7 +5677,7 @@ impl Connection {
                     port = added_address.port,
                     "ADD_ADDRESS",
                 );
-                added_address.write(buf);
+                added_address.encode(buf);
                 sent.retransmits
                     .get_or_create()
                     .add_address
@@ -5695,7 +5693,7 @@ impl Connection {
         while space_id == SpaceId::Data && frame::RemoveAddress::SIZE_BOUND <= buf.remaining_mut() {
             if let Some(removed_address) = space.pending.remove_address.pop_last() {
                 trace!(seq = %removed_address.seq_no, "REMOVE_ADDRESS");
-                removed_address.write(buf);
+                removed_address.encode(buf);
                 sent.retransmits
                     .get_or_create()
                     .remove_address
