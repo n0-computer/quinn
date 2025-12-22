@@ -14,7 +14,7 @@
 <a href=#14 id=14 data-nosnippet>14</a>};
 <a href=#15 id=15 data-nosnippet>15</a><span class="kw">use crate</span>::{
 <a href=#16 id=16 data-nosnippet>16</a>    Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
-<a href=#17 id=17 data-nosnippet>17</a>    coding::BufMutExt,
+<a href=#17 id=17 data-nosnippet>17</a>    coding::{BufMutExt, Encodable},
 <a href=#18 id=18 data-nosnippet>18</a>    connection::{qlog::QlogSentPacket, stats::FrameStats},
 <a href=#19 id=19 data-nosnippet>19</a>    frame::{<span class="self">self</span>, Frame, FrameStruct, StreamMetaVec},
 <a href=#20 id=20 data-nosnippet>20</a>    transport_parameters::TransportParameters,
@@ -480,7 +480,7 @@
 <a href=#480 id=480 data-nosnippet>480</a>            }
 <a href=#481 id=481 data-nosnippet>481</a>
 <a href=#482 id=482 data-nosnippet>482</a>            retransmits.get_or_create().max_data = <span class="bool-val">true</span>;
-<a href=#483 id=483 data-nosnippet>483</a>            buf.write(frame::FrameType::MAX_DATA);
+<a href=#483 id=483 data-nosnippet>483</a>            buf.write(frame::FrameType::MaxData);
 <a href=#484 id=484 data-nosnippet>484</a>            buf.write(max);
 <a href=#485 id=485 data-nosnippet>485</a>            qlog.frame(<span class="kw-2">&amp;</span>Frame::MaxData(max));
 <a href=#486 id=486 data-nosnippet>486</a>            stats.max_data += <span class="number">1</span>;
@@ -511,7 +511,7 @@
 <a href=#511 id=511 data-nosnippet>511</a>            rs.record_sent_max_stream_data(max);
 <a href=#512 id=512 data-nosnippet>512</a>
 <a href=#513 id=513 data-nosnippet>513</a>            <span class="macro">trace!</span>(stream = %id, max = max, <span class="string">"MAX_STREAM_DATA"</span>);
-<a href=#514 id=514 data-nosnippet>514</a>            buf.write(frame::FrameType::MAX_STREAM_DATA);
+<a href=#514 id=514 data-nosnippet>514</a>            buf.write(frame::FrameType::MaxStreamData);
 <a href=#515 id=515 data-nosnippet>515</a>            buf.write(id);
 <a href=#516 id=516 data-nosnippet>516</a>            buf.write_var(max);
 <a href=#517 id=517 data-nosnippet>517</a>            qlog.frame(<span class="kw-2">&amp;</span>Frame::MaxStreamData { id, offset: max });
@@ -532,8 +532,8 @@
 <a href=#532 id=532 data-nosnippet>532</a>                <span class="string">"MAX_STREAMS ({:?})"</span>, dir
 <a href=#533 id=533 data-nosnippet>533</a>            );
 <a href=#534 id=534 data-nosnippet>534</a>            buf.write(<span class="kw">match </span>dir {
-<a href=#535 id=535 data-nosnippet>535</a>                Dir::Uni =&gt; frame::FrameType::MAX_STREAMS_UNI,
-<a href=#536 id=536 data-nosnippet>536</a>                Dir::Bi =&gt; frame::FrameType::MAX_STREAMS_BIDI,
+<a href=#535 id=535 data-nosnippet>535</a>                Dir::Uni =&gt; frame::FrameType::MaxStreamsUni,
+<a href=#536 id=536 data-nosnippet>536</a>                Dir::Bi =&gt; frame::FrameType::MaxStreamsBidi,
 <a href=#537 id=537 data-nosnippet>537</a>            });
 <a href=#538 id=538 data-nosnippet>538</a>            <span class="kw">let </span>count = <span class="self">self</span>.max_remote[dir <span class="kw">as </span>usize];
 <a href=#539 id=539 data-nosnippet>539</a>            buf.write_var(count);
