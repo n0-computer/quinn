@@ -1390,7 +1390,7 @@ impl Connection {
             {
                 // We can append/coalesce the next packet into the current
                 // datagram. Finish the current packet without adding extra padding.
-                builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No, qlog);
+                builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No);
             } else {
                 // We need a new datagram for the next packet.  Finish the current
                 // packet with padding.
@@ -1410,14 +1410,7 @@ impl Connection {
                             "GSO truncated by demand for {} padding bytes",
                             builder.buf.datagram_remaining_mut() - builder.predict_packet_end()
                         );
-                        builder.finish_and_track(
-                            now,
-                            self,
-                            path_id,
-                            sent_frames,
-                            PadDatagram::No,
-                            qlog,
-                        );
+                        builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No);
                         break;
                     }
 
@@ -1429,10 +1422,9 @@ impl Connection {
                         path_id,
                         sent_frames,
                         PadDatagram::ToSegmentSize,
-                        qlog,
                     );
                 } else {
-                    builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram, qlog);
+                    builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
                 }
                 if transmit.num_datagrams() == 1 {
                     transmit.clip_datagram_size();
@@ -1496,12 +1488,13 @@ impl Connection {
                     }
                 }
             };
+
+            let stats = &mut self.stats;
             if let Some((active_cid, probe_size)) = probe_data {
                 // We are definitely sending a DPLPMTUD probe.
                 debug_assert_eq!(transmit.num_datagrams(), 0);
                 transmit.start_new_datagram_with_size(probe_size as usize);
 
-                let mut qlog = QlogSentPacket::default();
                 let mut builder = PacketBuilder::new(
                     now,
                     space_id,
@@ -1510,24 +1503,17 @@ impl Connection {
                     &mut transmit,
                     true,
                     self,
-                    &mut qlog,
                 )?;
 
                 // We implement MTU probes as ping packets padded up to the probe size
                 trace!(?probe_size, "writing MTUD probe");
                 trace!("PING");
-                builder.frame_space_mut().write(frame::FrameType::Ping);
-                qlog.frame(&Frame::Ping);
-                self.stats.frame_tx.ping += 1;
+                builder.encode(frame::Ping, stats);
 
                 // If supported by the peer, we want no delays to the probe's ACK
                 if self.peer_supports_ack_frequency() {
                     trace!("IMMEDIATE_ACK");
-                    builder
-                        .frame_space_mut()
-                        .write(frame::FrameType::ImmediateAck);
-                    self.stats.frame_tx.immediate_ack += 1;
-                    qlog.frame(&Frame::ImmediateAck);
+                    builder.encode(frame::ImmediateAck, stats);
                 }
 
                 let sent_frames = SentFrames {
@@ -1540,7 +1526,6 @@ impl Connection {
                     path_id,
                     sent_frames,
                     PadDatagram::ToSize(probe_size),
-                    qlog,
                 );
 
                 self.path_stats
@@ -1707,22 +1692,11 @@ impl Connection {
         // if a post-migration packet caused the CID to be retired, it's fair to pretend
         // this is sent first.
         debug_assert_eq!(buf.datagram_start_offset(), 0);
-        let mut qlog = QlogSentPacket::default();
-        let mut builder = PacketBuilder::new(
-            now,
-            SpaceId::Data,
-            path_id,
-            *prev_cid,
-            buf,
-            false,
-            self,
-            &mut qlog,
-        )?;
+        let mut builder =
+            PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
         let challenge = frame::PathChallenge(token);
         trace!(%challenge, "validating previous path");
-        qlog.frame(&Frame::PathChallenge(challenge));
-        builder.frame_space_mut().write(challenge);
-        self.stats.frame_tx.path_challenge += 1;
+        builder.encode(challenge, &mut self.stats);
 
         // An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
         // to at least the smallest allowed maximum datagram size of 1200 bytes,
@@ -1730,7 +1704,7 @@ impl Connection {
         // sending a datagram of this size
         builder.pad_to(MIN_INITIAL_SIZE);
 
-        builder.finish(self, now, qlog);
+        builder.finish(self, now);
         self.stats.udp_tx.on_sent(1, buf.len());
 
         Some(Transmit {
@@ -5109,9 +5083,8 @@ impl Connection {
                     space_id,
                     space,
                     is_multipath_negotiated,
-                    buf,
+                    builder,
                     &mut self.stats,
-                    qlog,
                 );
             }
         }
@@ -5138,18 +5111,16 @@ impl Connection {
                 request_max_ack_delay: max_ack_delay.as_micros().try_into().unwrap_or(VarInt::MAX),
                 reordering_threshold: config.reordering_threshold,
             };
-            frame.encode(buf);
-            qlog.frame(&Frame::AckFrequency(frame));
+            builder.encode(frame, stats);
 
             sent.retransmits.get_or_create().ack_frequency = true;
 
             self.ack_frequency
                 .ack_frequency_sent(path_id, pn, max_ack_delay);
-            self.stats.frame_tx.ack_frequency += 1;
         }
 
         // PATH_CHALLENGE
-        if buf.remaining_mut() > frame::PathChallenge::SIZE_BOUND
+        if builder.frame_space_remaining() > frame::PathChallenge::SIZE_BOUND
             && space_id == SpaceId::Data
             && path.send_new_challenge
             && !self.state.is_closed()
@@ -5168,9 +5139,7 @@ impl Connection {
             sent.requires_padding = true;
             let challenge = frame::PathChallenge(token);
             trace!(frame = %challenge);
-            buf.write(challenge);
-            qlog.frame(&Frame::PathChallenge(challenge));
-            self.stats.frame_tx.path_challenge += 1;
+            builder.encode(challenge, stats);
             let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
             self.timers.set(
                 Timer::PerPath(path_id, PathTimer::PathChallengeLost),
@@ -5192,15 +5161,13 @@ impl Connection {
                     .should_report(&self.peer_params.address_discovery_role)
             {
                 let frame = frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
-                if buf.remaining_mut() > frame.size() {
-                    frame.encode(buf);
-                    qlog.frame(&Frame::ObservedAddr(frame));
+                if builder.frame_space_remaining() > frame.size() {
+                    builder.encode(frame, stats);
 
                     self.next_observed_addr_seq_no =
                         self.next_observed_addr_seq_no.saturating_add(1u8);
                     path.observed_addr_sent = true;
 
-                    self.stats.frame_tx.observed_addr += 1;
                     sent.retransmits.get_or_create().observed_addr = true;
                     space.pending.observed_addr = false;
                 }
@@ -5208,15 +5175,15 @@ impl Connection {
         }
 
         // PATH_RESPONSE
-        if buf.remaining_mut() > frame::PathResponse::SIZE_BOUND && space_id == SpaceId::Data {
+        if builder.frame_space_remaining() > frame::PathResponse::SIZE_BOUND
+            && space_id == SpaceId::Data
+        {
             if let Some(token) = path.path_responses.pop_on_path(path.remote) {
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
                 let response = frame::PathResponse(token);
                 trace!(frame = %response);
-                buf.write(response);
-                qlog.frame(&Frame::PathResponse(response));
-                self.stats.frame_tx.path_response += 1;
+                builder.encode(response, stats);
 
                 // NOTE: this is technically not required but might be useful to ride the
                 // request/response nature of path challenges to refresh an observation
@@ -5229,15 +5196,13 @@ impl Connection {
                 {
                     let frame =
                         frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
-                    if buf.remaining_mut() > frame.size() {
-                        frame.encode(buf);
-                        qlog.frame(&Frame::ObservedAddr(frame));
+                    if builder.frame_space_remaining() > frame.size() {
+                        builder.encode(frame, stats);
 
                         self.next_observed_addr_seq_no =
                             self.next_observed_addr_seq_no.saturating_add(1u8);
                         path.observed_addr_sent = true;
 
-                        self.stats.frame_tx.observed_addr += 1;
                         sent.retransmits.get_or_create().observed_addr = true;
                         space.pending.observed_addr = false;
                     }
@@ -5246,7 +5211,10 @@ impl Connection {
         }
 
         // CRYPTO
-        while !path_exclusive_only && buf.remaining_mut() > frame::Crypto::SIZE_BOUND && !is_0rtt {
+        while !path_exclusive_only
+            && builder.frame_space_remaining() > frame::Crypto::SIZE_BOUND
+            && !is_0rtt
+        {
             let mut frame = match space.pending.crypto.pop_front() {
                 Some(x) => x,
                 None => break,
@@ -5256,7 +5224,7 @@ impl Connection {
             // Since the offset is known, we can reserve the exact size required to encode it.
             // For length we reserve 2bytes which allows to encode up to 2^14,
             // which is more than what fits into normally sized QUIC frames.
-            let max_crypto_data_size = buf.remaining_mut()
+            let max_crypto_data_size = builder.frame_space_remaining()
                 - 1 // Frame Type
                 - VarInt::size(unsafe { VarInt::from_u64_unchecked(frame.offset) })
                 - 2; // Maximum encoded length for frame size, given we send less than 2^14 bytes
@@ -5277,12 +5245,8 @@ impl Connection {
                 truncated.offset,
                 truncated.data.len()
             );
-            truncated.encode(buf);
-            self.stats.frame_tx.crypto += 1;
+            builder.encode(truncated, stats);
 
-            // The clone is cheap but we still cfg it out if qlog is disabled.
-            #[cfg(feature = "qlog")]
-            qlog.frame(&Frame::Crypto(truncated.clone()));
             sent.retransmits.get_or_create().crypto.push_back(truncated);
             if !frame.data.is_empty() {
                 frame.offset += len as u64;
@@ -5294,7 +5258,7 @@ impl Connection {
         // PATH_ABANDON
         while !path_exclusive_only
             && space_id == SpaceId::Data
-            && frame::PathAbandon::SIZE_BOUND <= buf.remaining_mut()
+            && frame::PathAbandon::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let Some((path_id, error_code)) = space.pending.path_abandon.pop_first() else {
                 break;
@@ -5303,9 +5267,7 @@ impl Connection {
                 path_id,
                 error_code,
             };
-            frame.encode(buf);
-            qlog.frame(&Frame::PathAbandon(frame));
-            self.stats.frame_tx.path_abandon += 1;
+            builder.encode(frame, stats);
             trace!(%path_id, "PATH_ABANDON");
             sent.retransmits
                 .get_or_create()
@@ -5317,7 +5279,7 @@ impl Connection {
         // PATH_STATUS_AVAILABLE & PATH_STATUS_BACKUP
         while !path_exclusive_only
             && space_id == SpaceId::Data
-            && frame::PathStatusAvailable::SIZE_BOUND <= buf.remaining_mut()
+            && frame::PathStatusAvailable::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let Some(path_id) = space.pending.path_status.pop_first() else {
                 break;
@@ -5335,9 +5297,7 @@ impl Connection {
                         path_id,
                         status_seq_no: seq,
                     };
-                    frame.encode(buf);
-                    qlog.frame(&Frame::PathStatusAvailable(frame));
-                    self.stats.frame_tx.path_status_available += 1;
+                    builder.encode(frame, stats);
                     trace!(%path_id, %seq, "PATH_STATUS_AVAILABLE")
                 }
                 PathStatus::Backup => {
@@ -5345,9 +5305,7 @@ impl Connection {
                         path_id,
                         status_seq_no: seq,
                     };
-                    frame.encode(buf);
-                    qlog.frame(&Frame::PathStatusBackup(frame));
-                    self.stats.frame_tx.path_status_backup += 1;
+                    builder.encode(frame, stats);
                     trace!(%path_id, %seq, "PATH_STATUS_BACKUP")
                 }
             }

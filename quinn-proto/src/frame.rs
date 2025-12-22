@@ -168,6 +168,12 @@ pub(super) enum EncodableFrame<'a> {
     ObservedAddr(ObservedAddr),
     Ping(Ping),
     ImmediateAck(ImmediateAck),
+    AckFrequency(AckFrequency),
+    PathChallenge(PathChallenge),
+    Crypto(Crypto),
+    PathAbandon(PathAbandon),
+    PathStatusAvailable(PathStatusAvailable),
+    PathStatusBackup(PathStatusBackup),
 }
 
 impl<'a> EncodableFrame<'a> {
@@ -183,6 +189,12 @@ impl<'a> EncodableFrame<'a> {
             ObservedAddr(observed_addr) => observed_addr.get_type(),
             Ping(_) => FrameType::Ping,
             ImmediateAck(_) => FrameType::ImmediateAck,
+            AckFrequency(_) => FrameType::AckFrequency,
+            PathChallenge(_) => FrameType::PathChallenge,
+            Crypto(_) => FrameType::Crypto,
+            PathAbandon(_) => FrameType::PathAbandon,
+            PathStatusAvailable(_) => FrameType::PathStatusAvailable,
+            PathStatusBackup(_) => FrameType::PathStatusBackup,
         }
     }
 }
@@ -199,6 +211,12 @@ impl<'a> Encodable for EncodableFrame<'a> {
             EncodableFrame::ObservedAddr(observed_addr) => observed_addr.encode(buf),
             EncodableFrame::Ping(ping) => ping.encode(buf),
             EncodableFrame::ImmediateAck(immediate_ack) => immediate_ack.encode(buf),
+            EncodableFrame::AckFrequency(ack_frequency) => ack_frequency.encode(buf),
+            EncodableFrame::PathChallenge(path_challenge) => path_challenge.encode(buf),
+            EncodableFrame::Crypto(crypto) => crypto.encode(buf),
+            EncodableFrame::PathAbandon(path_abandon) => path_abandon.encode(buf),
+            EncodableFrame::PathStatusAvailable(path_status) => path_status.encode(buf),
+            EncodableFrame::PathStatusBackup(path_status) => path_status.encode(buf),
         }
     }
 }
@@ -577,7 +595,7 @@ impl Close {
 }
 
 pub(crate) struct CloseEncoder<'a> {
-    close: &'a Close,
+    pub(crate) close: &'a Close,
     max_len: usize,
 }
 
@@ -901,9 +919,9 @@ impl Ack {
 }
 
 pub(crate) struct AckEncoder<'a> {
-    delay: u64,
-    ranges: &'a ArrayRangeSet,
-    ecn: Option<&'a EcnCounts>,
+    pub(crate) delay: u64,
+    pub(crate) ranges: &'a ArrayRangeSet,
+    pub(crate) ecn: Option<&'a EcnCounts>,
 }
 
 impl<'a> AckEncoder<'a> {
