@@ -23,7 +23,7 @@ use crate::{
     TransportErrorCode, VarInt,
     cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
-    coding::BufMutExt,
+    coding::{BufMutExt, Encodable},
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     connection::{
@@ -5060,7 +5060,7 @@ impl Connection {
                 let reach_out = frame::ReachOut::new(*round, local_addr);
                 if buf.remaining_mut() > reach_out.size() {
                     trace!(%round, ?local_addr, "REACH_OUT");
-                    reach_out.write(buf);
+                    reach_out.encode(buf);
                     let sent_reachouts = sent
                         .retransmits
                         .get_or_create()
@@ -5091,7 +5091,7 @@ impl Connection {
             let frame = frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
             if buf.remaining_mut() > frame.size() {
                 trace!(seq = %frame.seq_no, ip = %frame.ip, port = frame.port, "OBSERVED_ADDRESS");
-                frame.write(buf);
+                frame.encode(buf);
 
                 self.next_observed_addr_seq_no = self.next_observed_addr_seq_no.saturating_add(1u8);
                 path.observed_addr_sent = true;
@@ -5229,7 +5229,7 @@ impl Connection {
             {
                 let frame = frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
                 if buf.remaining_mut() > frame.size() {
-                    frame.write(buf);
+                    frame.encode(buf);
                     qlog.frame(&Frame::ObservedAddr(frame));
 
                     self.next_observed_addr_seq_no =
@@ -5266,7 +5266,7 @@ impl Connection {
                     let frame =
                         frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
                     if buf.remaining_mut() > frame.size() {
-                        frame.write(buf);
+                        frame.encode(buf);
                         qlog.frame(&Frame::ObservedAddr(frame));
 
                         self.next_observed_addr_seq_no =
@@ -5617,7 +5617,7 @@ impl Connection {
                     port = added_address.port,
                     "ADD_ADDRESS",
                 );
-                added_address.write(buf);
+                added_address.encode(buf);
                 sent.retransmits
                     .get_or_create()
                     .add_address
@@ -5633,7 +5633,7 @@ impl Connection {
         while space_id == SpaceId::Data && frame::RemoveAddress::SIZE_BOUND <= buf.remaining_mut() {
             if let Some(removed_address) = space.pending.remove_address.pop_last() {
                 trace!(seq = %removed_address.seq_no, "REMOVE_ADDRESS");
-                removed_address.write(buf);
+                removed_address.encode(buf);
                 sent.retransmits
                     .get_or_create()
                     .remove_address
