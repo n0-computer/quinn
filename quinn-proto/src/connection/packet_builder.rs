@@ -185,6 +185,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             min_size,
             tag_len,
             ack_eliciting,
+            qlog,
             _span: span,
         })
     }
@@ -201,7 +202,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         );
     }
 
-    pub(super) fn encode(&mut self, frame: EncodableFrame, stats: &mut ConnectionStats) {
+    pub(super) fn encode(&mut self, frame: impl Into<EncodableFrame>, stats: &mut ConnectionStats) {
+        let frame = frame.into();
         frame.encode(&mut self.frame_space_mut());
         stats.frame_tx.record(frame.get_type());
         self.qlog.record(frame);

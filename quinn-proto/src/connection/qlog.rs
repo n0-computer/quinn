@@ -48,6 +48,7 @@ use crate::{
 use crate::{
     QlogConfig, Side, TransportErrorCode,
     connection::timer::{ConnTimer, PathTimer},
+    frame,
     frame::Close,
 };
 
@@ -476,33 +477,6 @@ impl QlogSentPacket {
         });
     }
 
-    /// Adds a PATH_ACK frame.
-    ///
-    /// This is a no-op if the `qlog` feature is not enabled.
-    pub(crate) fn frame_path_ack(
-        &mut self,
-        path_id: PathId,
-        delay: u64,
-        ranges: &ArrayRangeSet,
-        ecn: Option<&EcnCounts>,
-    ) {
-        #[cfg(feature = "qlog")]
-        self.frame_raw(QuicFrame::PathAck {
-            path_id: path_id.as_u32() as u64,
-            ack_delay: Some(delay as f32),
-            acked_ranges: Some(AckedRanges::Double(
-                ranges
-                    .iter()
-                    .map(|range| (range.start, range.end))
-                    .collect(),
-            )),
-            ect1: ecn.map(|e| e.ect1),
-            ect0: ecn.map(|e| e.ect0),
-            ce: ecn.map(|e| e.ce),
-            raw: None,
-        });
-    }
-
     /// Adds a DATAGRAM frame.
     ///
     /// This is a no-op if the `qlog` feature is not enabled.
@@ -549,8 +523,8 @@ impl QlogSentPacket {
         }
     }
 
-    pub(crate) fn record(&self, frame: EncodableFrame) -> _ {
-        todo!()
+    pub(crate) fn record(&mut self, frame: EncodableFrame) {
+        self.frame_raw(frame.to_qlog());
     }
 }
 
@@ -631,9 +605,29 @@ impl QlogRecvPacket {
 }
 
 #[cfg(feature = "qlog")]
-impl EncodableFrame {
+impl<'a> EncodableFrame<'a> {
     pub(crate) fn to_qlog(&self) -> QuicFrame {
-        match self {}
+        match self {
+            EncodableFrame::PathAck(frame::PathAckEncoder {
+                path_id,
+                delay,
+                ranges,
+                ecn,
+            }) => QuicFrame::PathAck {
+                path_id: path_id.as_u32() as u64,
+                ack_delay: Some(*delay as f32),
+                acked_ranges: Some(AckedRanges::Double(
+                    ranges
+                        .iter()
+                        .map(|range| (range.start, range.end))
+                        .collect(),
+                )),
+                ect1: ecn.map(|e| e.ect1),
+                ect0: ecn.map(|e| e.ect0),
+                ce: ecn.map(|e| e.ce),
+                raw: None,
+            },
+        }
     }
 }
 

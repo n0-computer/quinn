@@ -157,17 +157,23 @@ impl Encodable for FrameType {
 ///
 /// This includes some "encoder" types instead of the actual read frame, when writting directly to
 /// a buffer is more efficient than building the Frame itself.
-pub(super) enum EncodableFrame {}
+pub(super) enum EncodableFrame<'a> {
+    PathAck(PathAckEncoder<'a>),
+}
 
-impl EncodableFrame {
+impl<'a> EncodableFrame<'a> {
     pub(super) fn get_type(&self) -> FrameType {
-        match self {}
+        match self {
+            EncodableFrame::PathAck(path_ack_encoder) => path_ack_encoder.get_type(),
+        }
     }
 }
 
-impl Encodable for EncodableFrame {
+impl<'a> Encodable for EncodableFrame<'a> {
     fn encode<B: BufMut>(&self, buf: &mut B) {
-        match self {}
+        match self {
+            EncodableFrame::PathAck(path_ack_encoder) => path_ack_encoder.encode(buf),
+        }
     }
 }
 
@@ -716,10 +722,19 @@ impl PathAck {
 }
 
 pub(crate) struct PathAckEncoder<'a> {
-    path_id: PathId,
-    delay: u64,
-    ranges: &'a ArrayRangeSet,
-    ecn: Option<&'a EcnCounts>,
+    pub(super) path_id: PathId,
+    pub(super) delay: u64,
+    pub(super) ranges: &'a ArrayRangeSet,
+    pub(super) ecn: Option<&'a EcnCounts>,
+}
+
+impl<'a> PathAckEncoder<'a> {
+    fn get_type(&self) -> FrameType {
+        match self.ecn.is_some() {
+            true => FrameType::PathAckEcn,
+            false => FrameType::PathAck,
+        }
+    }
 }
 
 impl<'a> Encodable for PathAckEncoder<'a> {

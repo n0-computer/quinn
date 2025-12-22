@@ -1251,9 +1251,8 @@ impl Connection {
                         space_id,
                         &mut self.spaces[space_id],
                         is_multipath_negotiated,
-                        &mut builder.frame_space_mut(),
+                        &mut builder
                         &mut self.stats,
-                        &mut qlog,
                     );
                 }
 
@@ -5650,7 +5649,7 @@ impl Connection {
     }
 
     /// Write pending ACKs into a buffer
-    fn populate_acks(
+    fn populate_acks<'a, 'b>(
         now: Instant,
         receiving_ecn: bool,
         sent: &mut SentFrames,
@@ -5658,9 +5657,8 @@ impl Connection {
         space_id: SpaceId,
         space: &mut PacketSpace,
         is_multipath_negotiated: bool,
-        buf: &mut impl BufMut,
+        builder: &mut PacketBuilder<'a, 'b>,
         stats: &mut ConnectionStats,
-        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) {
         // 0-RTT packets must never carry acks (which would have to be of handshake packets)
         debug_assert!(space.crypto.is_some(), "tried to send ACK in 0-RTT");
@@ -5696,9 +5694,7 @@ impl Connection {
         if is_multipath_negotiated && space_id == SpaceId::Data {
             if !ranges.is_empty() {
                 trace!("PATH_ACK {path_id:?} {ranges:?}, Delay = {delay_micros}us");
-                frame::PathAck::encoder(path_id, delay as _, ranges, ecn).encode(buf);
-                qlog.frame_path_ack(path_id, delay as _, ranges, ecn);
-                stats.frame_tx.path_acks += 1;
+                builder.encode(frame::PathAck::encoder(path_id, delay as _, ranges, ecn), stats);
             }
         } else {
             trace!("ACK {ranges:?}, Delay = {delay_micros}us");
