@@ -1048,19 +1048,25 @@ impl Default for StreamMeta {
 }
 
 impl StreamMeta {
-    pub(crate) fn encoder(&self, length: bool) -> StreamMetaEncoder<'_> {
-        StreamMetaEncoder { meta: self, length }
+    pub(crate) fn encoder(&self, encode_length: bool) -> StreamMetaEncoder<'_> {
+        StreamMetaEncoder {
+            meta: self,
+            encode_length,
+        }
     }
 }
 
 pub(crate) struct StreamMetaEncoder<'a> {
     meta: &'a StreamMeta,
-    length: bool,
+    encode_length: bool,
 }
 
 impl<'a> Encodable for StreamMetaEncoder<'a> {
     fn encode<W: BufMut>(&self, out: &mut W) {
-        let StreamMetaEncoder { meta, length } = self;
+        let StreamMetaEncoder {
+            meta,
+            encode_length: length,
+        } = self;
         let mut ty = *StreamInfo::VALUES.start();
         if meta.offsets.start != 0 {
             ty |= 0x04;
@@ -1675,8 +1681,10 @@ impl Datagram {
 
 impl Encodable for Datagram {
     fn encode<B: BufMut>(&self, out: &mut B) {
+        // A datagram is encoded only after this is verified.
+        const ENCODE_LEN: bool = true;
         out.write(FrameType::Datagram(DatagramInfo(
-            *DatagramInfo::VALUES.start() as u8 | u8::from(true),
+            *DatagramInfo::VALUES.start() as u8 | u8::from(ENCODE_LEN),
         ))); // 1 byte
         // Safe to unwrap because we check length sanity before queueing datagrams
         out.write(VarInt::from_u64(self.data.len() as u64).unwrap()); // <= 8 bytes
