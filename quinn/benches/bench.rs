@@ -67,7 +67,7 @@ impl OwnedTransmit {
         meta.addr = self.src_ip;
         meta.dst_ip = Some(self.destination.ip());
         meta.len = self.contents.len();
-        meta.stride = self.contents.len();
+        meta.stride = self.segment_size.unwrap_or(self.contents.len());
         meta.ecn = self.ecn;
         Ok(())
     }
@@ -78,16 +78,34 @@ pub struct VirtualSocket {
     pub addr: SocketAddr,
     sender: mpsc::Sender<OwnedTransmit>,
     receiver: mpsc::Receiver<OwnedTransmit>,
+    max_transmit_segments: usize,
+    max_receive_segments: usize,
 }
 
 #[derive(Debug)]
 pub struct VirtualSocketSender {
     addr: SocketAddr,
     sender: PollSender<OwnedTransmit>,
+    max_transmit_segments: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct Options {
+    pub max_transmit_segments: usize,
+    pub max_receive_segments: usize,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            max_transmit_segments: 32,
+            max_receive_segments: 32,
+        }
+    }
 }
 
 impl VirtualSocket {
-    pub fn pair(addr0: impl Into<SocketAddr>, addr1: impl Into<SocketAddr>) -> (Self, Self) {
+    pub fn pair(addr0: impl Into<SocketAddr>, addr1: impl Into<SocketAddr>, options: Options) -> (Self, Self) {
         let zero_to_one = mpsc::channel(150); // Default UDP buffer size in linux is ~213KB, which would hold about 150 datagrams
         let one_to_zero = mpsc::channel(150); // Default UDP buffer size in linux is ~213KB, which would hold about 150 datagrams
         (
@@ -95,11 +113,15 @@ impl VirtualSocket {
                 addr: addr0.into(),
                 sender: zero_to_one.0,
                 receiver: one_to_zero.1,
+                max_transmit_segments: options.max_transmit_segments,
+                max_receive_segments: options.max_receive_segments,
             },
             Self {
                 addr: addr1.into(),
                 sender: one_to_zero.0,
                 receiver: zero_to_one.1,
+                max_transmit_segments: options.max_transmit_segments,
+                max_receive_segments: options.max_receive_segments,
             },
         )
     }
@@ -108,11 +130,14 @@ impl VirtualSocket {
         addr: impl Into<SocketAddr>,
         sender: mpsc::Sender<OwnedTransmit>,
         receiver: mpsc::Receiver<OwnedTransmit>,
+        options: Options,
     ) -> Self {
         Self {
             addr: addr.into(),
             sender,
             receiver,
+            max_transmit_segments: options.max_transmit_segments,
+            max_receive_segments: options.max_receive_segments,
         }
     }
 
@@ -158,7 +183,7 @@ impl VirtualSocket {
 
 impl quinn::UdpSender for VirtualSocketSender {
     fn max_transmit_segments(&self) -> usize {
-        1
+        self.max_transmit_segments
     }
 
     fn poll_send(
@@ -194,7 +219,12 @@ impl AsyncUdpSocket for VirtualSocket {
         Box::pin(VirtualSocketSender {
             addr: self.addr,
             sender: PollSender::new(self.sender.clone()),
+            max_transmit_segments: self.max_transmit_segments,
         })
+    }
+
+    fn max_receive_segments(&self) -> usize {
+        self.max_receive_segments
     }
 
     fn poll_recv(
@@ -265,7 +295,7 @@ fn small_data_100_streams(bench: &mut Bencher) {
 fn send_data(bench: &mut Bencher, data: &'static [u8], concurrent_streams: usize) {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let (client_sock, server_sock) = VirtualSocket::pair(TestAddr(0), TestAddr(1));
+    let (client_sock, server_sock) = VirtualSocket::pair(TestAddr(0), TestAddr(1), Options::default());
     let ctx = Context::new();
     let (addr, thread) = ctx.spawn_server(server_sock);
     let (endpoint, client, runtime) = ctx.make_client(client_sock, addr);

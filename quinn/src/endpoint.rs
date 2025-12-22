@@ -828,6 +828,8 @@ impl RecvState {
         runtime: &dyn Runtime,
         now: Instant,
     ) -> Result<PollProgress, io::Error> {
+        // println!("Buffer size: {}", self.recv_buf.len() / BATCH_SIZE);
+        // println!("Buffer count: {}", BATCH_SIZE);
         let mut received_connection_packet = false;
         let mut metas = [RecvMeta::default(); BATCH_SIZE];
         let mut iovs: [IoSliceMut; BATCH_SIZE] = {
