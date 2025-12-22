@@ -1287,7 +1287,7 @@ impl Connection {
                         ),
                     };
                 }
-                builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram, qlog);
+                builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
                 if space_id == self.highest_space {
                     // Don't send another close packet. Even with multipath we only send
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.

@@ -229,7 +229,6 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         path_id: PathId,
         sent: SentFrames,
         pad_datagram: PadDatagram,
-        qlog: QlogSentPacket,
     ) {
         match pad_datagram {
             PadDatagram::No => (),
@@ -240,7 +239,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         let ack_eliciting = self.ack_eliciting;
         let exact_number = self.exact_number;
         let space_id = self.space;
-        let (size, padded) = self.finish(conn, now, qlog);
+        let (size, padded) = self.finish(conn, now);
 
         let size = match padded || ack_eliciting {
             true => size as u16,
@@ -280,12 +279,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
     }
 
     /// Encrypt packet, returning the length of the packet and whether padding was added
-    pub(super) fn finish(
-        self,
-        conn: &mut Connection,
-        now: Instant,
-        #[allow(unused_mut)] mut qlog: QlogSentPacket,
-    ) -> (usize, bool) {
+    pub(super) fn finish(mut self, conn: &mut Connection, now: Instant) -> (usize, bool) {
         debug_assert!(
             self.buf.len() <= self.buf.datagram_max_offset() - self.tag_len,
             "packet exceeds maximum size"
@@ -295,7 +289,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             let padding = self.min_size - self.buf.len();
             trace!("PADDING * {}", padding);
             self.buf.put_bytes(0, padding);
-            qlog.frame_padding(padding);
+            self.qlog.frame_padding(padding);
+            // TODO(@divma): fix this
         }
 
         let space = &conn.spaces[self.space];
@@ -326,8 +321,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
 
         let packet_len = self.buf.len() - encode_start;
         trace!(size = %packet_len, short_header = %self.short_header, "wrote packet");
-        qlog.finalize(packet_len);
-        conn.qlog.emit_packet_sent(qlog, now);
+        self.qlog.finalize(packet_len);
+        conn.qlog.emit_packet_sent(self.qlog, now);
         (packet_len, pad)
     }
 
