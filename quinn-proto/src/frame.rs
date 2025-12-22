@@ -162,6 +162,7 @@ pub(super) enum EncodableFrame<'a> {
     PathAck(PathAckEncoder<'a>),
     Ack(AckEncoder<'a>),
     Close(CloseEncoder<'a>),
+    PathResponse(PathResponse),
 }
 
 impl<'a> EncodableFrame<'a> {
@@ -171,6 +172,7 @@ impl<'a> EncodableFrame<'a> {
             PathAck(path_ack_encoder) => path_ack_encoder.get_type(),
             Ack(ack_encoder) => ack_encoder.get_type(),
             Close(close_encoder) => close_encoder.get_type(),
+            PathResponse(_) => FrameType::PathResponse,
         }
     }
 }
@@ -181,6 +183,7 @@ impl<'a> Encodable for EncodableFrame<'a> {
             EncodableFrame::PathAck(path_ack_encoder) => path_ack_encoder.encode(buf),
             EncodableFrame::Ack(ack_encoder) => ack_encoder.encode(buf),
             EncodableFrame::Close(close_encoder) => close_encoder.encode(buf),
+            EncodableFrame::PathResponse(path_response) => path_response.encode(buf),
         }
     }
 }
@@ -231,6 +234,14 @@ impl Encodable for MaybeFrame {
             Self::Unknown(frame_id) => buf.write(*frame_id),
             Self::Known(frame_type) => buf.write(*frame_type),
         }
+    }
+}
+
+pub(crate) struct HandshakeDone;
+
+impl Encodable for HandshakeDone {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        FrameType::HandshakeDone.encode(buf);
     }
 }
 

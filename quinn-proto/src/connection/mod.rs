@@ -1313,9 +1313,7 @@ impl Connection {
                     //    https://github.com/quinn-rs/quinn/issues/2184
                     let response = frame::PathResponse(token);
                     trace!(%response, "(off-path)");
-                    builder.frame_space_mut().write(response);
-                    qlog.frame(&Frame::PathResponse(response));
-                    self.stats.frame_tx.path_response += 1;
+                    builder.encode(response, &mut self.stats);
                     builder.finish_and_track(
                         now,
                         self,
@@ -1325,7 +1323,6 @@ impl Connection {
                             ..SentFrames::default()
                         },
                         PadDatagram::ToMinMtu,
-                        qlog,
                     );
                     self.stats.udp_tx.on_sent(1, transmit.len());
                     return Some(Transmit {
@@ -1341,16 +1338,7 @@ impl Connection {
             let sent_frames = {
                 let path_exclusive_only = have_available_path
                     && self.path_data(path_id).local_status() == PathStatus::Backup;
-                let pn = builder.exact_number;
-                self.populate_packet(
-                    now,
-                    space_id,
-                    path_id,
-                    path_exclusive_only,
-                    &mut builder.frame_space_mut(),
-                    pn,
-                    &mut qlog,
-                )
+                self.populate_packet(now, space_id, path_id, path_exclusive_only, &mut builder)
             };
 
             // ACK-only packets should only be sent when explicitly allowed. If we write them due to
@@ -5010,16 +4998,15 @@ impl Connection {
     /// *path_exclusive_only* means to only build frames which can only be sent on this
     /// *path.  This is used in multipath for backup paths while there is still an active
     /// *path.
-    fn populate_packet(
+    fn populate_packet<'a, 'b>(
         &mut self,
         now: Instant,
         space_id: SpaceId,
         path_id: PathId,
         path_exclusive_only: bool,
-        buf: &mut impl BufMut,
-        pn: u64,
-        #[allow(unused)] qlog: &mut QlogSentPacket,
+        builder: &mut PacketBuilder<'a, 'b>,
     ) -> SentFrames {
+        let pn = builder.exact_number;
         let mut sent = SentFrames::default();
         let is_multipath_negotiated = self.is_multipath_negotiated();
         let space = &mut self.spaces[space_id];
@@ -5033,12 +5020,8 @@ impl Connection {
         // HANDSHAKE_DONE
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
             trace!("HANDSHAKE_DONE");
-            buf.write(frame::FrameType::HandshakeDone);
-            qlog.frame(&Frame::HandshakeDone);
+            builder.encode(frame::HandshakeDone, &mut self.stats);
             sent.retransmits.get_or_create().handshake_done = true;
-            // This is just a u8 counter and the frame is typically just sent once
-            self.stats.frame_tx.handshake_done =
-                self.stats.frame_tx.handshake_done.saturating_add(1);
         }
 
         // REACH_OUT
