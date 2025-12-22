@@ -34,16 +34,22 @@ pub enum Error {
     /// Nat traversal attempt failed due to a multipath error
     #[error("Failed to establish paths {0}")]
     Multipath(super::PathError),
+    /// Attempted to initiate NAT traversal on a closed, or closing connection.
+    #[error("The connection is already closed")]
+    Closed,
 }
 
 pub(crate) struct NatTraversalRound {
-    /// Sequence number to use for the new reach out frames
+    /// Sequence number to use for the new reach out frames.
     pub(crate) new_round: VarInt,
-    /// Addresses to use to send reach out frames
-    pub(crate) reach_out_at: Vec<(IpAddr, u16)>,
-    /// Remotes to probe by attempting to open new paths
-    pub(crate) addresses_to_probe: Vec<(IpAddr, u16)>,
-    /// [`PathId`]s of the cancelled round
+    /// Addresses to use to send reach out frames.
+    pub(crate) reach_out_at: Vec<IpPort>,
+    /// Remotes to probe by attempting to open new paths.
+    ///
+    /// The addresses include their Id, so that it can be used to signal these should be returned
+    /// in a nat traversal continuation by calling [`ClientState::report_in_continuation`].
+    pub(crate) addresses_to_probe: Vec<(VarInt, IpPort)>,
+    /// [`PathId`]s of the cancelled round.
     pub(crate) prev_round_path_ids: Vec<PathId>,
 }
 
@@ -77,10 +83,13 @@ pub(crate) struct ClientState {
     max_local_addresses: usize,
     /// Candidate addresses the remote server reports as potentially reachable, to use for nat
     /// traversal attempts.
-    remote_addresses: FxHashMap<VarInt, (IpAddr, u16)>,
+    ///
+    /// These are indexed by their advertised Id. For each address, whether the address should be
+    /// reported in nat traversal continuations is kept.
+    remote_addresses: FxHashMap<VarInt, (IpPort, bool)>,
     /// Candidate addresses the local client reports as potentially reachable, to use for nat
-    /// traversal attempts. Always canonical.
-    local_addresses: FxHashSet<(IpAddr, u16)>,
+    /// traversal attempts.
+    local_addresses: FxHashSet<IpPort>,
     /// Current nat holepunching round.
     round: VarInt,
     /// [`PathId`]s used to probe remotes assigned to this round.
@@ -129,19 +138,60 @@ impl ClientState {
 
         let prev_round_path_ids = std::mem::take(&mut self.round_path_ids);
         self.round = self.round.saturating_add(1u8);
+        let mut addresses_to_probe = Vec::with_capacity(self.remote_addresses.len());
+        for (id, (address, report_in_continuation)) in self.remote_addresses.iter_mut() {
+            addresses_to_probe.push((*id, *address));
+            *report_in_continuation = false;
+        }
 
         Ok(NatTraversalRound {
             new_round: self.round,
             reach_out_at: self.local_addresses.iter().copied().collect(),
-            addresses_to_probe: self.remote_addresses.values().copied().collect(),
+            addresses_to_probe,
             prev_round_path_ids,
         })
+    }
+
+    /// Mark a remote address to be reported back in a nat traversal continuation if the error is
+    /// considered spurious from a nat traversal point of view.
+    ///
+    /// Ids not present are silently ignored.
+    pub(crate) fn report_in_continuation(&mut self, id: VarInt, e: crate::PathError) {
+        match e {
+            crate::PathError::MaxPathIdReached | crate::PathError::RemoteCidsExhausted => {
+                if let Some((_address, report_in_continuation)) = self.remote_addresses.get_mut(&id)
+                {
+                    *report_in_continuation = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Returns an address that needs to be probed, if any.
+    ///
+    /// The address will not be returned twice unless marked as such again with
+    /// [`Self::report_in_continuation`].
+    pub(crate) fn continue_nat_traversal_round(&mut self) -> Option<(VarInt, IpPort)> {
+        // this being random depends on iteration not returning always on the same order
+        let (id, (address, report_in_continuation)) = self
+            .remote_addresses
+            .iter_mut()
+            .find(|(_id, (_addr, report))| *report)?;
+        *report_in_continuation = false;
+        Some((*id, *address))
     }
 
     /// Add a [`PathId`] as part of the current attempts to create paths based on the server's
     /// advertised addresses.
     pub(crate) fn set_round_path_ids(&mut self, path_ids: Vec<PathId>) {
         self.round_path_ids = path_ids;
+    }
+
+    /// Add a [`PathId`] as part of the current attempts to create paths based on the server's
+    /// advertised addresses.
+    pub(crate) fn add_round_path_id(&mut self, path_id: PathId) {
+        self.round_path_ids.push(path_id);
     }
 
     /// Adds an address to the remote set
@@ -157,13 +207,16 @@ impl ClientState {
         let allow_new = self.remote_addresses.len() < self.max_remote_addresses;
         match self.remote_addresses.entry(seq_no) {
             Entry::Occupied(mut occupied_entry) => {
-                let old_value = occupied_entry.insert(address);
+                let is_update = occupied_entry.get().0 != address;
+                if is_update {
+                    occupied_entry.insert((address, false));
+                }
                 // The value might be different. This should not happen, but we assume that the new
                 // address is more recent than the previous, and thus worth updating
-                Ok((address != old_value).then_some(address.into()))
+                Ok(is_update.then_some(address.into()))
             }
             Entry::Vacant(vacant_entry) if allow_new => {
-                vacant_entry.insert(address);
+                vacant_entry.insert((address, false));
                 Ok(Some(address.into()))
             }
             _ => Err(Error::TooManyAddresses),
@@ -179,22 +232,23 @@ impl ClientState {
     ) -> Option<SocketAddr> {
         self.remote_addresses
             .remove(&remove_addr.seq_no)
-            .map(Into::into)
+            .map(|(address, _report_in_continuation)| address.into())
     }
 
     /// Checks that a received remote address is valid
     ///
     /// An address is valid as long as it does not change the value of a known address id.
     pub(crate) fn check_remote_address(&self, add_addr: &AddAddress) -> bool {
-        let existing = self.remote_addresses.get(&add_addr.seq_no);
-        existing.is_none() || existing == Some(&add_addr.ip_port())
+        match self.remote_addresses.get(&add_addr.seq_no) {
+            None => true,
+            Some((existing, _)) => existing == &add_addr.ip_port(),
+        }
     }
 
     pub(crate) fn get_remote_nat_traversal_addresses(&self) -> Vec<SocketAddr> {
         self.remote_addresses
             .values()
-            .copied()
-            .map(Into::into)
+            .map(|(address, _report_in_continuation)| (*address).into())
             .collect()
     }
 }
@@ -273,6 +327,7 @@ impl ServerState {
         }
 
         if round > self.round {
+            self.round = round;
             self.pending_probes.clear();
             // TODO(@divma): This log is here because I'm not sure if dropping the challenges
             // without further interaction with the connection is going to cause issues.
@@ -415,5 +470,44 @@ impl State {
                 .map(Into::into)
                 .collect()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic_server_state() {
+        let mut state = ServerState::new(2, 2);
+
+        state
+            .handle_reach_out(ReachOut {
+                round: 1u32.into(),
+                ip: std::net::Ipv4Addr::LOCALHOST.into(),
+                port: 1,
+            })
+            .unwrap();
+
+        state
+            .handle_reach_out(ReachOut {
+                round: 1u32.into(),
+                ip: "1.1.1.1".parse().unwrap(), //std::net::Ipv4Addr::LOCALHOST.into(),
+                port: 2,
+            })
+            .unwrap();
+
+        dbg!(&state);
+        assert_eq!(state.pending_probes.len(), 2);
+        assert_eq!(state.active_probes.len(), 0);
+
+        let probe = state.next_probe().unwrap();
+        probe.finish(1);
+        let probe = state.next_probe().unwrap();
+        probe.finish(2);
+
+        assert!(state.next_probe().is_none());
+        assert_eq!(state.pending_probes.len(), 0);
+        assert_eq!(state.active_probes.len(), 2);
     }
 }

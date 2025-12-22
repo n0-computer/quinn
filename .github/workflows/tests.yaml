@@ -170,6 +170,8 @@ jobs:
       # Using self-hosted runners so use local cache for sccache and
       # not SCCACHE_GHA_ENABLED.
       RUSTC_WRAPPER: "sccache"
+      # Force clang/bindgen to use MSVC target to avoid mingw headers from msys2
+      BINDGEN_EXTRA_CLANG_ARGS: "--target=x86_64-pc-windows-msvc"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -253,6 +255,29 @@ jobs:
 
       - name: Install cmake
         uses: lukka/get-cmake@latest
+
+      # Install LLVM for libclang (required by bindgen for aws-lc-fips-sys)
+      - name: Cache LLVM
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: C:\Program Files\LLVM
+          key: llvm-17.0.6-windows
+
+      - name: Install LLVM
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: |
+          $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-17.0.6/LLVM-17.0.6-win64.exe"
+          Invoke-WebRequest -Uri $llvmUrl -OutFile llvm-installer.exe
+          Start-Process -FilePath .\llvm-installer.exe -ArgumentList "/S" -Wait
+
+      - name: Add LLVM to PATH
+        run: |
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Setup MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: build tests
         run: |

@@ -4,6 +4,7 @@ use std::{
     future::Future,
     io,
     net::{IpAddr, SocketAddr},
+    num::NonZeroUsize,
     pin::Pin,
     sync::{Arc, Weak},
     task::{Context, Poll, Waker, ready},
@@ -1728,4 +1729,4 @@ const MAX_TRANSMIT_DATAGRAMS: usize = 20;
 /// This can be lower than the maximum platform capabilities, to avoid excessive
 /// memory allocations when calling `poll_transmit()`. Benchmarks have shown
 /// that numbers around 10 are a good compromise.
-const MAX_TRANSMIT_SEGMENTS: usize = 10;
+const MAX_TRANSMIT_SEGMENTS: NonZeroUsize = NonZeroUsize::new(10).expect("known");

@@ -11,8 +11,11 @@ use super::{
     spaces::{PacketNumberSpace, SentPacket},
 };
 use crate::{
-    ConnectionId, Duration, Instant, TIMER_GRANULARITY, TransportConfig, VarInt, coding,
-    congestion, frame::ObservedAddr, packet::SpaceId,
+    ConnectionId, Duration, Instant, TIMER_GRANULARITY, TransportConfig, VarInt,
+    coding::{self, Decodable, Encodable},
+    congestion,
+    frame::ObservedAddr,
+    packet::SpaceId,
 };
 
 #[cfg(feature = "qlog")]
@@ -30,13 +33,15 @@ impl std::hash::Hash for PathId {
 
 impl identity_hash::IdentityHashable for PathId {}
 
-impl coding::Codec for PathId {
+impl Decodable for PathId {
     fn decode<B: bytes::Buf>(r: &mut B) -> coding::Result<Self> {
         let v = VarInt::decode(r)?;
         let v = u32::try_from(v.0).map_err(|_| coding::UnexpectedEnd)?;
         Ok(Self(v))
     }
+}
 
+impl Encodable for PathId {
     fn encode<B: bytes::BufMut>(&self, w: &mut B) {
         VarInt(self.0.into()).encode(w)
     }
@@ -141,7 +146,9 @@ pub(super) struct PathData {
     pub(super) pacing: Pacer,
     /// Actually sent challenges (on the wire).
     pub(super) challenges_sent: IntMap<u64, SentChallengeInfo>,
-    /// Whether to *immediately* trigger another PATH_CHALLENGE (via [`super::Connection::can_send`])
+    /// Whether to *immediately* trigger another PATH_CHALLENGE.
+    ///
+    /// This is picked up by [`super::Connection::space_can_send`].
     pub(super) send_new_challenge: bool,
     /// Pending responses to PATH_CHALLENGE frames
     pub(super) path_responses: PathResponses,
@@ -273,8 +280,8 @@ impl PathData {
             status: Default::default(),
             first_packet: None,
             pto_count: 0,
-            idle_timeout: None,
-            keep_alive: None,
+            idle_timeout: config.default_path_max_idle_timeout,
+            keep_alive: config.default_path_keep_alive_interval,
             open: false,
             last_allowed_receive: None,
             #[cfg(feature = "qlog")]
@@ -385,6 +392,62 @@ impl PathData {
         }
     }
 
+    /// The earliest time at which a sent challenge is considered lost.
+    pub(super) fn earliest_expiring_challenge(&self) -> Option<Instant> {
+        if self.challenges_sent.is_empty() {
+            return None;
+        }
+        let pto = self.rtt.pto_base();
+        self.challenges_sent
+            .values()
+            .map(|info| info.sent_instant)
+            .min()
+            .map(|sent_instant| sent_instant + pto)
+    }
+
+    /// Handle receiving a PATH_RESPONSE.
+    pub(super) fn on_path_response_received(
+        &mut self,
+        now: Instant,
+        token: u64,
+        remote: SocketAddr,
+    ) -> OnPathResponseReceived {
+        match self.challenges_sent.get(&token) {
+            // Response to an on-path PathChallenge
+            Some(info) if info.remote == remote && self.remote == remote => {
+                let sent_instant = info.sent_instant;
+                if !std::mem::replace(&mut self.validated, true) {
+                    trace!("new path validated");
+                }
+                // Clear any other on-path sent challenge.
+                self.challenges_sent
+                    .retain(|_token, info| info.remote != remote);
+
+                self.send_new_challenge = false;
+
+                // This RTT can only be used for the initial RTT, not as a normal
+                // sample: https://www.rfc-editor.org/rfc/rfc9002#section-6.2.2-2.
+                let rtt = now.saturating_duration_since(sent_instant);
+                self.rtt.reset_initial_rtt(rtt);
+
+                let was_open = std::mem::replace(&mut self.open, true);
+                OnPathResponseReceived::OnPath { was_open }
+            }
+            // Response to an off-path PathChallenge
+            Some(info) if info.remote == remote => {
+                self.challenges_sent
+                    .retain(|_token, info| info.remote != remote);
+                OnPathResponseReceived::OffPath
+            }
+            // Response to a PathChallenge we recognize, but from an invalid remote
+            Some(info) => OnPathResponseReceived::Invalid {
+                expected: info.remote,
+            },
+            // Response to an unknown PathChallenge
+            None => OnPathResponseReceived::Unknown,
+        }
+    }
+
     #[cfg(feature = "qlog")]
     pub(super) fn qlog_recovery_metrics(
         &mut self,
@@ -467,6 +530,20 @@ impl PathData {
     pub(super) fn generation(&self) -> u64 {
         self.generation
     }
+}
+
+pub(super) enum OnPathResponseReceived {
+    /// This response validates the path on its current remote address.
+    OnPath { was_open: bool },
+    /// This response is valid, but it's for a remote other than the path's current remote address.
+    OffPath,
+    /// The received token is unknown.
+    Unknown,
+    /// The response is invalid.
+    Invalid {
+        /// The remote that was expected for this token.
+        expected: SocketAddr,
+    },
 }
 
 /// Congestion metrics as described in [`recovery_metrics_updated`].

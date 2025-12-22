@@ -6,7 +6,7 @@ on:
   merge_group:
   push:
     branches:
-      - main-iroh
+      - main
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
