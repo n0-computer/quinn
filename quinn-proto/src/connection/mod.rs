@@ -5029,17 +5029,15 @@ impl Connection {
         if let Some((round, addresses)) = space.pending.reach_out.as_mut() {
             while let Some(local_addr) = addresses.pop() {
                 let reach_out = frame::ReachOut::new(*round, local_addr);
-                if buf.remaining_mut() > reach_out.size() {
+                if builder.frame_space_remaining() > reach_out.size() {
                     trace!(%round, ?local_addr, "REACH_OUT");
-                    reach_out.encode(buf);
+                    builder.encode(reach_out, &mut self.stats);
                     let sent_reachouts = sent
                         .retransmits
                         .get_or_create()
                         .reach_out
                         .get_or_insert_with(|| (*round, Default::default()));
                     sent_reachouts.1.push(local_addr);
-                    self.stats.frame_tx.reach_out = self.stats.frame_tx.reach_out.saturating_add(1);
-                    qlog.frame(&Frame::ReachOut(reach_out));
                 } else {
                     addresses.push(local_addr);
                     break;

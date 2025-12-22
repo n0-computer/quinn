@@ -163,6 +163,8 @@ pub(super) enum EncodableFrame<'a> {
     Ack(AckEncoder<'a>),
     Close(CloseEncoder<'a>),
     PathResponse(PathResponse),
+    HandshakeDone(HandshakeDone),
+    ReachOut(ReachOut),
 }
 
 impl<'a> EncodableFrame<'a> {
@@ -173,6 +175,8 @@ impl<'a> EncodableFrame<'a> {
             Ack(ack_encoder) => ack_encoder.get_type(),
             Close(close_encoder) => close_encoder.get_type(),
             PathResponse(_) => FrameType::PathResponse,
+            HandshakeDone(_) => FrameType::HandshakeDone,
+            ReachOut(reach_out) => reach_out.get_type(),
         }
     }
 }
@@ -184,6 +188,8 @@ impl<'a> Encodable for EncodableFrame<'a> {
             EncodableFrame::Ack(ack_encoder) => ack_encoder.encode(buf),
             EncodableFrame::Close(close_encoder) => close_encoder.encode(buf),
             EncodableFrame::PathResponse(path_response) => path_response.encode(buf),
+            EncodableFrame::HandshakeDone(handshake_done) => handshake_done.encode(buf),
+            EncodableFrame::ReachOut(reach_out) => reach_out.encode(buf),
         }
     }
 }
