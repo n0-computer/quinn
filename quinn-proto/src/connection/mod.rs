@@ -5007,6 +5007,7 @@ impl Connection {
         builder: &mut PacketBuilder<'a, 'b>,
     ) -> SentFrames {
         let pn = builder.exact_number;
+        let stats = &mut self.stats;
         let mut sent = SentFrames::default();
         let is_multipath_negotiated = self.is_multipath_negotiated();
         let space = &mut self.spaces[space_id];
@@ -5020,7 +5021,7 @@ impl Connection {
         // HANDSHAKE_DONE
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
             trace!("HANDSHAKE_DONE");
-            builder.encode(frame::HandshakeDone, &mut self.stats);
+            builder.encode(frame::HandshakeDone, stats);
             sent.retransmits.get_or_create().handshake_done = true;
         }
 
@@ -5031,7 +5032,7 @@ impl Connection {
                 let reach_out = frame::ReachOut::new(*round, local_addr);
                 if builder.frame_space_remaining() > reach_out.size() {
                     trace!(%round, ?local_addr, "REACH_OUT");
-                    builder.encode(reach_out, &mut self.stats);
+                    builder.encode(reach_out, stats);
                     let sent_reachouts = sent
                         .retransmits
                         .get_or_create()
@@ -5060,7 +5061,7 @@ impl Connection {
             let frame = frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
             if builder.frame_space_remaining() > frame.size() {
                 trace!(seq = %frame.seq_no, ip = %frame.ip, port = frame.port, "OBSERVED_ADDRESS");
-                builder.encode(frame, &mut self.stats);
+                builder.encode(frame, stats);
 
                 self.next_observed_addr_seq_no = self.next_observed_addr_seq_no.saturating_add(1u8);
                 path.observed_addr_sent = true;
@@ -5073,10 +5074,8 @@ impl Connection {
         // PING
         if mem::replace(&mut space.for_path(path_id).ping_pending, false) {
             trace!("PING");
-            buf.write(frame::FrameType::Ping);
+            builder.encode(frame::Ping, stats);
             sent.non_retransmits = true;
-            self.stats.frame_tx.ping += 1;
-            qlog.frame(&Frame::Ping);
         }
 
         // IMMEDIATE_ACK
@@ -5087,10 +5086,8 @@ impl Connection {
                 "immediate acks must be sent in the data space"
             );
             trace!("IMMEDIATE_ACK");
-            buf.write(frame::FrameType::ImmediateAck);
+            builder.encode(frame::ImmediateAck, stats);
             sent.non_retransmits = true;
-            self.stats.frame_tx.immediate_ack += 1;
-            qlog.frame(&Frame::ImmediateAck);
         }
 
         // ACK

@@ -166,6 +166,8 @@ pub(super) enum EncodableFrame<'a> {
     HandshakeDone(HandshakeDone),
     ReachOut(ReachOut),
     ObservedAddr(ObservedAddr),
+    Ping(Ping),
+    ImmediateAck(ImmediateAck),
 }
 
 impl<'a> EncodableFrame<'a> {
@@ -179,6 +181,8 @@ impl<'a> EncodableFrame<'a> {
             HandshakeDone(_) => FrameType::HandshakeDone,
             ReachOut(reach_out) => reach_out.get_type(),
             ObservedAddr(observed_addr) => observed_addr.get_type(),
+            Ping(_) => FrameType::Ping,
+            ImmediateAck(_) => FrameType::ImmediateAck,
         }
     }
 }
@@ -193,6 +197,8 @@ impl<'a> Encodable for EncodableFrame<'a> {
             EncodableFrame::HandshakeDone(handshake_done) => handshake_done.encode(buf),
             EncodableFrame::ReachOut(reach_out) => reach_out.encode(buf),
             EncodableFrame::ObservedAddr(observed_addr) => observed_addr.encode(buf),
+            EncodableFrame::Ping(ping) => ping.encode(buf),
+            EncodableFrame::ImmediateAck(immediate_ack) => immediate_ack.encode(buf),
         }
     }
 }
@@ -251,6 +257,22 @@ pub(crate) struct HandshakeDone;
 impl Encodable for HandshakeDone {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         FrameType::HandshakeDone.encode(buf);
+    }
+}
+
+pub(crate) struct Ping;
+
+impl Encodable for Ping {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        FrameType::Ping.encode(buf);
+    }
+}
+
+pub(crate) struct ImmediateAck;
+
+impl Encodable for ImmediateAck {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        FrameType::ImmediateAck.encode(buf);
     }
 }
 
