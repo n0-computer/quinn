@@ -39,7 +39,7 @@ use tracing::warn;
 use crate::{
     Connection, ConnectionId, Frame, Instant, PathId,
     connection::{PathData, SentPacket, timer::Timer},
-    frame::{EcnCounts, StreamMeta},
+    frame::{EcnCounts, EncodableFrame, StreamMeta},
     packet::{Header, SpaceId},
     range_set::ArrayRangeSet,
     transport_parameters::TransportParameters,
@@ -548,6 +548,10 @@ impl QlogSentPacket {
             self.inner.header.length = Some(len as u16);
         }
     }
+
+    pub(crate) fn record(&self, frame: EncodableFrame) -> _ {
+        todo!()
+    }
 }
 
 /// Info about a received packet. Zero-sized struct if `qlog` feature is not enabled.
@@ -623,6 +627,13 @@ impl QlogRecvPacket {
                 });
             self.padding = 0;
         }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl EncodableFrame {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        match self {}
     }
 }
 

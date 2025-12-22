@@ -153,6 +153,24 @@ impl Encodable for FrameType {
     }
 }
 
+/// Wrapper type for the encodable frames.
+///
+/// This includes some "encoder" types instead of the actual read frame, when writting directly to
+/// a buffer is more efficient than building the Frame itself.
+pub(super) enum EncodableFrame {}
+
+impl EncodableFrame {
+    pub(super) fn get_type(&self) -> FrameType {
+        match self {}
+    }
+}
+
+impl Encodable for EncodableFrame {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        match self {}
+    }
+}
+
 pub(crate) trait FrameStruct {
     /// Smallest number of bytes this type of frame is guaranteed to fit within.
     const SIZE_BOUND: usize;

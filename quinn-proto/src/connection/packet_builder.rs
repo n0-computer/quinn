@@ -4,9 +4,10 @@ use tracing::{debug, trace, trace_span};
 
 use super::{Connection, PathId, SentFrames, TransmitBuf, spaces::SentPacket};
 use crate::{
-    ConnectionId, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
+    ConnectionId, ConnectionStats, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
+    coding::Encodable,
     connection::{ConnectionSide, qlog::QlogSentPacket},
-    frame::{self, Close},
+    frame::{self, Close, EncodableFrame},
     packet::{FIXED_BIT, Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId},
 };
 
@@ -31,6 +32,7 @@ pub(super) struct PacketBuilder<'a, 'b> {
     pub(super) min_size: usize,
     pub(super) tag_len: usize,
     pub(super) _span: tracing::span::EnteredSpan,
+    qlog: QlogSentPacket,
 }
 
 impl<'a, 'b> PacketBuilder<'a, 'b> {
@@ -46,11 +48,12 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         buffer: &'a mut TransmitBuf<'b>,
         ack_eliciting: bool,
         conn: &mut Connection,
-        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) -> Option<Self>
     where
         'b: 'a,
     {
+        let mut qlog = QlogSentPacket::default();
+
         let version = conn.version;
         // Initiate key update if we're approaching the confidentiality limit
         let sent_with_keys = conn.spaces[space_id].sent_with_keys();
@@ -196,6 +199,12 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             self.min_size,
             self.buf.datagram_start_offset() + (min_size as usize) - self.tag_len,
         );
+    }
+
+    pub(super) fn encode(&mut self, frame: EncodableFrame, stats: &mut ConnectionStats) {
+        frame.encode(&mut self.frame_space_mut());
+        stats.frame_tx.record(frame.get_type());
+        self.qlog.record(frame);
     }
 
     /// Returns a writable buffer limited to the remaining frame space

@@ -1208,7 +1208,6 @@ impl Connection {
                 prev.update_unacked = false;
             }
 
-            let mut qlog = QlogSentPacket::default();
             let mut builder = PacketBuilder::new(
                 now,
                 space_id,
@@ -1217,7 +1216,6 @@ impl Connection {
                 &mut transmit,
                 can_send.other,
                 self,
-                &mut qlog,
             )?;
             last_packet_number = Some(builder.exact_number);
             coalesce = coalesce && !builder.short_header;
