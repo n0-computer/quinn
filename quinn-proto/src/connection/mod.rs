@@ -323,7 +323,7 @@ impl Connection {
         init_cid: ConnectionId,
         loc_cid: ConnectionId,
         rem_cid: ConnectionId,
-        addresses: FourTuple,
+        network_path: FourTuple,
         crypto: Box<dyn crypto::Session>,
         cid_gen: &dyn ConnectionIdGenerator,
         now: Instant,
@@ -367,7 +367,7 @@ impl Connection {
             ),
         )]);
 
-        let mut path = PathData::new(addresses, allow_mtud, None, 0, now, &config);
+        let mut path = PathData::new(network_path, allow_mtud, None, 0, now, &config);
         // TODO(@divma): consider if we want to delay this until the path is validated
         path.open = true;
         let mut this = Self {
@@ -464,7 +464,8 @@ impl Connection {
             this.write_crypto();
             this.init_0rtt(now);
         }
-        this.qlog.emit_tuple_assigned(PathId::ZERO, addresses, now);
+        this.qlog
+            .emit_tuple_assigned(PathId::ZERO, network_path, now);
         this
     }
 
@@ -549,7 +550,7 @@ impl Connection {
     // TODO(matheus23): Adjust docs
     pub fn open_path_ensure(
         &mut self,
-        addresses: FourTuple,
+        network_path: FourTuple,
         initial_status: PathStatus,
         now: Instant,
     ) -> Result<(PathId, bool), PathError> {
@@ -557,10 +558,10 @@ impl Connection {
             match self
                 .paths
                 .iter()
-                .find(|(_id, path)| addresses.is_probably_same_path(&path.data.addresses))
+                .find(|(_id, path)| network_path.is_probably_same_path(&path.data.network_path))
             {
                 Some((path_id, _state)) => (*path_id, true),
-                None => (self.open_path(addresses, initial_status, now)?, false),
+                None => (self.open_path(network_path, initial_status, now)?, false),
             },
         )
     }
@@ -571,7 +572,7 @@ impl Connection {
     /// When the path is opened it will be reported as an [`PathEvent::Opened`].
     pub fn open_path(
         &mut self,
-        addresses: FourTuple,
+        network_path: FourTuple,
         initial_status: PathStatus,
         now: Instant,
     ) -> Result<PathId, PathError> {
@@ -604,7 +605,7 @@ impl Connection {
             return Err(PathError::RemoteCidsExhausted);
         }
 
-        let path = self.ensure_path(path_id, addresses, now, None);
+        let path = self.ensure_path(path_id, network_path, now, None);
         path.status.local_update(initial_status);
 
         Ok(path_id)
@@ -734,10 +735,10 @@ impl Connection {
             .ok_or(ClosedPath { _private: () })
     }
 
-    /// Returns the path's remote socket address
-    pub fn path_addresses(&self, path_id: PathId) -> Result<FourTuple, ClosedPath> {
+    /// Returns the path's network path represented as a 4-tuple.
+    pub fn network_path(&self, path_id: PathId) -> Result<FourTuple, ClosedPath> {
         self.path(path_id)
-            .map(|path| path.addresses)
+            .map(|path| path.network_path)
             .ok_or(ClosedPath { _private: () })
     }
 
@@ -819,11 +820,14 @@ impl Connection {
     }
 
     /// Check if the 4-tuple path (as in RFC9000 Path, not multipath path) had already been validated.
-    fn find_open_path_on_addresses(&self, addresses: FourTuple) -> Option<(&PathId, &PathState)> {
+    fn find_open_path_on_network_path(
+        &self,
+        network_path: FourTuple,
+    ) -> Option<(&PathId, &PathState)> {
         self.paths.iter().find(|(path_id, path_state)| {
             path_state.data.validated
-                // Would this use the same network path, if addresses were used to send right now?
-                && addresses.is_probably_same_path(&path_state.data.addresses)
+                // Would this use the same network path, if network_path were used to send right now?
+                && network_path.is_probably_same_path(&path_state.data.network_path)
                 && !self.abandoned_paths.contains(path_id)
         })
         // TODO(@divma): we might want to ensure the path has been recently active to consider the
@@ -834,11 +838,11 @@ impl Connection {
     fn ensure_path(
         &mut self,
         path_id: PathId,
-        addresses: FourTuple,
+        network_path: FourTuple,
         now: Instant,
         pn: Option<u64>,
     ) -> &mut PathData {
-        let valid_path = self.find_open_path_on_addresses(addresses);
+        let valid_path = self.find_open_path_on_network_path(network_path);
         let validated = valid_path.is_some();
         let initial_rtt = valid_path.map(|(_, state)| state.data.rtt.conservative());
         let vacant_entry = match self.paths.entry(path_id) {
@@ -848,12 +852,12 @@ impl Connection {
             }
         };
 
-        debug!(%validated, %path_id, %addresses, "path added");
+        debug!(%validated, %path_id, %network_path, "path added");
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
         self.path_counter = self.path_counter.wrapping_add(1);
         let mut data = PathData::new(
-            addresses,
+            network_path,
             self.allow_mtud,
             Some(peer_max_udp_payload_size),
             self.path_counter,
@@ -886,7 +890,7 @@ impl Connection {
         self.spaces[SpaceId::Data]
             .number_spaces
             .insert(path_id, pn_space);
-        self.qlog.emit_tuple_assigned(path_id, addresses, now);
+        self.qlog.emit_tuple_assigned(path_id, network_path, now);
         &mut path.data
     }
 
@@ -1334,7 +1338,9 @@ impl Connection {
             // path validation can occur while the link is saturated.
             if space_id == SpaceId::Data && builder.buf.num_datagrams() == 1 {
                 let path = self.path_data_mut(path_id);
-                if let Some((token, addresses)) = path.path_responses.pop_off_path(path.addresses) {
+                if let Some((token, network_path)) =
+                    path.path_responses.pop_off_path(path.network_path)
+                {
                     // TODO(flub): We need to use the right CID!  We shouldn't use the same
                     //    CID as the current active one for the path.  Though see also
                     //    https://github.com/quinn-rs/quinn/issues/2184
@@ -1356,11 +1362,11 @@ impl Connection {
                     );
                     self.stats.udp_tx.on_sent(1, transmit.len());
                     return Some(Transmit {
-                        destination: addresses.remote,
+                        destination: network_path.remote,
                         size: transmit.len(),
                         ecn: None,
                         segment_size: None,
-                        src_ip: addresses.local_ip,
+                        src_ip: network_path.local_ip,
                     });
                 }
             }
@@ -1593,11 +1599,11 @@ impl Connection {
             return None;
         }
 
-        let addresses = self.path_data(path_id).addresses;
+        let network_path = self.path_data(path_id).network_path;
         trace!(
             segment_size = transmit.segment_size(),
             last_datagram_len = transmit.len() % transmit.segment_size(),
-            %addresses,
+            %network_path,
             "sending {} bytes in {} datagrams",
             transmit.len(),
             transmit.num_datagrams()
@@ -1610,7 +1616,7 @@ impl Connection {
             .on_sent(transmit.num_datagrams() as u64, transmit.len());
 
         Some(Transmit {
-            destination: addresses.remote,
+            destination: network_path.remote,
             size: transmit.len(),
             ecn: if self.path_data(path_id).sending_ecn {
                 Some(EcnCodepoint::Ect0)
@@ -1621,7 +1627,7 @@ impl Connection {
                 1 => None,
                 _ => Some(transmit.segment_size()),
             },
-            src_ip: addresses.local_ip,
+            src_ip: network_path.local_ip,
         })
     }
 
@@ -1726,11 +1732,11 @@ impl Connection {
             return None;
         };
         prev_path.send_new_challenge = false;
-        let addresses = prev_path.addresses;
+        let network_path = prev_path.network_path;
         let token = self.rng.random();
         let info = paths::SentChallengeInfo {
             sent_instant: now,
-            addresses,
+            network_path,
         };
         prev_path.challenges_sent.insert(token, info);
         debug_assert_eq!(
@@ -1773,11 +1779,11 @@ impl Connection {
         self.stats.udp_tx.on_sent(1, buf.len());
 
         Some(Transmit {
-            destination: addresses.remote,
+            destination: network_path.remote,
             size: buf.len(),
             ecn: None,
             segment_size: None,
-            src_ip: addresses.local_ip,
+            src_ip: network_path.local_ip,
         })
     }
 
@@ -1824,7 +1830,7 @@ impl Connection {
         match event.0 {
             Datagram(DatagramConnectionEvent {
                 now,
-                addresses,
+                network_path,
                 path_id,
                 ecn,
                 first_decode,
@@ -1838,24 +1844,25 @@ impl Connection {
                 let remote_may_migrate = self.side.remote_may_migrate(&self.state);
                 let local_ip_may_migrate = self.side.is_client();
                 if let Some(known_path) = self.path_mut(path_id) {
-                    if addresses.remote != known_path.addresses.remote && !remote_may_migrate {
+                    if network_path.remote != known_path.network_path.remote && !remote_may_migrate
+                    {
                         trace!(
                             %path_id,
-                            %addresses,
-                            %known_path.addresses,
+                            %network_path,
+                            %known_path.network_path,
                             "discarding packet from unrecognized peer"
                         );
                         return;
                     }
-                    if known_path.addresses.local_ip.is_some()
-                        && addresses.local_ip.is_some()
-                        && known_path.addresses.local_ip != addresses.local_ip
+                    if known_path.network_path.local_ip.is_some()
+                        && network_path.local_ip.is_some()
+                        && known_path.network_path.local_ip != network_path.local_ip
                         && !local_ip_may_migrate
                     {
                         trace!(
                             %path_id,
-                            %addresses,
-                            %known_path.addresses,
+                            %network_path,
+                            %known_path.network_path,
                             "discarding packet sent to incorrect interface"
                         );
                         return;
@@ -1864,17 +1871,17 @@ impl Connection {
                     // This is alluded to in Section 5.2 of the Multipath RFC draft 18:
                     // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#name-using-multiple-paths-on-the
                     // > Client receives the packet, recognizes a path migration, updates the source address of path 2 to 192.0.2.1.
-                    if let Some(local_ip) = addresses.local_ip {
+                    if let Some(local_ip) = network_path.local_ip {
                         // If we already had a local_ip, but it changed, then we need to re-trigger path validation.
                         if known_path
-                            .addresses
+                            .network_path
                             .local_ip
                             .is_some_and(|ip| ip != local_ip)
                         {
                             debug!(
                                 %path_id,
-                                %addresses,
-                                %known_path.addresses,
+                                %network_path,
+                                %known_path.network_path,
                                 "path's local address seemingly migrated"
                             );
                         }
@@ -1884,7 +1891,7 @@ impl Connection {
                         // This sounds like it's *only* the server endpoints that do this.
                         // TODO(matheus23): We should still consider doing a proper migration on the client side in the future.
                         // For now, this preserves the behavior of this code pre 4-tuple tracking.
-                        known_path.addresses.local_ip = Some(local_ip);
+                        known_path.network_path.local_ip = Some(local_ip);
                     }
                 }
 
@@ -1898,7 +1905,7 @@ impl Connection {
                 self.stats.udp_rx.bytes += first_decode.len() as u64;
                 let data_len = first_decode.len();
 
-                self.handle_decode(now, addresses, path_id, ecn, first_decode);
+                self.handle_decode(now, network_path, path_id, ecn, first_decode);
                 // The current `path` might have changed inside `handle_decode` since the packet
                 // could have triggered a migration. The packet might also belong to an unknown
                 // path and have been rejected. Make sure the data received is accounted for the
@@ -1909,7 +1916,7 @@ impl Connection {
 
                 if let Some(data) = remaining {
                     self.stats.udp_rx.bytes += data.len() as u64;
-                    self.handle_coalesced(now, addresses, path_id, ecn, data);
+                    self.handle_coalesced(now, network_path, path_id, ecn, data);
                 }
 
                 if let Some(path) = self.paths.get_mut(&path_id) {
@@ -3331,7 +3338,7 @@ impl Connection {
     pub(crate) fn handle_first_packet(
         &mut self,
         now: Instant,
-        addresses: FourTuple,
+        network_path: FourTuple,
         ecn: Option<EcnCodepoint>,
         packet_number: u64,
         packet: InitialPacket,
@@ -3368,7 +3375,7 @@ impl Connection {
 
         self.process_decrypted_packet(
             now,
-            addresses,
+            network_path,
             path_id,
             Some(packet_number),
             packet,
@@ -3376,7 +3383,7 @@ impl Connection {
         )?;
         self.qlog.emit_packet_received(qlog, now);
         if let Some(data) = remaining {
-            self.handle_coalesced(now, addresses, path_id, ecn, data);
+            self.handle_coalesced(now, network_path, path_id, ecn, data);
         }
 
         self.qlog.emit_recovery_metrics(
@@ -3566,7 +3573,7 @@ impl Connection {
     fn handle_coalesced(
         &mut self,
         now: Instant,
-        addresses: FourTuple,
+        network_path: FourTuple,
         path_id: PathId,
         ecn: Option<EcnCodepoint>,
         data: BytesMut,
@@ -3589,7 +3596,7 @@ impl Connection {
             ) {
                 Ok((partial_decode, rest)) => {
                     remaining = rest;
-                    self.handle_decode(now, addresses, path_id, ecn, partial_decode);
+                    self.handle_decode(now, network_path, path_id, ecn, partial_decode);
                 }
                 Err(e) => {
                     trace!("malformed header: {}", e);
@@ -3602,7 +3609,7 @@ impl Connection {
     fn handle_decode(
         &mut self,
         now: Instant,
-        addresses: FourTuple,
+        network_path: FourTuple,
         path_id: PathId,
         ecn: Option<EcnCodepoint>,
         partial_decode: PartialDecode,
@@ -3616,7 +3623,7 @@ impl Connection {
         ) {
             self.handle_packet(
                 now,
-                addresses,
+                network_path,
                 path_id,
                 ecn,
                 decoded.packet,
@@ -3629,7 +3636,7 @@ impl Connection {
     fn handle_packet(
         &mut self,
         now: Instant,
-        addresses: FourTuple,
+        network_path: FourTuple,
         path_id: PathId,
         ecn: Option<EcnCodepoint>,
         packet: Option<Packet>,
@@ -3642,22 +3649,22 @@ impl Connection {
                 "got {:?} packet ({} bytes) from {} using id {}",
                 packet.header.space(),
                 packet.payload.len() + packet.header_data.len(),
-                addresses,
+                network_path,
                 packet.header.dst_cid(),
             );
         }
 
         if self.is_handshaking() {
             if path_id != PathId::ZERO {
-                debug!(%addresses, %path_id, "discarding multipath packet during handshake");
+                debug!(%network_path, %path_id, "discarding multipath packet during handshake");
                 return;
             }
-            if addresses != self.path_data_mut(path_id).addresses {
+            if network_path != self.path_data_mut(path_id).network_path {
                 if let Some(hs) = self.state.as_handshake() {
                     if hs.allow_server_migration {
-                        trace!(%addresses, prev = ?self.path_data(path_id).addresses, "server migrated to new remote");
-                        self.path_data_mut(path_id).addresses = addresses;
-                        self.qlog.emit_tuple_assigned(path_id, addresses, now);
+                        trace!(%network_path, prev = ?self.path_data(path_id).network_path, "server migrated to new remote");
+                        self.path_data_mut(path_id).network_path = network_path;
+                        self.qlog.emit_tuple_assigned(path_id, network_path, now);
                     } else {
                         debug!("discarding packet with unexpected remote during handshake");
                         return;
@@ -3745,7 +3752,7 @@ impl Connection {
 
                         if self.side().is_server() && !self.abandoned_paths.contains(&path_id) {
                             // Only the client is allowed to open paths
-                            self.ensure_path(path_id, addresses, now, number);
+                            self.ensure_path(path_id, network_path, now, number);
                         }
                         if self.paths.contains_key(&path_id) {
                             self.on_packet_authenticated(
@@ -3761,7 +3768,12 @@ impl Connection {
                     }
 
                     let res = self.process_decrypted_packet(
-                        now, addresses, path_id, number, packet, &mut qlog,
+                        now,
+                        network_path,
+                        path_id,
+                        number,
+                        packet,
+                        &mut qlog,
                     );
 
                     self.qlog.emit_packet_received(qlog, now);
@@ -3823,16 +3835,16 @@ impl Connection {
             let path_remote = self
                 .paths
                 .get(&path_id)
-                .map(|p| p.data.addresses)
-                .unwrap_or(addresses);
-            self.close = addresses == path_remote;
+                .map(|p| p.data.network_path)
+                .unwrap_or(network_path);
+            self.close = network_path == path_remote;
         }
     }
 
     fn process_decrypted_packet(
         &mut self,
         now: Instant,
-        addresses: FourTuple,
+        network_path: FourTuple,
         path_id: PathId,
         number: Option<u64>,
         packet: Packet,
@@ -3850,7 +3862,7 @@ impl Connection {
                 match packet.header.space() {
                     SpaceId::Data => self.process_payload(
                         now,
-                        addresses,
+                        network_path,
                         path_id,
                         number.unwrap(),
                         packet,
@@ -4050,7 +4062,7 @@ impl Connection {
                     }
                     if let Some(token) = params.stateless_reset_token {
                         // TODO(matheus23): Reset token for a remote, or for a 4-tuple?
-                        let remote = self.path_data(path_id).addresses.remote;
+                        let remote = self.path_data(path_id).network_path.remote;
                         self.endpoint_events
                             .push_back(EndpointEventInner::ResetToken(path_id, remote, token));
                     }
@@ -4121,7 +4133,7 @@ impl Connection {
                 ty: LongType::ZeroRtt,
                 ..
             } => {
-                self.process_payload(now, addresses, path_id, number.unwrap(), packet, qlog)?;
+                self.process_payload(now, network_path, path_id, number.unwrap(), packet, qlog)?;
                 Ok(())
             }
             Header::VersionNegotiate { .. } => {
@@ -4221,7 +4233,7 @@ impl Connection {
     fn process_payload(
         &mut self,
         now: Instant,
-        addresses: FourTuple,
+        network_path: FourTuple,
         path_id: PathId,
         number: u64,
         packet: Packet,
@@ -4316,8 +4328,8 @@ impl Connection {
                     let path = &mut self
                         .path_mut(path_id)
                         .expect("payload is processed only after the path becomes known");
-                    path.path_responses.push(number, challenge.0, addresses);
-                    if addresses == path.addresses {
+                    path.path_responses.push(number, challenge.0, network_path);
+                    if network_path == path.network_path {
                         // PATH_CHALLENGE on active path, possible off-path packet forwarding
                         // attack. Send a non-probing packet to recover the active path.
                         // TODO(flub): No longer true! We now path_challege also to validate
@@ -4345,7 +4357,7 @@ impl Connection {
                     use paths::OnPathResponseReceived::*;
                     match path
                         .data
-                        .on_path_response_received(now, response.0, addresses)
+                        .on_path_response_received(now, response.0, network_path)
                     {
                         OnPath { was_open } => {
                             let qlog = self.qlog.with_time(now);
@@ -4394,7 +4406,7 @@ impl Connection {
                             );
                         }
                         Invalid { expected } => {
-                            debug!(%response, %addresses, %expected, "ignoring invalid PATH_RESPONSE")
+                            debug!(%response, %network_path, %expected, "ignoring invalid PATH_RESPONSE")
                         }
                         Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
@@ -4546,7 +4558,7 @@ impl Connection {
                             }
                             pending_retired.extend(retired.map(|seq| (path_id, seq)));
                             // TODO(matheus23): Reset token for a remote or a full 4-tuple?
-                            self.set_reset_token(path_id, addresses.remote, reset_token);
+                            self.set_reset_token(path_id, network_path.remote, reset_token);
                         }
                         Err(InsertError::ExceedsLimit) => {
                             return Err(TransportError::CONNECTION_ID_LIMIT_ERROR(""));
@@ -4665,7 +4677,7 @@ impl Connection {
                     }
 
                     let path = self.path_data_mut(path_id);
-                    if addresses == path.addresses {
+                    if network_path == path.network_path {
                         if let Some(updated) = path.update_observed_addr_report(observed) {
                             if path.open {
                                 self.events.push_back(Event::Path(PathEvent::ObservedAddr {
@@ -4901,7 +4913,7 @@ impl Connection {
 
         if Some(number) == self.spaces[SpaceId::Data].for_path(path_id).rx_packet
             && !is_probing_packet
-            && addresses != self.path_data(path_id).addresses
+            && network_path != self.path_data(path_id).network_path
         {
             let ConnectionSide::Server { ref server_config } = self.side else {
                 panic!("packets from unknown remote should be dropped by clients");
@@ -4910,7 +4922,7 @@ impl Connection {
                 server_config.migration,
                 "migration-initiating packets should have been dropped immediately"
             );
-            self.migrate(path_id, now, addresses, migration_observed_addr);
+            self.migrate(path_id, now, network_path, migration_observed_addr);
             // Break linkability, if possible
             self.update_rem_cid(path_id);
             self.spin = false;
@@ -4923,10 +4935,10 @@ impl Connection {
         &mut self,
         path_id: PathId,
         now: Instant,
-        addresses: FourTuple,
+        network_path: FourTuple,
         observed_addr: Option<ObservedAddr>,
     ) {
-        trace!(%addresses, %path_id, "migration initiated");
+        trace!(%network_path, %path_id, "migration initiated");
         self.path_counter = self.path_counter.wrapping_add(1);
         // TODO(@divma): conditions for path migration in multipath are very specific, check them
         // again to prevent path migrations that should actually create a new path
@@ -4937,22 +4949,23 @@ impl Connection {
         let prev_pto = self.pto(SpaceId::Data, path_id);
         let known_path = self.paths.get_mut(&path_id).expect("known path");
         let path = &mut known_path.data;
-        let mut new_path =
-            if addresses.remote.is_ipv4() && addresses.remote.ip() == path.addresses.remote.ip() {
-                PathData::from_previous(addresses, path, self.path_counter, now)
-            } else {
-                let peer_max_udp_payload_size =
-                    u16::try_from(self.peer_params.max_udp_payload_size.into_inner())
-                        .unwrap_or(u16::MAX);
-                PathData::new(
-                    addresses,
-                    self.allow_mtud,
-                    Some(peer_max_udp_payload_size),
-                    self.path_counter,
-                    now,
-                    &self.config,
-                )
-            };
+        let mut new_path = if network_path.remote.is_ipv4()
+            && network_path.remote.ip() == path.network_path.remote.ip()
+        {
+            PathData::from_previous(network_path, path, self.path_counter, now)
+        } else {
+            let peer_max_udp_payload_size =
+                u16::try_from(self.peer_params.max_udp_payload_size.into_inner())
+                    .unwrap_or(u16::MAX);
+            PathData::new(
+                network_path,
+                self.allow_mtud,
+                Some(peer_max_udp_payload_size),
+                self.path_counter,
+                now,
+                &self.config,
+            )
+        };
         new_path.last_observed_addr_report = path.last_observed_addr_report.clone();
         if let Some(report) = observed_addr {
             if let Some(updated) = new_path.update_observed_addr_report(report) {
@@ -4976,7 +4989,7 @@ impl Connection {
         }
 
         // We need to re-assign the correct remote to this path in qlog
-        self.qlog.emit_tuple_assigned(path_id, addresses, now);
+        self.qlog.emit_tuple_assigned(path_id, network_path, now);
 
         self.timers.set(
             Timer::PerPath(path_id, PathTimer::PathValidation),
@@ -5005,7 +5018,7 @@ impl Connection {
             .pending
             .retire_cids
             .extend(retired.map(|seq| (path_id, seq)));
-        let remote = self.path_data(path_id).addresses.remote;
+        let remote = self.path_data(path_id).network_path.remote;
         self.set_reset_token(path_id, remote, reset_token);
     }
 
@@ -5148,7 +5161,7 @@ impl Connection {
             && (!path.observed_addr_sent || space.pending.observed_addr)
         {
             let frame =
-                frame::ObservedAddr::new(path.addresses.remote, self.next_observed_addr_seq_no);
+                frame::ObservedAddr::new(path.network_path.remote, self.next_observed_addr_seq_no);
             if buf.remaining_mut() > frame.size() {
                 trace!(seq = %frame.seq_no, ip = %frame.ip, port = frame.port, "OBSERVED_ADDRESS");
                 frame.encode(buf);
@@ -5257,7 +5270,7 @@ impl Connection {
             let token = self.rng.random();
             let info = paths::SentChallengeInfo {
                 sent_instant: now,
-                addresses: path.addresses,
+                network_path: path.network_path,
             };
             path.challenges_sent.insert(token, info);
             sent.non_retransmits = true;
@@ -5287,8 +5300,10 @@ impl Connection {
                     .address_discovery_role
                     .should_report(&self.peer_params.address_discovery_role)
             {
-                let frame =
-                    frame::ObservedAddr::new(path.addresses.remote, self.next_observed_addr_seq_no);
+                let frame = frame::ObservedAddr::new(
+                    path.network_path.remote,
+                    self.next_observed_addr_seq_no,
+                );
                 if buf.remaining_mut() > frame.size() {
                     frame.encode(buf);
                     qlog.frame(&Frame::ObservedAddr(frame));
@@ -5306,7 +5321,7 @@ impl Connection {
 
         // PATH_RESPONSE
         if buf.remaining_mut() > frame::PathResponse::SIZE_BOUND && space_id == SpaceId::Data {
-            if let Some(token) = path.path_responses.pop_on_path(path.addresses) {
+            if let Some(token) = path.path_responses.pop_on_path(path.network_path) {
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
                 let response = frame::PathResponse(token);
@@ -5325,7 +5340,7 @@ impl Connection {
                         .should_report(&self.peer_params.address_discovery_role)
                 {
                     let frame = frame::ObservedAddr::new(
-                        path.addresses.remote,
+                        path.network_path.remote,
                         self.next_observed_addr_seq_no,
                     );
                     if buf.remaining_mut() > frame.size() {
@@ -5619,7 +5634,7 @@ impl Connection {
         let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
 
         // NEW_TOKEN
-        while let Some(addresses) = space.pending.new_tokens.pop() {
+        while let Some(network_path) = space.pending.new_tokens.pop() {
             if path_exclusive_only {
                 break;
             }
@@ -5628,7 +5643,7 @@ impl Connection {
                 panic!("NEW_TOKEN frames should not be enqueued by clients");
             };
 
-            if !addresses.is_probably_same_path(&path.addresses) {
+            if !network_path.is_probably_same_path(&path.network_path) {
                 // NEW_TOKEN frames contain tokens bound to a client's IP address, and are only
                 // useful if used from the same IP address.  Thus, we abandon enqueued NEW_TOKEN
                 // frames upon an path change. Instead, when the new path becomes validated,
@@ -5638,7 +5653,7 @@ impl Connection {
 
             let token = Token::new(
                 TokenPayload::Validation {
-                    ip: addresses.remote.ip(),
+                    ip: network_path.remote.ip(),
                     issued: server_config.time_source.now(),
                 },
                 &mut self.rng,
@@ -5648,14 +5663,17 @@ impl Connection {
             };
 
             if buf.remaining_mut() < new_token.size() {
-                space.pending.new_tokens.push(addresses);
+                space.pending.new_tokens.push(network_path);
                 break;
             }
 
             trace!("NEW_TOKEN");
             new_token.encode(buf);
             qlog.frame(&Frame::NewToken(new_token));
-            sent.retransmits.get_or_create().new_tokens.push(addresses);
+            sent.retransmits
+                .get_or_create()
+                .new_tokens
+                .push(network_path);
             self.stats.frame_tx.new_token += 1;
         }
 
@@ -5834,7 +5852,7 @@ impl Connection {
             .expect(
                 "preferred address CID is the first received, and hence is guaranteed to be legal",
             );
-            let remote = self.path_data(PathId::ZERO).addresses.remote;
+            let remote = self.path_data(PathId::ZERO).network_path.remote;
             self.set_reset_token(PathId::ZERO, remote, info.stateless_reset_token);
         }
         self.ack_frequency.peer_max_ack_delay = get_max_ack_delay(&params);
@@ -6241,11 +6259,11 @@ impl Connection {
         let ConnectionSide::Server { server_config } = &self.side else {
             return;
         };
-        let addresses = self.path_data(path_id).addresses;
+        let network_path = self.path_data(path_id).network_path;
         let new_tokens = &mut self.spaces[SpaceId::Data as usize].pending.new_tokens;
         new_tokens.clear();
         for _ in 0..server_config.validation_token.sent {
-            new_tokens.push(addresses);
+            new_tokens.push(network_path);
         }
     }
 
@@ -6345,11 +6363,11 @@ impl Connection {
         // By specifying None, we do two things: 1. open_path_ensure won't generate two
         // paths to the same remote and 2. we let the OS choose which interface to use for
         // sending on that path.
-        let addresses = FourTuple {
+        let network_path = FourTuple {
             remote,
             local_ip: None,
         };
-        match self.open_path_ensure(addresses, PathStatus::Backup, now) {
+        match self.open_path_ensure(network_path, PathStatus::Backup, now) {
             Ok((path_id, path_was_known)) => {
                 if path_was_known {
                     trace!(%path_id, %remote, "nat traversal: path existed for remote");
@@ -6414,7 +6432,7 @@ impl Connection {
         let ipv6 = self
             .paths
             .values()
-            .any(|p| p.data.addresses.remote.is_ipv6());
+            .any(|p| p.data.network_path.remote.is_ipv6());
 
         for (id, address) in addresses_to_probe {
             match self.open_nat_traversal_path(now, address, ipv6) {
@@ -6460,7 +6478,7 @@ impl Connection {
         let ipv6 = self
             .paths
             .values()
-            .any(|p| p.data.addresses.remote.is_ipv6());
+            .any(|p| p.data.network_path.remote.is_ipv6());
         let open_result = self.open_nat_traversal_path(now, address, ipv6);
         let client_state = self.iroh_hp.client_side_mut().expect("validated");
         match open_result {

@@ -557,13 +557,13 @@ fn open_path_validation_fails_client_side() {
 
     let now = pair.time;
     let addr = pair.server.addr;
-    let addresses = FourTuple {
+    let network_path = FourTuple {
         remote: addr,
         local_ip: None,
     };
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(addresses, PathStatus::Available, now)
+        .open_path(network_path, PathStatus::Available, now)
         .unwrap();
 
     // block the client from receiving anything
@@ -691,10 +691,10 @@ fn per_path_observed_address() {
 
     // open a second path
     let now = pair.time;
-    let addresses = pair.addrs_to_server();
+    let network_path = pair.addrs_to_server();
     let conn = pair.client_conn_mut(client_ch);
     let _new_path_id = conn
-        .open_path(addresses, PathStatus::Available, now)
+        .open_path(network_path, PathStatus::Available, now)
         .unwrap();
 
     pair.drive();

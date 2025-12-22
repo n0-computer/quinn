@@ -105,10 +105,15 @@ impl QlogStream {
         self.emit_event_with_tuple_id(event, now, None);
     }
 
-    fn emit_event_with_tuple_id(&self, event: EventData, now: Instant, addresses: Option<String>) {
+    fn emit_event_with_tuple_id(
+        &self,
+        event: EventData,
+        now: Instant,
+        network_path: Option<String>,
+    ) {
         // Time will be overwritten by `add_event_with_instant`
         let mut event = Event::with_time(0.0, event);
-        event.tuple = addresses;
+        event.tuple = network_path;
         let mut qlog_streamer = self.0.lock().unwrap();
         if let Err(e) = qlog_streamer.add_event_with_instant(event, now) {
             warn!("could not emit qlog event: {e}");

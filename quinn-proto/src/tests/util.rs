@@ -483,13 +483,13 @@ impl TestEndpoint {
                 remote,
                 dst_ip,
             } = self.inbound.pop_front().unwrap();
-            let addresses = FourTuple {
+            let network_path = FourTuple {
                 remote,
                 local_ip: dst_ip,
             };
-            if let Some(event) = self
-                .endpoint
-                .handle(recv_time, addresses, ecn, packet, &mut buf)
+            if let Some(event) =
+                self.endpoint
+                    .handle(recv_time, network_path, ecn, packet, &mut buf)
             {
                 match event {
                     DatagramEvent::NewConnection(incoming) => {

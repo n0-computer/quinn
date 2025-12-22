@@ -130,13 +130,13 @@ pub(super) struct SentChallengeInfo {
     /// When was the challenge sent on the wire.
     pub(super) sent_instant: Instant,
     /// The 4-tuple on which this path challenge was sent.
-    pub(super) addresses: FourTuple,
+    pub(super) network_path: FourTuple,
 }
 
 /// Description of a particular network path
 #[derive(Debug)]
 pub(super) struct PathData {
-    pub(super) addresses: FourTuple,
+    pub(super) network_path: FourTuple,
     pub(super) rtt: RttEstimator,
     /// Whether we're enabling ECN on outgoing packets
     pub(super) sending_ecn: bool,
@@ -230,7 +230,7 @@ pub(super) struct PathData {
 
 impl PathData {
     pub(super) fn new(
-        addresses: FourTuple,
+        network_path: FourTuple,
         allow_mtud: bool,
         peer_max_udp_payload_size: Option<u16>,
         generation: u64,
@@ -242,7 +242,7 @@ impl PathData {
             .clone()
             .build(now, config.get_initial_mtu());
         Self {
-            addresses,
+            network_path,
             rtt: RttEstimator::new(config.initial_rtt),
             sending_ecn: true,
             pacing: Pacer::new(
@@ -294,7 +294,7 @@ impl PathData {
     ///
     /// This should only be called when migrating paths.
     pub(super) fn from_previous(
-        addresses: FourTuple,
+        network_path: FourTuple,
         prev: &Self,
         generation: u64,
         now: Instant,
@@ -302,7 +302,7 @@ impl PathData {
         let congestion = prev.congestion.clone_box();
         let smoothed_rtt = prev.rtt.get();
         Self {
-            addresses,
+            network_path,
             rtt: prev.rtt,
             pacing: Pacer::new(smoothed_rtt, congestion.window(), prev.current_mtu(), now),
             sending_ecn: true,
@@ -373,7 +373,7 @@ impl PathData {
         self.total_sent = self.total_sent.saturating_add(inc);
         if !self.validated {
             trace!(
-                addresses = %self.addresses,
+                network_path = %self.network_path,
                 anti_amplification_budget = %(self.total_recvd * 3).saturating_sub(self.total_sent),
                 "anti amplification budget decreased"
             );
@@ -385,7 +385,7 @@ impl PathData {
         self.total_recvd = self.total_recvd.saturating_add(inc);
         if !self.validated {
             trace!(
-                addresses = %self.addresses,
+                network_path = %self.network_path,
                 anti_amplification_budget = %(self.total_recvd * 3).saturating_sub(self.total_sent),
                 "anti amplification budget increased"
             );
@@ -410,22 +410,22 @@ impl PathData {
         &mut self,
         now: Instant,
         token: u64,
-        addresses: FourTuple,
+        network_path: FourTuple,
     ) -> OnPathResponseReceived {
         match self.challenges_sent.get(&token) {
             // Response to an on-path PathChallenge
             Some(info)
-                if info.addresses.is_probably_same_path(&addresses)
-                    && self.addresses.is_probably_same_path(&addresses) =>
+                if info.network_path.is_probably_same_path(&network_path)
+                    && self.network_path.is_probably_same_path(&network_path) =>
             {
-                self.addresses.update_local_if_same_remote(&addresses);
+                self.network_path.update_local_if_same_remote(&network_path);
                 let sent_instant = info.sent_instant;
                 if !std::mem::replace(&mut self.validated, true) {
                     trace!("new path validated");
                 }
                 // Clear any other on-path sent challenge.
                 self.challenges_sent
-                    .retain(|_token, info| !info.addresses.is_probably_same_path(&addresses));
+                    .retain(|_token, info| !info.network_path.is_probably_same_path(&network_path));
 
                 self.send_new_challenge = false;
 
@@ -438,14 +438,14 @@ impl PathData {
                 OnPathResponseReceived::OnPath { was_open }
             }
             // Response to an off-path PathChallenge
-            Some(info) if info.addresses.is_probably_same_path(&addresses) => {
+            Some(info) if info.network_path.is_probably_same_path(&network_path) => {
                 self.challenges_sent
-                    .retain(|_token, info| !info.addresses.is_probably_same_path(&addresses));
+                    .retain(|_token, info| !info.network_path.is_probably_same_path(&network_path));
                 OnPathResponseReceived::OffPath
             }
             // Response to a PathChallenge we recognize, but from an invalid remote
             Some(info) => OnPathResponseReceived::Invalid {
-                expected: info.addresses,
+                expected: info.network_path,
             },
             // Response to an unknown PathChallenge
             None => OnPathResponseReceived::Unknown,
@@ -719,18 +719,18 @@ pub(crate) struct PathResponses {
 }
 
 impl PathResponses {
-    pub(crate) fn push(&mut self, packet: u64, token: u64, addresses: FourTuple) {
+    pub(crate) fn push(&mut self, packet: u64, token: u64, network_path: FourTuple) {
         /// Arbitrary permissive limit to prevent abuse
         const MAX_PATH_RESPONSES: usize = 16;
         let response = PathResponse {
             packet,
             token,
-            addresses,
+            network_path,
         };
         let existing = self
             .pending
             .iter_mut()
-            .find(|x| x.addresses.remote == addresses.remote);
+            .find(|x| x.network_path.remote == network_path.remote);
         if let Some(existing) = existing {
             // Update a queued response
             if existing.packet <= packet {
@@ -747,24 +747,24 @@ impl PathResponses {
         }
     }
 
-    pub(crate) fn pop_off_path(&mut self, addresses: FourTuple) -> Option<(u64, FourTuple)> {
+    pub(crate) fn pop_off_path(&mut self, network_path: FourTuple) -> Option<(u64, FourTuple)> {
         let response = *self.pending.last()?;
         // We use an exact comparison here, because once we've received for the first time,
         // we really should either already have a local_ip, or we will never get one
         // (because our OS doesn't support it).
-        if response.addresses == addresses {
+        if response.network_path == network_path {
             // We don't bother searching further because we expect that the on-path response will
             // get drained in the immediate future by a call to `pop_on_path`
             return None;
         }
         self.pending.pop();
-        Some((response.token, response.addresses))
+        Some((response.token, response.network_path))
     }
 
-    pub(crate) fn pop_on_path(&mut self, addresses: FourTuple) -> Option<u64> {
+    pub(crate) fn pop_on_path(&mut self, network_path: FourTuple) -> Option<u64> {
         let response = *self.pending.last()?;
         // Using an exact comparison. See explanation in `pop_off_path`.
-        if response.addresses != addresses {
+        if response.network_path != network_path {
             // We don't bother searching further because we expect that the off-path response will
             // get drained in the immediate future by a call to `pop_off_path`
             return None;
@@ -785,7 +785,7 @@ struct PathResponse {
     /// The token of the PATH_CHALLENGE
     token: u64,
     /// The path the corresponding PATH_CHALLENGE was received from
-    addresses: FourTuple,
+    network_path: FourTuple,
 }
 
 /// Summary statistics of packets that have been sent on a particular path, but which have not yet

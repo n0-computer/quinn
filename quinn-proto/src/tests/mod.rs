@@ -272,17 +272,17 @@ fn stateless_reset_limit() {
     );
     let time = Instant::now();
     let mut buf = Vec::new();
-    let addresses = FourTuple {
+    let network_path = FourTuple {
         remote,
         local_ip: None,
     };
-    let event = endpoint.handle(time, addresses, None, [0u8; 1024][..].into(), &mut buf);
+    let event = endpoint.handle(time, network_path, None, [0u8; 1024][..].into(), &mut buf);
     assert!(matches!(event, Some(DatagramEvent::Response(_))));
-    let event = endpoint.handle(time, addresses, None, [0u8; 1024][..].into(), &mut buf);
+    let event = endpoint.handle(time, network_path, None, [0u8; 1024][..].into(), &mut buf);
     assert!(event.is_none());
     let event = endpoint.handle(
         time + endpoint_config.min_reset_interval - Duration::from_nanos(1),
-        addresses,
+        network_path,
         None,
         [0u8; 1024][..].into(),
         &mut buf,
@@ -290,7 +290,7 @@ fn stateless_reset_limit() {
     assert!(event.is_none());
     let event = endpoint.handle(
         time + endpoint_config.min_reset_interval,
-        addresses,
+        network_path,
         None,
         [0u8; 1024][..].into(),
         &mut buf,
@@ -1358,7 +1358,7 @@ fn migration() {
     assert_matches!(pair.client_conn_mut(client_ch).poll(), None);
     assert_eq!(
         pair.server_conn_mut(server_ch)
-            .path_addresses(PathId::ZERO)
+            .network_path(PathId::ZERO)
             .map(|addrs| addrs.remote),
         Ok(pair.client.addr)
     );
@@ -2551,7 +2551,7 @@ fn migrate_detects_new_mtu_and_respects_original_peer_max_udp_payload_size() {
     // Sanity check: the server saw that the client address was updated
     assert_eq!(
         pair.server_conn_mut(server_ch)
-            .path_addresses(PathId::ZERO)
+            .network_path(PathId::ZERO)
             .map(|addrs| addrs.remote),
         Ok(pair.client.addr)
     );
@@ -3839,7 +3839,7 @@ fn address_discovery_rebind_retransmission() {
 fn reject_short_idcid() {
     let _guard = subscribe();
     let client_addr = "[::2]:7890".parse().unwrap();
-    let addresses = FourTuple {
+    let network_path = FourTuple {
         remote: client_addr,
         local_ip: None,
     };
@@ -3854,7 +3854,7 @@ fn reject_short_idcid() {
     // Initial header that has an empty DCID but is otherwise well-formed
     let mut initial = BytesMut::from(hex!("c4 00000001 00 00 00 3f").as_ref());
     initial.resize(MIN_INITIAL_SIZE.into(), 0);
-    let event = server.handle(now, addresses, None, initial, &mut buf);
+    let event = server.handle(now, network_path, None, initial, &mut buf);
     let Some(DatagramEvent::Response(Transmit { .. })) = event else {
         panic!("expected an initial close");
     };

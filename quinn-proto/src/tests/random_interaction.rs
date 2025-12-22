@@ -123,11 +123,11 @@ impl TestOp {
                     Side::Server => server,
                 };
                 let conn = state.conn(pair)?;
-                let addresses = FourTuple {
+                let network_path = FourTuple {
                     remote,
                     local_ip: None,
                 };
-                conn.open_path(addresses, initial_status, now).ok();
+                conn.open_path(network_path, initial_status, now).ok();
             }
             Self::ClosePath(side, path_idx, error_code) => {
                 let state = match side {

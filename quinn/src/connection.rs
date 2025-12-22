@@ -181,7 +181,7 @@ impl Connecting {
             .state
             .lock("remote_address")
             .inner
-            .path_addresses(PathId::ZERO)
+            .network_path(PathId::ZERO)
             .expect("path exists when connecting")
             .remote
     }
@@ -374,7 +374,7 @@ impl Connection {
             .filter_map(|id| {
                 state
                     .inner
-                    .path_addresses(*id)
+                    .network_path(*id)
                     .map(|addrs| addrs.remote.is_ipv6())
                     .ok()
             })
@@ -443,7 +443,7 @@ impl Connection {
             .filter_map(|id| {
                 state
                     .inner
-                    .path_addresses(*id)
+                    .network_path(*id)
                     .map(|addrs| addrs.remote.is_ipv6())
                     .ok()
             })
@@ -718,7 +718,7 @@ impl Connection {
             .inner
             .paths()
             .iter()
-            .filter_map(|id| state.inner.path_addresses(*id).ok())
+            .filter_map(|id| state.inner.network_path(*id).ok())
             .next()
             .unwrap()
             .remote
@@ -740,7 +740,7 @@ impl Connection {
             .inner
             .paths()
             .iter()
-            .filter_map(|id| state.inner.path_addresses(*id).ok())
+            .filter_map(|id| state.inner.network_path(*id).ok())
             .next()
             .unwrap()
             .local_ip
