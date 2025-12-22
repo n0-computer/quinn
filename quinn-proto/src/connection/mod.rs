@@ -1273,7 +1273,9 @@ impl Connection {
                             let reason: Close =
                                 self.state.as_closed().expect("checked").clone().into();
                             if space_id == SpaceId::Data || reason.is_transport_layer() {
-                                reason.encode(&mut builder.frame_space_mut(), max_frame_size);
+                                reason
+                                    .encoder(max_frame_size)
+                                    .encode(&mut builder.frame_space_mut());
                                 qlog.frame(&Frame::Close(reason));
                             } else {
                                 let frame = frame::ConnectionClose {
@@ -5696,13 +5698,13 @@ impl Connection {
         if is_multipath_negotiated && space_id == SpaceId::Data {
             if !ranges.is_empty() {
                 trace!("PATH_ACK {path_id:?} {ranges:?}, Delay = {delay_micros}us");
-                frame::PathAck::encode(path_id, delay as _, ranges, ecn, buf);
+                frame::PathAck::encoder(path_id, delay as _, ranges, ecn).encode(buf);
                 qlog.frame_path_ack(path_id, delay as _, ranges, ecn);
                 stats.frame_tx.path_acks += 1;
             }
         } else {
             trace!("ACK {ranges:?}, Delay = {delay_micros}us");
-            frame::Ack::encode(delay as _, ranges, ecn, buf);
+            frame::Ack::encoder(delay as _, ranges, ecn).encode(buf);
             stats.frame_tx.acks += 1;
             qlog.frame_ack(delay, ranges, ecn);
         }
