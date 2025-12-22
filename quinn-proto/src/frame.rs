@@ -157,14 +157,20 @@ impl Encodable for FrameType {
 ///
 /// This includes some "encoder" types instead of the actual read frame, when writting directly to
 /// a buffer is more efficient than building the Frame itself.
+#[derive(derive_more::From)]
 pub(super) enum EncodableFrame<'a> {
     PathAck(PathAckEncoder<'a>),
+    Ack(AckEncoder<'a>),
+    Close(CloseEncoder<'a>),
 }
 
 impl<'a> EncodableFrame<'a> {
     pub(super) fn get_type(&self) -> FrameType {
+        use EncodableFrame::*;
         match self {
-            EncodableFrame::PathAck(path_ack_encoder) => path_ack_encoder.get_type(),
+            PathAck(path_ack_encoder) => path_ack_encoder.get_type(),
+            Ack(ack_encoder) => ack_encoder.get_type(),
+            Close(close_encoder) => close_encoder.get_type(),
         }
     }
 }
@@ -173,6 +179,8 @@ impl<'a> Encodable for EncodableFrame<'a> {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         match self {
             EncodableFrame::PathAck(path_ack_encoder) => path_ack_encoder.encode(buf),
+            EncodableFrame::Ack(ack_encoder) => ack_encoder.encode(buf),
+            EncodableFrame::Close(close_encoder) => close_encoder.encode(buf),
         }
     }
 }
@@ -531,6 +539,15 @@ pub(crate) struct CloseEncoder<'a> {
     max_len: usize,
 }
 
+impl<'a> CloseEncoder<'a> {
+    fn get_type(&self) -> FrameType {
+        match self.close {
+            Close::Connection(_) => FrameType::ConnectionClose,
+            Close::Application(_) => FrameType::ApplicationClose,
+        }
+    }
+}
+
 impl<'a> Encodable for CloseEncoder<'a> {
     fn encode<W: BufMut>(&self, out: &mut W) {
         match self.close {
@@ -845,6 +862,15 @@ pub(crate) struct AckEncoder<'a> {
     delay: u64,
     ranges: &'a ArrayRangeSet,
     ecn: Option<&'a EcnCounts>,
+}
+
+impl<'a> AckEncoder<'a> {
+    fn get_type(&self) -> FrameType {
+        match self.ecn.is_some() {
+            true => FrameType::AckEcn,
+            false => FrameType::Ack,
+        }
+    }
 }
 
 impl<'a> Encodable for AckEncoder<'a> {

@@ -1251,7 +1251,7 @@ impl Connection {
                         space_id,
                         &mut self.spaces[space_id],
                         is_multipath_negotiated,
-                        &mut builder
+                        &mut builder,
                         &mut self.stats,
                     );
                 }
@@ -1263,6 +1263,7 @@ impl Connection {
                     builder.frame_space_remaining() > frame::ConnectionClose::SIZE_BOUND,
                     "ACKs should leave space for ConnectionClose"
                 );
+                let stats = &mut self.stats;
                 if frame::ConnectionClose::SIZE_BOUND < builder.frame_space_remaining() {
                     let max_frame_size = builder.frame_space_remaining();
                     match self.state.as_type() {
@@ -1270,28 +1271,16 @@ impl Connection {
                             let reason: Close =
                                 self.state.as_closed().expect("checked").clone().into();
                             if space_id == SpaceId::Data || reason.is_transport_layer() {
-                                reason
-                                    .encoder(max_frame_size)
-                                    .encode(&mut builder.frame_space_mut());
-                                qlog.frame(&Frame::Close(reason));
+                                builder.encode(reason.encoder(max_frame_size), stats)
                             } else {
-                                let frame = frame::ConnectionClose {
-                                    error_code: TransportErrorCode::APPLICATION_ERROR,
-                                    frame_type: frame::MaybeFrame::None,
-                                    reason: Bytes::new(),
-                                };
-                                frame.encode(&mut builder.frame_space_mut(), max_frame_size);
-                                qlog.frame(&Frame::Close(frame::Close::Connection(frame)));
+                                let frame: frame::Close =
+                                    TransportError::APPLICATION_ERROR("").into();
+                                builder.encode(frame.encoder(max_frame_size), stats);
                             }
                         }
                         StateType::Draining => {
-                            let frame = frame::ConnectionClose {
-                                error_code: TransportErrorCode::NO_ERROR,
-                                frame_type: frame::MaybeFrame::None,
-                                reason: Bytes::new(),
-                            };
-                            frame.encode(&mut builder.frame_space_mut(), max_frame_size);
-                            qlog.frame(&Frame::Close(frame::Close::Connection(frame)));
+                            let frame: frame::Close = TransportError::NO_ERROR("").into();
+                            builder.encode(frame.encoder(max_frame_size), stats);
                         }
                         _ => unreachable!(
                             "tried to make a close packet when the connection wasn't closed"
@@ -5694,13 +5683,14 @@ impl Connection {
         if is_multipath_negotiated && space_id == SpaceId::Data {
             if !ranges.is_empty() {
                 trace!("PATH_ACK {path_id:?} {ranges:?}, Delay = {delay_micros}us");
-                builder.encode(frame::PathAck::encoder(path_id, delay as _, ranges, ecn), stats);
+                builder.encode(
+                    frame::PathAck::encoder(path_id, delay as _, ranges, ecn),
+                    stats,
+                );
             }
         } else {
             trace!("ACK {ranges:?}, Delay = {delay_micros}us");
-            frame::Ack::encoder(delay as _, ranges, ecn).encode(buf);
-            stats.frame_tx.acks += 1;
-            qlog.frame_ack(delay, ranges, ecn);
+            builder.encode(frame::Ack::encoder(delay as _, ranges, ecn), stats);
         }
     }
 

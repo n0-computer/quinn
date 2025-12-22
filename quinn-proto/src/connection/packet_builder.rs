@@ -202,7 +202,11 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         );
     }
 
-    pub(super) fn encode(&mut self, frame: impl Into<EncodableFrame>, stats: &mut ConnectionStats) {
+    pub(super) fn encode<'c>(
+        &mut self,
+        frame: impl Into<EncodableFrame<'c>>,
+        stats: &mut ConnectionStats,
+    ) {
         let frame = frame.into();
         frame.encode(&mut self.frame_space_mut());
         stats.frame_tx.record(frame.get_type());
