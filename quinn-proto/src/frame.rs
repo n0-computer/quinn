@@ -165,6 +165,7 @@ pub(super) enum EncodableFrame<'a> {
     PathResponse(PathResponse),
     HandshakeDone(HandshakeDone),
     ReachOut(ReachOut),
+    ObservedAddr(ObservedAddr),
 }
 
 impl<'a> EncodableFrame<'a> {
@@ -177,6 +178,7 @@ impl<'a> EncodableFrame<'a> {
             PathResponse(_) => FrameType::PathResponse,
             HandshakeDone(_) => FrameType::HandshakeDone,
             ReachOut(reach_out) => reach_out.get_type(),
+            ObservedAddr(observed_addr) => observed_addr.get_type(),
         }
     }
 }
@@ -190,6 +192,7 @@ impl<'a> Encodable for EncodableFrame<'a> {
             EncodableFrame::PathResponse(path_response) => path_response.encode(buf),
             EncodableFrame::HandshakeDone(handshake_done) => handshake_done.encode(buf),
             EncodableFrame::ReachOut(reach_out) => reach_out.encode(buf),
+            EncodableFrame::ObservedAddr(observed_addr) => observed_addr.encode(buf),
         }
     }
 }

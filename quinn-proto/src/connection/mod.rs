@@ -5058,17 +5058,15 @@ impl Connection {
             && (!path.observed_addr_sent || space.pending.observed_addr)
         {
             let frame = frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
-            if buf.remaining_mut() > frame.size() {
+            if builder.frame_space_remaining() > frame.size() {
                 trace!(seq = %frame.seq_no, ip = %frame.ip, port = frame.port, "OBSERVED_ADDRESS");
-                frame.encode(buf);
+                builder.encode(frame, &mut self.stats);
 
                 self.next_observed_addr_seq_no = self.next_observed_addr_seq_no.saturating_add(1u8);
                 path.observed_addr_sent = true;
 
-                self.stats.frame_tx.observed_addr += 1;
                 sent.retransmits.get_or_create().observed_addr = true;
                 space.pending.observed_addr = false;
-                qlog.frame(&Frame::ObservedAddr(frame));
             }
         }
 
