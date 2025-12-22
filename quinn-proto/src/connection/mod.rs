@@ -1278,7 +1278,7 @@ impl Connection {
                             } else {
                                 let frame = frame::ConnectionClose {
                                     error_code: TransportErrorCode::APPLICATION_ERROR,
-                                    frame_type: None,
+                                    frame_type: frame::MaybeFrame::None,
                                     reason: Bytes::new(),
                                 };
                                 frame.encode(&mut builder.frame_space_mut(), max_frame_size);
@@ -1288,7 +1288,7 @@ impl Connection {
                         StateType::Draining => {
                             let frame = frame::ConnectionClose {
                                 error_code: TransportErrorCode::NO_ERROR,
-                                frame_type: None,
+                                frame_type: frame::MaybeFrame::None,
                                 reason: Bytes::new(),
                             };
                             frame.encode(&mut builder.frame_space_mut(), max_frame_size);
@@ -1540,7 +1540,7 @@ impl Connection {
                 // We implement MTU probes as ping packets padded up to the probe size
                 trace!(?probe_size, "writing MTUD probe");
                 trace!("PING");
-                builder.frame_space_mut().write(frame::FrameType::PING);
+                builder.frame_space_mut().write(frame::FrameType::Ping);
                 qlog.frame(&Frame::Ping);
                 self.stats.frame_tx.ping += 1;
 
@@ -1549,7 +1549,7 @@ impl Connection {
                     trace!("IMMEDIATE_ACK");
                     builder
                         .frame_space_mut()
-                        .write(frame::FrameType::IMMEDIATE_ACK);
+                        .write(frame::FrameType::ImmediateAck);
                     self.stats.frame_tx.immediate_ack += 1;
                     qlog.frame(&Frame::ImmediateAck);
                 }
@@ -4145,7 +4145,7 @@ impl Connection {
                 _ => {
                     let mut err =
                         TransportError::PROTOCOL_VIOLATION("illegal frame type in handshake");
-                    err.frame = Some(frame.ty());
+                    err.frame = frame::MaybeFrame::Known(frame.ty());
                     return Err(err);
                 }
             }
@@ -5045,7 +5045,7 @@ impl Connection {
         // HANDSHAKE_DONE
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
             trace!("HANDSHAKE_DONE");
-            buf.write(frame::FrameType::HANDSHAKE_DONE);
+            buf.write(frame::FrameType::HandshakeDone);
             qlog.frame(&Frame::HandshakeDone);
             sent.retransmits.get_or_create().handshake_done = true;
             // This is just a u8 counter and the frame is typically just sent once
@@ -5106,7 +5106,7 @@ impl Connection {
         // PING
         if mem::replace(&mut space.for_path(path_id).ping_pending, false) {
             trace!("PING");
-            buf.write(frame::FrameType::PING);
+            buf.write(frame::FrameType::Ping);
             sent.non_retransmits = true;
             self.stats.frame_tx.ping += 1;
             qlog.frame(&Frame::Ping);
@@ -5120,7 +5120,7 @@ impl Connection {
                 "immediate acks must be sent in the data space"
             );
             trace!("IMMEDIATE_ACK");
-            buf.write(frame::FrameType::IMMEDIATE_ACK);
+            buf.write(frame::FrameType::ImmediateAck);
             sent.non_retransmits = true;
             self.stats.frame_tx.immediate_ack += 1;
             qlog.frame(&Frame::ImmediateAck);
