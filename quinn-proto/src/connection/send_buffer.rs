@@ -169,17 +169,23 @@ impl SendBuffer {
     /// Discard a range of acknowledged stream data
     pub(super) fn ack(&mut self, mut range: Range<u64>) {
         // Clamp the range to data which is still tracked
-        let base_offset = self.data.range().start;
+        let base_offset = self.fully_acked_offset();
         range.start = base_offset.max(range.start);
         range.end = base_offset.max(range.end);
 
         self.acks.insert(range);
 
-        while self.acks.min() == Some(self.data.range().start) {
+        while self.acks.min() == Some(self.fully_acked_offset()) {
             let prefix = self.acks.pop_min().unwrap();
             let to_advance = (prefix.end - prefix.start) as usize;
             self.data.pop_front(to_advance);
         }
+
+        // Remove retransmit ranges which have been acknowledged
+        //
+        // We have to do this since we have just dropped the data, and asking
+        // for non-present data would be an error.
+        self.retransmits.remove(0..self.fully_acked_offset());
     }
 
     /// Compute the next range to transmit on this stream and update state to account for that
@@ -255,14 +261,27 @@ impl SendBuffer {
     }
 
     /// Queue a range of sent but unacknowledged data to be retransmitted
-    pub(super) fn retransmit(&mut self, range: Range<u64>) {
+    pub(super) fn retransmit(&mut self, mut range: Range<u64>) {
         debug_assert!(range.end <= self.unsent, "unsent data can't be lost");
+        // don't allow retransmitting data that has already been fully acknowledged,
+        // since we don't have it anymore.
+        //
+        // Note that we do allow retransmitting data that has been acknowledged
+        // for simplicity. Not doing so would require clipping the range against
+        // all acknowledged ranges.
+        range.start = range.start.max(self.fully_acked_offset());
         self.retransmits.insert(range);
     }
 
     pub(super) fn retransmit_all_for_0rtt(&mut self) {
-        debug_assert_eq!(self.offset(), self.data.len() as u64);
+        // check that we still got all data - we didn't get any acks.
+        debug_assert_eq!(self.fully_acked_offset(), 0);
         self.unsent = 0;
+    }
+
+    /// Offset up to which all data has been acknowledged
+    fn fully_acked_offset(&self) -> u64 {
+        self.data.range().start
     }
 
     /// First stream offset unwritten by the application, i.e. the offset that the next write will
@@ -291,6 +310,9 @@ impl SendBuffer {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+    use test_strategy::{Arbitrary, proptest};
+
     use super::*;
 
     #[test]
@@ -501,6 +523,113 @@ mod tests {
         let mut buf = Vec::new();
         data.get_into(0..1, &mut buf);
     }
+
+    #[derive(Debug, Clone, Arbitrary)]
+    enum Op {
+        // write the given bytes
+        Write(#[strategy(proptest::collection::vec(any::<u8>(), 0..1024))] Vec<u8>),
+        // ack a random range
+        Ack(Range<u64>),
+        // retransmit a random range
+        Retransmit(Range<u64>),
+        // poll_transmit with the given max len
+        PollTransmit(#[strategy(16usize..1024)] usize),
+    }
+
+    /// Map a range into a target range
+    ///
+    /// If the target range is empty, it will be returned as is.
+    /// For a non-empty target range, 0 in the input range will be mapped to
+    /// the start of the target range, and the input range will wrap around
+    /// the target range as needed.
+    fn map_range(input: Range<u64>, target: Range<u64>) -> Range<u64> {
+        if target.is_empty() {
+            return target;
+        }
+        let size = target.end - target.start;
+        let a = target.start + (input.start % size);
+        let b = target.start + (input.end % size);
+        a.min(b)..a.max(b)
+    }
+
+    #[proptest]
+    fn send_buffer_matches_reference(
+        #[strategy(proptest::collection::vec(any::<Op>(), 1..100))] ops: Vec<Op>,
+    ) {
+        macro_rules! log {
+            ($($arg:tt)*) => {
+                // println!($($arg)*)
+            };
+        }
+        let mut sb = SendBuffer::new();
+        // all data written to the send buffer
+        let mut buf = Vec::new();
+        // max offset that has been returned by poll_transmit
+        let mut max_send_offset = 0u64;
+        // max offset up to which data has been fully acked
+        let mut max_full_send_offset = 0u64;
+        log!("");
+        for op in ops {
+            match op {
+                Op::Write(data) => {
+                    log!("Op::Write({})", data.len());
+                    buf.extend_from_slice(&data);
+                    sb.write(Bytes::from(data));
+                }
+                Op::Ack(range) => {
+                    // we can only get acks for data that has been sent
+                    let range = map_range(range, 0..max_send_offset);
+                    // update fully acked range
+                    if range.contains(&max_full_send_offset) {
+                        max_full_send_offset = range.end;
+                    }
+                    log!("Op::Ack({:?})", range);
+                    sb.ack(range);
+                }
+                Op::Retransmit(range) => {
+                    // we can only get retransmits for data that has been sent
+                    let range = map_range(range, 0..max_send_offset);
+                    log!("Op::Retransmit({:?})", range);
+                    sb.retransmit(range);
+                }
+                Op::PollTransmit(max_len) => {
+                    log!("Op::PollTransmit({})", max_len);
+                    let (range, _partial) = sb.poll_transmit(max_len);
+                    max_send_offset = max_send_offset.max(range.end);
+                    assert!(
+                        range.start >= max_full_send_offset,
+                        "poll_transmit returned already fully acked data: range={:?}, max_full_send_offset={}",
+                        range,
+                        max_full_send_offset
+                    );
+
+                    let mut t1 = Vec::new();
+                    sb.get_into(range.clone(), &mut t1);
+
+                    let mut t2 = Vec::new();
+                    t2.extend_from_slice(&buf[range.start as usize..range.end as usize]);
+
+                    assert_eq!(t1, t2, "Data mismatch for range {:?}", range);
+                }
+            }
+        }
+        // Drain all remaining data
+        log!("Op::Retransmit({:?})", 0..max_send_offset);
+        sb.retransmit(0..max_send_offset);
+        loop {
+            log!("Op::PollTransmit({})", 1024);
+            let (range, _partial) = sb.poll_transmit(1024);
+            if range.is_empty() {
+                break;
+            }
+            log!("Op::Ack({:?})", range);
+            sb.ack(range);
+        }
+        assert!(
+            sb.is_fully_acked(),
+            "SendBuffer not fully acked at end of ops"
+        );
+    }
 }
 
 #[cfg(feature = "bench")]
@@ -509,8 +638,9 @@ pub mod send_buffer_benches {
     //!
     //! These are defined here and re-exported via `bench_exports` in lib.rs,
     //! so we can access the private `SendBuffer` struct.
-    use criterion::Criterion;
     use bytes::Bytes;
+    use criterion::Criterion;
+
     use super::SendBuffer;
 
     /// Pathological case: many segments, get from end
