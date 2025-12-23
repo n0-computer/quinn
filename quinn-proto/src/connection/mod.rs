@@ -1847,61 +1847,10 @@ impl Connection {
             }) => {
                 let span = trace_span!("pkt", %path_id);
                 let _guard = span.enter();
-                // If this packet could initiate a migration and we're a client or a server that
-                // forbids migration, drop the datagram. This could be relaxed to heuristically
-                // permit NAT-rebinding-like migration.
-                let remote_may_migrate = self.side.remote_may_migrate(&self.state);
-                let local_ip_may_migrate = self.side.is_client();
-                if let Some(known_path) = self.path_mut(path_id) {
-                    if network_path.remote != known_path.network_path.remote && !remote_may_migrate
-                    {
-                        trace!(
-                            %path_id,
-                            %network_path,
-                            %known_path.network_path,
-                            "discarding packet from unrecognized peer"
-                        );
-                        return;
-                    }
-                    if known_path.network_path.local_ip.is_some()
-                        && network_path.local_ip.is_some()
-                        && known_path.network_path.local_ip != network_path.local_ip
-                        && !local_ip_may_migrate
-                    {
-                        trace!(
-                            %path_id,
-                            %network_path,
-                            %known_path.network_path,
-                            "discarding packet sent to incorrect interface"
-                        );
-                        return;
-                    }
-                    // If the datagram indicates that we've changed our local IP, we update it.
-                    // This is alluded to in Section 5.2 of the Multipath RFC draft 18:
-                    // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#name-using-multiple-paths-on-the
-                    // > Client receives the packet, recognizes a path migration, updates the source address of path 2 to 192.0.2.1.
-                    if let Some(local_ip) = network_path.local_ip {
-                        // If we already had a local_ip, but it changed, then we need to re-trigger path validation.
-                        if known_path
-                            .network_path
-                            .local_ip
-                            .is_some_and(|ip| ip != local_ip)
-                        {
-                            debug!(
-                                %path_id,
-                                %network_path,
-                                %known_path.network_path,
-                                "path's local address seemingly migrated"
-                            );
-                        }
-                        // We update the address without path validation on the client side.
-                        // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#section-5.1
-                        // > Servers observing a 4-tuple change will perform path validation (see Section 9 of [QUIC-TRANSPORT]).
-                        // This sounds like it's *only* the server endpoints that do this.
-                        // TODO(matheus23): We should still consider doing a proper migration on the client side in the future.
-                        // For now, this preserves the behavior of this code pre 4-tuple tracking.
-                        known_path.network_path.local_ip = Some(local_ip);
-                    }
+
+                if self.update_network_path_or_discard(network_path, path_id) {
+                    // A return value of true indicates we should discard this packet.
+                    return;
                 }
 
                 let was_anti_amplification_blocked = self
@@ -1956,6 +1905,68 @@ impl Connection {
                 self.reset_cid_retirement(now);
             }
         }
+    }
+
+    /// Updates the network path for `path_id` and returns false, or returns true if a packet
+    /// coming in for this `path_id` over given `network_path` should be discarded.
+    fn update_network_path_or_discard(&mut self, network_path: FourTuple, path_id: PathId) -> bool {
+        let remote_may_migrate = self.side.remote_may_migrate(&self.state);
+        let local_ip_may_migrate = self.side.is_client();
+        // If this packet could initiate a migration and we're a client or a server that
+        // forbids migration, drop the datagram. This could be relaxed to heuristically
+        // permit NAT-rebinding-like migration.
+        if let Some(known_path) = self.path_mut(path_id) {
+            if network_path.remote != known_path.network_path.remote && !remote_may_migrate {
+                trace!(
+                    %path_id,
+                    %network_path,
+                    %known_path.network_path,
+                    "discarding packet from unrecognized peer"
+                );
+                return true;
+            }
+
+            if known_path.network_path.local_ip.is_some()
+                && network_path.local_ip.is_some()
+                && known_path.network_path.local_ip != network_path.local_ip
+                && !local_ip_may_migrate
+            {
+                trace!(
+                    %path_id,
+                    %network_path,
+                    %known_path.network_path,
+                    "discarding packet sent to incorrect interface"
+                );
+                return true;
+            }
+            // If the datagram indicates that we've changed our local IP, we update it.
+            // This is alluded to in Section 5.2 of the Multipath RFC draft 18:
+            // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#name-using-multiple-paths-on-the
+            // > Client receives the packet, recognizes a path migration, updates the source address of path 2 to 192.0.2.1.
+            if let Some(local_ip) = network_path.local_ip {
+                // If we already had a local_ip, but it changed, then we need to re-trigger path validation.
+                if known_path
+                    .network_path
+                    .local_ip
+                    .is_some_and(|ip| ip != local_ip)
+                {
+                    debug!(
+                        %path_id,
+                        %network_path,
+                        %known_path.network_path,
+                        "path's local address seemingly migrated"
+                    );
+                }
+                // We update the address without path validation on the client side.
+                // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#section-5.1
+                // > Servers observing a 4-tuple change will perform path validation (see Section 9 of [QUIC-TRANSPORT]).
+                // This sounds like it's *only* the server endpoints that do this.
+                // TODO(matheus23): We should still consider doing a proper migration on the client side in the future.
+                // For now, this preserves the behavior of this code pre 4-tuple tracking.
+                known_path.network_path.local_ip = Some(local_ip);
+            }
+        }
+        false
     }
 
     /// Process timer expirations
