@@ -490,15 +490,29 @@ pub enum Close {
 }
 
 impl Close {
-    pub(crate) fn encode<W: BufMut>(&self, out: &mut W, max_len: usize) {
-        match *self {
-            Self::Connection(ref x) => x.encode(out, max_len),
-            Self::Application(ref x) => x.encode(out, max_len),
+    pub(crate) fn encoder(&self, max_len: usize) -> CloseEncoder<'_> {
+        CloseEncoder {
+            close: self,
+            max_len,
         }
     }
 
     pub(crate) fn is_transport_layer(&self) -> bool {
         matches!(*self, Self::Connection(_))
+    }
+}
+
+pub(crate) struct CloseEncoder<'a> {
+    close: &'a Close,
+    max_len: usize,
+}
+
+impl<'a> Encodable for CloseEncoder<'a> {
+    fn encode<W: BufMut>(&self, out: &mut W) {
+        match self.close {
+            Close::Connection(x) => x.encode(out, self.max_len),
+            Close::Application(x) => x.encode(out, self.max_len),
+        }
     }
 }
 
@@ -649,19 +663,53 @@ impl<'a> IntoIterator for &'a PathAck {
 }
 
 impl PathAck {
+    pub fn into_ack(self) -> (Ack, PathId) {
+        let ack = Ack {
+            largest: self.largest,
+            delay: self.delay,
+            additional: self.additional,
+            ecn: self.ecn,
+        };
+
+        (ack, self.path_id)
+    }
+
+    pub(crate) fn encoder<'a>(
+        path_id: PathId,
+        delay: u64,
+        ranges: &'a ArrayRangeSet,
+        ecn: Option<&'a EcnCounts>,
+    ) -> PathAckEncoder<'a> {
+        PathAckEncoder {
+            path_id,
+            delay,
+            ranges,
+            ecn,
+        }
+    }
+}
+
+pub(crate) struct PathAckEncoder<'a> {
+    path_id: PathId,
+    delay: u64,
+    ranges: &'a ArrayRangeSet,
+    ecn: Option<&'a EcnCounts>,
+}
+
+impl<'a> Encodable for PathAckEncoder<'a> {
     /// Encode [`Self`] into the given buffer
     ///
     /// The [`FrameType`] will be either [`FrameType::PathAckEcn`] or [`FrameType::PathAck`]
     /// depending on whether [`EcnCounts`] are provided.
     ///
     /// PANICS: if `ranges` is empty.
-    pub fn encode<W: BufMut>(
-        path_id: PathId,
-        delay: u64,
-        ranges: &ArrayRangeSet,
-        ecn: Option<&EcnCounts>,
-        buf: &mut W,
-    ) {
+    fn encode<W: BufMut>(&self, buf: &mut W) {
+        let PathAckEncoder {
+            path_id,
+            delay,
+            ranges,
+            ecn,
+        } = self;
         let mut rest = ranges.iter().rev();
         let first = rest
             .next()
@@ -673,9 +721,9 @@ impl PathAck {
             false => FrameType::PathAck,
         };
         buf.write(kind);
-        buf.write(path_id);
+        buf.write(*path_id);
         buf.write_var(largest);
-        buf.write_var(delay);
+        buf.write_var(*delay);
         buf.write_var(ranges.len() as u64 - 1);
         buf.write_var(first_size - 1);
         let mut prev = first.start;
@@ -688,17 +736,6 @@ impl PathAck {
         if let Some(x) = ecn {
             x.encode(buf)
         }
-    }
-
-    pub fn into_ack(self) -> (Ack, PathId) {
-        let ack = Ack {
-            largest: self.largest,
-            delay: self.delay,
-            additional: self.additional,
-            ecn: self.ecn,
-        };
-
-        (ack, self.path_id)
     }
 }
 
@@ -742,12 +779,28 @@ impl<'a> IntoIterator for &'a Ack {
 }
 
 impl Ack {
-    pub fn encode<W: BufMut>(
+    pub(crate) fn encoder<'a>(
         delay: u64,
-        ranges: &ArrayRangeSet,
-        ecn: Option<&EcnCounts>,
-        buf: &mut W,
-    ) {
+        ranges: &'a ArrayRangeSet,
+        ecn: Option<&'a EcnCounts>,
+    ) -> AckEncoder<'a> {
+        AckEncoder { delay, ranges, ecn }
+    }
+
+    pub fn iter(&self) -> AckIter<'_> {
+        self.into_iter()
+    }
+}
+
+pub(crate) struct AckEncoder<'a> {
+    delay: u64,
+    ranges: &'a ArrayRangeSet,
+    ecn: Option<&'a EcnCounts>,
+}
+
+impl<'a> Encodable for AckEncoder<'a> {
+    fn encode<W: BufMut>(&self, buf: &mut W) {
+        let AckEncoder { delay, ranges, ecn } = self;
         let mut rest = ranges.iter().rev();
         let first = rest.next().unwrap();
         let largest = first.end - 1;
@@ -758,7 +811,7 @@ impl Ack {
         };
         buf.write(kind);
         buf.write_var(largest);
-        buf.write_var(delay);
+        buf.write_var(*delay);
         buf.write_var(ranges.len() as u64 - 1);
         buf.write_var(first_size - 1);
         let mut prev = first.start;
@@ -771,10 +824,6 @@ impl Ack {
         if let Some(x) = ecn {
             x.encode(buf)
         }
-    }
-
-    pub fn iter(&self) -> AckIter<'_> {
-        self.into_iter()
     }
 }
 
@@ -849,24 +898,42 @@ impl Default for StreamMeta {
 }
 
 impl StreamMeta {
-    pub(crate) fn encode<W: BufMut>(&self, length: bool, out: &mut W) {
+    pub(crate) fn encoder(&self, encode_length: bool) -> StreamMetaEncoder<'_> {
+        StreamMetaEncoder {
+            meta: self,
+            encode_length,
+        }
+    }
+}
+
+pub(crate) struct StreamMetaEncoder<'a> {
+    meta: &'a StreamMeta,
+    encode_length: bool,
+}
+
+impl<'a> Encodable for StreamMetaEncoder<'a> {
+    fn encode<W: BufMut>(&self, out: &mut W) {
+        let StreamMetaEncoder {
+            meta,
+            encode_length: length,
+        } = self;
         let mut ty = *StreamInfo::VALUES.start();
-        if self.offsets.start != 0 {
+        if meta.offsets.start != 0 {
             ty |= 0x04;
         }
-        if length {
+        if *length {
             ty |= 0x02;
         }
-        if self.fin {
+        if meta.fin {
             ty |= 0x01;
         }
         out.write_var(ty); // 1 byte
-        out.write(self.id); // <=8 bytes
-        if self.offsets.start != 0 {
-            out.write_var(self.offsets.start); // <=8 bytes
+        out.write(meta.id); // <=8 bytes
+        if meta.offsets.start != 0 {
+            out.write_var(meta.offsets.start); // <=8 bytes
         }
-        if length {
-            out.write_var(self.offsets.end - self.offsets.start); // <=8 bytes
+        if *length {
+            out.write_var(meta.offsets.end - meta.offsets.start); // <=8 bytes
         }
     }
 }
@@ -1453,23 +1520,25 @@ impl FrameStruct for Datagram {
 }
 
 impl Datagram {
-    pub(crate) fn encode(&self, length: bool, out: &mut impl BufMut) {
-        out.write(FrameType::Datagram(DatagramInfo(
-            *DatagramInfo::VALUES.start() as u8 | u8::from(length),
-        ))); // 1 byte
-        if length {
-            // Safe to unwrap because we check length sanity before queueing datagrams
-            out.write(VarInt::from_u64(self.data.len() as u64).unwrap()); // <= 8 bytes
-        }
-        out.put_slice(&self.data);
-    }
-
     pub(crate) fn size(&self, length: bool) -> usize {
         1 + if length {
             VarInt::from_u64(self.data.len() as u64).unwrap().size()
         } else {
             0
         } + self.data.len()
+    }
+}
+
+impl Encodable for Datagram {
+    fn encode<B: BufMut>(&self, out: &mut B) {
+        // A datagram is encoded only after this is verified.
+        const ENCODE_LEN: bool = true;
+        out.write(FrameType::Datagram(DatagramInfo(
+            *DatagramInfo::VALUES.start() as u8 | u8::from(ENCODE_LEN),
+        ))); // 1 byte
+        // Safe to unwrap because we check length sanity before queueing datagrams
+        out.write(VarInt::from_u64(self.data.len() as u64).unwrap()); // <= 8 bytes
+        out.put_slice(&self.data);
     }
 }
 
@@ -1902,7 +1971,7 @@ mod test {
             ect1: 24,
             ce: 12,
         };
-        Ack::encode(42, &ranges, Some(&ECN), &mut buf);
+        Ack::encoder(42, &ranges, Some(&ECN)).encode(&mut buf);
         let frames = frames(buf);
         assert_eq!(frames.len(), 1);
         match frames[0] {
@@ -1931,7 +2000,7 @@ mod test {
             ce: 12,
         };
         const PATH_ID: PathId = PathId::MAX;
-        PathAck::encode(PATH_ID, 42, &ranges, Some(&ECN), &mut buf);
+        PathAck::encoder(PATH_ID, 42, &ranges, Some(&ECN)).encode(&mut buf);
         let frames = frames(buf);
         assert_eq!(frames.len(), 1);
         match frames[0] {

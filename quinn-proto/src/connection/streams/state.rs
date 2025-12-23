@@ -599,7 +599,7 @@ impl StreamsState {
 
             let meta = frame::StreamMeta { id, offsets, fin };
             trace!(id = %meta.id, off = meta.offsets.start, len = meta.offsets.end - meta.offsets.start, fin = meta.fin, "STREAM");
-            meta.encode(encode_length, buf);
+            meta.encoder(encode_length).encode(buf);
             qlog.frame_stream(&meta);
 
             stream.pending.get_into(meta.offsets.clone(), buf);
