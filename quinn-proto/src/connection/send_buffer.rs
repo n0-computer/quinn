@@ -310,9 +310,6 @@ impl SendBuffer {
 
 #[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
-    use test_strategy::{Arbitrary, proptest};
-
     use super::*;
 
     #[test]
@@ -523,6 +520,14 @@ mod tests {
         let mut buf = Vec::new();
         data.get_into(0..1, &mut buf);
     }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod proptests {
+    use super::*;
+
+    use proptest::prelude::*;
+    use test_strategy::{Arbitrary, proptest};
 
     #[derive(Debug, Clone, Arbitrary)]
     enum Op {
