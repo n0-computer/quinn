@@ -18,7 +18,7 @@
 <a href=#18 id=18 data-nosnippet>18</a>    Duration, INITIAL_MTU, Instant, MAX_CID_SIZE, MIN_INITIAL_SIZE, PathId, RESET_TOKEN_SIZE,
 <a href=#19 id=19 data-nosnippet>19</a>    ResetToken, Side, Transmit, TransportConfig, TransportError,
 <a href=#20 id=20 data-nosnippet>20</a>    cid_generator::ConnectionIdGenerator,
-<a href=#21 id=21 data-nosnippet>21</a>    coding::BufMutExt,
+<a href=#21 id=21 data-nosnippet>21</a>    coding::{BufMutExt, Encodable},
 <a href=#22 id=22 data-nosnippet>22</a>    config::{ClientConfig, EndpointConfig, ServerConfig},
 <a href=#23 id=23 data-nosnippet>23</a>    connection::{Connection, ConnectionError, SideArgs},
 <a href=#24 id=24 data-nosnippet>24</a>    crypto::{<span class="self">self</span>, Keys, UnsupportedVersion},
@@ -909,7 +909,7 @@
 <a href=#909 id=909 data-nosnippet>909</a>        <span class="kw">let </span>partial_encode = header.encode(buf);
 <a href=#910 id=910 data-nosnippet>910</a>        <span class="kw">let </span>max_len =
 <a href=#911 id=911 data-nosnippet>911</a>            INITIAL_MTU <span class="kw">as </span>usize - partial_encode.header_len - crypto.packet.local.tag_len();
-<a href=#912 id=912 data-nosnippet>912</a>        frame::Close::from(reason).encode(buf, max_len);
+<a href=#912 id=912 data-nosnippet>912</a>        frame::Close::from(reason).encoder(max_len).encode(buf);
 <a href=#913 id=913 data-nosnippet>913</a>        buf.resize(buf.len() + crypto.packet.local.tag_len(), <span class="number">0</span>);
 <a href=#914 id=914 data-nosnippet>914</a>        partial_encode.finish(
 <a href=#915 id=915 data-nosnippet>915</a>            buf,
