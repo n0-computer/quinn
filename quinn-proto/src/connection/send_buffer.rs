@@ -452,7 +452,6 @@ mod tests {
     /// tests that large segments are copied as-is in the SendBuffer
     #[test]
     fn multiple_large_segments() {
-
         fn dup(data: &[u8]) -> Bytes {
             let mut buf = BytesMut::with_capacity(data.len() * N);
             for c in data {
@@ -492,8 +491,8 @@ mod tests {
         assert!(same(buf.get(8 * 2000..msg_len), &seg4));
         assert!(same(buf.get(9 * 2000..msg_len), &seg5));
         // Now drain the segments
-        buf.ack(0..1 * K);
-        assert_eq!(aggregate_unacked(&buf), &msg[1 * N..]);
+        buf.ack(0..K);
+        assert_eq!(aggregate_unacked(&buf), &msg[N..]);
         buf.ack(0..3 * K);
         assert_eq!(aggregate_unacked(&buf), &msg[3 * N..]);
         buf.ack(3 * K..5 * K);
