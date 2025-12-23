@@ -4,7 +4,7 @@ use std::{
     convert::TryFrom,
     fmt, io, mem,
     net::{IpAddr, SocketAddr},
-    num::NonZeroU32,
+    num::{NonZeroU32, NonZeroUsize},
     ops::Not,
     sync::Arc,
 };
@@ -23,7 +23,7 @@ use crate::{
     TransportErrorCode, VarInt,
     cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
-    coding::BufMutExt,
+    coding::{BufMutExt, Encodable},
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     connection::{
@@ -674,7 +674,7 @@ impl Connection {
         self.endpoint_events
             .push_back(EndpointEventInner::RetireResetToken(path_id));
 
-        let pto = self.pto_max_path(SpaceId::Data);
+        let pto = self.pto_max_path(SpaceId::Data, false);
 
         let path = self.paths.get_mut(&path_id).expect("checked above");
 
@@ -821,15 +821,6 @@ impl Connection {
         &mut self.paths.get_mut(&path_id).expect("known path").data
     }
 
-    /// Check if the remote has been validated in any active path
-    fn is_remote_validated(&self, remote: SocketAddr) -> bool {
-        self.paths
-            .values()
-            .any(|path_state| path_state.data.remote == remote && path_state.data.validated)
-        // TODO(@divma): we might want to ensure the path has been recently active to consider the
-        // address validated
-    }
-
     fn ensure_path(
         &mut self,
         path_id: PathId,
@@ -837,7 +828,6 @@ impl Connection {
         now: Instant,
         pn: Option<u64>,
     ) -> &mut PathData {
-        let validated = self.is_remote_validated(remote);
         let vacant_entry = match self.paths.entry(path_id) {
             btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
             btree_map::Entry::Occupied(occupied_entry) => {
@@ -845,7 +835,9 @@ impl Connection {
             }
         };
 
-        debug!(%validated, %path_id, ?remote, "path added");
+        // TODO(matheus23): Add back short-circuiting path.validated = true, if we know that the
+        // path's four-tuple was already validated.
+        debug!(%path_id, ?remote, "path added");
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
         self.path_counter = self.path_counter.wrapping_add(1);
@@ -857,8 +849,6 @@ impl Connection {
             now,
             &self.config,
         );
-
-        data.validated = validated;
 
         let pto = self.ack_frequency.max_ack_delay_for_pto() + data.rtt.pto_base();
         self.timers.set(
@@ -897,7 +887,7 @@ impl Connection {
     pub fn poll_transmit(
         &mut self,
         now: Instant,
-        max_datagrams: usize,
+        max_datagrams: NonZeroUsize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
         if let Some(probing) = self
@@ -920,9 +910,8 @@ impl Connection {
             });
         }
 
-        assert!(max_datagrams != 0);
         let max_datagrams = match self.config.enable_segmentation_offload {
-            false => 1,
+            false => NonZeroUsize::MIN,
             true => max_datagrams,
         };
 
@@ -1090,7 +1079,7 @@ impl Connection {
                     !can_send.is_empty()
                 };
                 let needs_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
-                path_should_send || needs_loss_probe || can_send.close
+                path_should_send || needs_loss_probe
             };
 
             if !path_should_send && space_id < SpaceId::Data {
@@ -1163,7 +1152,7 @@ impl Connection {
 
             // If the datagram is full, we need to start a new one.
             if transmit.datagram_remaining_mut() == 0 {
-                if transmit.num_datagrams() >= transmit.max_datagrams() {
+                if transmit.num_datagrams() >= transmit.max_datagrams().get() {
                     // No more datagrams allowed
                     break;
                 }
@@ -1283,12 +1272,14 @@ impl Connection {
                             let reason: Close =
                                 self.state.as_closed().expect("checked").clone().into();
                             if space_id == SpaceId::Data || reason.is_transport_layer() {
-                                reason.encode(&mut builder.frame_space_mut(), max_frame_size);
+                                reason
+                                    .encoder(max_frame_size)
+                                    .encode(&mut builder.frame_space_mut());
                                 qlog.frame(&Frame::Close(reason));
                             } else {
                                 let frame = frame::ConnectionClose {
                                     error_code: TransportErrorCode::APPLICATION_ERROR,
-                                    frame_type: None,
+                                    frame_type: frame::MaybeFrame::None,
                                     reason: Bytes::new(),
                                 };
                                 frame.encode(&mut builder.frame_space_mut(), max_frame_size);
@@ -1298,7 +1289,7 @@ impl Connection {
                         StateType::Draining => {
                             let frame = frame::ConnectionClose {
                                 error_code: TransportErrorCode::NO_ERROR,
-                                frame_type: None,
+                                frame_type: frame::MaybeFrame::None,
                                 reason: Bytes::new(),
                             };
                             frame.encode(&mut builder.frame_space_mut(), max_frame_size);
@@ -1550,7 +1541,7 @@ impl Connection {
                 // We implement MTU probes as ping packets padded up to the probe size
                 trace!(?probe_size, "writing MTUD probe");
                 trace!("PING");
-                builder.frame_space_mut().write(frame::FrameType::PING);
+                builder.frame_space_mut().write(frame::FrameType::Ping);
                 qlog.frame(&Frame::Ping);
                 self.stats.frame_tx.ping += 1;
 
@@ -1559,7 +1550,7 @@ impl Connection {
                     trace!("IMMEDIATE_ACK");
                     builder
                         .frame_space_mut()
-                        .write(frame::FrameType::IMMEDIATE_ACK);
+                        .write(frame::FrameType::ImmediateAck);
                     self.stats.frame_tx.immediate_ack += 1;
                     qlog.frame(&Frame::ImmediateAck);
                 }
@@ -2608,7 +2599,7 @@ impl Connection {
         // QUIC-MULTIPATH § 2.5 Key Phase Update Process: use largest PTO off all paths.
         self.timers.set(
             Timer::Conn(ConnTimer::KeyDiscard),
-            start + self.pto_max_path(space) * 3,
+            start + self.pto_max_path(space, false) * 3,
             self.qlog.with_time(now),
         );
     }
@@ -3088,14 +3079,24 @@ impl Connection {
 
     /// The maximum probe timeout across all paths
     ///
+    /// If `is_closing` is set to `true` it will filter out paths that have not yet been used.
+    ///
     /// See [`Connection::pto`]
-    fn pto_max_path(&self, space: SpaceId) -> Duration {
+    fn pto_max_path(&self, space: SpaceId, is_closing: bool) -> Duration {
         match space {
             SpaceId::Initial | SpaceId::Handshake => self.pto(space, PathId::ZERO),
             SpaceId::Data => self
                 .paths
-                .keys()
-                .map(|path_id| self.pto(space, *path_id))
+                .iter()
+                .filter_map(|(path_id, state)| {
+                    if is_closing && state.data.total_sent == 0 && state.data.total_recvd == 0 {
+                        // If we are closing and haven't sent anything yet, do not include
+                        None
+                    } else {
+                        let pto = self.pto(space, *path_id);
+                        Some(pto)
+                    }
+                })
                 .max()
                 .expect("there should be one at least path"),
         }
@@ -3208,7 +3209,7 @@ impl Connection {
                 self.timers
                     .stop(Timer::Conn(ConnTimer::Idle), self.qlog.with_time(now));
             } else {
-                let dt = cmp::max(timeout, 3 * self.pto_max_path(space));
+                let dt = cmp::max(timeout, 3 * self.pto_max_path(space, false));
                 self.timers.set(
                     Timer::Conn(ConnTimer::Idle),
                     now + dt,
@@ -3830,7 +3831,6 @@ impl Connection {
                     self.stats.frame_rx.record(&frame);
 
                     if let Frame::Close(_error) = frame {
-                        trace!("draining");
                         self.state.move_to_draining(None);
                         break;
                     }
@@ -4146,7 +4146,7 @@ impl Connection {
                 _ => {
                     let mut err =
                         TransportError::PROTOCOL_VIOLATION("illegal frame type in handshake");
-                    err.frame = Some(frame.ty());
+                    err.frame = frame::MaybeFrame::Known(frame.ty());
                     return Err(err);
                 }
             }
@@ -4204,7 +4204,7 @@ impl Connection {
                     trace!(len = f.data.len(), "got datagram frame");
                 }
                 f => {
-                    trace!("got frame {:?}", f);
+                    trace!("got frame {f}");
                 }
             }
 
@@ -4288,44 +4288,30 @@ impl Connection {
                         .get_mut(&path_id)
                         .expect("payload is processed only after the path becomes known");
 
-                    match path.data.challenges_sent.get(&response.0) {
-                        // Response to an on-path PathChallenge
-                        Some(info) if info.remote == remote && path.data.remote == remote => {
-                            let sent_instant = info.sent_instant;
-                            // TODO(@divma): reset timers using the remaining off-path challenges
-                            self.timers.stop(
-                                Timer::PerPath(path_id, PathTimer::PathValidation),
-                                self.qlog.with_time(now),
-                            );
-                            self.timers.stop(
-                                Timer::PerPath(path_id, PathTimer::PathChallengeLost),
-                                self.qlog.with_time(now),
-                            );
-                            if !path.data.validated {
-                                trace!("new path validated");
-                            }
-                            self.timers.stop(
-                                Timer::PerPath(path_id, PathTimer::PathOpen),
-                                self.qlog.with_time(now),
-                            );
-                            // Clear any other on-path sent challenge.
-                            path.data
-                                .challenges_sent
-                                .retain(|_token, info| info.remote != remote);
-                            path.data.send_new_challenge = false;
-                            path.data.validated = true;
+                    use PathTimer::*;
+                    use paths::OnPathResponseReceived::*;
+                    match path.data.on_path_response_received(now, response.0, remote) {
+                        OnPath { was_open } => {
+                            let qlog = self.qlog.with_time(now);
 
-                            // This RTT can only be used for the initial RTT, not as a normal
-                            // sample: https://www.rfc-editor.org/rfc/rfc9002#section-6.2.2-2.
-                            let rtt = now.saturating_duration_since(sent_instant);
-                            path.data.rtt.reset_initial_rtt(rtt);
+                            self.timers
+                                .stop(Timer::PerPath(path_id, PathValidation), qlog.clone());
+                            self.timers
+                                .stop(Timer::PerPath(path_id, PathOpen), qlog.clone());
 
-                            self.events
-                                .push_back(Event::Path(PathEvent::Opened { id: path_id }));
-                            // mark the path as open from the application perspective now that Opened
-                            // event has been queued
-                            if !std::mem::replace(&mut path.data.open, true) {
-                                trace!("path opened");
+                            let next_challenge = path
+                                .data
+                                .earliest_expiring_challenge()
+                                .map(|time| time + self.ack_frequency.max_ack_delay_for_pto());
+                            self.timers.set_or_stop(
+                                Timer::PerPath(path_id, PathChallengeLost),
+                                next_challenge,
+                                qlog,
+                            );
+
+                            if !was_open {
+                                self.events
+                                    .push_back(Event::Path(PathEvent::Opened { id: path_id }));
                                 if let Some(observed) = path.data.last_observed_addr_report.as_ref()
                                 {
                                     self.events.push_back(Event::Path(PathEvent::ObservedAddr {
@@ -4339,19 +4325,22 @@ impl Connection {
                                 prev.send_new_challenge = false;
                             }
                         }
-                        // Response to an off-path PathChallenge
-                        Some(info) if info.remote == remote => {
+                        OffPath => {
                             debug!("Response to off-path PathChallenge!");
-                            path.data
-                                .challenges_sent
-                                .retain(|_token, info| info.remote != remote);
+                            let next_challenge = path
+                                .data
+                                .earliest_expiring_challenge()
+                                .map(|time| time + self.ack_frequency.max_ack_delay_for_pto());
+                            self.timers.set_or_stop(
+                                Timer::PerPath(path_id, PathChallengeLost),
+                                next_challenge,
+                                self.qlog.with_time(now),
+                            );
                         }
-                        // Response to a PathChallenge we recognize, but from an invalid remote
-                        Some(info) => {
-                            debug!(%response, from=%remote, expected=%info.remote, "ignoring invalid PATH_RESPONSE")
+                        Invalid { expected } => {
+                            debug!(%response, from=%remote, %expected, "ignoring invalid PATH_RESPONSE")
                         }
-                        // Response to an unknown PathChallenge
-                        None => debug!(%response, "ignoring invalid PATH_RESPONSE"),
+                        Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
                 }
                 Frame::MaxData(bytes) => {
@@ -4465,7 +4454,6 @@ impl Connection {
                         .entry(path_id)
                         .or_insert_with(|| CidQueue::new(frame.id));
                     if rem_cids.active().is_empty() {
-                        // TODO(@divma): is the entry removed later? (rem_cids.entry)
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "NEW_CONNECTION_ID when CIDs aren't in use",
                         ));
@@ -4478,6 +4466,11 @@ impl Connection {
 
                     use crate::cid_queue::InsertError;
                     match rem_cids.insert(frame) {
+                        Ok(None) if self.path(path_id).is_none() => {
+                            // if this gives us CIDs to open a new path and a nat traversal attempt
+                            // is underway we could try to probe a pending remote
+                            self.continue_nat_traversal_round(now);
+                        }
                         Ok(None) => {}
                         Ok(Some((retired, reset_token))) => {
                             let pending_retired =
@@ -4703,6 +4696,7 @@ impl Connection {
                     if path_id > self.remote_max_path_id {
                         self.remote_max_path_id = path_id;
                         self.issue_first_path_cids(now);
+                        while let Some(true) = self.continue_nat_traversal_round(now) {}
                     }
                 }
                 Frame::PathsBlocked(frame::PathsBlocked(max_path_id)) => {
@@ -5052,7 +5046,7 @@ impl Connection {
         // HANDSHAKE_DONE
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
             trace!("HANDSHAKE_DONE");
-            buf.write(frame::FrameType::HANDSHAKE_DONE);
+            buf.write(frame::FrameType::HandshakeDone);
             qlog.frame(&Frame::HandshakeDone);
             sent.retransmits.get_or_create().handshake_done = true;
             // This is just a u8 counter and the frame is typically just sent once
@@ -5067,7 +5061,7 @@ impl Connection {
                 let reach_out = frame::ReachOut::new(*round, local_addr);
                 if buf.remaining_mut() > reach_out.size() {
                     trace!(%round, ?local_addr, "REACH_OUT");
-                    reach_out.write(buf);
+                    reach_out.encode(buf);
                     let sent_reachouts = sent
                         .retransmits
                         .get_or_create()
@@ -5098,7 +5092,7 @@ impl Connection {
             let frame = frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
             if buf.remaining_mut() > frame.size() {
                 trace!(seq = %frame.seq_no, ip = %frame.ip, port = frame.port, "OBSERVED_ADDRESS");
-                frame.write(buf);
+                frame.encode(buf);
 
                 self.next_observed_addr_seq_no = self.next_observed_addr_seq_no.saturating_add(1u8);
                 path.observed_addr_sent = true;
@@ -5113,7 +5107,7 @@ impl Connection {
         // PING
         if mem::replace(&mut space.for_path(path_id).ping_pending, false) {
             trace!("PING");
-            buf.write(frame::FrameType::PING);
+            buf.write(frame::FrameType::Ping);
             sent.non_retransmits = true;
             self.stats.frame_tx.ping += 1;
             qlog.frame(&Frame::Ping);
@@ -5127,7 +5121,7 @@ impl Connection {
                 "immediate acks must be sent in the data space"
             );
             trace!("IMMEDIATE_ACK");
-            buf.write(frame::FrameType::IMMEDIATE_ACK);
+            buf.write(frame::FrameType::ImmediateAck);
             sent.non_retransmits = true;
             self.stats.frame_tx.immediate_ack += 1;
             qlog.frame(&Frame::ImmediateAck);
@@ -5195,6 +5189,8 @@ impl Connection {
         if buf.remaining_mut() > frame::PathChallenge::SIZE_BOUND
             && space_id == SpaceId::Data
             && path.send_new_challenge
+            && !self.state.is_closed()
+        // we don't want to send new challenges if we are already closing
         {
             path.send_new_challenge = false;
 
@@ -5208,7 +5204,7 @@ impl Connection {
             sent.non_retransmits = true;
             sent.requires_padding = true;
             let challenge = frame::PathChallenge(token);
-            trace!(%challenge, "sending new challenge");
+            trace!(frame = %challenge);
             buf.write(challenge);
             qlog.frame(&Frame::PathChallenge(challenge));
             self.stats.frame_tx.path_challenge += 1;
@@ -5234,7 +5230,7 @@ impl Connection {
             {
                 let frame = frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
                 if buf.remaining_mut() > frame.size() {
-                    frame.write(buf);
+                    frame.encode(buf);
                     qlog.frame(&Frame::ObservedAddr(frame));
 
                     self.next_observed_addr_seq_no =
@@ -5254,7 +5250,7 @@ impl Connection {
                 sent.non_retransmits = true;
                 sent.requires_padding = true;
                 let response = frame::PathResponse(token);
-                trace!(%response, "sending response");
+                trace!(frame = %response);
                 buf.write(response);
                 qlog.frame(&Frame::PathResponse(response));
                 self.stats.frame_tx.path_response += 1;
@@ -5271,7 +5267,7 @@ impl Connection {
                     let frame =
                         frame::ObservedAddr::new(path.remote, self.next_observed_addr_seq_no);
                     if buf.remaining_mut() > frame.size() {
-                        frame.write(buf);
+                        frame.encode(buf);
                         qlog.frame(&Frame::ObservedAddr(frame));
 
                         self.next_observed_addr_seq_no =
@@ -5622,7 +5618,7 @@ impl Connection {
                     port = added_address.port,
                     "ADD_ADDRESS",
                 );
-                added_address.write(buf);
+                added_address.encode(buf);
                 sent.retransmits
                     .get_or_create()
                     .add_address
@@ -5638,7 +5634,7 @@ impl Connection {
         while space_id == SpaceId::Data && frame::RemoveAddress::SIZE_BOUND <= buf.remaining_mut() {
             if let Some(removed_address) = space.pending.remove_address.pop_last() {
                 trace!(seq = %removed_address.seq_no, "REMOVE_ADDRESS");
-                removed_address.write(buf);
+                removed_address.encode(buf);
                 sent.retransmits
                     .get_or_create()
                     .remove_address
@@ -5701,13 +5697,13 @@ impl Connection {
         if is_multipath_negotiated && space_id == SpaceId::Data {
             if !ranges.is_empty() {
                 trace!("PATH_ACK {path_id:?} {ranges:?}, Delay = {delay_micros}us");
-                frame::PathAck::encode(path_id, delay as _, ranges, ecn, buf);
+                frame::PathAck::encoder(path_id, delay as _, ranges, ecn).encode(buf);
                 qlog.frame_path_ack(path_id, delay as _, ranges, ecn);
                 stats.frame_tx.path_acks += 1;
             }
         } else {
             trace!("ACK {ranges:?}, Delay = {delay_micros}us");
-            frame::Ack::encode(delay as _, ranges, ecn, buf);
+            frame::Ack::encoder(delay as _, ranges, ecn).encode(buf);
             stats.frame_tx.acks += 1;
             qlog.frame_ack(delay, ranges, ecn);
         }
@@ -5721,9 +5717,10 @@ impl Connection {
     fn set_close_timer(&mut self, now: Instant) {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO with PTO the max of
         // the PTO for all paths.
+        let pto_max = self.pto_max_path(self.highest_space, true);
         self.timers.set(
             Timer::Conn(ConnTimer::Close),
-            now + 3 * self.pto_max_path(self.highest_space),
+            now + 3 * pto_max,
             self.qlog.with_time(now),
         );
     }
@@ -6262,6 +6259,43 @@ impl Connection {
             .get_remote_nat_traversal_addresses())
     }
 
+    /// Attempts to open a path for nat traversal.
+    ///
+    /// `ipv6` indicates if the path should be opened using an IPV6 remote. If the address is
+    /// ignored, it will return `None`.
+    ///
+    /// On success returns the [`PathId`] and remote address of the path, as well as whether the path
+    /// existed for the adjusted remote.
+    fn open_nat_traversal_path(
+        &mut self,
+        now: Instant,
+        (ip, port): (IpAddr, u16),
+        ipv6: bool,
+    ) -> Result<Option<(PathId, SocketAddr, bool)>, PathError> {
+        // If this endpoint is an IPv6 endpoint we use IPv6 addresses for all remotes.
+        let remote = match ip {
+            IpAddr::V4(addr) if ipv6 => SocketAddr::new(addr.to_ipv6_mapped().into(), port),
+            IpAddr::V4(addr) => SocketAddr::new(addr.into(), port),
+            IpAddr::V6(_) if ipv6 => SocketAddr::new(ip, port),
+            IpAddr::V6(_) => {
+                trace!("not using IPv6 nat candidate for IPv4 socket");
+                return Ok(None);
+            }
+        };
+        match self.open_path_ensure(remote, PathStatus::Backup, now) {
+            Ok((path_id, path_was_known)) => {
+                if path_was_known {
+                    trace!(%path_id, %remote, "nat traversal: path existed for remote");
+                }
+                Ok(Some((path_id, remote, path_was_known)))
+            }
+            Err(e) => {
+                debug!(%remote, %e, "nat traversal: failed to probe remote");
+                Err(e)
+            }
+        }
+    }
+
     /// Initiates a new nat traversal round
     ///
     /// A nat traversal round involves advertising the client's local addresses in `REACH_OUT`
@@ -6269,10 +6303,16 @@ impl Connection {
     /// initiated, the previous one is cancelled, and paths that have not been opened are closed.
     ///
     /// Returns the server addresses that are now being probed.
+    /// If addresses fail due to spurious errors, these might succeed later and not be returned in
+    /// this set.
     pub fn initiate_nat_traversal_round(
         &mut self,
         now: Instant,
     ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+        if self.state.is_closed() {
+            return Err(iroh_hp::Error::Closed);
+        }
+
         let client_state = self.iroh_hp.client_side_mut()?;
         let iroh_hp::NatTraversalRound {
             new_round,
@@ -6306,27 +6346,20 @@ impl Connection {
         let mut probed_addresses = Vec::with_capacity(addresses_to_probe.len());
         let ipv6 = self.paths.values().any(|p| p.data.remote.is_ipv6());
 
-        for (ip, port) in addresses_to_probe {
-            // If this endpoint is an IPv6 endpoint we use IPv6 addresses for all remotes.
-            let remote = match ip {
-                IpAddr::V4(addr) if ipv6 => SocketAddr::new(addr.to_ipv6_mapped().into(), port),
-                IpAddr::V4(addr) => SocketAddr::new(addr.into(), port),
-                IpAddr::V6(_) if ipv6 => SocketAddr::new(ip, port),
-                IpAddr::V6(_) => {
-                    trace!("not using IPv6 nat candidate for IPv4 socket");
-                    continue;
-                }
-            };
-            match self.open_path_ensure(remote, PathStatus::Backup, now) {
-                Ok((path_id, path_was_known)) if !path_was_known => {
-                    path_ids.push(path_id);
-                    probed_addresses.push(remote);
-                }
-                Ok((path_id, _)) => {
-                    trace!(%path_id, %remote,"nat traversal: path existed for remote")
+        for (id, address) in addresses_to_probe {
+            match self.open_nat_traversal_path(now, address, ipv6) {
+                Ok(None) => {}
+                Ok(Some((path_id, remote, path_was_known))) => {
+                    if !path_was_known {
+                        path_ids.push(path_id);
+                        probed_addresses.push(remote);
+                    }
                 }
                 Err(e) => {
-                    debug!(%remote, %e,"nat traversal: failed to probe remote");
+                    self.iroh_hp
+                        .client_side_mut()
+                        .expect("validated")
+                        .report_in_continuation(id, e);
                     err.get_or_insert(e);
                 }
             }
@@ -6345,6 +6378,31 @@ impl Connection {
             .set_round_path_ids(path_ids);
 
         Ok(probed_addresses)
+    }
+
+    /// Attempts to continue a nat traversal round by trying to open paths for pending client probes.
+    ///
+    /// If there was nothing to do, it returns `None`. Otherwise it returns whether the path was
+    /// successfully open.
+    fn continue_nat_traversal_round(&mut self, now: Instant) -> Option<bool> {
+        let client_state = self.iroh_hp.client_side_mut().ok()?;
+        let (id, address) = client_state.continue_nat_traversal_round()?;
+        let ipv6 = self.paths.values().any(|p| p.data.remote.is_ipv6());
+        let open_result = self.open_nat_traversal_path(now, address, ipv6);
+        let client_state = self.iroh_hp.client_side_mut().expect("validated");
+        match open_result {
+            Ok(None) => Some(true),
+            Ok(Some((path_id, _remote, path_was_known))) => {
+                if !path_was_known {
+                    client_state.add_round_path_id(path_id);
+                }
+                Some(true)
+            }
+            Err(e) => {
+                client_state.report_in_continuation(id, e);
+                Some(false)
+            }
+        }
     }
 }
 

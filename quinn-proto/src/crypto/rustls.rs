@@ -108,7 +108,7 @@ impl crypto::Session for TlsSession {
             if let Some(alert) = self.inner.alert() {
                 TransportError {
                     code: TransportErrorCode::crypto(alert.into()),
-                    frame: None,
+                    frame: crate::frame::MaybeFrame::None,
                     reason: e.to_string(),
                     crypto: Some(Arc::new(e)),
                 }

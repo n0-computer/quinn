@@ -269,6 +269,18 @@ impl TimerTable {
         qlog.emit_timer_set(timer, time);
     }
 
+    pub(super) fn set_or_stop(
+        &mut self,
+        timer: Timer,
+        time: Option<Instant>,
+        qlog: QlogSinkWithTime<'_>,
+    ) {
+        match time {
+            Some(time) => self.set(timer, time, qlog),
+            None => self.stop(timer, qlog),
+        }
+    }
+
     pub(super) fn stop(&mut self, timer: Timer, qlog: QlogSinkWithTime<'_>) {
         match timer {
             Timer::Conn(timer) => {

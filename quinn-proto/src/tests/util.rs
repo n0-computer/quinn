@@ -5,6 +5,7 @@ use std::{
     io::{self, Write},
     mem,
     net::{Ipv6Addr, SocketAddr, UdpSocket},
+    num::NonZeroUsize,
     ops::RangeFrom,
     str,
     sync::{Arc, LazyLock, Mutex},
@@ -791,7 +792,7 @@ pub(super) fn min_opt<T: Ord>(x: Option<T>, y: Option<T>) -> Option<T> {
 }
 
 /// The maximum of datagrams TestEndpoint will produce via `poll_transmit`
-const MAX_DATAGRAMS: usize = 10;
+const MAX_DATAGRAMS: NonZeroUsize = NonZeroUsize::new(10).expect("known");
 
 fn split_transmit(transmit: Transmit, buffer: &[u8]) -> Vec<(Transmit, Bytes)> {
     let mut buffer = Bytes::copy_from_slice(buffer);
