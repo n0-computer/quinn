@@ -33,7 +33,7 @@ use crate::{
     transport_parameters::TransportParameters,
 };
 mod util;
-use util::*;
+pub(crate) use util::*;
 
 mod multipath;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -1703,8 +1703,7 @@ fn cid_rotation() {
     let mut stop = pair.time;
     let end = pair.time + 5 * CID_TIMEOUT;
 
-    use crate::LOC_CID_COUNT;
-    use crate::cid_queue::CidQueue;
+    use crate::{LOC_CID_COUNT, cid_queue::CidQueue};
     let mut active_cid_num = CidQueue::LEN as u64 + 1;
     active_cid_num = active_cid_num.min(LOC_CID_COUNT);
     let mut left_bound = 0;
@@ -1751,8 +1750,7 @@ fn cid_retirement() {
     assert!(!pair.server_conn_mut(server_ch).is_closed());
     assert_matches!(pair.client_conn_mut(client_ch).active_rem_cid_seq(), 1);
 
-    use crate::LOC_CID_COUNT;
-    use crate::cid_queue::CidQueue;
+    use crate::{LOC_CID_COUNT, cid_queue::CidQueue};
     let mut active_cid_num = CidQueue::LEN as u64;
     active_cid_num = active_cid_num.min(LOC_CID_COUNT);
 

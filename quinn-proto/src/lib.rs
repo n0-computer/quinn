@@ -41,7 +41,7 @@ mod bloom_token_log;
 #[cfg(feature = "bloom")]
 pub use bloom_token_log::BloomTokenLog;
 
-mod connection;
+pub(crate) mod connection;
 pub use crate::connection::{
     Chunk, Chunks, ClosePathError, ClosedPath, ClosedStream, Connection, ConnectionError,
     ConnectionStats, Datagrams, Event, FinishError, FrameStats, PathError, PathEvent, PathId,
@@ -115,6 +115,12 @@ use arbitrary::Arbitrary;
 pub(crate) use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub(crate) use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[cfg(feature = "bench")]
+pub mod bench_exports {
+    //! Exports for benchmarks
+    pub use crate::connection::send_buffer::send_buffer_benches;
+}
 
 #[cfg(fuzzing)]
 pub mod fuzzing {

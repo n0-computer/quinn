@@ -602,15 +602,7 @@ impl StreamsState {
             meta.encoder(encode_length).encode(buf);
             qlog.frame_stream(&meta);
 
-            // The range might not be retrievable in a single `get` if it is
-            // stored in noncontiguous fashion. Therefore this loop iterates
-            // until the range is fully copied into the frame.
-            let mut offsets = meta.offsets.clone();
-            while offsets.start != offsets.end {
-                let data = stream.pending.get(offsets.clone());
-                offsets.start += data.len() as u64;
-                buf.put_slice(data);
-            }
+            stream.pending.get_into(meta.offsets.clone(), buf);
             stream_frames.push(meta);
         }
 
