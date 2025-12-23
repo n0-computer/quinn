@@ -38,7 +38,7 @@ pub(super) struct SendBuffer {
 /// Maximum number of bytes to combine into a single segment
 ///
 /// Any segment larger than this will be stored as-is, possibly triggering a flush of the buffer.
-const MAX_COMBINE: usize = 1024;
+const MAX_COMBINE: usize = 1452;
 
 /// This is where the data of the send buffer lives. It supports appending at the end,
 /// removing from the front, and retrieving data by range.
