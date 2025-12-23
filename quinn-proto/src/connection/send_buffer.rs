@@ -475,7 +475,7 @@ mod tests {
 
         let seg1: Bytes = dup(b"He");
         buf.write(seg1.clone());
-        let seg2: Bytes = dup(b"llo");
+        let seg2: Bytes = dup(b"llo,");
         buf.write(seg2.clone());
         let seg3: Bytes = dup(b" w");
         buf.write(seg3.clone());
