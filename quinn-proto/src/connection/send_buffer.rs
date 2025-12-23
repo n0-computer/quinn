@@ -576,6 +576,8 @@ mod proptests {
 
     use proptest::prelude::*;
     use test_strategy::{Arbitrary, proptest};
+    use crate::tests::subscribe;
+    use tracing::trace;
 
     #[derive(Debug, Clone, Arbitrary)]
     enum Op {
@@ -609,11 +611,7 @@ mod proptests {
     fn send_buffer_matches_reference(
         #[strategy(proptest::collection::vec(any::<Op>(), 1..100))] ops: Vec<Op>,
     ) {
-        macro_rules! log {
-            ($($arg:tt)*) => {
-                // println!($($arg)*)
-            };
-        }
+        let _guard = subscribe();
         let mut sb = SendBuffer::new();
         // all data written to the send buffer
         let mut buf = Vec::new();
@@ -621,11 +619,11 @@ mod proptests {
         let mut max_send_offset = 0u64;
         // max offset up to which data has been fully acked
         let mut max_full_send_offset = 0u64;
-        log!("");
+        trace!("");
         for op in ops {
             match op {
                 Op::Write(data) => {
-                    log!("Op::Write({})", data.len());
+                    trace!("Op::Write({})", data.len());
                     buf.extend_from_slice(&data);
                     sb.write(Bytes::from(data));
                 }
@@ -636,17 +634,17 @@ mod proptests {
                     if range.contains(&max_full_send_offset) {
                         max_full_send_offset = range.end;
                     }
-                    log!("Op::Ack({:?})", range);
+                    trace!("Op::Ack({:?})", range);
                     sb.ack(range);
                 }
                 Op::Retransmit(range) => {
                     // we can only get retransmits for data that has been sent
                     let range = map_range(range, 0..max_send_offset);
-                    log!("Op::Retransmit({:?})", range);
+                    trace!("Op::Retransmit({:?})", range);
                     sb.retransmit(range);
                 }
                 Op::PollTransmit(max_len) => {
-                    log!("Op::PollTransmit({})", max_len);
+                    trace!("Op::PollTransmit({})", max_len);
                     let (range, _partial) = sb.poll_transmit(max_len);
                     max_send_offset = max_send_offset.max(range.end);
                     assert!(
@@ -667,15 +665,15 @@ mod proptests {
             }
         }
         // Drain all remaining data
-        log!("Op::Retransmit({:?})", 0..max_send_offset);
+        trace!("Op::Retransmit({:?})", 0..max_send_offset);
         sb.retransmit(0..max_send_offset);
         loop {
-            log!("Op::PollTransmit({})", 1024);
+            trace!("Op::PollTransmit({})", 1024);
             let (range, _partial) = sb.poll_transmit(1024);
             if range.is_empty() {
                 break;
             }
-            log!("Op::Ack({:?})", range);
+            trace!("Op::Ack({:?})", range);
             sb.ack(range);
         }
         assert!(

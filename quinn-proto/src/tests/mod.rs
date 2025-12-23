@@ -33,7 +33,7 @@ use crate::{
     transport_parameters::TransportParameters,
 };
 mod util;
-use util::*;
+pub(crate) use util::*;
 
 mod multipath;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]

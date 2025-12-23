@@ -649,7 +649,7 @@ impl ::std::ops::DerefMut for TestEndpoint {
     }
 }
 
-pub(super) fn subscribe() -> tracing::subscriber::DefaultGuard {
+pub(crate) fn subscribe() -> tracing::subscriber::DefaultGuard {
     let builder = tracing_subscriber::FmtSubscriber::builder()
         .with_env_filter(
             tracing_subscriber::EnvFilter::builder()
