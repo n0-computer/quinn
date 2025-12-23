@@ -462,6 +462,9 @@ mod tests {
     /// tests that large segments are copied as-is in the SendBuffer
     #[test]
     fn multiple_large_segments() {
+        // this must be bigger than MAX_COMBINE so we don't get writes coalesced.
+        const N: usize = 2000;
+        const K: u64 = N as u64;
         fn dup(data: &[u8]) -> Bytes {
             let mut buf = BytesMut::with_capacity(data.len() * N);
             for c in data {
@@ -478,8 +481,6 @@ mod tests {
         }
 
         let mut buf = SendBuffer::new();
-        const N: usize = 2000;
-        const K: u64 = N as u64;
         let msg: Bytes = dup(b"Hello, world!");
         let msg_len: u64 = msg.len() as u64;
 
