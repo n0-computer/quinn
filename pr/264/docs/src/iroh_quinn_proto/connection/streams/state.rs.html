@@ -599,7 +599,7 @@
 <a href=#599 id=599 data-nosnippet>599</a>
 <a href=#600 id=600 data-nosnippet>600</a>            <span class="kw">let </span>meta = frame::StreamMeta { id, offsets, fin };
 <a href=#601 id=601 data-nosnippet>601</a>            <span class="macro">trace!</span>(id = %meta.id, off = meta.offsets.start, len = meta.offsets.end - meta.offsets.start, fin = meta.fin, <span class="string">"STREAM"</span>);
-<a href=#602 id=602 data-nosnippet>602</a>            meta.encode(encode_length, buf);
+<a href=#602 id=602 data-nosnippet>602</a>            meta.encoder(encode_length).encode(buf);
 <a href=#603 id=603 data-nosnippet>603</a>            qlog.frame_stream(<span class="kw-2">&amp;</span>meta);
 <a href=#604 id=604 data-nosnippet>604</a>
 <a href=#605 id=605 data-nosnippet>605</a>            <span class="comment">// The range might not be retrievable in a single `get` if it is

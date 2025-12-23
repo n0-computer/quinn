@@ -130,13 +130,13 @@
 <a href=#130 id=130 data-nosnippet>130</a>    <span class="doccomment">/// When was the challenge sent on the wire.
 <a href=#131 id=131 data-nosnippet>131</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) sent_instant: Instant,
 <a href=#132 id=132 data-nosnippet>132</a>    <span class="doccomment">/// The 4-tuple on which this path challenge was sent.
-<a href=#133 id=133 data-nosnippet>133</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) addresses: FourTuple,
+<a href=#133 id=133 data-nosnippet>133</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) network_path: FourTuple,
 <a href=#134 id=134 data-nosnippet>134</a>}
 <a href=#135 id=135 data-nosnippet>135</a>
 <a href=#136 id=136 data-nosnippet>136</a><span class="doccomment">/// Description of a particular network path
 <a href=#137 id=137 data-nosnippet>137</a></span><span class="attr">#[derive(Debug)]
 <a href=#138 id=138 data-nosnippet>138</a></span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">struct </span>PathData {
-<a href=#139 id=139 data-nosnippet>139</a>    <span class="kw">pub</span>(<span class="kw">super</span>) addresses: FourTuple,
+<a href=#139 id=139 data-nosnippet>139</a>    <span class="kw">pub</span>(<span class="kw">super</span>) network_path: FourTuple,
 <a href=#140 id=140 data-nosnippet>140</a>    <span class="kw">pub</span>(<span class="kw">super</span>) rtt: RttEstimator,
 <a href=#141 id=141 data-nosnippet>141</a>    <span class="doccomment">/// Whether we're enabling ECN on outgoing packets
 <a href=#142 id=142 data-nosnippet>142</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) sending_ecn: bool,
@@ -230,7 +230,7 @@
 <a href=#230 id=230 data-nosnippet>230</a>
 <a href=#231 id=231 data-nosnippet>231</a><span class="kw">impl </span>PathData {
 <a href=#232 id=232 data-nosnippet>232</a>    <span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>new(
-<a href=#233 id=233 data-nosnippet>233</a>        addresses: FourTuple,
+<a href=#233 id=233 data-nosnippet>233</a>        network_path: FourTuple,
 <a href=#234 id=234 data-nosnippet>234</a>        allow_mtud: bool,
 <a href=#235 id=235 data-nosnippet>235</a>        peer_max_udp_payload_size: <span class="prelude-ty">Option</span>&lt;u16&gt;,
 <a href=#236 id=236 data-nosnippet>236</a>        generation: u64,
@@ -242,7 +242,7 @@
 <a href=#242 id=242 data-nosnippet>242</a>            .clone()
 <a href=#243 id=243 data-nosnippet>243</a>            .build(now, config.get_initial_mtu());
 <a href=#244 id=244 data-nosnippet>244</a>        <span class="self">Self </span>{
-<a href=#245 id=245 data-nosnippet>245</a>            addresses,
+<a href=#245 id=245 data-nosnippet>245</a>            network_path,
 <a href=#246 id=246 data-nosnippet>246</a>            rtt: RttEstimator::new(config.initial_rtt),
 <a href=#247 id=247 data-nosnippet>247</a>            sending_ecn: <span class="bool-val">true</span>,
 <a href=#248 id=248 data-nosnippet>248</a>            pacing: Pacer::new(
@@ -294,7 +294,7 @@
 <a href=#294 id=294 data-nosnippet>294</a>    ///
 <a href=#295 id=295 data-nosnippet>295</a>    /// This should only be called when migrating paths.
 <a href=#296 id=296 data-nosnippet>296</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>from_previous(
-<a href=#297 id=297 data-nosnippet>297</a>        addresses: FourTuple,
+<a href=#297 id=297 data-nosnippet>297</a>        network_path: FourTuple,
 <a href=#298 id=298 data-nosnippet>298</a>        prev: <span class="kw-2">&amp;</span><span class="self">Self</span>,
 <a href=#299 id=299 data-nosnippet>299</a>        generation: u64,
 <a href=#300 id=300 data-nosnippet>300</a>        now: Instant,
@@ -302,7 +302,7 @@
 <a href=#302 id=302 data-nosnippet>302</a>        <span class="kw">let </span>congestion = prev.congestion.clone_box();
 <a href=#303 id=303 data-nosnippet>303</a>        <span class="kw">let </span>smoothed_rtt = prev.rtt.get();
 <a href=#304 id=304 data-nosnippet>304</a>        <span class="self">Self </span>{
-<a href=#305 id=305 data-nosnippet>305</a>            addresses,
+<a href=#305 id=305 data-nosnippet>305</a>            network_path,
 <a href=#306 id=306 data-nosnippet>306</a>            rtt: prev.rtt,
 <a href=#307 id=307 data-nosnippet>307</a>            pacing: Pacer::new(smoothed_rtt, congestion.window(), prev.current_mtu(), now),
 <a href=#308 id=308 data-nosnippet>308</a>            sending_ecn: <span class="bool-val">true</span>,
@@ -373,7 +373,7 @@
 <a href=#373 id=373 data-nosnippet>373</a>        <span class="self">self</span>.total_sent = <span class="self">self</span>.total_sent.saturating_add(inc);
 <a href=#374 id=374 data-nosnippet>374</a>        <span class="kw">if </span>!<span class="self">self</span>.validated {
 <a href=#375 id=375 data-nosnippet>375</a>            <span class="macro">trace!</span>(
-<a href=#376 id=376 data-nosnippet>376</a>                addresses = %<span class="self">self</span>.addresses,
+<a href=#376 id=376 data-nosnippet>376</a>                network_path = %<span class="self">self</span>.network_path,
 <a href=#377 id=377 data-nosnippet>377</a>                anti_amplification_budget = %(<span class="self">self</span>.total_recvd * <span class="number">3</span>).saturating_sub(<span class="self">self</span>.total_sent),
 <a href=#378 id=378 data-nosnippet>378</a>                <span class="string">"anti amplification budget decreased"
 <a href=#379 id=379 data-nosnippet>379</a>            </span>);
@@ -385,7 +385,7 @@
 <a href=#385 id=385 data-nosnippet>385</a>        <span class="self">self</span>.total_recvd = <span class="self">self</span>.total_recvd.saturating_add(inc);
 <a href=#386 id=386 data-nosnippet>386</a>        <span class="kw">if </span>!<span class="self">self</span>.validated {
 <a href=#387 id=387 data-nosnippet>387</a>            <span class="macro">trace!</span>(
-<a href=#388 id=388 data-nosnippet>388</a>                addresses = %<span class="self">self</span>.addresses,
+<a href=#388 id=388 data-nosnippet>388</a>                network_path = %<span class="self">self</span>.network_path,
 <a href=#389 id=389 data-nosnippet>389</a>                anti_amplification_budget = %(<span class="self">self</span>.total_recvd * <span class="number">3</span>).saturating_sub(<span class="self">self</span>.total_sent),
 <a href=#390 id=390 data-nosnippet>390</a>                <span class="string">"anti amplification budget increased"
 <a href=#391 id=391 data-nosnippet>391</a>            </span>);
@@ -410,22 +410,22 @@
 <a href=#410 id=410 data-nosnippet>410</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
 <a href=#411 id=411 data-nosnippet>411</a>        now: Instant,
 <a href=#412 id=412 data-nosnippet>412</a>        token: u64,
-<a href=#413 id=413 data-nosnippet>413</a>        addresses: FourTuple,
+<a href=#413 id=413 data-nosnippet>413</a>        network_path: FourTuple,
 <a href=#414 id=414 data-nosnippet>414</a>    ) -&gt; OnPathResponseReceived {
 <a href=#415 id=415 data-nosnippet>415</a>        <span class="kw">match </span><span class="self">self</span>.challenges_sent.get(<span class="kw-2">&amp;</span>token) {
 <a href=#416 id=416 data-nosnippet>416</a>            <span class="comment">// Response to an on-path PathChallenge
 <a href=#417 id=417 data-nosnippet>417</a>            </span><span class="prelude-val">Some</span>(info)
-<a href=#418 id=418 data-nosnippet>418</a>                <span class="kw">if </span>info.addresses.is_probably_same_path(<span class="kw-2">&amp;</span>addresses)
-<a href=#419 id=419 data-nosnippet>419</a>                    &amp;&amp; <span class="self">self</span>.addresses.is_probably_same_path(<span class="kw-2">&amp;</span>addresses) =&gt;
+<a href=#418 id=418 data-nosnippet>418</a>                <span class="kw">if </span>info.network_path.is_probably_same_path(<span class="kw-2">&amp;</span>network_path)
+<a href=#419 id=419 data-nosnippet>419</a>                    &amp;&amp; <span class="self">self</span>.network_path.is_probably_same_path(<span class="kw-2">&amp;</span>network_path) =&gt;
 <a href=#420 id=420 data-nosnippet>420</a>            {
-<a href=#421 id=421 data-nosnippet>421</a>                <span class="self">self</span>.addresses.update_local_if_same_remote(<span class="kw-2">&amp;</span>addresses);
+<a href=#421 id=421 data-nosnippet>421</a>                <span class="self">self</span>.network_path.update_local_if_same_remote(<span class="kw-2">&amp;</span>network_path);
 <a href=#422 id=422 data-nosnippet>422</a>                <span class="kw">let </span>sent_instant = info.sent_instant;
 <a href=#423 id=423 data-nosnippet>423</a>                <span class="kw">if </span>!std::mem::replace(<span class="kw-2">&amp;mut </span><span class="self">self</span>.validated, <span class="bool-val">true</span>) {
 <a href=#424 id=424 data-nosnippet>424</a>                    <span class="macro">trace!</span>(<span class="string">"new path validated"</span>);
 <a href=#425 id=425 data-nosnippet>425</a>                }
 <a href=#426 id=426 data-nosnippet>426</a>                <span class="comment">// Clear any other on-path sent challenge.
 <a href=#427 id=427 data-nosnippet>427</a>                </span><span class="self">self</span>.challenges_sent
-<a href=#428 id=428 data-nosnippet>428</a>                    .retain(|_token, info| !info.addresses.is_probably_same_path(<span class="kw-2">&amp;</span>addresses));
+<a href=#428 id=428 data-nosnippet>428</a>                    .retain(|_token, info| !info.network_path.is_probably_same_path(<span class="kw-2">&amp;</span>network_path));
 <a href=#429 id=429 data-nosnippet>429</a>
 <a href=#430 id=430 data-nosnippet>430</a>                <span class="self">self</span>.send_new_challenge = <span class="bool-val">false</span>;
 <a href=#431 id=431 data-nosnippet>431</a>
@@ -438,14 +438,14 @@
 <a href=#438 id=438 data-nosnippet>438</a>                OnPathResponseReceived::OnPath { was_open }
 <a href=#439 id=439 data-nosnippet>439</a>            }
 <a href=#440 id=440 data-nosnippet>440</a>            <span class="comment">// Response to an off-path PathChallenge
-<a href=#441 id=441 data-nosnippet>441</a>            </span><span class="prelude-val">Some</span>(info) <span class="kw">if </span>info.addresses.is_probably_same_path(<span class="kw-2">&amp;</span>addresses) =&gt; {
+<a href=#441 id=441 data-nosnippet>441</a>            </span><span class="prelude-val">Some</span>(info) <span class="kw">if </span>info.network_path.is_probably_same_path(<span class="kw-2">&amp;</span>network_path) =&gt; {
 <a href=#442 id=442 data-nosnippet>442</a>                <span class="self">self</span>.challenges_sent
-<a href=#443 id=443 data-nosnippet>443</a>                    .retain(|_token, info| !info.addresses.is_probably_same_path(<span class="kw-2">&amp;</span>addresses));
+<a href=#443 id=443 data-nosnippet>443</a>                    .retain(|_token, info| !info.network_path.is_probably_same_path(<span class="kw-2">&amp;</span>network_path));
 <a href=#444 id=444 data-nosnippet>444</a>                OnPathResponseReceived::OffPath
 <a href=#445 id=445 data-nosnippet>445</a>            }
 <a href=#446 id=446 data-nosnippet>446</a>            <span class="comment">// Response to a PathChallenge we recognize, but from an invalid remote
 <a href=#447 id=447 data-nosnippet>447</a>            </span><span class="prelude-val">Some</span>(info) =&gt; OnPathResponseReceived::Invalid {
-<a href=#448 id=448 data-nosnippet>448</a>                expected: info.addresses,
+<a href=#448 id=448 data-nosnippet>448</a>                expected: info.network_path,
 <a href=#449 id=449 data-nosnippet>449</a>            },
 <a href=#450 id=450 data-nosnippet>450</a>            <span class="comment">// Response to an unknown PathChallenge
 <a href=#451 id=451 data-nosnippet>451</a>            </span><span class="prelude-val">None </span>=&gt; OnPathResponseReceived::Unknown,
@@ -719,18 +719,18 @@
 <a href=#719 id=719 data-nosnippet>719</a>}
 <a href=#720 id=720 data-nosnippet>720</a>
 <a href=#721 id=721 data-nosnippet>721</a><span class="kw">impl </span>PathResponses {
-<a href=#722 id=722 data-nosnippet>722</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>push(<span class="kw-2">&amp;mut </span><span class="self">self</span>, packet: u64, token: u64, addresses: FourTuple) {
+<a href=#722 id=722 data-nosnippet>722</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>push(<span class="kw-2">&amp;mut </span><span class="self">self</span>, packet: u64, token: u64, network_path: FourTuple) {
 <a href=#723 id=723 data-nosnippet>723</a>        <span class="doccomment">/// Arbitrary permissive limit to prevent abuse
 <a href=#724 id=724 data-nosnippet>724</a>        </span><span class="kw">const </span>MAX_PATH_RESPONSES: usize = <span class="number">16</span>;
 <a href=#725 id=725 data-nosnippet>725</a>        <span class="kw">let </span>response = PathResponse {
 <a href=#726 id=726 data-nosnippet>726</a>            packet,
 <a href=#727 id=727 data-nosnippet>727</a>            token,
-<a href=#728 id=728 data-nosnippet>728</a>            addresses,
+<a href=#728 id=728 data-nosnippet>728</a>            network_path,
 <a href=#729 id=729 data-nosnippet>729</a>        };
 <a href=#730 id=730 data-nosnippet>730</a>        <span class="kw">let </span>existing = <span class="self">self
 <a href=#731 id=731 data-nosnippet>731</a>            </span>.pending
 <a href=#732 id=732 data-nosnippet>732</a>            .iter_mut()
-<a href=#733 id=733 data-nosnippet>733</a>            .find(|x| x.addresses.remote == addresses.remote);
+<a href=#733 id=733 data-nosnippet>733</a>            .find(|x| x.network_path.remote == network_path.remote);
 <a href=#734 id=734 data-nosnippet>734</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(existing) = existing {
 <a href=#735 id=735 data-nosnippet>735</a>            <span class="comment">// Update a queued response
 <a href=#736 id=736 data-nosnippet>736</a>            </span><span class="kw">if </span>existing.packet &lt;= packet {
@@ -747,24 +747,24 @@
 <a href=#747 id=747 data-nosnippet>747</a>        }
 <a href=#748 id=748 data-nosnippet>748</a>    }
 <a href=#749 id=749 data-nosnippet>749</a>
-<a href=#750 id=750 data-nosnippet>750</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>pop_off_path(<span class="kw-2">&amp;mut </span><span class="self">self</span>, addresses: FourTuple) -&gt; <span class="prelude-ty">Option</span>&lt;(u64, FourTuple)&gt; {
+<a href=#750 id=750 data-nosnippet>750</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>pop_off_path(<span class="kw-2">&amp;mut </span><span class="self">self</span>, network_path: FourTuple) -&gt; <span class="prelude-ty">Option</span>&lt;(u64, FourTuple)&gt; {
 <a href=#751 id=751 data-nosnippet>751</a>        <span class="kw">let </span>response = <span class="kw-2">*</span><span class="self">self</span>.pending.last()<span class="question-mark">?</span>;
 <a href=#752 id=752 data-nosnippet>752</a>        <span class="comment">// We use an exact comparison here, because once we've received for the first time,
 <a href=#753 id=753 data-nosnippet>753</a>        // we really should either already have a local_ip, or we will never get one
 <a href=#754 id=754 data-nosnippet>754</a>        // (because our OS doesn't support it).
-<a href=#755 id=755 data-nosnippet>755</a>        </span><span class="kw">if </span>response.addresses == addresses {
+<a href=#755 id=755 data-nosnippet>755</a>        </span><span class="kw">if </span>response.network_path == network_path {
 <a href=#756 id=756 data-nosnippet>756</a>            <span class="comment">// We don't bother searching further because we expect that the on-path response will
 <a href=#757 id=757 data-nosnippet>757</a>            // get drained in the immediate future by a call to `pop_on_path`
 <a href=#758 id=758 data-nosnippet>758</a>            </span><span class="kw">return </span><span class="prelude-val">None</span>;
 <a href=#759 id=759 data-nosnippet>759</a>        }
 <a href=#760 id=760 data-nosnippet>760</a>        <span class="self">self</span>.pending.pop();
-<a href=#761 id=761 data-nosnippet>761</a>        <span class="prelude-val">Some</span>((response.token, response.addresses))
+<a href=#761 id=761 data-nosnippet>761</a>        <span class="prelude-val">Some</span>((response.token, response.network_path))
 <a href=#762 id=762 data-nosnippet>762</a>    }
 <a href=#763 id=763 data-nosnippet>763</a>
-<a href=#764 id=764 data-nosnippet>764</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>pop_on_path(<span class="kw-2">&amp;mut </span><span class="self">self</span>, addresses: FourTuple) -&gt; <span class="prelude-ty">Option</span>&lt;u64&gt; {
+<a href=#764 id=764 data-nosnippet>764</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>pop_on_path(<span class="kw-2">&amp;mut </span><span class="self">self</span>, network_path: FourTuple) -&gt; <span class="prelude-ty">Option</span>&lt;u64&gt; {
 <a href=#765 id=765 data-nosnippet>765</a>        <span class="kw">let </span>response = <span class="kw-2">*</span><span class="self">self</span>.pending.last()<span class="question-mark">?</span>;
 <a href=#766 id=766 data-nosnippet>766</a>        <span class="comment">// Using an exact comparison. See explanation in `pop_off_path`.
-<a href=#767 id=767 data-nosnippet>767</a>        </span><span class="kw">if </span>response.addresses != addresses {
+<a href=#767 id=767 data-nosnippet>767</a>        </span><span class="kw">if </span>response.network_path != network_path {
 <a href=#768 id=768 data-nosnippet>768</a>            <span class="comment">// We don't bother searching further because we expect that the off-path response will
 <a href=#769 id=769 data-nosnippet>769</a>            // get drained in the immediate future by a call to `pop_off_path`
 <a href=#770 id=770 data-nosnippet>770</a>            </span><span class="kw">return </span><span class="prelude-val">None</span>;
@@ -785,7 +785,7 @@
 <a href=#785 id=785 data-nosnippet>785</a>    <span class="doccomment">/// The token of the PATH_CHALLENGE
 <a href=#786 id=786 data-nosnippet>786</a>    </span>token: u64,
 <a href=#787 id=787 data-nosnippet>787</a>    <span class="doccomment">/// The path the corresponding PATH_CHALLENGE was received from
-<a href=#788 id=788 data-nosnippet>788</a>    </span>addresses: FourTuple,
+<a href=#788 id=788 data-nosnippet>788</a>    </span>network_path: FourTuple,
 <a href=#789 id=789 data-nosnippet>789</a>}
 <a href=#790 id=790 data-nosnippet>790</a>
 <a href=#791 id=791 data-nosnippet>791</a><span class="doccomment">/// Summary statistics of packets that have been sent on a particular path, but which have not yet

@@ -181,7 +181,7 @@
 <a href=#181 id=181 data-nosnippet>181</a>            .state
 <a href=#182 id=182 data-nosnippet>182</a>            .lock(<span class="string">"remote_address"</span>)
 <a href=#183 id=183 data-nosnippet>183</a>            .inner
-<a href=#184 id=184 data-nosnippet>184</a>            .path_addresses(PathId::ZERO)
+<a href=#184 id=184 data-nosnippet>184</a>            .network_path(PathId::ZERO)
 <a href=#185 id=185 data-nosnippet>185</a>            .expect(<span class="string">"path exists when connecting"</span>)
 <a href=#186 id=186 data-nosnippet>186</a>            .remote
 <a href=#187 id=187 data-nosnippet>187</a>    }
@@ -374,7 +374,7 @@
 <a href=#374 id=374 data-nosnippet>374</a>            .filter_map(|id| {
 <a href=#375 id=375 data-nosnippet>375</a>                state
 <a href=#376 id=376 data-nosnippet>376</a>                    .inner
-<a href=#377 id=377 data-nosnippet>377</a>                    .path_addresses(<span class="kw-2">*</span>id)
+<a href=#377 id=377 data-nosnippet>377</a>                    .network_path(<span class="kw-2">*</span>id)
 <a href=#378 id=378 data-nosnippet>378</a>                    .map(|addrs| addrs.remote.is_ipv6())
 <a href=#379 id=379 data-nosnippet>379</a>                    .ok()
 <a href=#380 id=380 data-nosnippet>380</a>            })
@@ -443,7 +443,7 @@
 <a href=#443 id=443 data-nosnippet>443</a>            .filter_map(|id| {
 <a href=#444 id=444 data-nosnippet>444</a>                state
 <a href=#445 id=445 data-nosnippet>445</a>                    .inner
-<a href=#446 id=446 data-nosnippet>446</a>                    .path_addresses(<span class="kw-2">*</span>id)
+<a href=#446 id=446 data-nosnippet>446</a>                    .network_path(<span class="kw-2">*</span>id)
 <a href=#447 id=447 data-nosnippet>447</a>                    .map(|addrs| addrs.remote.is_ipv6())
 <a href=#448 id=448 data-nosnippet>448</a>                    .ok()
 <a href=#449 id=449 data-nosnippet>449</a>            })
@@ -718,7 +718,7 @@
 <a href=#718 id=718 data-nosnippet>718</a>            .inner
 <a href=#719 id=719 data-nosnippet>719</a>            .paths()
 <a href=#720 id=720 data-nosnippet>720</a>            .iter()
-<a href=#721 id=721 data-nosnippet>721</a>            .filter_map(|id| state.inner.path_addresses(<span class="kw-2">*</span>id).ok())
+<a href=#721 id=721 data-nosnippet>721</a>            .filter_map(|id| state.inner.network_path(<span class="kw-2">*</span>id).ok())
 <a href=#722 id=722 data-nosnippet>722</a>            .next()
 <a href=#723 id=723 data-nosnippet>723</a>            .unwrap()
 <a href=#724 id=724 data-nosnippet>724</a>            .remote
@@ -740,7 +740,7 @@
 <a href=#740 id=740 data-nosnippet>740</a>            .inner
 <a href=#741 id=741 data-nosnippet>741</a>            .paths()
 <a href=#742 id=742 data-nosnippet>742</a>            .iter()
-<a href=#743 id=743 data-nosnippet>743</a>            .filter_map(|id| state.inner.path_addresses(<span class="kw-2">*</span>id).ok())
+<a href=#743 id=743 data-nosnippet>743</a>            .filter_map(|id| state.inner.network_path(<span class="kw-2">*</span>id).ok())
 <a href=#744 id=744 data-nosnippet>744</a>            .next()
 <a href=#745 id=745 data-nosnippet>745</a>            .unwrap()
 <a href=#746 id=746 data-nosnippet>746</a>            .local_ip
