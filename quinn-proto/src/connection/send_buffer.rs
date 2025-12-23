@@ -449,49 +449,63 @@ mod tests {
         );
     }
 
+    /// tests that large segments are copied as-is in the SendBuffer
     #[test]
-    #[ignore]
-    fn multiple_segments() {
+    fn multiple_large_segments() {
+
+        fn dup(data: &[u8]) -> Bytes {
+            let mut buf = BytesMut::with_capacity(data.len() * N);
+            for c in data {
+                for _ in 0..N {
+                    buf.put_u8(*c);
+                }
+            }
+            buf.freeze()
+        }
+
+        fn same(a: &[u8], b: &[u8]) -> bool {
+            // surprisingly, eq also checks the fat pointer metadata aka length
+            std::ptr::eq(a.as_ptr(), b.as_ptr())
+        }
+
         let mut buf = SendBuffer::new();
-        const MSG: &[u8] = b"Hello, world!";
-        const MSG_LEN: u64 = MSG.len() as u64;
+        const N: usize = 2000;
+        const K: u64 = N as u64;
+        let msg: Bytes = dup(b"Hello, world!");
+        let msg_len: u64 = msg.len() as u64;
 
-        const SEG1: &[u8] = b"He";
-        buf.write(SEG1.into());
-        const SEG2: &[u8] = b"llo,";
-        buf.write(SEG2.into());
-        const SEG3: &[u8] = b" w";
-        buf.write(SEG3.into());
-        const SEG4: &[u8] = b"o";
-        buf.write(SEG4.into());
-        const SEG5: &[u8] = b"rld!";
-        buf.write(SEG5.into());
-
-        assert_eq!(aggregate_unacked(&buf), MSG);
-
-        assert_eq!(buf.poll_transmit(16), (0..8, true));
-        assert_eq!(buf.get(0..5), SEG1);
-        assert_eq!(buf.get(2..8), SEG2);
-        assert_eq!(buf.get(6..8), SEG3);
-
-        assert_eq!(buf.poll_transmit(16), (8..MSG_LEN, true));
-        assert_eq!(buf.get(8..MSG_LEN), SEG4);
-        assert_eq!(buf.get(9..MSG_LEN), SEG5);
-
-        assert_eq!(buf.poll_transmit(42), (MSG_LEN..MSG_LEN, true));
-
+        let seg1: Bytes = dup(b"He");
+        buf.write(seg1.clone());
+        let seg2: Bytes = dup(b"llo");
+        buf.write(seg2.clone());
+        let seg3: Bytes = dup(b" w");
+        buf.write(seg3.clone());
+        let seg4: Bytes = dup(b"o");
+        buf.write(seg4.clone());
+        let seg5: Bytes = dup(b"rld!");
+        buf.write(seg5.clone());
+        assert_eq!(aggregate_unacked(&buf), msg);
+        // Check that the segments were stored as-is
+        assert!(same(buf.get(0..5 * K), &seg1));
+        assert!(same(buf.get(2 * K..8 * K), &seg2));
+        assert!(same(buf.get(6 * K..8 * K), &seg3));
+        assert!(same(buf.get(8 * 2000..msg_len), &seg4));
+        assert!(same(buf.get(9 * 2000..msg_len), &seg5));
         // Now drain the segments
-        buf.ack(0..1);
-        assert_eq!(aggregate_unacked(&buf), &MSG[1..]);
-        buf.ack(0..3);
-        assert_eq!(aggregate_unacked(&buf), &MSG[3..]);
-        buf.ack(3..5);
-        assert_eq!(aggregate_unacked(&buf), &MSG[5..]);
-        buf.ack(7..9);
-        assert_eq!(aggregate_unacked(&buf), &MSG[5..]);
-        buf.ack(4..7);
-        assert_eq!(aggregate_unacked(&buf), &MSG[9..]);
-        buf.ack(0..MSG_LEN);
+        buf.ack(0..1 * K);
+        assert_eq!(aggregate_unacked(&buf), &msg[1 * N..]);
+        buf.ack(0..3 * K);
+        assert_eq!(aggregate_unacked(&buf), &msg[3 * N..]);
+        buf.ack(3 * K..5 * K);
+        assert_eq!(aggregate_unacked(&buf), &msg[5 * N..]);
+        // ack with gap, doesn't free anything
+        buf.ack(7 * K..9 * K);
+        assert_eq!(aggregate_unacked(&buf), &msg[5 * N..]);
+        // fill the gap, free up to 9 K
+        buf.ack(4 * K..7 * K);
+        assert_eq!(aggregate_unacked(&buf), &msg[9 * N..]);
+        // ack all
+        buf.ack(0..msg_len);
         assert_eq!(aggregate_unacked(&buf), &[] as &[u8]);
     }
 
