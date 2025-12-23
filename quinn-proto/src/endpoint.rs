@@ -18,7 +18,7 @@ use crate::{
     Duration, INITIAL_MTU, Instant, MAX_CID_SIZE, MIN_INITIAL_SIZE, PathId, RESET_TOKEN_SIZE,
     ResetToken, Side, Transmit, TransportConfig, TransportError,
     cid_generator::ConnectionIdGenerator,
-    coding::BufMutExt,
+    coding::{BufMutExt, Encodable},
     config::{ClientConfig, EndpointConfig, ServerConfig},
     connection::{Connection, ConnectionError, SideArgs},
     crypto::{self, Keys, UnsupportedVersion},
@@ -909,7 +909,7 @@ impl Endpoint {
         let partial_encode = header.encode(buf);
         let max_len =
             INITIAL_MTU as usize - partial_encode.header_len - crypto.packet.local.tag_len();
-        frame::Close::from(reason).encode(buf, max_len);
+        frame::Close::from(reason).encoder(max_len).encode(buf);
         buf.resize(buf.len() + crypto.packet.local.tag_len(), 0);
         partial_encode.finish(
             buf,

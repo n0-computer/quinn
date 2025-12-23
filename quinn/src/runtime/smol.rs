@@ -1,5 +1,6 @@
 use std::{
     future::Future,
+    num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
     time::Instant,
@@ -56,7 +57,7 @@ impl UdpSocket {
 }
 
 impl UdpSenderHelperSocket for UdpSocket {
-    fn max_transmit_segments(&self) -> usize {
+    fn max_transmit_segments(&self) -> NonZeroUsize {
         self.inner.max_gso_segments()
     }
 
@@ -95,7 +96,7 @@ impl AsyncUdpSocket for UdpSocket {
         self.inner.may_fragment()
     }
 
-    fn max_receive_segments(&self) -> usize {
+    fn max_receive_segments(&self) -> NonZeroUsize {
         self.inner.gro_segments()
     }
 }

@@ -24,6 +24,7 @@ env:
   RUSTDOCFLAGS: -Dwarnings
   SCCACHE_CACHE_SIZE: "10G"
   CRATES_LIST: "iroh-quinn,iroh-quinn-proto,iroh-quinn-udp"
+  NEXTEST_VERSION: "0.9.80"
 
 jobs:
   build_and_test_nix:
@@ -65,7 +66,7 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:
-          tool: nextest@0.9.80
+          tool: nextest@${{ env.NEXTEST_VERSION }}
 
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
@@ -169,6 +170,8 @@ jobs:
       # Using self-hosted runners so use local cache for sccache and
       # not SCCACHE_GHA_ENABLED.
       RUSTC_WRAPPER: "sccache"
+      # Force clang/bindgen to use MSVC target to avoid mingw headers from msys2
+      BINDGEN_EXTRA_CLANG_ARGS: "--target=x86_64-pc-windows-msvc"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -182,11 +185,19 @@ jobs:
           rustup target add ${{ matrix.target }}
           rustup set default-host ${{ matrix.target }}
 
+      - name: Cache cargo-nextest
+        id: cache-nextest
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-nextest.exe
+          key: nextest-windows-${{ env.NEXTEST_VERSION }}
+
       - name: Install cargo-nextest
+        if: steps.cache-nextest.outputs.cache-hit != 'true'
         shell: powershell
         run: |
           $tmp = New-TemporaryFile | Rename-Item -NewName { $_ -replace 'tmp$', 'zip' } -PassThru
-          Invoke-WebRequest -OutFile $tmp https://get.nexte.st/latest/windows
+          Invoke-WebRequest -OutFile $tmp https://get.nexte.st/${{ env.NEXTEST_VERSION }}/windows
           $outputDir = if ($Env:CARGO_HOME) { Join-Path $Env:CARGO_HOME "bin" } else { "~/.cargo/bin" }
           $tmp | Expand-Archive -DestinationPath $outputDir -Force
           $tmp | Remove-Item
@@ -224,15 +235,49 @@ jobs:
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
 
+      - name: Cache Strawberry Perl
+        id: cache-perl
+        uses: actions/cache@v4
+        with:
+          path: C:\Strawberry
+          key: strawberry-perl-5.38.2.2
+
       - name: Install Strawberry Perl
+        if: steps.cache-perl.outputs.cache-hit != 'true'
         run: |
           Invoke-WebRequest -Uri "https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_53822_64bit/strawberry-perl-5.38.2.2-64bit-portable.zip" -OutFile perl.zip
           Expand-Archive perl.zip -DestinationPath C:\Strawberry -Force
+
+      - name: Add Perl to PATH
+        run: |
           echo "C:\Strawberry\perl\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "C:\Strawberry\c\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install cmake
         uses: lukka/get-cmake@latest
+
+      # Install LLVM for libclang (required by bindgen for aws-lc-fips-sys)
+      - name: Cache LLVM
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: C:\Program Files\LLVM
+          key: llvm-17.0.6-windows
+
+      - name: Install LLVM
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: |
+          $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-17.0.6/LLVM-17.0.6-win64.exe"
+          Invoke-WebRequest -Uri $llvmUrl -OutFile llvm-installer.exe
+          Start-Process -FilePath .\llvm-installer.exe -ArgumentList "/S" -Wait
+
+      - name: Add LLVM to PATH
+        run: |
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Setup MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: build tests
         run: |
@@ -335,10 +380,21 @@ jobs:
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
 
+      - name: Cache Strawberry Perl
+        id: cache-perl
+        uses: actions/cache@v4
+        with:
+          path: C:\Strawberry
+          key: strawberry-perl-5.38.2.2
+
       - name: Install Strawberry Perl
+        if: steps.cache-perl.outputs.cache-hit != 'true'
         run: |
           Invoke-WebRequest -Uri "https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_53822_64bit/strawberry-perl-5.38.2.2-64bit-portable.zip" -OutFile perl.zip
           Expand-Archive perl.zip -DestinationPath C:\Strawberry -Force
+
+      - name: Add Perl to PATH
+        run: |
           echo "C:\Strawberry\perl\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "C:\Strawberry\c\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
@@ -349,11 +405,22 @@ jobs:
           cache: false
 
       # Install LLVM for libclang (required by bindgen for aws-lc-fips-sys)
+      - name: Cache LLVM
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: C:\Program Files\LLVM
+          key: llvm-17.0.6-windows
+
       - name: Install LLVM
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
         run: |
           $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-17.0.6/LLVM-17.0.6-win64.exe"
           Invoke-WebRequest -Uri $llvmUrl -OutFile llvm-installer.exe
           Start-Process -FilePath .\llvm-installer.exe -ArgumentList "/S" -Wait
+
+      - name: Add LLVM to PATH
+        run: |
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 

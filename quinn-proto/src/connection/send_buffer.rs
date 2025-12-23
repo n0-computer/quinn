@@ -46,7 +46,7 @@ const MAX_COMBINE: usize = 1024;
 struct SendBufferData {
     /// Start offset of the buffered data
     offset: u64,
-    /// Total size of `buffered_segments`
+    /// Total size of [`Self::segments`] and [`Self::last_segment`]
     len: usize,
     /// Buffered data segments
     segments: VecDeque<Bytes>,
@@ -213,17 +213,23 @@ impl SendBuffer {
     /// Discard a range of acknowledged stream data
     pub(super) fn ack(&mut self, mut range: Range<u64>) {
         // Clamp the range to data which is still tracked
-        let base_offset = self.data.range().start;
+        let base_offset = self.fully_acked_offset();
         range.start = base_offset.max(range.start);
         range.end = base_offset.max(range.end);
 
         self.acks.insert(range);
 
-        while self.acks.min() == Some(self.data.range().start) {
+        while self.acks.min() == Some(self.fully_acked_offset()) {
             let prefix = self.acks.pop_min().unwrap();
             let to_advance = (prefix.end - prefix.start) as usize;
             self.data.pop_front(to_advance);
         }
+
+        // Remove retransmit ranges which have been acknowledged
+        //
+        // We have to do this since we have just dropped the data, and asking
+        // for non-present data would be an error.
+        self.retransmits.remove(0..self.fully_acked_offset());
     }
 
     /// Compute the next range to transmit on this stream and update state to account for that
@@ -299,14 +305,27 @@ impl SendBuffer {
     }
 
     /// Queue a range of sent but unacknowledged data to be retransmitted
-    pub(super) fn retransmit(&mut self, range: Range<u64>) {
+    pub(super) fn retransmit(&mut self, mut range: Range<u64>) {
         debug_assert!(range.end <= self.unsent, "unsent data can't be lost");
+        // don't allow retransmitting data that has already been fully acknowledged,
+        // since we don't have it anymore.
+        //
+        // Note that we do allow retransmitting data that has been acknowledged
+        // for simplicity. Not doing so would require clipping the range against
+        // all acknowledged ranges.
+        range.start = range.start.max(self.fully_acked_offset());
         self.retransmits.insert(range);
     }
 
     pub(super) fn retransmit_all_for_0rtt(&mut self) {
-        debug_assert_eq!(self.offset(), self.data.len() as u64);
+        // check that we still got all data - we didn't get any acks.
+        debug_assert_eq!(self.fully_acked_offset(), 0);
         self.unsent = 0;
+    }
+
+    /// Offset up to which all data has been acknowledged
+    fn fully_acked_offset(&self) -> u64 {
+        self.data.range().start
     }
 
     /// First stream offset unwritten by the application, i.e. the offset that the next write will
@@ -440,49 +459,62 @@ mod tests {
         );
     }
 
+    /// tests that large segments are copied as-is in the SendBuffer
     #[test]
-    #[ignore]
-    fn multiple_segments() {
+    fn multiple_large_segments() {
+        fn dup(data: &[u8]) -> Bytes {
+            let mut buf = BytesMut::with_capacity(data.len() * N);
+            for c in data {
+                for _ in 0..N {
+                    buf.put_u8(*c);
+                }
+            }
+            buf.freeze()
+        }
+
+        fn same(a: &[u8], b: &[u8]) -> bool {
+            // surprisingly, eq also checks the fat pointer metadata aka length
+            std::ptr::eq(a.as_ptr(), b.as_ptr())
+        }
+
         let mut buf = SendBuffer::new();
-        const MSG: &[u8] = b"Hello, world!";
-        const MSG_LEN: u64 = MSG.len() as u64;
+        const N: usize = 2000;
+        const K: u64 = N as u64;
+        let msg: Bytes = dup(b"Hello, world!");
+        let msg_len: u64 = msg.len() as u64;
 
-        const SEG1: &[u8] = b"He";
-        buf.write(SEG1);
-        const SEG2: &[u8] = b"llo,";
-        buf.write(SEG2);
-        const SEG3: &[u8] = b" w";
-        buf.write(SEG3);
-        const SEG4: &[u8] = b"o";
-        buf.write(SEG4);
-        const SEG5: &[u8] = b"rld!";
-        buf.write(SEG5);
-
-        assert_eq!(aggregate_unacked(&buf), MSG);
-
-        assert_eq!(buf.poll_transmit(16), (0..8, true));
-        assert_eq!(buf.get(0..5), SEG1);
-        assert_eq!(buf.get(2..8), SEG2);
-        assert_eq!(buf.get(6..8), SEG3);
-
-        assert_eq!(buf.poll_transmit(16), (8..MSG_LEN, true));
-        assert_eq!(buf.get(8..MSG_LEN), SEG4);
-        assert_eq!(buf.get(9..MSG_LEN), SEG5);
-
-        assert_eq!(buf.poll_transmit(42), (MSG_LEN..MSG_LEN, true));
-
+        let seg1: Bytes = dup(b"He");
+        buf.write(seg1.clone());
+        let seg2: Bytes = dup(b"llo,");
+        buf.write(seg2.clone());
+        let seg3: Bytes = dup(b" w");
+        buf.write(seg3.clone());
+        let seg4: Bytes = dup(b"o");
+        buf.write(seg4.clone());
+        let seg5: Bytes = dup(b"rld!");
+        buf.write(seg5.clone());
+        assert_eq!(aggregate_unacked(&buf), msg);
+        // Check that the segments were stored as-is
+        assert!(same(buf.get(0..5 * K), &seg1));
+        assert!(same(buf.get(2 * K..8 * K), &seg2));
+        assert!(same(buf.get(6 * K..8 * K), &seg3));
+        assert!(same(buf.get(8 * 2000..msg_len), &seg4));
+        assert!(same(buf.get(9 * 2000..msg_len), &seg5));
         // Now drain the segments
-        buf.ack(0..1);
-        assert_eq!(aggregate_unacked(&buf), &MSG[1..]);
-        buf.ack(0..3);
-        assert_eq!(aggregate_unacked(&buf), &MSG[3..]);
-        buf.ack(3..5);
-        assert_eq!(aggregate_unacked(&buf), &MSG[5..]);
-        buf.ack(7..9);
-        assert_eq!(aggregate_unacked(&buf), &MSG[5..]);
-        buf.ack(4..7);
-        assert_eq!(aggregate_unacked(&buf), &MSG[9..]);
-        buf.ack(0..MSG_LEN);
+        buf.ack(0..K);
+        assert_eq!(aggregate_unacked(&buf), &msg[N..]);
+        buf.ack(0..3 * K);
+        assert_eq!(aggregate_unacked(&buf), &msg[3 * N..]);
+        buf.ack(3 * K..5 * K);
+        assert_eq!(aggregate_unacked(&buf), &msg[5 * N..]);
+        // ack with gap, doesn't free anything
+        buf.ack(7 * K..9 * K);
+        assert_eq!(aggregate_unacked(&buf), &msg[5 * N..]);
+        // fill the gap, free up to 9 K
+        buf.ack(4 * K..7 * K);
+        assert_eq!(aggregate_unacked(&buf), &msg[9 * N..]);
+        // ack all
+        buf.ack(0..msg_len);
         assert_eq!(aggregate_unacked(&buf), &[] as &[u8]);
     }
 
@@ -548,18 +580,133 @@ mod tests {
     }
 }
 
+#[cfg(all(test, not(target_family = "wasm")))]
+mod proptests {
+    use super::*;
+
+    use proptest::prelude::*;
+    use test_strategy::{Arbitrary, proptest};
+    use crate::tests::subscribe;
+    use tracing::trace;
+
+    #[derive(Debug, Clone, Arbitrary)]
+    enum Op {
+        // write the given bytes
+        Write(#[strategy(proptest::collection::vec(any::<u8>(), 0..1024))] Vec<u8>),
+        // ack a random range
+        Ack(Range<u64>),
+        // retransmit a random range
+        Retransmit(Range<u64>),
+        // poll_transmit with the given max len
+        PollTransmit(#[strategy(16usize..1024)] usize),
+    }
+
+    /// Map a range into a target range
+    ///
+    /// If the target range is empty, it will be returned as is.
+    /// For a non-empty target range, 0 in the input range will be mapped to
+    /// the start of the target range, and the input range will wrap around
+    /// the target range as needed.
+    fn map_range(input: Range<u64>, target: Range<u64>) -> Range<u64> {
+        if target.is_empty() {
+            return target;
+        }
+        let size = target.end - target.start;
+        let a = target.start + (input.start % size);
+        let b = target.start + (input.end % size);
+        a.min(b)..a.max(b)
+    }
+
+    #[proptest]
+    fn send_buffer_matches_reference(
+        #[strategy(proptest::collection::vec(any::<Op>(), 1..100))] ops: Vec<Op>,
+    ) {
+        let _guard = subscribe();
+        let mut sb = SendBuffer::new();
+        // all data written to the send buffer
+        let mut buf = Vec::new();
+        // max offset that has been returned by poll_transmit
+        let mut max_send_offset = 0u64;
+        // max offset up to which data has been fully acked
+        let mut max_full_send_offset = 0u64;
+        trace!("");
+        for op in ops {
+            match op {
+                Op::Write(data) => {
+                    trace!("Op::Write({})", data.len());
+                    buf.extend_from_slice(&data);
+                    sb.write(Bytes::from(data));
+                }
+                Op::Ack(range) => {
+                    // we can only get acks for data that has been sent
+                    let range = map_range(range, 0..max_send_offset);
+                    // update fully acked range
+                    if range.contains(&max_full_send_offset) {
+                        max_full_send_offset = range.end;
+                    }
+                    trace!("Op::Ack({:?})", range);
+                    sb.ack(range);
+                }
+                Op::Retransmit(range) => {
+                    // we can only get retransmits for data that has been sent
+                    let range = map_range(range, 0..max_send_offset);
+                    trace!("Op::Retransmit({:?})", range);
+                    sb.retransmit(range);
+                }
+                Op::PollTransmit(max_len) => {
+                    trace!("Op::PollTransmit({})", max_len);
+                    let (range, _partial) = sb.poll_transmit(max_len);
+                    max_send_offset = max_send_offset.max(range.end);
+                    assert!(
+                        range.start >= max_full_send_offset,
+                        "poll_transmit returned already fully acked data: range={:?}, max_full_send_offset={}",
+                        range,
+                        max_full_send_offset
+                    );
+
+                    let mut t1 = Vec::new();
+                    sb.get_into(range.clone(), &mut t1);
+
+                    let mut t2 = Vec::new();
+                    t2.extend_from_slice(&buf[range.start as usize..range.end as usize]);
+
+                    assert_eq!(t1, t2, "Data mismatch for range {:?}", range);
+                }
+            }
+        }
+        // Drain all remaining data
+        trace!("Op::Retransmit({:?})", 0..max_send_offset);
+        sb.retransmit(0..max_send_offset);
+        loop {
+            trace!("Op::PollTransmit({})", 1024);
+            let (range, _partial) = sb.poll_transmit(1024);
+            if range.is_empty() {
+                break;
+            }
+            trace!("Op::Ack({:?})", range);
+            sb.ack(range);
+        }
+        assert!(
+            sb.is_fully_acked(),
+            "SendBuffer not fully acked at end of ops"
+        );
+    }
+}
+
 #[cfg(feature = "bench")]
 pub mod send_buffer_benches {
     //! Bench fns for SendBuffer
     //!
     //! These are defined here and re-exported via `bench_exports` in lib.rs,
     //! so we can access the private `SendBuffer` struct.
-    use bencher::Bencher;
     use bytes::Bytes;
+    use criterion::Criterion;
+
     use super::SendBuffer;
 
     /// Pathological case: many segments, get from end
-    pub fn get_into_many_segments(bench: &mut Bencher) {
+    pub fn get_into_many_segments(criterion: &mut Criterion) {
+        let mut group = criterion.benchmark_group("get_into_many_segments");
         let mut buf = SendBuffer::new();
 
         const SEGMENTS: u64 = 10000;
@@ -573,15 +720,18 @@ pub mod send_buffer_benches {
         }
 
         let mut tgt = Vec::with_capacity(PACKET_SIZE as usize);
-        bench.iter(|| {
-            // Get from end (very slow - scans through all 1000 segments)
-            tgt.clear();
-            buf.get_into(BYTES - PACKET_SIZE..BYTES, bencher::black_box(&mut tgt));
+        group.bench_function("get_into", |b| {
+            b.iter(|| {
+                // Get from end (very slow - scans through all 1000 segments)
+                tgt.clear();
+                buf.get_into(BYTES - PACKET_SIZE..BYTES, std::hint::black_box(&mut tgt));
+            });
         });
     }
 
     /// Get segments in the old way, using a loop of get calls
-    pub fn get_loop_many_segments(bench: &mut Bencher) {
+    pub fn get_loop_many_segments(criterion: &mut Criterion) {
+        let mut group = criterion.benchmark_group("get_loop_many_segments");
         let mut buf = SendBuffer::new();
 
         const SEGMENTS: u64 = 10000;
@@ -595,15 +745,17 @@ pub mod send_buffer_benches {
         }
 
         let mut tgt = Vec::with_capacity(PACKET_SIZE as usize);
-        bench.iter(|| {
-            // Get from end (very slow - scans through all 1000 segments)
-            tgt.clear();
-            let mut range = BYTES - PACKET_SIZE..BYTES;
-            while range.start < range.end {
-                let slice = bencher::black_box(buf.get(range.clone()));
-                range.start += slice.len() as u64;
-                tgt.extend_from_slice(slice);
-            }
+        group.bench_function("get_loop", |b| {
+            b.iter(|| {
+                // Get from end (very slow - scans through all 1000 segments)
+                tgt.clear();
+                let mut range = BYTES - PACKET_SIZE..BYTES;
+                while range.start < range.end {
+                    let slice = std::hint::black_box(buf.get(range.clone()));
+                    range.start += slice.len() as u64;
+                    tgt.extend_from_slice(slice);
+                }
+            });
         });
     }
 }

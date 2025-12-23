@@ -1,7 +1,8 @@
 //! Implements support for emitting qlog events.
 //!
-//! This uses the [`n0-qlog`] crate to emit qlog events. The n0-qlog crate, and thus this implementation,
-//! is currently based on [draft-ietf-quic-qlog-main-schema-13] an [draft-ietf-quic-qlog-quic-events-12].
+//! This uses the [`qlog`] crate to emit qlog events. The n0-qlog crate, and thus this
+//! implementation, is currently based on [draft-ietf-quic-qlog-main-schema-13] an
+//! [draft-ietf-quic-qlog-quic-events-12].
 //!
 //! [draft-ietf-quic-qlog-main-schema-13]: https://www.ietf.org/archive/id/draft-ietf-quic-qlog-main-schema-13.html
 //! [draft-ietf-quic-qlog-quic-events-12]: https://www.ietf.org/archive/id/draft-ietf-quic-qlog-quic-events-12.html
@@ -315,8 +316,7 @@ impl QlogSink {
                 PathTimer::PathKeepAlive => Some(TimerType::custom("path_keep_alive")),
                 PathTimer::Pacing => Some(TimerType::custom("pacing")),
                 PathTimer::MaxAckDelay => Some(QlogTimerType::Ack.into()),
-                PathTimer::PathAbandoned => Some(TimerType::custom("path_abandoned")),
-                PathTimer::PathNotAbandoned => Some(TimerType::custom("path_not_abandoned")),
+                PathTimer::DiscardPath => Some(TimerType::custom("discard_path")),
             },
         };
 
@@ -369,6 +369,7 @@ impl QlogSink {
 }
 
 /// A [`QlogSink`] with a `now` timestamp.
+#[derive(Clone)]
 pub(super) struct QlogSinkWithTime<'a> {
     #[cfg(feature = "qlog")]
     sink: &'a QlogSink,

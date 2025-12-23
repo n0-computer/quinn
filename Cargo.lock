@@ -398,12 +398,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bencher"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dfdb4953a096c551ce9ace855a604d702e6e62d77fac690575ae347571717f5"
-
-[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1449,11 +1443,11 @@ dependencies = [
  "async-io",
  "aws-lc-fips-sys",
  "aws-lc-sys 0.34.0",
- "bencher",
  "bytes",
  "cfg_aliases",
  "clap",
  "crc",
+ "criterion",
  "directories-next",
  "futures-io",
  "gcc",
@@ -1486,8 +1480,8 @@ dependencies = [
  "arbitrary",
  "assert_matches",
  "aws-lc-rs",
- "bencher",
  "bytes",
+ "criterion",
  "derive_more",
  "fastbloom",
  "getrandom 0.3.3",
