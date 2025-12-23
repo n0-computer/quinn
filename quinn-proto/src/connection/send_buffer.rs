@@ -2,7 +2,7 @@ use std::{collections::VecDeque, ops::Range};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-use crate::{VarInt, range_set::ArrayRangeSet};
+use crate::{VarInt, connection::streams::BytesOrSlice, range_set::ArrayRangeSet};
 
 /// Buffer of outgoing retransmittable stream data
 #[derive(Default, Debug)]
@@ -67,20 +67,30 @@ impl SendBufferData {
     }
 
     /// Append data to the end of the buffer
-    fn append(&mut self, data: Bytes) {
+    fn append<'a>(&'a mut self, data: impl BytesOrSlice<'a>) {
         self.len += data.len();
         if data.len() > MAX_COMBINE {
             // use in place
             if !self.last_segment.is_empty() {
                 self.segments.push_back(self.last_segment.split().freeze());
             }
-            self.segments.push_back(data);
+            self.segments.push_back(data.into_bytes());
         } else {
             // copy
-            if self.last_segment.len() + data.len() > MAX_COMBINE && !self.last_segment.is_empty() {
+            let rest = if self.last_segment.len() + data.len() > MAX_COMBINE
+                && !self.last_segment.is_empty()
+            {
+                // fill up last_segment up to MAX_COMBINE and flush
+                let capacity = MAX_COMBINE.saturating_sub(self.last_segment.len());
+                let (curr, rest) = data.as_ref().split_at(capacity);
+                self.last_segment.put_slice(curr);
                 self.segments.push_back(self.last_segment.split().freeze());
-            }
-            self.last_segment.extend_from_slice(&data);
+                rest
+            } else {
+                data.as_ref()
+            };
+            // copy the rest into the now empty last_segment
+            self.last_segment.extend_from_slice(rest);
         }
     }
 
@@ -196,7 +206,7 @@ impl SendBuffer {
     }
 
     /// Append application data to the end of the stream
-    pub(super) fn write(&mut self, data: Bytes) {
+    pub(super) fn write<'a>(&'a mut self, data: impl BytesOrSlice<'a>) {
         self.data.append(data);
     }
 
@@ -350,7 +360,7 @@ mod tests {
     fn fragment_with_length() {
         let mut buf = SendBuffer::new();
         const MSG: &[u8] = b"Hello, world!";
-        buf.write(MSG.into());
+        buf.write(MSG);
         // 0 byte offset => 19 bytes left => 13 byte data isn't enough
         // with 8 bytes reserved for length 11 payload bytes will fit
         assert_eq!(buf.poll_transmit(19), (0..11, true));
@@ -368,7 +378,7 @@ mod tests {
     fn fragment_without_length() {
         let mut buf = SendBuffer::new();
         const MSG: &[u8] = b"Hello, world with some extra data!";
-        buf.write(MSG.into());
+        buf.write(MSG);
         // 0 byte offset => 19 bytes left => can be filled by 34 bytes payload
         assert_eq!(buf.poll_transmit(19), (0..19, false));
         assert_eq!(
@@ -513,7 +523,7 @@ mod tests {
     fn retransmit() {
         let mut buf = SendBuffer::new();
         const MSG: &[u8] = b"Hello, world with extra data!";
-        buf.write(MSG.into());
+        buf.write(MSG);
         // Transmit two frames
         assert_eq!(buf.poll_transmit(16), (0..16, false));
         assert_eq!(buf.poll_transmit(16), (16..23, true));
@@ -531,7 +541,7 @@ mod tests {
     fn ack() {
         let mut buf = SendBuffer::new();
         const MSG: &[u8] = b"Hello, world!";
-        buf.write(MSG.into());
+        buf.write(MSG);
         assert_eq!(buf.poll_transmit(16), (0..8, true));
         buf.ack(0..8);
         assert_eq!(aggregate_unacked(&buf), &MSG[8..]);
@@ -541,7 +551,7 @@ mod tests {
     fn reordered_ack() {
         let mut buf = SendBuffer::new();
         const MSG: &[u8] = b"Hello, world with extra data!";
-        buf.write(MSG.into());
+        buf.write(MSG);
         assert_eq!(buf.poll_transmit(16), (0..16, false));
         assert_eq!(buf.poll_transmit(16), (16..23, true));
         buf.ack(16..23);

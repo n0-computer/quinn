@@ -234,7 +234,10 @@ impl<'a> SendStream<'a> {
         self.write_source(&mut BytesArray::from_chunks(data))
     }
 
-    fn write_source<B: BytesSource>(&mut self, source: &mut B) -> Result<Written, WriteError> {
+    fn write_source<'b, B: BytesSource<'b>>(
+        &mut self,
+        source: &'b mut B,
+    ) -> Result<Written, WriteError> {
         if self.conn_state.is_closed() {
             trace!(%self.id, "write blocked; connection draining");
             return Err(WriteError::Blocked);
@@ -525,4 +528,27 @@ impl From<ClosedStream> for io::Error {
 enum StreamHalf {
     Send,
     Recv,
+}
+
+/// A helper trait to unify Bytes, Vec<u8> and &[u8] as sources of bytes
+pub(super) trait BytesOrSlice<'a>: AsRef<[u8]> + 'a {
+    fn len(&self) -> usize {
+        self.as_ref().len()
+    }
+    fn is_empty(&self) -> bool {
+        self.as_ref().is_empty()
+    }
+    fn into_bytes(self) -> Bytes;
+}
+
+impl BytesOrSlice<'_> for Bytes {
+    fn into_bytes(self) -> Bytes {
+        self
+    }
+}
+
+impl<'a> BytesOrSlice<'a> for &'a [u8] {
+    fn into_bytes(self) -> Bytes {
+        Bytes::copy_from_slice(self)
+    }
 }

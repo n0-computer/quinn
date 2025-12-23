@@ -1,7 +1,11 @@
 use bytes::Bytes;
 use thiserror::Error;
 
-use crate::{VarInt, connection::send_buffer::SendBuffer, frame};
+use crate::{
+    VarInt,
+    connection::{send_buffer::SendBuffer, streams::BytesOrSlice},
+    frame,
+};
 
 #[derive(Debug)]
 pub(super) struct Send {
@@ -49,9 +53,9 @@ impl Send {
         }
     }
 
-    pub(super) fn write<S: BytesSource>(
+    pub(super) fn write<'a, S: BytesSource<'a>>(
         &mut self,
-        source: &mut S,
+        source: &'a mut S,
         limit: u64,
     ) -> Result<Written, WriteError> {
         if !self.is_writable() {
@@ -163,8 +167,11 @@ impl<'a> BytesArray<'a> {
     }
 }
 
-impl BytesSource for BytesArray<'_> {
-    fn pop_chunk(&mut self, limit: usize) -> (Bytes, usize) {
+impl<'a> BytesSource<'a> for BytesArray<'a> {
+    fn pop_chunk<'b>(&'b mut self, limit: usize) -> (impl BytesOrSlice<'b>, usize)
+    where
+        'a: 'b,
+    {
         // The loop exists to skip empty chunks while still marking them as
         // consumed
         let mut chunks_consumed = 0;
@@ -208,14 +215,17 @@ impl<'a> ByteSlice<'a> {
     }
 }
 
-impl BytesSource for ByteSlice<'_> {
-    fn pop_chunk(&mut self, limit: usize) -> (Bytes, usize) {
+impl<'a> BytesSource<'a> for ByteSlice<'a> {
+    fn pop_chunk<'b>(&'b mut self, limit: usize) -> (impl BytesOrSlice<'b>, usize)
+    where
+        'a: 'b,
+    {
         let limit = limit.min(self.data.len());
         if limit == 0 {
-            return (Bytes::new(), 0);
+            return (&[][..], 0);
         }
 
-        let chunk = Bytes::from(self.data[..limit].to_owned());
+        let chunk = &self.data[..limit];
         self.data = &self.data[chunk.len()..];
 
         let chunks_consumed = usize::from(self.data.is_empty());
@@ -227,7 +237,7 @@ impl BytesSource for ByteSlice<'_> {
 ///
 /// The purpose of this data type is to defer conversion as long as possible,
 /// so that no heap allocation is required in case no data is writable.
-pub(super) trait BytesSource {
+pub(super) trait BytesSource<'a> {
     /// Returns the next chunk from the source of owned chunks.
     ///
     /// This method will consume parts of the source.
@@ -240,7 +250,9 @@ pub(super) trait BytesSource {
     ///   had been consumed. This can be less than 1, if a chunk inside the
     ///   source had been truncated in order to adhere to the limit. It can also
     ///   be more than 1, if zero-length chunks had been skipped.
-    fn pop_chunk(&mut self, limit: usize) -> (Bytes, usize);
+    fn pop_chunk<'b>(&'b mut self, limit: usize) -> (impl BytesOrSlice<'b>, usize)
+    where
+        'a: 'b;
 }
 
 /// Indicates how many bytes and chunks had been transferred in a write operation
@@ -339,7 +351,7 @@ mod tests {
                 chunks_consumed += consumed;
 
                 if !chunk.is_empty() {
-                    buf.extend_from_slice(&chunk);
+                    buf.extend_from_slice(chunk.as_ref());
                     remaining -= chunk.len();
                     chunks_popped += 1;
                 } else {
@@ -377,7 +389,7 @@ mod tests {
                 chunks_consumed += consumed;
 
                 if !chunk.is_empty() {
-                    buf.extend_from_slice(&chunk);
+                    buf.extend_from_slice(chunk.as_ref());
                     remaining -= chunk.len();
                     chunks_popped += 1;
                 } else {
