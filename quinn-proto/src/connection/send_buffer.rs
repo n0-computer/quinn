@@ -46,7 +46,7 @@ const MAX_COMBINE: usize = 1024;
 struct SendBufferData {
     /// Start offset of the buffered data
     offset: u64,
-    /// Total size of `buffered_segments`
+    /// Total size of [`Self::segments`] and [`Self::last_segment`]
     len: usize,
     /// Buffered data segments
     segments: VecDeque<Bytes>,
