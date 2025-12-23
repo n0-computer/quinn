@@ -541,13 +541,22 @@ impl Connection {
         }
     }
 
-    /// Opens a new path only if no path to the remote address exists so far
+    /// Opens a new path only if no path on the same network path currently exists.
     ///
-    /// See [`open_path`]. Returns `(path_id, true)` if the path already existed. `(path_id,
+    /// This comparison will use [`FourTuple::is_probably_same_path`] on the given `network_path`
+    /// and pass it existing path's network paths.
+    ///
+    /// This means that you can pass `local_ip: None` to make the comparison only compare
+    /// remote addresses.
+    ///
+    /// This avoids having to guess which local interface will be used to communicate with the
+    /// remote, should it not be known yet. We assume that if we already have a path to the remote,
+    /// the OS is likely to use the same interface to talk to said remote.
+    ///
+    /// See also [`open_path`]. Returns `(path_id, true)` if the path already existed. `(path_id,
     /// false)` if was opened.
     ///
     /// [`open_path`]: Connection::open_path
-    // TODO(matheus23): Adjust docs
     pub fn open_path_ensure(
         &mut self,
         network_path: FourTuple,
