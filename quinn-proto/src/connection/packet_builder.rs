@@ -4,9 +4,11 @@ use tracing::{debug, trace, trace_span};
 
 use super::{Connection, PathId, SentFrames, TransmitBuf, spaces::SentPacket};
 use crate::{
-    ConnectionId, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
+    ConnectionId, ConnectionStats, FrameStats, Instant, MIN_INITIAL_SIZE, TransportError,
+    TransportErrorCode,
+    coding::Encodable,
     connection::{ConnectionSide, qlog::QlogSentPacket},
-    frame::{self, Close},
+    frame::{self, Close, EncodableFrame},
     packet::{FIXED_BIT, Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId},
 };
 
@@ -31,6 +33,7 @@ pub(super) struct PacketBuilder<'a, 'b> {
     pub(super) min_size: usize,
     pub(super) tag_len: usize,
     pub(super) _span: tracing::span::EnteredSpan,
+    qlog: QlogSentPacket,
 }
 
 impl<'a, 'b> PacketBuilder<'a, 'b> {
@@ -46,11 +49,12 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         buffer: &'a mut TransmitBuf<'b>,
         ack_eliciting: bool,
         conn: &mut Connection,
-        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) -> Option<Self>
     where
         'b: 'a,
     {
+        let mut qlog = QlogSentPacket::default();
+
         let version = conn.version;
         // Initiate key update if we're approaching the confidentiality limit
         let sent_with_keys = conn.spaces[space_id].sent_with_keys();
@@ -182,6 +186,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             min_size,
             tag_len,
             ack_eliciting,
+            qlog,
             _span: span,
         })
     }
@@ -196,6 +201,17 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             self.min_size,
             self.buf.datagram_start_offset() + (min_size as usize) - self.tag_len,
         );
+    }
+
+    pub(super) fn encode<'c>(
+        &mut self,
+        frame: impl Into<EncodableFrame<'c>>,
+        stats: &mut FrameStats,
+    ) {
+        let frame = frame.into();
+        frame.encode(&mut self.frame_space_mut());
+        stats.record(frame.get_type());
+        self.qlog.record(frame);
     }
 
     /// Returns a writable buffer limited to the remaining frame space
@@ -214,7 +230,6 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         path_id: PathId,
         sent: SentFrames,
         pad_datagram: PadDatagram,
-        qlog: QlogSentPacket,
     ) {
         match pad_datagram {
             PadDatagram::No => (),
@@ -225,7 +240,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         let ack_eliciting = self.ack_eliciting;
         let exact_number = self.exact_number;
         let space_id = self.space;
-        let (size, padded) = self.finish(conn, now, qlog);
+        let (size, padded) = self.finish(conn, now);
 
         let size = match padded || ack_eliciting {
             true => size as u16,
@@ -265,12 +280,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
     }
 
     /// Encrypt packet, returning the length of the packet and whether padding was added
-    pub(super) fn finish(
-        self,
-        conn: &mut Connection,
-        now: Instant,
-        #[allow(unused_mut)] mut qlog: QlogSentPacket,
-    ) -> (usize, bool) {
+    pub(super) fn finish(mut self, conn: &mut Connection, now: Instant) -> (usize, bool) {
         debug_assert!(
             self.buf.len() <= self.buf.datagram_max_offset() - self.tag_len,
             "packet exceeds maximum size"
@@ -280,7 +290,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             let padding = self.min_size - self.buf.len();
             trace!("PADDING * {}", padding);
             self.buf.put_bytes(0, padding);
-            qlog.frame_padding(padding);
+            self.qlog.frame_padding(padding);
+            // TODO(@divma): fix this
         }
 
         let space = &conn.spaces[self.space];
@@ -311,8 +322,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
 
         let packet_len = self.buf.len() - encode_start;
         trace!(size = %packet_len, short_header = %self.short_header, "wrote packet");
-        qlog.finalize(packet_len);
-        conn.qlog.emit_packet_sent(qlog, now);
+        self.qlog.finalize(packet_len);
+        conn.qlog.emit_packet_sent(self.qlog, now);
         (packet_len, pad)
     }
 

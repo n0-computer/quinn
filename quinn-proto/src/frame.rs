@@ -153,6 +153,89 @@ impl Encodable for FrameType {
     }
 }
 
+/// Wrapper type for the encodable frames.
+///
+/// This includes some "encoder" types instead of the actual read frame, when writting directly to
+/// a buffer is more efficient than building the Frame itself.
+#[derive(derive_more::From)]
+pub(super) enum EncodableFrame<'a> {
+    PathAck(PathAckEncoder<'a>),
+    Ack(AckEncoder<'a>),
+    Close(CloseEncoder<'a>),
+    PathResponse(PathResponse),
+    HandshakeDone(HandshakeDone),
+    ReachOut(ReachOut),
+    ObservedAddr(ObservedAddr),
+    Ping(Ping),
+    ImmediateAck(ImmediateAck),
+    AckFrequency(AckFrequency),
+    PathChallenge(PathChallenge),
+    Crypto(Crypto),
+    PathAbandon(PathAbandon),
+    PathStatusAvailable(PathStatusAvailable),
+    PathStatusBackup(PathStatusBackup),
+    MaxPathId(MaxPathId),
+    PathsBlocked(PathsBlocked),
+    PathCidsBlocked(PathCidsBlocked),
+    ResetStream(ResetStream),
+    StopSending(StopSending),
+}
+
+impl<'a> EncodableFrame<'a> {
+    pub(super) fn get_type(&self) -> FrameType {
+        use EncodableFrame::*;
+        match self {
+            PathAck(path_ack_encoder) => path_ack_encoder.get_type(),
+            Ack(ack_encoder) => ack_encoder.get_type(),
+            Close(close_encoder) => close_encoder.get_type(),
+            PathResponse(_) => FrameType::PathResponse,
+            HandshakeDone(_) => FrameType::HandshakeDone,
+            ReachOut(reach_out) => reach_out.get_type(),
+            ObservedAddr(observed_addr) => observed_addr.get_type(),
+            Ping(_) => FrameType::Ping,
+            ImmediateAck(_) => FrameType::ImmediateAck,
+            AckFrequency(_) => FrameType::AckFrequency,
+            PathChallenge(_) => FrameType::PathChallenge,
+            Crypto(_) => FrameType::Crypto,
+            PathAbandon(_) => FrameType::PathAbandon,
+            PathStatusAvailable(_) => FrameType::PathStatusAvailable,
+            PathStatusBackup(_) => FrameType::PathStatusBackup,
+            MaxPathId(_) => FrameType::MaxPathId,
+            PathsBlocked(_) => FrameType::PathsBlocked,
+            PathCidsBlocked(_) => FrameType::PathCidsBlocked,
+            ResetStream(_) => FrameType::ResetStream,
+            StopSending(_) => FrameType::StopSending,
+        }
+    }
+}
+
+impl<'a> Encodable for EncodableFrame<'a> {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        match self {
+            EncodableFrame::PathAck(path_ack_encoder) => path_ack_encoder.encode(buf),
+            EncodableFrame::Ack(ack_encoder) => ack_encoder.encode(buf),
+            EncodableFrame::Close(close_encoder) => close_encoder.encode(buf),
+            EncodableFrame::PathResponse(path_response) => path_response.encode(buf),
+            EncodableFrame::HandshakeDone(handshake_done) => handshake_done.encode(buf),
+            EncodableFrame::ReachOut(reach_out) => reach_out.encode(buf),
+            EncodableFrame::ObservedAddr(observed_addr) => observed_addr.encode(buf),
+            EncodableFrame::Ping(ping) => ping.encode(buf),
+            EncodableFrame::ImmediateAck(immediate_ack) => immediate_ack.encode(buf),
+            EncodableFrame::AckFrequency(ack_frequency) => ack_frequency.encode(buf),
+            EncodableFrame::PathChallenge(path_challenge) => path_challenge.encode(buf),
+            EncodableFrame::Crypto(crypto) => crypto.encode(buf),
+            EncodableFrame::PathAbandon(path_abandon) => path_abandon.encode(buf),
+            EncodableFrame::PathStatusAvailable(path_status) => path_status.encode(buf),
+            EncodableFrame::PathStatusBackup(path_status) => path_status.encode(buf),
+            EncodableFrame::MaxPathId(max_path_id) => max_path_id.encode(buf),
+            EncodableFrame::PathsBlocked(paths_blocked) => paths_blocked.encode(buf),
+            EncodableFrame::PathCidsBlocked(path_cids_blocked) => path_cids_blocked.encode(buf),
+            EncodableFrame::ResetStream(reset_stream) => reset_stream.encode(buf),
+            EncodableFrame::StopSending(stop_sending) => stop_sending.encode(buf),
+        }
+    }
+}
+
 pub(crate) trait FrameStruct {
     /// Smallest number of bytes this type of frame is guaranteed to fit within.
     const SIZE_BOUND: usize;
@@ -199,6 +282,30 @@ impl Encodable for MaybeFrame {
             Self::Unknown(frame_id) => buf.write(*frame_id),
             Self::Known(frame_type) => buf.write(*frame_type),
         }
+    }
+}
+
+pub(crate) struct HandshakeDone;
+
+impl Encodable for HandshakeDone {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        FrameType::HandshakeDone.encode(buf);
+    }
+}
+
+pub(crate) struct Ping;
+
+impl Encodable for Ping {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        FrameType::Ping.encode(buf);
+    }
+}
+
+pub(crate) struct ImmediateAck;
+
+impl Encodable for ImmediateAck {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        FrameType::ImmediateAck.encode(buf);
     }
 }
 
@@ -288,7 +395,7 @@ impl fmt::Display for Frame {
 impl Frame {
     pub(crate) fn ty(&self) -> FrameType {
         use Frame::*;
-        match *self {
+        match &self {
             Padding => FrameType::Padding,
             ResetStream(_) => FrameType::ResetStream,
             Close(self::Close::Connection(_)) => FrameType::ConnectionClose,
@@ -303,9 +410,9 @@ impl Frame {
             StreamsBlocked { dir: Dir::Bi, .. } => FrameType::StreamsBlockedBidi,
             StreamsBlocked { dir: Dir::Uni, .. } => FrameType::StreamsBlockedUni,
             StopSending { .. } => FrameType::StopSending,
-            RetireConnectionId { .. } => FrameType::RetireConnectionId,
-            Ack(_) => FrameType::Ack,
-            PathAck(_) => FrameType::PathAck,
+            RetireConnectionId(retire_frame) => retire_frame.get_type(),
+            Ack(ack) => ack.get_type(),
+            PathAck(path_ack) => path_ack.get_type(),
             Stream(ref x) => {
                 let mut ty = *StreamInfo::VALUES.start() as u8;
                 if x.fin {
@@ -503,8 +610,17 @@ impl Close {
 }
 
 pub(crate) struct CloseEncoder<'a> {
-    close: &'a Close,
+    pub(crate) close: &'a Close,
     max_len: usize,
+}
+
+impl<'a> CloseEncoder<'a> {
+    fn get_type(&self) -> FrameType {
+        match self.close {
+            Close::Connection(_) => FrameType::ConnectionClose,
+            Close::Application(_) => FrameType::ApplicationClose,
+        }
+    }
 }
 
 impl<'a> Encodable for CloseEncoder<'a> {
@@ -674,6 +790,14 @@ impl PathAck {
         (ack, self.path_id)
     }
 
+    fn get_type(&self) -> FrameType {
+        if self.ecn.is_some() {
+            FrameType::PathAckEcn
+        } else {
+            FrameType::PathAck
+        }
+    }
+
     pub(crate) fn encoder<'a>(
         path_id: PathId,
         delay: u64,
@@ -690,10 +814,19 @@ impl PathAck {
 }
 
 pub(crate) struct PathAckEncoder<'a> {
-    path_id: PathId,
-    delay: u64,
-    ranges: &'a ArrayRangeSet,
-    ecn: Option<&'a EcnCounts>,
+    pub(super) path_id: PathId,
+    pub(super) delay: u64,
+    pub(super) ranges: &'a ArrayRangeSet,
+    pub(super) ecn: Option<&'a EcnCounts>,
+}
+
+impl<'a> PathAckEncoder<'a> {
+    fn get_type(&self) -> FrameType {
+        match self.ecn.is_some() {
+            true => FrameType::PathAckEcn,
+            false => FrameType::PathAck,
+        }
+    }
 }
 
 impl<'a> Encodable for PathAckEncoder<'a> {
@@ -790,12 +923,29 @@ impl Ack {
     pub fn iter(&self) -> AckIter<'_> {
         self.into_iter()
     }
+
+    pub(crate) const fn get_type(&self) -> FrameType {
+        if self.ecn.is_some() {
+            FrameType::AckEcn
+        } else {
+            FrameType::Ack
+        }
+    }
 }
 
 pub(crate) struct AckEncoder<'a> {
-    delay: u64,
-    ranges: &'a ArrayRangeSet,
-    ecn: Option<&'a EcnCounts>,
+    pub(crate) delay: u64,
+    pub(crate) ranges: &'a ArrayRangeSet,
+    pub(crate) ecn: Option<&'a EcnCounts>,
+}
+
+impl<'a> AckEncoder<'a> {
+    fn get_type(&self) -> FrameType {
+        match self.ecn.is_some() {
+            true => FrameType::AckEcn,
+            false => FrameType::Ack,
+        }
+    }
 }
 
 impl<'a> Encodable for AckEncoder<'a> {

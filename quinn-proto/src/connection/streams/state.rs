@@ -15,7 +15,7 @@ use super::{
 use crate::{
     Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
     coding::{BufMutExt, Encodable},
-    connection::{qlog::QlogSentPacket, stats::FrameStats},
+    connection::{PacketBuilder, qlog::QlogSentPacket, stats::FrameStats},
     frame::{self, Frame, FrameStruct, StreamMetaVec},
     transport_parameters::TransportParameters,
 };
@@ -409,16 +409,15 @@ impl StreamsState {
             .is_some_and(|s| s.can_send_flow_control())
     }
 
-    pub(in crate::connection) fn write_control_frames(
+    pub(in crate::connection) fn write_control_frames<'a, 'b>(
         &mut self,
-        buf: &mut impl BufMut,
+        builder: &mut PacketBuilder<'a, 'b>,
         pending: &mut Retransmits,
         retransmits: &mut ThinRetransmits,
         stats: &mut FrameStats,
-        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) {
         // RESET_STREAM
-        while buf.remaining_mut() > frame::ResetStream::SIZE_BOUND {
+        while builder.frame_space_remaining() > frame::ResetStream::SIZE_BOUND {
             let (id, error_code) = match pending.reset_stream.pop() {
                 Some(x) => x,
                 None => break,
@@ -437,13 +436,11 @@ impl StreamsState {
                 error_code,
                 final_offset: VarInt::try_from(stream.offset()).expect("impossibly large offset"),
             };
-            frame.encode(buf);
-            qlog.frame(&Frame::ResetStream(frame));
-            stats.reset_stream += 1;
+            builder.encode(frame, stats);
         }
 
         // STOP_SENDING
-        while buf.remaining_mut() > frame::StopSending::SIZE_BOUND {
+        while builder.frame_space_remaining() > frame::StopSending::SIZE_BOUND {
             let frame = match pending.stop_sending.pop() {
                 Some(x) => x,
                 None => break,
@@ -456,14 +453,12 @@ impl StreamsState {
             // peer, but we discard that information as soon as the application consumes it, so it
             // can't be relied upon regardless.
             trace!(stream = %frame.id, "STOP_SENDING");
-            frame.encode(buf);
-            qlog.frame(&Frame::StopSending(frame));
+            builder.encode(frame, stats);
             retransmits.get_or_create().stop_sending.push(frame);
-            stats.stop_sending += 1;
         }
 
         // MAX_DATA
-        if pending.max_data && buf.remaining_mut() > 9 {
+        if pending.max_data && builder.frame_space_remaining() > 9 {
             pending.max_data = false;
 
             // `local_max_data` can grow bigger than `VarInt`.
