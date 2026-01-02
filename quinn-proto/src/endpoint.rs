@@ -1167,6 +1167,7 @@ pub(crate) struct ConnectionMeta {
     ///
     /// Each path has its own active CID. We use the [`PathId`] as a unique index, allowing
     /// us to retire the reset token when a path is abandoned.
+    // TODO(matheus23): Should be migrated to make reset tokens per 4-tuple instead of per remote addr
     reset_token: FxHashMap<PathId, (SocketAddr, ResetToken)>,
 }
 

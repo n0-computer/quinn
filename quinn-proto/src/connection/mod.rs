@@ -4351,6 +4351,8 @@ impl Connection {
                         .path_mut(path_id)
                         .expect("payload is processed only after the path becomes known");
                     path.path_responses.push(number, challenge.0, network_path);
+                    // At this point, update_network_path_or_discard was already called, so
+                    // we don't need to be lenient about `local_ip` possibly mis-matching.
                     if network_path == path.network_path {
                         // PATH_CHALLENGE on active path, possible off-path packet forwarding
                         // attack. Send a non-probing packet to recover the active path.
