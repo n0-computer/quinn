@@ -828,8 +828,10 @@ impl Connection {
         &mut self.paths.get_mut(&path_id).expect("known path").data
     }
 
-    /// Check if the 4-tuple path (as in RFC9000 Path, not multipath path) had already been validated.
-    fn find_open_path_on_network_path(
+    /// Find an open, validated path that's on the same network path as the given network path.
+    ///
+    /// Returns the first path matching, even if there's multiple.
+    fn find_validated_path_on_network_path(
         &self,
         network_path: FourTuple,
     ) -> Option<(&PathId, &PathState)> {
@@ -851,9 +853,9 @@ impl Connection {
         now: Instant,
         pn: Option<u64>,
     ) -> &mut PathData {
-        let valid_path = self.find_open_path_on_network_path(network_path);
+        let valid_path = self.find_validated_path_on_network_path(network_path);
         let validated = valid_path.is_some();
-        let initial_rtt = valid_path.map(|(_, state)| state.data.rtt.conservative());
+        let initial_rtt = valid_path.map(|(_, path)| path.data.rtt.conservative());
         let vacant_entry = match self.paths.entry(path_id) {
             btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
             btree_map::Entry::Occupied(occupied_entry) => {
@@ -1909,8 +1911,10 @@ impl Connection {
         }
     }
 
-    /// Updates the network path for `path_id` and returns false, or returns true if a packet
-    /// coming in for this `path_id` over given `network_path` should be discarded.
+    /// Updates the network path for `path_id`.
+    ///
+    /// Returns true if a packet coming in for this `path_id` over given `network_path` should be discarded.
+    /// Returns false if the path was updated and the packet doesn't need to be discarded.
     fn update_network_path_or_discard(&mut self, network_path: FourTuple, path_id: PathId) -> bool {
         let remote_may_migrate = self.side.remote_may_migrate(&self.state);
         let local_ip_may_migrate = self.side.is_client();
@@ -1946,7 +1950,6 @@ impl Connection {
             // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#name-using-multiple-paths-on-the
             // > Client receives the packet, recognizes a path migration, updates the source address of path 2 to 192.0.2.1.
             if let Some(local_ip) = network_path.local_ip {
-                // If we already had a local_ip, but it changed, then we need to re-trigger path validation.
                 if known_path
                     .network_path
                     .local_ip
@@ -3684,7 +3687,7 @@ impl Connection {
             if network_path != self.path_data_mut(path_id).network_path {
                 if let Some(hs) = self.state.as_handshake() {
                     if hs.allow_server_migration {
-                        trace!(%network_path, prev = ?self.path_data(path_id).network_path, "server migrated to new remote");
+                        trace!(%network_path, prev = %self.path_data(path_id).network_path, "server migrated to new remote");
                         self.path_data_mut(path_id).network_path = network_path;
                         self.qlog.emit_tuple_assigned(path_id, network_path, now);
                     } else {
@@ -5515,7 +5518,7 @@ impl Connection {
             qlog.frame(&Frame::PathsBlocked(frame));
             space.pending.paths_blocked = false;
             sent.retransmits.get_or_create().paths_blocked = true;
-            trace!(max_path_id = ?self.remote_max_path_id, "PATHS_BLOCKED");
+            trace!(max_path_id = %self.remote_max_path_id, "PATHS_BLOCKED");
             self.stats.frame_tx.paths_blocked += 1;
         }
 
