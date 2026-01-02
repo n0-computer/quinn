@@ -304,10 +304,7 @@ impl Endpoint {
             }
         };
 
-        debug!(
-            "sending stateless reset for {} to {}",
-            dst_cid, network_path.remote
-        );
+        debug!(%dst_cid, %network_path.remote, "sending stateless reset");
         self.last_stateless_reset = Some(now);
         // Resets with at least this much padding can't possibly be distinguished from real packets
         const IDEAL_MIN_PADDING_LEN: usize = MIN_PADDING_LEN + MAX_CID_SIZE;
@@ -1216,15 +1213,21 @@ pub enum DatagramEvent {
 }
 
 /// An incoming connection for which the server has not yet begun its part of the handshake.
+#[derive(derive_more::Debug)]
 pub struct Incoming {
+    #[debug(skip)]
     received_at: Instant,
     network_path: FourTuple,
     ecn: Option<EcnCodepoint>,
+    #[debug(skip)]
     packet: InitialPacket,
+    #[debug(skip)]
     rest: Option<BytesMut>,
+    #[debug(skip)]
     crypto: Keys,
     token: IncomingToken,
     incoming_idx: usize,
+    #[debug(skip)]
     improper_drop_warner: IncomingImproperDropWarner,
 }
 
@@ -1263,20 +1266,6 @@ impl Incoming {
     /// The original destination connection ID sent by the client
     pub fn orig_dst_cid(&self) -> ConnectionId {
         self.token.orig_dst_cid
-    }
-}
-
-impl fmt::Debug for Incoming {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Incoming")
-            .field("network_path", &self.network_path)
-            .field("ecn", &self.ecn)
-            // packet doesn't implement debug
-            // rest is too big and not meaningful enough
-            .field("token", &self.token)
-            .field("incoming_idx", &self.incoming_idx)
-            // improper drop warner contains no information
-            .finish_non_exhaustive()
     }
 }
 
