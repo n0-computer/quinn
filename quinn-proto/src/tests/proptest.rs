@@ -512,3 +512,47 @@ fn regression_path_validation() {
         pair.server_conn_mut(server_ch)
     )));
 }
+
+/// This regression test used to fail with the client never becoming idle.
+/// It kept sending PATH_CHALLENGEs forever.
+///
+/// The situation in which that happened was this:
+/// 1. The server closes the connection, but the close frame is lost.
+/// 2. The client opens another path on the same 4-tuple (thus that path is immediately validated).
+/// 3. It immediately closes path 0 afterwards.
+///
+/// At this point, the server is already fully checked out and not responding anymore.
+/// The client however thinks the connection is still ongoing and continues sending (that's fine).
+/// However, it never stops sending path challenges, because of a bug where only when the
+/// path validation timer times out, the path challenge lost timer was stopped. This means
+/// the client would keep re-sending path challenges infinitely (never getting a response,
+/// which would also stop the challenge lost timer).
+///
+/// Correctly stopping the path challenge lost timer fixes this.
+#[test]
+fn regression_never_idle3() {
+    let prefix = "regression_never_idle3";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::CloseConn(Side::Server, 0),
+        TestOp::Drive(Side::Server),
+        TestOp::DropInbound(Side::Client),
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
+        TestOp::ClosePath(Side::Client, 0, 0),
+        TestOp::AdvanceTime,
+    ];
+
+    let _guard = subscribe();
+    let routes = RoutingTable::simple_symmetric([CLIENT_ADDRS[0]], [SERVER_ADDRS[0]]);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
