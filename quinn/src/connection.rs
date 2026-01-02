@@ -171,6 +171,28 @@ impl Connecting {
             })
     }
 
+    /// The local IP address which was used when the peer established
+    /// the connection
+    ///
+    /// This can be different from the address the endpoint is bound to, in case
+    /// the endpoint is bound to a wildcard address like `0.0.0.0` or `::`.
+    ///
+    /// This will return `None` for clients, or when the platform does not expose this
+    /// information. See [`quinn_udp::RecvMeta::dst_ip`](udp::RecvMeta::dst_ip) for a list of
+    /// supported platforms when using [`quinn_udp`](udp) for I/O, which is the default.
+    ///
+    /// Will panic if called after `poll` has returned `Ready`.
+    pub fn local_ip(&self) -> Option<IpAddr> {
+        let conn = self.conn.as_ref().unwrap();
+        let inner = conn.state.lock("local_ip");
+
+        inner
+            .inner
+            .network_path(PathId::ZERO)
+            .expect("path exists when connecting")
+            .local_ip
+    }
+
     /// The peer's UDP addresses
     ///
     /// Will panic if called after `poll` has returned `Ready`.
@@ -460,6 +482,8 @@ impl Connection {
 
         let (on_open_path_send, on_open_path_recv) = watch::channel(Ok(()));
         let now = state.runtime.now();
+        // TODO(matheus23): For now this means it's impossible to make use of short-circuiting path validation currently.
+        // However, changing that would mean changing the API.
         let addrs = FourTuple {
             remote: addr,
             local_ip: None,
