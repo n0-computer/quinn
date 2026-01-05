@@ -107,8 +107,8 @@
 <a href=#107 id=107 data-nosnippet>107</a>                <span class="prelude-val">None </span>=&gt; <span class="self">self</span>.new_connection_id += <span class="number">1</span>,
 <a href=#108 id=108 data-nosnippet>108</a>            },
 <a href=#109 id=109 data-nosnippet>109</a>            Frame::RetireConnectionId(frame) =&gt; <span class="kw">match </span>frame.get_type() {
-<a href=#110 id=110 data-nosnippet>110</a>                FrameType::RETIRE_CONNECTION_ID =&gt; <span class="self">self</span>.retire_connection_id += <span class="number">1</span>,
-<a href=#111 id=111 data-nosnippet>111</a>                FrameType::PATH_RETIRE_CONNECTION_ID =&gt; <span class="self">self</span>.path_retire_connection_id += <span class="number">1</span>,
+<a href=#110 id=110 data-nosnippet>110</a>                FrameType::RetireConnectionId =&gt; <span class="self">self</span>.retire_connection_id += <span class="number">1</span>,
+<a href=#111 id=111 data-nosnippet>111</a>                FrameType::PathRetireConnectionId =&gt; <span class="self">self</span>.path_retire_connection_id += <span class="number">1</span>,
 <a href=#112 id=112 data-nosnippet>112</a>                <span class="kw">_ </span>=&gt; <span class="macro">unreachable!</span>(),
 <a href=#113 id=113 data-nosnippet>113</a>            },
 <a href=#114 id=114 data-nosnippet>114</a>            Frame::PathChallenge(<span class="kw">_</span>) =&gt; <span class="self">self</span>.path_challenge += <span class="number">1</span>,
