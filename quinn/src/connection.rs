@@ -1222,9 +1222,11 @@ impl Future for OnClosed {
 }
 
 #[derive(Debug)]
+#[allow(clippy::redundant_allocation)]
 pub(crate) struct ConnectionRef(Arc<Arc<ConnectionInner>>);
 
 impl ConnectionRef {
+    #[allow(clippy::redundant_allocation)]
     fn from_arc(inner: Arc<Arc<ConnectionInner>>) -> Self {
         inner.state.lock("from_arc").ref_count += 1;
         Self(inner)
