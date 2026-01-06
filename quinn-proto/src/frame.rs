@@ -179,6 +179,13 @@ pub(super) enum EncodableFrame<'a> {
     PathCidsBlocked(PathCidsBlocked),
     ResetStream(ResetStream),
     StopSending(StopSending),
+    NewConnectionId(NewConnectionId),
+    RetireConnectionId(RetireConnectionId),
+    Datagram(Datagram),
+    NewToken(NewToken),
+    AddAddress(AddAddress),
+    RemoveAddress(RemoveAddress),
+    StreamMeta(StreamMetaEncoder<'a>),
 }
 
 impl<'a> EncodableFrame<'a> {
@@ -205,6 +212,15 @@ impl<'a> EncodableFrame<'a> {
             PathCidsBlocked(_) => FrameType::PathCidsBlocked,
             ResetStream(_) => FrameType::ResetStream,
             StopSending(_) => FrameType::StopSending,
+            NewConnectionId(new_connection_id) => new_connection_id.get_type(),
+            RetireConnectionId(retire_connection_id) => retire_connection_id.get_type(),
+            Datagram(_) => FrameType::Datagram(DatagramInfo(*DatagramInfo::VALUES.start() as u8)),
+            NewToken(_) => FrameType::NewToken,
+            AddAddress(add_address) => add_address.get_type(),
+            RemoveAddress(_) => FrameType::RemoveAddress,
+            StreamMeta(meta_encoder) => {
+                FrameType::Stream(meta_encoder.meta.get_type(meta_encoder.encode_length))
+            }
         }
     }
 }
@@ -232,6 +248,13 @@ impl<'a> Encodable for EncodableFrame<'a> {
             EncodableFrame::PathCidsBlocked(path_cids_blocked) => path_cids_blocked.encode(buf),
             EncodableFrame::ResetStream(reset_stream) => reset_stream.encode(buf),
             EncodableFrame::StopSending(stop_sending) => stop_sending.encode(buf),
+            EncodableFrame::NewConnectionId(new_connection_id) => new_connection_id.encode(buf),
+            EncodableFrame::RetireConnectionId(retire_cid) => retire_cid.encode(buf),
+            EncodableFrame::Datagram(datagram) => datagram.encode(buf),
+            EncodableFrame::NewToken(new_token) => new_token.encode(buf),
+            EncodableFrame::AddAddress(add_address) => add_address.encode(buf),
+            EncodableFrame::RemoveAddress(remove_address) => remove_address.encode(buf),
+            EncodableFrame::StreamMeta(stream_meta) => stream_meta.encode(buf),
         }
     }
 }
@@ -1054,10 +1077,24 @@ impl StreamMeta {
             encode_length,
         }
     }
+
+    pub(crate) fn get_type(&self, encode_length: bool) -> StreamInfo {
+        let mut ty = *StreamInfo::VALUES.start();
+        if self.offsets.start != 0 {
+            ty |= 0x04;
+        }
+        if encode_length {
+            ty |= 0x02;
+        }
+        if self.fin {
+            ty |= 0x01;
+        }
+        StreamInfo(ty as u8)
+    }
 }
 
 pub(crate) struct StreamMetaEncoder<'a> {
-    meta: &'a StreamMeta,
+    pub(crate) meta: &'a StreamMeta,
     encode_length: bool,
 }
 
@@ -1065,24 +1102,14 @@ impl<'a> Encodable for StreamMetaEncoder<'a> {
     fn encode<W: BufMut>(&self, out: &mut W) {
         let StreamMetaEncoder {
             meta,
-            encode_length: length,
+            encode_length,
         } = self;
-        let mut ty = *StreamInfo::VALUES.start();
-        if meta.offsets.start != 0 {
-            ty |= 0x04;
-        }
-        if *length {
-            ty |= 0x02;
-        }
-        if meta.fin {
-            ty |= 0x01;
-        }
-        out.write_var(ty); // 1 byte
+        out.write_var(meta.get_type(*encode_length).0 as u64); // 1 byte
         out.write(meta.id); // <=8 bytes
         if meta.offsets.start != 0 {
             out.write_var(meta.offsets.start); // <=8 bytes
         }
-        if *length {
+        if *encode_length {
             out.write_var(meta.offsets.end - meta.offsets.start); // <=8 bytes
         }
     }

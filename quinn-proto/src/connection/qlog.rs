@@ -452,48 +452,6 @@ impl QlogSentPacket {
         });
     }
 
-    /// Adds an ACK frame.
-    ///
-    /// This is a no-op if the `qlog` feature is not enabled.
-    pub(crate) fn frame_ack(
-        &mut self,
-        delay: u64,
-        ranges: &ArrayRangeSet,
-        ecn: Option<&EcnCounts>,
-    ) {
-        #[cfg(feature = "qlog")]
-        self.frame_raw();
-    }
-
-    /// Adds a DATAGRAM frame.
-    ///
-    /// This is a no-op if the `qlog` feature is not enabled.
-    pub(crate) fn frame_datagram(&mut self, len: u64) {
-        #[cfg(feature = "qlog")]
-        self.frame_raw(QuicFrame::Datagram {
-            raw: Some(RawInfo {
-                length: Some(len),
-                ..Default::default()
-            }),
-        });
-    }
-
-    /// Adds a STREAM frame.
-    ///
-    /// This is a no-op if the `qlog` feature is not enabled.
-    pub(crate) fn frame_stream(&mut self, meta: &StreamMeta) {
-        #[cfg(feature = "qlog")]
-        self.frame_raw(QuicFrame::Stream {
-            stream_id: meta.id.into(),
-            offset: Some(meta.offsets.start),
-            fin: Some(meta.fin),
-            raw: Some(RawInfo {
-                length: Some(meta.offsets.end - meta.offsets.start),
-                ..Default::default()
-            }),
-        });
-    }
-
     /// Adds a frame by pushing a [`QuicFrame`].
     ///
     /// This function is only available if the `qlog` feature is enabled, because constructing a [`QuicFrame`] may involve
@@ -743,6 +701,60 @@ impl<'a> EncodableFrame<'a> {
                 error: ApplicationError::Unknown,
                 raw: None,
             },
+            EncodableFrame::NewConnectionId(f) => QuicFrame::NewConnectionId {
+                sequence_number: f.sequence,
+                retire_prior_to: f.retire_prior_to,
+                connection_id_length: Some(f.id.len() as u8),
+                connection_id: f.id.to_string(),
+                stateless_reset_token: Some(f.reset_token.to_string()),
+                raw: None,
+            },
+            Self::RetireConnectionId(f) => QuicFrame::RetireConnectionId {
+                sequence_number: f.sequence,
+                raw: None,
+            },
+            Self::Datagram(d) => QuicFrame::Datagram {
+                raw: Some(RawInfo {
+                    length: Some(d.data.len() as u64),
+                    ..Default::default()
+                }),
+            },
+            Self::NewToken(f) => QuicFrame::NewToken {
+                token: qlog::Token {
+                    ty: Some(TokenType::Retry),
+                    raw: Some(RawInfo {
+                        data: HexSlice::maybe_string(Some(&f.token)),
+                        length: Some(f.token.len() as u64),
+                        payload_length: None,
+                    }),
+                    details: None,
+                },
+                raw: None,
+            },
+            Self::AddAddress(f) => QuicFrame::AddAddress {
+                sequence_number: f.seq_no.into_inner(),
+                ip_v4: match f.ip {
+                    IpAddr::V4(ipv4_addr) => Some(ipv4_addr.to_string()),
+                    IpAddr::V6(ipv6_addr) => None,
+                },
+                ip_v6: match f.ip {
+                    IpAddr::V4(ipv4_addr) => None,
+                    IpAddr::V6(ipv6_addr) => Some(ipv6_addr.to_string()),
+                },
+                port: f.port,
+            },
+            Self::RemoveAddress(f) => QuicFrame::RemoveAddress {
+                sequence_number: f.seq_no.into_inner(),
+            },
+            Self::StreamMeta(encoder) => QuicFrame::Stream {
+                stream_id: encoder.meta.id.into(),
+                offset: Some(encoder.meta.offsets.start),
+                fin: Some(encoder.meta.fin),
+                raw: Some(RawInfo {
+                    length: Some(encoder.meta.offsets.end - encoder.meta.offsets.start),
+                    ..Default::default()
+                }),
+            },
         }
     }
 }
@@ -773,18 +785,6 @@ impl Frame {
                 raw: None,
             },
 
-            Self::NewToken(f) => QuicFrame::NewToken {
-                token: qlog::Token {
-                    ty: Some(TokenType::Retry),
-                    raw: Some(RawInfo {
-                        data: HexSlice::maybe_string(Some(&f.token)),
-                        length: Some(f.token.len() as u64),
-                        payload_length: None,
-                    }),
-                    details: None,
-                },
-                raw: None,
-            },
             Self::Stream(s) => QuicFrame::Stream {
                 stream_id: s.id.into(),
                 offset: Some(s.offset),
@@ -822,26 +822,6 @@ impl Frame {
                 limit: *limit,
                 raw: None,
             },
-            Self::NewConnectionId(f) => QuicFrame::NewConnectionId {
-                sequence_number: f.sequence,
-                retire_prior_to: f.retire_prior_to,
-                connection_id_length: Some(f.id.len() as u8),
-                connection_id: f.id.to_string(),
-                stateless_reset_token: Some(f.reset_token.to_string()),
-                raw: None,
-            },
-            Self::RetireConnectionId(f) => QuicFrame::RetireConnectionId {
-                sequence_number: f.sequence,
-                raw: None,
-            },
-
-            Self::Datagram(d) => QuicFrame::Datagram {
-                raw: Some(RawInfo {
-                    length: Some(d.data.len() as u64),
-                    ..Default::default()
-                }),
-            },
-
             Self::PathAck(ack) => QuicFrame::PathAck {
                 path_id: ack.path_id.as_u32().into(),
                 ack_delay: Some(ack.delay as f32),
@@ -854,23 +834,6 @@ impl Frame {
                         .map(|range| (*range.start(), *range.end()))
                         .collect(),
                 )),
-            },
-
-            Self::AddAddress(f) => QuicFrame::AddAddress {
-                sequence_number: f.seq_no.into_inner(),
-                ip_v4: match f.ip {
-                    IpAddr::V4(ipv4_addr) => Some(ipv4_addr.to_string()),
-                    IpAddr::V6(ipv6_addr) => None,
-                },
-                ip_v6: match f.ip {
-                    IpAddr::V4(ipv4_addr) => None,
-                    IpAddr::V6(ipv6_addr) => Some(ipv6_addr.to_string()),
-                },
-                port: f.port,
-            },
-
-            Self::RemoveAddress(f) => QuicFrame::RemoveAddress {
-                sequence_number: f.seq_no.into_inner(),
             },
         }
     }

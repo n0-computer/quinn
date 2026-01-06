@@ -540,14 +540,14 @@ impl StreamsState {
         }
     }
 
-    pub(crate) fn write_stream_frames(
+    pub(crate) fn write_stream_frames<'a, 'b>(
         &mut self,
-        buf: &mut impl BufMut,
+        builder: &mut PacketBuilder<'a, 'b>,
         fair: bool,
-        #[allow(unused)] qlog: &mut QlogSentPacket,
+        stats: &mut FrameStats,
     ) -> StreamMetaVec {
         let mut stream_frames = StreamMetaVec::new();
-        while buf.remaining_mut() > frame::Stream::SIZE_BOUND {
+        while builder.frame_space_remaining() > frame::Stream::SIZE_BOUND {
             // Pop the stream of the highest priority that currently has pending data. If
             // the stream still has some pending data left after writing, it will be
             // reinserted, otherwise not
@@ -572,7 +572,7 @@ impl StreamsState {
 
             // Now that we know the `StreamId`, we can better account for how many bytes
             // are required to encode it.
-            let max_buf_size = buf.remaining_mut() - 1 - VarInt::size(id.into());
+            let max_buf_size = builder.frame_space_remaining() - 1 - VarInt::size(id.into());
             let (offsets, encode_length) = stream.pending.poll_transmit(max_buf_size);
             let fin = offsets.end == stream.pending.offset()
                 && matches!(stream.state, SendState::DataSent { .. });
@@ -594,8 +594,7 @@ impl StreamsState {
 
             let meta = frame::StreamMeta { id, offsets, fin };
             trace!(id = %meta.id, off = meta.offsets.start, len = meta.offsets.end - meta.offsets.start, fin = meta.fin, "STREAM");
-            meta.encoder(encode_length).encode(buf);
-            qlog.frame_stream(&meta);
+            builder.encode(meta.encoder(encode_length), stats);
 
             // The range might not be retrievable in a single `get` if it is
             // stored in noncontiguous fashion. Therefore this loop iterates
@@ -604,7 +603,7 @@ impl StreamsState {
             while offsets.start != offsets.end {
                 let data = stream.pending.get(offsets.clone());
                 offsets.start += data.len() as u64;
-                buf.put_slice(data);
+                builder.buf.put_slice(data);
             }
             stream_frames.push(meta);
         }

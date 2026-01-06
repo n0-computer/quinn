@@ -1252,7 +1252,7 @@ impl Connection {
                         &mut self.spaces[space_id],
                         is_multipath_negotiated,
                         &mut builder,
-                        &mut self.stats,
+                        &mut self.stats.frame_tx,
                     );
                 }
 
@@ -1263,7 +1263,7 @@ impl Connection {
                     builder.frame_space_remaining() > frame::ConnectionClose::SIZE_BOUND,
                     "ACKs should leave space for ConnectionClose"
                 );
-                let stats = &mut self.stats;
+                let stats = &mut self.stats.frame_tx;
                 if frame::ConnectionClose::SIZE_BOUND < builder.frame_space_remaining() {
                     let max_frame_size = builder.frame_space_remaining();
                     match self.state.as_type() {
@@ -1313,7 +1313,7 @@ impl Connection {
                     //    https://github.com/quinn-rs/quinn/issues/2184
                     let response = frame::PathResponse(token);
                     trace!(%response, "(off-path)");
-                    builder.encode(response, &mut self.stats);
+                    builder.encode(response, &mut self.stats.frame_tx);
                     builder.finish_and_track(
                         now,
                         self,
@@ -1489,7 +1489,6 @@ impl Connection {
                 }
             };
 
-            let stats = &mut self.stats;
             if let Some((active_cid, probe_size)) = probe_data {
                 // We are definitely sending a DPLPMTUD probe.
                 debug_assert_eq!(transmit.num_datagrams(), 0);
@@ -1508,12 +1507,12 @@ impl Connection {
                 // We implement MTU probes as ping packets padded up to the probe size
                 trace!(?probe_size, "writing MTUD probe");
                 trace!("PING");
-                builder.encode(frame::Ping, stats);
+                builder.encode(frame::Ping, &mut self.stats.frame_tx);
 
                 // If supported by the peer, we want no delays to the probe's ACK
                 if self.peer_supports_ack_frequency() {
                     trace!("IMMEDIATE_ACK");
-                    builder.encode(frame::ImmediateAck, stats);
+                    builder.encode(frame::ImmediateAck, &mut self.stats.frame_tx);
                 }
 
                 let sent_frames = SentFrames {
@@ -1696,7 +1695,7 @@ impl Connection {
             PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
         let challenge = frame::PathChallenge(token);
         trace!(%challenge, "validating previous path");
-        builder.encode(challenge, &mut self.stats);
+        builder.encode(challenge, &mut self.stats.frame_tx);
 
         // An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
         // to at least the smallest allowed maximum datagram size of 1200 bytes,
@@ -4981,9 +4980,9 @@ impl Connection {
         builder: &mut PacketBuilder<'a, 'b>,
     ) -> SentFrames {
         let pn = builder.exact_number;
-        let stats = &mut self.stats.frame_tx;
         let mut sent = SentFrames::default();
         let is_multipath_negotiated = self.is_multipath_negotiated();
+        let stats = &mut self.stats.frame_tx;
         let space = &mut self.spaces[space_id];
         let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
         let is_0rtt = space_id == SpaceId::Data && space.crypto.is_none();
@@ -5084,7 +5083,7 @@ impl Connection {
                     space,
                     is_multipath_negotiated,
                     builder,
-                    &mut self.stats,
+                    stats,
                 );
             }
         }
@@ -5377,7 +5376,7 @@ impl Connection {
             .expect("some local CID state must exist");
         let new_cid_size_bound =
             frame::NewConnectionId::size_bound(is_multipath_negotiated, cid_len);
-        while !path_exclusive_only && buf.remaining_mut() > new_cid_size_bound {
+        while !path_exclusive_only && builder.frame_space_remaining() > new_cid_size_bound {
             let issued = match space.pending.new_cids.pop() {
                 Some(x) => x,
                 None => break,
@@ -5396,7 +5395,6 @@ impl Connection {
                         id = %issued.id,
                         "PATH_NEW_CONNECTION_ID",
                     );
-                    self.stats.frame_tx.path_new_connection_id += 1;
                     Some(issued.path_id)
                 }
                 false => {
@@ -5406,7 +5404,6 @@ impl Connection {
                         "NEW_CONNECTION_ID"
                     );
                     debug_assert_eq!(issued.path_id, PathId::ZERO);
-                    self.stats.frame_tx.new_connection_id += 1;
                     None
                 }
             };
@@ -5417,30 +5414,26 @@ impl Connection {
                 id: issued.id,
                 reset_token: issued.reset_token,
             };
-            frame.encode(buf);
+            builder.encode(frame, stats);
             sent.retransmits.get_or_create().new_cids.push(issued);
-            qlog.frame(&Frame::NewConnectionId(frame));
         }
 
         // RETIRE_CONNECTION_ID
         let retire_cid_bound = frame::RetireConnectionId::size_bound(is_multipath_negotiated);
-        while !path_exclusive_only && buf.remaining_mut() > retire_cid_bound {
+        while !path_exclusive_only && builder.frame_space_remaining() > retire_cid_bound {
             let (path_id, sequence) = match space.pending.retire_cids.pop() {
                 Some((PathId::ZERO, seq)) if !is_multipath_negotiated => {
                     trace!(sequence = seq, "RETIRE_CONNECTION_ID");
-                    self.stats.frame_tx.retire_connection_id += 1;
                     (None, seq)
                 }
                 Some((path_id, seq)) => {
                     trace!(%path_id, sequence = seq, "PATH_RETIRE_CONNECTION_ID");
-                    self.stats.frame_tx.path_retire_connection_id += 1;
                     (Some(path_id), seq)
                 }
                 None => break,
             };
             let frame = frame::RetireConnectionId { path_id, sequence };
-            frame.encode(buf);
-            qlog.frame(&Frame::RetireConnectionId(frame));
+            builder.encode(frame, stats);
             sent.retransmits
                 .get_or_create()
                 .retire_cids
@@ -5450,16 +5443,13 @@ impl Connection {
         // DATAGRAM
         let mut sent_datagrams = false;
         while !path_exclusive_only
-            && buf.remaining_mut() > Datagram::SIZE_BOUND
+            && builder.frame_space_remaining() > Datagram::SIZE_BOUND
             && space_id == SpaceId::Data
         {
-            let prev_remaining = buf.remaining_mut();
-            match self.datagrams.write(buf) {
+            match self.datagrams.write(builder, stats) {
                 true => {
                     sent_datagrams = true;
                     sent.non_retransmits = true;
-                    self.stats.frame_tx.datagram += 1;
-                    qlog.frame_datagram((prev_remaining - buf.remaining_mut()) as u64);
                 }
                 false => break,
             }
@@ -5500,32 +5490,31 @@ impl Connection {
                 token: token.encode(&*server_config.token_key).into(),
             };
 
-            if buf.remaining_mut() < new_token.size() {
+            if builder.frame_space_remaining() < new_token.size() {
                 space.pending.new_tokens.push(remote_addr);
                 break;
             }
 
             trace!("NEW_TOKEN");
-            new_token.encode(buf);
-            qlog.frame(&Frame::NewToken(new_token));
+            builder.encode(new_token, stats);
             sent.retransmits
                 .get_or_create()
                 .new_tokens
                 .push(remote_addr);
-            self.stats.frame_tx.new_token += 1;
         }
 
         // STREAM
         if !path_exclusive_only && space_id == SpaceId::Data {
             sent.stream_frames =
                 self.streams
-                    .write_stream_frames(buf, self.config.send_fairness, qlog);
-            self.stats.frame_tx.stream += sent.stream_frames.len() as u64;
+                    .write_stream_frames(builder, self.config.send_fairness, stats);
         }
 
         // ADD_ADDRESS
         // TODO(@divma): check if we need to do path exclusive filters
-        while space_id == SpaceId::Data && frame::AddAddress::SIZE_BOUND <= buf.remaining_mut() {
+        while space_id == SpaceId::Data
+            && frame::AddAddress::SIZE_BOUND <= builder.frame_space_remaining()
+        {
             if let Some(added_address) = space.pending.add_address.pop_last() {
                 trace!(
                     seq = %added_address.seq_no,
@@ -5533,30 +5522,27 @@ impl Connection {
                     port = added_address.port,
                     "ADD_ADDRESS",
                 );
-                added_address.encode(buf);
+                builder.encode(added_address, stats);
                 sent.retransmits
                     .get_or_create()
                     .add_address
                     .insert(added_address);
-                self.stats.frame_tx.add_address = self.stats.frame_tx.add_address.saturating_add(1);
-                qlog.frame(&Frame::AddAddress(added_address));
             } else {
                 break;
             }
         }
 
         // REMOVE_ADDRESS
-        while space_id == SpaceId::Data && frame::RemoveAddress::SIZE_BOUND <= buf.remaining_mut() {
+        while space_id == SpaceId::Data
+            && frame::RemoveAddress::SIZE_BOUND <= builder.frame_space_remaining()
+        {
             if let Some(removed_address) = space.pending.remove_address.pop_last() {
                 trace!(seq = %removed_address.seq_no, "REMOVE_ADDRESS");
-                removed_address.encode(buf);
+                builder.encode(removed_address, stats);
                 sent.retransmits
                     .get_or_create()
                     .remove_address
                     .insert(removed_address);
-                self.stats.frame_tx.remove_address =
-                    self.stats.frame_tx.remove_address.saturating_add(1);
-                qlog.frame(&Frame::RemoveAddress(removed_address));
             } else {
                 break;
             }
@@ -5575,7 +5561,7 @@ impl Connection {
         space: &mut PacketSpace,
         is_multipath_negotiated: bool,
         builder: &mut PacketBuilder<'a, 'b>,
-        stats: &mut ConnectionStats,
+        stats: &mut FrameStats,
     ) {
         // 0-RTT packets must never carry acks (which would have to be of handshake packets)
         debug_assert!(space.crypto.is_some(), "tried to send ACK in 0-RTT");
