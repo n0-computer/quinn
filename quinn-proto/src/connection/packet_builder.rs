@@ -4,8 +4,7 @@ use tracing::{debug, trace, trace_span};
 
 use super::{Connection, PathId, SentFrames, TransmitBuf, spaces::SentPacket};
 use crate::{
-    ConnectionId, ConnectionStats, FrameStats, Instant, MIN_INITIAL_SIZE, TransportError,
-    TransportErrorCode,
+    ConnectionId, FrameStats, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
     coding::Encodable,
     connection::{ConnectionSide, qlog::QlogSentPacket},
     frame::{self, Close, EncodableFrame},

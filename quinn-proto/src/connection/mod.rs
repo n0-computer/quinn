@@ -23,11 +23,10 @@ use crate::{
     TransportErrorCode, VarInt,
     cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
-    coding::{BufMutExt, Encodable},
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     connection::{
-        qlog::{QlogRecvPacket, QlogSentPacket, QlogSink},
+        qlog::{QlogRecvPacket, QlogSink},
         spaces::LostPacket,
         timer::{ConnTimer, PathTimer},
     },
@@ -4291,13 +4290,13 @@ impl Connection {
                         Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
                 }
-                Frame::MaxData(bytes) => {
+                Frame::MaxData(frame::MaxData(bytes)) => {
                     self.streams.received_max_data(bytes);
                 }
-                Frame::MaxStreamData { id, offset } => {
+                Frame::MaxStreamData(frame::MaxStreamData { id, offset }) => {
                     self.streams.received_max_stream_data(id, offset)?;
                 }
-                Frame::MaxStreams { dir, count } => {
+                Frame::MaxStreams(frame::MaxStreams { dir, count }) => {
                     self.streams.received_max_streams(dir, count)?;
                 }
                 Frame::ResetStream(frame) => {
