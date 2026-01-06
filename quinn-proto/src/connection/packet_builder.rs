@@ -6,7 +6,7 @@ use super::{Connection, PathId, SentFrames, TransmitBuf, spaces::SentPacket};
 use crate::{
     ConnectionId, FrameStats, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
     coding::Encodable,
-    connection::{ConnectionSide, qlog::QlogSentPacket},
+    connection::{ConnectionSide, qlog::QlogSentPacket, spaces::Retransmits},
     frame::{self, Close, EncodableFrame},
     packet::{FIXED_BIT, Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId},
 };
@@ -33,6 +33,7 @@ pub(super) struct PacketBuilder<'a, 'b> {
     pub(super) tag_len: usize,
     pub(super) _span: tracing::span::EnteredSpan,
     qlog: QlogSentPacket,
+    sent_frames: SentFrames,
 }
 
 impl<'a, 'b> PacketBuilder<'a, 'b> {
@@ -186,6 +187,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             tag_len,
             ack_eliciting,
             qlog,
+            sent_frames: SentFrames::default(),
             _span: span,
         })
     }
@@ -210,7 +212,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         let frame = frame.into();
         frame.encode(&mut self.frame_space_mut());
         stats.record(frame.get_type());
-        self.qlog.record(frame);
+        self.qlog.record(&frame);
+        self.sent_frames.sent(frame);
     }
 
     /// Returns a writable buffer limited to the remaining frame space
@@ -222,12 +225,15 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         self.buf.limit(self.frame_space_remaining())
     }
 
+    pub(super) fn sent_frames(&self) -> &SentFrames {
+        &self.sent_frames
+    }
+
     pub(super) fn finish_and_track(
         mut self,
         now: Instant,
         conn: &mut Connection,
         path_id: PathId,
-        sent: SentFrames,
         pad_datagram: PadDatagram,
     ) {
         match pad_datagram {
@@ -239,7 +245,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         let ack_eliciting = self.ack_eliciting;
         let exact_number = self.exact_number;
         let space_id = self.space;
-        let (size, padded) = self.finish(conn, now);
+        let (size, padded, sent) = self.finish(conn, now);
 
         let size = match padded || ack_eliciting {
             true => size as u16,
@@ -279,7 +285,11 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
     }
 
     /// Encrypt packet, returning the length of the packet and whether padding was added
-    pub(super) fn finish(mut self, conn: &mut Connection, now: Instant) -> (usize, bool) {
+    pub(super) fn finish(
+        mut self,
+        conn: &mut Connection,
+        now: Instant,
+    ) -> (usize, bool, SentFrames) {
         debug_assert!(
             self.buf.len() <= self.buf.datagram_max_offset() - self.tag_len,
             "packet exceeds maximum size"
@@ -323,7 +333,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         trace!(size = %packet_len, short_header = %self.short_header, "wrote packet");
         self.qlog.finalize(packet_len);
         conn.qlog.emit_packet_sent(self.qlog, now);
-        (packet_len, pad)
+        (packet_len, pad, self.sent_frames)
     }
 
     /// The number of additional bytes the current packet would take up if it was finished now
@@ -341,6 +351,15 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
     pub(super) fn frame_space_remaining(&self) -> usize {
         let max_offset = self.buf.datagram_max_offset() - self.tag_len;
         max_offset.saturating_sub(self.buf.len())
+    }
+
+    pub(crate) fn require_padding(&mut self) {
+        self.sent_frames.requires_padding = true;
+    }
+
+    // TODO(@divma): not ideal
+    pub(crate) fn retransmits_mut(&mut self) -> &mut Retransmits {
+        self.sent_frames.retransmits_mut()
     }
 }
 

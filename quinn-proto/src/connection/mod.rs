@@ -1262,7 +1262,6 @@ impl Connection {
                 // a better approximate on what data has been processed. This is
                 // especially important with ack delay, since the peer might not
                 // have gotten any other ACK for the data earlier on.
-                let mut sent_frames = SentFrames::default();
                 let is_multipath_negotiated = self.is_multipath_negotiated();
                 for path_id in self.spaces[space_id]
                     .number_spaces
@@ -1274,7 +1273,6 @@ impl Connection {
                     Self::populate_acks(
                         now,
                         self.receiving_ecn,
-                        &mut sent_frames,
                         path_id,
                         space_id,
                         &mut self.spaces[space_id],
@@ -1315,7 +1313,7 @@ impl Connection {
                         ),
                     };
                 }
-                builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
+                builder.finish_and_track(now, self, path_id, pad_datagram);
                 if space_id == self.highest_space {
                     // Don't send another close packet. Even with multipath we only send
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
@@ -1344,16 +1342,7 @@ impl Connection {
                     let response = frame::PathResponse(token);
                     trace!(%response, "(off-path)");
                     builder.encode(response, &mut self.stats.frame_tx);
-                    builder.finish_and_track(
-                        now,
-                        self,
-                        path_id,
-                        SentFrames {
-                            non_retransmits: true,
-                            ..SentFrames::default()
-                        },
-                        PadDatagram::ToMinMtu,
-                    );
+                    builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
                     self.stats.udp_tx.on_sent(1, transmit.len());
                     return Some(Transmit {
                         destination: network_path.remote,
@@ -1365,11 +1354,9 @@ impl Connection {
                 }
             }
 
-            let sent_frames = {
-                let path_exclusive_only = have_available_path
-                    && self.path_data(path_id).local_status() == PathStatus::Backup;
-                self.populate_packet(now, space_id, path_id, path_exclusive_only, &mut builder)
-            };
+            let path_exclusive_only =
+                have_available_path && self.path_data(path_id).local_status() == PathStatus::Backup;
+            self.populate_packet(now, space_id, path_id, path_exclusive_only, &mut builder);
 
             // ACK-only packets should only be sent when explicitly allowed. If we write them due to
             // any other reason, there is a bug which leads to one component announcing write
@@ -1378,7 +1365,7 @@ impl Connection {
             // frames aren't queued, so that lack of space in the datagram isn't the reason for just
             // writing ACKs.
             debug_assert!(
-                !(sent_frames.is_ack_only(&self.streams)
+                !(builder.sent_frames().is_ack_only(&self.streams)
                     && !can_send.acks
                     && can_send.other
                     && builder.buf.segment_size()
@@ -1386,11 +1373,11 @@ impl Connection {
                     && self.datagrams.outgoing.is_empty()),
                 "SendableFrames was {can_send:?}, but only ACKs have been written"
             );
-            if sent_frames.requires_padding {
+            if builder.sent_frames().requires_padding {
                 pad_datagram |= PadDatagram::ToMinMtu;
             }
 
-            for (path_id, _pn) in sent_frames.largest_acked.iter() {
+            for (path_id, _pn) in builder.sent_frames().largest_acked.iter() {
                 self.spaces[space_id]
                     .for_path(*path_id)
                     .pending_acks
@@ -1420,7 +1407,7 @@ impl Connection {
             {
                 // We can append/coalesce the next packet into the current
                 // datagram. Finish the current packet without adding extra padding.
-                builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No);
+                builder.finish_and_track(now, self, path_id, PadDatagram::No);
             } else {
                 // We need a new datagram for the next packet.  Finish the current
                 // packet with padding.
@@ -1440,21 +1427,15 @@ impl Connection {
                             "GSO truncated by demand for {} padding bytes",
                             builder.buf.datagram_remaining_mut() - builder.predict_packet_end()
                         );
-                        builder.finish_and_track(now, self, path_id, sent_frames, PadDatagram::No);
+                        builder.finish_and_track(now, self, path_id, PadDatagram::No);
                         break;
                     }
 
                     // Pad the current datagram to GSO segment size so it can be
                     // included in the GSO batch.
-                    builder.finish_and_track(
-                        now,
-                        self,
-                        path_id,
-                        sent_frames,
-                        PadDatagram::ToSegmentSize,
-                    );
+                    builder.finish_and_track(now, self, path_id, PadDatagram::ToSegmentSize);
                 } else {
-                    builder.finish_and_track(now, self, path_id, sent_frames, pad_datagram);
+                    builder.finish_and_track(now, self, path_id, pad_datagram);
                 }
                 if transmit.num_datagrams() == 1 {
                     transmit.clip_datagram_size();
@@ -1545,17 +1526,7 @@ impl Connection {
                     builder.encode(frame::ImmediateAck, &mut self.stats.frame_tx);
                 }
 
-                let sent_frames = SentFrames {
-                    non_retransmits: true,
-                    ..Default::default()
-                };
-                builder.finish_and_track(
-                    now,
-                    self,
-                    path_id,
-                    sent_frames,
-                    PadDatagram::ToSize(probe_size),
-                );
+                builder.finish_and_track(now, self, path_id, PadDatagram::ToSize(probe_size));
 
                 self.path_stats
                     .entry(path_id)
@@ -5073,9 +5044,8 @@ impl Connection {
         path_id: PathId,
         path_exclusive_only: bool,
         builder: &mut PacketBuilder<'a, 'b>,
-    ) -> SentFrames {
+    ) {
         let pn = builder.exact_number;
-        let mut sent = SentFrames::default();
         let is_multipath_negotiated = self.is_multipath_negotiated();
         let stats = &mut self.stats.frame_tx;
         let space = &mut self.spaces[space_id];
@@ -5090,7 +5060,6 @@ impl Connection {
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
             trace!("HANDSHAKE_DONE");
             builder.encode(frame::HandshakeDone, stats);
-            sent.retransmits.get_or_create().handshake_done = true;
         }
 
         // REACH_OUT
@@ -5101,12 +5070,6 @@ impl Connection {
                 if builder.frame_space_remaining() > reach_out.size() {
                     trace!(%round, ?local_addr, "REACH_OUT");
                     builder.encode(reach_out, stats);
-                    let sent_reachouts = sent
-                        .retransmits
-                        .get_or_create()
-                        .reach_out
-                        .get_or_insert_with(|| (*round, Default::default()));
-                    sent_reachouts.1.push(local_addr);
                 } else {
                     addresses.push(local_addr);
                     break;
@@ -5126,7 +5089,8 @@ impl Connection {
                 .should_report(&self.peer_params.address_discovery_role)
             && (!path.observed_addr_sent || space.pending.observed_addr)
         {
-            let frame = frame::ObservedAddr::new(path.network_path.remote, self.next_observed_addr_seq_no);
+            let frame =
+                frame::ObservedAddr::new(path.network_path.remote, self.next_observed_addr_seq_no);
             if builder.frame_space_remaining() > frame.size() {
                 trace!(seq = %frame.seq_no, ip = %frame.ip, port = frame.port, "OBSERVED_ADDRESS");
                 builder.encode(frame, stats);
@@ -5134,7 +5098,6 @@ impl Connection {
                 self.next_observed_addr_seq_no = self.next_observed_addr_seq_no.saturating_add(1u8);
                 path.observed_addr_sent = true;
 
-                sent.retransmits.get_or_create().observed_addr = true;
                 space.pending.observed_addr = false;
             }
         }
@@ -5143,7 +5106,6 @@ impl Connection {
         if mem::replace(&mut space.for_path(path_id).ping_pending, false) {
             trace!("PING");
             builder.encode(frame::Ping, stats);
-            sent.non_retransmits = true;
         }
 
         // IMMEDIATE_ACK
@@ -5155,7 +5117,6 @@ impl Connection {
             );
             trace!("IMMEDIATE_ACK");
             builder.encode(frame::ImmediateAck, stats);
-            sent.non_retransmits = true;
         }
 
         // ACK
@@ -5172,7 +5133,6 @@ impl Connection {
                 Self::populate_acks(
                     now,
                     self.receiving_ecn,
-                    &mut sent,
                     path_id,
                     space_id,
                     space,
@@ -5207,8 +5167,6 @@ impl Connection {
             };
             builder.encode(frame, stats);
 
-            sent.retransmits.get_or_create().ack_frequency = true;
-
             self.ack_frequency
                 .ack_frequency_sent(path_id, pn, max_ack_delay);
         }
@@ -5229,11 +5187,10 @@ impl Connection {
                 network_path: path.network_path,
             };
             path.challenges_sent.insert(token, info);
-            sent.non_retransmits = true;
-            sent.requires_padding = true;
             let challenge = frame::PathChallenge(token);
             trace!(frame = %challenge);
             builder.encode(challenge, stats);
+            builder.require_padding();
             let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
             self.timers.set(
                 Timer::PerPath(path_id, PathTimer::PathChallengeLost),
@@ -5254,7 +5211,10 @@ impl Connection {
                     .address_discovery_role
                     .should_report(&self.peer_params.address_discovery_role)
             {
-                let frame = frame::ObservedAddr::new(path.network_path.remote, self.next_observed_addr_seq_no);
+                let frame = frame::ObservedAddr::new(
+                    path.network_path.remote,
+                    self.next_observed_addr_seq_no,
+                );
                 if builder.frame_space_remaining() > frame.size() {
                     builder.encode(frame, stats);
 
@@ -5262,7 +5222,6 @@ impl Connection {
                         self.next_observed_addr_seq_no.saturating_add(1u8);
                     path.observed_addr_sent = true;
 
-                    sent.retransmits.get_or_create().observed_addr = true;
                     space.pending.observed_addr = false;
                 }
             }
@@ -5273,11 +5232,10 @@ impl Connection {
             && space_id == SpaceId::Data
         {
             if let Some(token) = path.path_responses.pop_on_path(path.network_path) {
-                sent.non_retransmits = true;
-                sent.requires_padding = true;
                 let response = frame::PathResponse(token);
                 trace!(frame = %response);
                 builder.encode(response, stats);
+                builder.require_padding();
 
                 // NOTE: this is technically not required but might be useful to ride the
                 // request/response nature of path challenges to refresh an observation
@@ -5288,8 +5246,10 @@ impl Connection {
                         .address_discovery_role
                         .should_report(&self.peer_params.address_discovery_role)
                 {
-                    let frame =
-                        frame::ObservedAddr::new(path.network_path.remote, self.next_observed_addr_seq_no);
+                    let frame = frame::ObservedAddr::new(
+                        path.network_path.remote,
+                        self.next_observed_addr_seq_no,
+                    );
                     if builder.frame_space_remaining() > frame.size() {
                         builder.encode(frame, stats);
 
@@ -5297,7 +5257,6 @@ impl Connection {
                             self.next_observed_addr_seq_no.saturating_add(1u8);
                         path.observed_addr_sent = true;
 
-                        sent.retransmits.get_or_create().observed_addr = true;
                         space.pending.observed_addr = false;
                     }
                 }
@@ -5342,7 +5301,6 @@ impl Connection {
             // TODO(@divma): revisit
             builder.encode(truncated.clone(), stats);
 
-            sent.retransmits.get_or_create().crypto.push_back(truncated);
             if !frame.data.is_empty() {
                 frame.offset += len as u64;
                 space.pending.crypto.push_front(frame);
@@ -5364,11 +5322,6 @@ impl Connection {
             };
             builder.encode(frame, stats);
             trace!(%path_id, "PATH_ABANDON");
-            sent.retransmits
-                .get_or_create()
-                .path_abandon
-                .entry(path_id)
-                .or_insert(error_code);
         }
 
         // PATH_STATUS_AVAILABLE & PATH_STATUS_BACKUP
@@ -5385,7 +5338,6 @@ impl Connection {
             };
 
             let seq = path.status.seq();
-            sent.retransmits.get_or_create().path_status.insert(path_id);
             match path.local_status() {
                 PathStatus::Available => {
                     let frame = frame::PathStatusAvailable {
@@ -5414,7 +5366,6 @@ impl Connection {
             let frame = frame::MaxPathId(self.local_max_path_id);
             builder.encode(frame, stats);
             space.pending.max_path_id = false;
-            sent.retransmits.get_or_create().max_path_id = true;
             trace!(val = %self.local_max_path_id, "MAX_PATH_ID");
         }
 
@@ -5426,7 +5377,6 @@ impl Connection {
             let frame = frame::PathsBlocked(self.remote_max_path_id);
             builder.encode(frame, stats);
             space.pending.paths_blocked = false;
-            sent.retransmits.get_or_create().paths_blocked = true;
             trace!(max_path_id = %self.remote_max_path_id, "PATHS_BLOCKED");
         }
 
@@ -5446,21 +5396,13 @@ impl Connection {
                 next_seq: VarInt(next_seq),
             };
             builder.encode(frame, stats);
-            sent.retransmits
-                .get_or_create()
-                .path_cids_blocked
-                .push(path_id);
             trace!(%path_id, next_seq, "PATH_CIDS_BLOCKED");
         }
 
         // RESET_STREAM, STOP_SENDING, MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS
         if space_id == SpaceId::Data {
-            self.streams.write_control_frames(
-                builder,
-                &mut space.pending,
-                &mut sent.retransmits,
-                stats,
-            );
+            self.streams
+                .write_control_frames(builder, &mut space.pending, stats);
         }
 
         // NEW_CONNECTION_ID
@@ -5511,7 +5453,6 @@ impl Connection {
                 reset_token: issued.reset_token,
             };
             builder.encode(frame, stats);
-            sent.retransmits.get_or_create().new_cids.push(issued);
         }
 
         // RETIRE_CONNECTION_ID
@@ -5530,10 +5471,6 @@ impl Connection {
             };
             let frame = frame::RetireConnectionId { path_id, sequence };
             builder.encode(frame, stats);
-            sent.retransmits
-                .get_or_create()
-                .retire_cids
-                .push((path_id.unwrap_or_default(), sequence));
         }
 
         // DATAGRAM
@@ -5545,7 +5482,6 @@ impl Connection {
             match self.datagrams.write(builder, stats) {
                 true => {
                     sent_datagrams = true;
-                    sent.non_retransmits = true;
                 }
                 false => break,
             }
@@ -5593,17 +5529,13 @@ impl Connection {
 
             trace!("NEW_TOKEN");
             builder.encode(new_token, stats);
-            sent.retransmits
-                .get_or_create()
-                .new_tokens
-                .push(network_path);
+            builder.retransmits_mut().new_tokens.push(network_path);
         }
 
         // STREAM
         if !path_exclusive_only && space_id == SpaceId::Data {
-            sent.stream_frames =
-                self.streams
-                    .write_stream_frames(builder, self.config.send_fairness, stats);
+            self.streams
+                .write_stream_frames(builder, self.config.send_fairness, stats);
         }
 
         // ADD_ADDRESS
@@ -5619,10 +5551,6 @@ impl Connection {
                     "ADD_ADDRESS",
                 );
                 builder.encode(added_address, stats);
-                sent.retransmits
-                    .get_or_create()
-                    .add_address
-                    .insert(added_address);
             } else {
                 break;
             }
@@ -5635,23 +5563,16 @@ impl Connection {
             if let Some(removed_address) = space.pending.remove_address.pop_last() {
                 trace!(seq = %removed_address.seq_no, "REMOVE_ADDRESS");
                 builder.encode(removed_address, stats);
-                sent.retransmits
-                    .get_or_create()
-                    .remove_address
-                    .insert(removed_address);
             } else {
                 break;
             }
         }
-
-        sent
     }
 
     /// Write pending ACKs into a buffer
     fn populate_acks<'a, 'b>(
         now: Instant,
         receiving_ecn: bool,
-        sent: &mut SentFrames,
         path_id: PathId,
         space_id: SpaceId,
         space: &mut PacketSpace,
@@ -5681,9 +5602,6 @@ impl Connection {
         } else {
             None
         };
-        if let Some(max) = ranges.max() {
-            sent.largest_acked.insert(path_id, max);
-        }
 
         let delay_micros = pns.pending_acks.ack_delay(now).as_micros() as u64;
         // TODO: This should come from `TransportConfig` if that gets configurable.
@@ -6713,6 +6631,88 @@ impl SentFrames {
             && !self.non_retransmits
             && self.stream_frames.is_empty()
             && self.retransmits.is_empty(streams)
+    }
+
+    fn retransmits_mut(&mut self) -> &mut Retransmits {
+        self.retransmits.get_or_create()
+    }
+
+    fn sent(&mut self, frame: frame::EncodableFrame<'_>) {
+        use frame::EncodableFrame::*;
+        match frame {
+            PathAck(path_ack_encoder) => {
+                if let Some(max) = path_ack_encoder.ranges.max() {
+                    self.largest_acked.insert(path_ack_encoder.path_id, max);
+                }
+            }
+            Ack(ack_encoder) => {
+                if let Some(max) = ack_encoder.ranges.max() {
+                    self.largest_acked.insert(PathId::ZERO, max);
+                }
+            }
+            Close(close_encoder) => todo!(),
+            PathResponse(path_response) => self.non_retransmits = true,
+            HandshakeDone(handshake_done) => self.retransmits_mut().handshake_done = true,
+            ReachOut(reach_out) => self
+                .retransmits_mut()
+                .reach_out
+                .get_or_insert_with(|| (reach_out.round, Default::default()))
+                .1
+                .push((reach_out.ip, reach_out.port)),
+            ObservedAddr(_) => self.retransmits_mut().observed_addr = true,
+            Ping(ping) => self.non_retransmits = true,
+            ImmediateAck(immediate_ack) => self.non_retransmits = true,
+            AckFrequency(ack_frequency) => self.retransmits_mut().ack_frequency = true,
+            PathChallenge(path_challenge) => self.non_retransmits = true,
+            Crypto(crypto) => self.retransmits_mut().crypto.push_back(crypto.clone()),
+            PathAbandon(path_abandon) => {
+                self.retransmits_mut()
+                    .path_abandon
+                    .entry(path_abandon.path_id)
+                    .or_insert(path_abandon.error_code);
+            }
+            PathStatusAvailable(frame::PathStatusAvailable { path_id, .. })
+            | PathStatusBackup(frame::PathStatusBackup { path_id, .. }) => {
+                self.retransmits_mut().path_status.insert(path_id);
+            }
+            MaxPathId(max_path_id) => self.retransmits_mut().max_path_id = true,
+            PathsBlocked(paths_blocked) => self.retransmits_mut().paths_blocked = true,
+            PathCidsBlocked(path_cids_blocked) => self
+                .retransmits_mut()
+                .path_cids_blocked
+                .push(path_cids_blocked.path_id),
+            ResetStream(reset_stream) => self
+                .retransmits_mut()
+                .reset_stream
+                .push((reset_stream.id, reset_stream.error_code)),
+            StopSending(stop_sending) => self.retransmits_mut().stop_sending.push(stop_sending),
+            NewConnectionId(new_connection_id) => self
+                .retransmits_mut()
+                .new_cids
+                .push(new_connection_id.issued()),
+            RetireConnectionId(retire_connection_id) => self.retransmits_mut().retire_cids.push((
+                retire_connection_id.path_id.unwrap_or_default(),
+                retire_connection_id.sequence,
+            )),
+            Datagram(datagram) => self.non_retransmits = true,
+            NewToken(new_token) => todo!(),
+            AddAddress(add_address) => {
+                self.retransmits_mut().add_address.insert(add_address);
+            }
+            RemoveAddress(remove_address) => {
+                self.retransmits_mut().remove_address.insert(remove_address);
+            }
+            StreamMeta(stream_meta_encoder) => self.stream_frames.push(stream_meta_encoder.meta),
+            MaxData(max_data) => self.retransmits_mut().max_data = true,
+            MaxStreamData(max_stream_data) => {
+                self.retransmits_mut()
+                    .max_stream_data
+                    .insert(max_stream_data.id);
+            }
+            MaxStreams(max_streams) => {
+                self.retransmits_mut().max_stream_id[max_streams.dir as usize] = true
+            }
+        }
     }
 }
 

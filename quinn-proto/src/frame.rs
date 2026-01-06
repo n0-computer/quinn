@@ -185,7 +185,7 @@ pub(super) enum EncodableFrame<'a> {
     NewToken(NewToken),
     AddAddress(AddAddress),
     RemoveAddress(RemoveAddress),
-    StreamMeta(StreamMetaEncoder<'a>),
+    StreamMeta(StreamMetaEncoder),
     MaxData(MaxData),
     MaxStreamData(MaxStreamData),
     MaxStreams(MaxStreams),
@@ -1139,7 +1139,7 @@ impl Default for StreamMeta {
 }
 
 impl StreamMeta {
-    pub(crate) fn encoder(&self, encode_length: bool) -> StreamMetaEncoder<'_> {
+    pub(crate) fn encoder(self, encode_length: bool) -> StreamMetaEncoder {
         StreamMetaEncoder {
             meta: self,
             encode_length,
@@ -1161,12 +1161,12 @@ impl StreamMeta {
     }
 }
 
-pub(crate) struct StreamMetaEncoder<'a> {
-    pub(crate) meta: &'a StreamMeta,
+pub(crate) struct StreamMetaEncoder {
+    pub(crate) meta: StreamMeta,
     encode_length: bool,
 }
 
-impl<'a> Encodable for StreamMetaEncoder<'a> {
+impl Encodable for StreamMetaEncoder {
     fn encode<W: BufMut>(&self, out: &mut W) {
         let StreamMetaEncoder {
             meta,
@@ -1729,6 +1729,15 @@ impl NewConnectionId {
             id,
             reset_token: reset_token.into(),
         })
+    }
+
+    pub(crate) fn issued(&self) -> crate::shared::IssuedCid {
+        crate::shared::IssuedCid {
+            path_id: self.path_id.unwrap_or_default(),
+            sequence: self.sequence,
+            id: self.id,
+            reset_token: self.reset_token,
+        }
     }
 }
 

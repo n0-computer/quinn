@@ -412,7 +412,6 @@ impl StreamsState {
         &mut self,
         builder: &mut PacketBuilder<'a, 'b>,
         pending: &mut Retransmits,
-        retransmits: &mut ThinRetransmits,
         stats: &mut FrameStats,
     ) {
         // RESET_STREAM
@@ -426,10 +425,6 @@ impl StreamsState {
                 None => continue,
             };
             trace!(stream = %id, "RESET_STREAM");
-            retransmits
-                .get_or_create()
-                .reset_stream
-                .push((id, error_code));
             let frame = frame::ResetStream {
                 id,
                 error_code,
@@ -453,7 +448,6 @@ impl StreamsState {
             // can't be relied upon regardless.
             trace!(stream = %frame.id, "STOP_SENDING");
             builder.encode(frame, stats);
-            retransmits.get_or_create().stop_sending.push(frame);
         }
 
         // MAX_DATA
@@ -473,7 +467,6 @@ impl StreamsState {
                 self.sent_max_data = max;
             }
 
-            retransmits.get_or_create().max_data = true;
             builder.encode(frame::MaxData(max), stats);
         }
 
@@ -496,7 +489,6 @@ impl StreamsState {
             if !rs.can_send_flow_control() {
                 continue;
             }
-            retransmits.get_or_create().max_stream_data.insert(id);
 
             let (max, _) = rs.max_stream_data(self.stream_receive_window);
             rs.record_sent_max_stream_data(max);
@@ -512,7 +504,6 @@ impl StreamsState {
             }
 
             pending.max_stream_id[dir as usize] = false;
-            retransmits.get_or_create().max_stream_id[dir as usize] = true;
             self.sent_max_remote[dir as usize] = self.max_remote[dir as usize];
             trace!(
                 value = self.max_remote[dir as usize],
@@ -528,8 +519,7 @@ impl StreamsState {
         builder: &mut PacketBuilder<'a, 'b>,
         fair: bool,
         stats: &mut FrameStats,
-    ) -> StreamMetaVec {
-        let mut stream_frames = StreamMetaVec::new();
+    ) {
         while builder.frame_space_remaining() > frame::Stream::SIZE_BOUND {
             // Pop the stream of the highest priority that currently has pending data. If
             // the stream still has some pending data left after writing, it will be
@@ -577,13 +567,9 @@ impl StreamsState {
 
             let meta = frame::StreamMeta { id, offsets, fin };
             trace!(id = %meta.id, off = meta.offsets.start, len = meta.offsets.end - meta.offsets.start, fin = meta.fin, "STREAM");
-            builder.encode(meta.encoder(encode_length), stats);
-
             stream.pending.get_into(meta.offsets.clone(), builder.buf);
-            stream_frames.push(meta);
+            builder.encode(meta.encoder(encode_length), stats);
         }
-
-        stream_frames
     }
 
     /// Notify the application that new streams were opened or a stream became readable.
