@@ -5244,7 +5244,8 @@ impl Connection {
                 truncated.offset,
                 truncated.data.len()
             );
-            builder.encode(truncated, stats);
+            // TODO(@divma): revisit
+            builder.encode(truncated.clone(), stats);
 
             sent.retransmits.get_or_create().crypto.push_back(truncated);
             if !frame.data.is_empty() {

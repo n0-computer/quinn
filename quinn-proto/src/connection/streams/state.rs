@@ -14,8 +14,8 @@ use super::{
 };
 use crate::{
     Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
-    coding::{BufMutExt, Encodable},
-    connection::{PacketBuilder, qlog::QlogSentPacket, stats::FrameStats},
+    coding::BufMutExt,
+    connection::{PacketBuilder, stats::FrameStats},
     frame::{self, Frame, FrameStruct, StreamMetaVec},
     transport_parameters::TransportParameters,
 };
@@ -475,14 +475,11 @@ impl StreamsState {
             }
 
             retransmits.get_or_create().max_data = true;
-            buf.write(frame::FrameType::MaxData);
-            buf.write(max);
-            qlog.frame(&Frame::MaxData(max));
-            stats.max_data += 1;
+            builder.encode(frame::MaxData(max), stats);
         }
 
         // MAX_STREAM_DATA
-        while buf.remaining_mut() > 17 {
+        while builder.frame_space_remaining() > 17 {
             let id = match pending.max_stream_data.iter().next() {
                 Some(x) => *x,
                 None => break,
@@ -506,16 +503,16 @@ impl StreamsState {
             rs.record_sent_max_stream_data(max);
 
             trace!(stream = %id, max = max, "MAX_STREAM_DATA");
-            buf.write(frame::FrameType::MaxStreamData);
-            buf.write(id);
-            buf.write_var(max);
+            builder.encode(frame::FrameType::MaxStreamData);
+            builder.encode(id);
+            builder.encode_var(max);
             qlog.frame(&Frame::MaxStreamData { id, offset: max });
             stats.max_stream_data += 1;
         }
 
         // MAX_STREAMS
         for dir in Dir::iter() {
-            if !pending.max_stream_id[dir as usize] || buf.remaining_mut() <= 9 {
+            if !pending.max_stream_id[dir as usize] || builder.frame_space_remaining() <= 9 {
                 continue;
             }
 
@@ -526,12 +523,12 @@ impl StreamsState {
                 value = self.max_remote[dir as usize],
                 "MAX_STREAMS ({:?})", dir
             );
-            buf.write(match dir {
+            builder.encode(match dir {
                 Dir::Uni => frame::FrameType::MaxStreamsUni,
                 Dir::Bi => frame::FrameType::MaxStreamsBidi,
             });
             let count = self.max_remote[dir as usize];
-            buf.write_var(count);
+            builder.encode_var(count);
             qlog.frame(&Frame::MaxStreams { dir, count });
             match dir {
                 Dir::Uni => stats.max_streams_uni += 1,

@@ -186,6 +186,7 @@ pub(super) enum EncodableFrame<'a> {
     AddAddress(AddAddress),
     RemoveAddress(RemoveAddress),
     StreamMeta(StreamMetaEncoder<'a>),
+    MaxData(MaxData),
 }
 
 impl<'a> EncodableFrame<'a> {
@@ -221,6 +222,7 @@ impl<'a> EncodableFrame<'a> {
             StreamMeta(meta_encoder) => {
                 FrameType::Stream(meta_encoder.meta.get_type(meta_encoder.encode_length))
             }
+            MaxData(max_data) => FrameType::MaxData,
         }
     }
 }
@@ -255,6 +257,7 @@ impl<'a> Encodable for EncodableFrame<'a> {
             EncodableFrame::AddAddress(add_address) => add_address.encode(buf),
             EncodableFrame::RemoveAddress(remove_address) => remove_address.encode(buf),
             EncodableFrame::StreamMeta(stream_meta) => stream_meta.encode(buf),
+            EncodableFrame::MaxData(max_data) => max_data.encode(buf),
         }
     }
 }
@@ -372,7 +375,7 @@ pub(crate) enum Frame {
     Crypto(Crypto),
     NewToken(NewToken),
     Stream(Stream),
-    MaxData(VarInt),
+    MaxData(MaxData),
     MaxStreamData { id: StreamId, offset: u64 },
     MaxStreams { dir: Dir, count: u64 },
     DataBlocked { offset: u64 },
@@ -547,6 +550,21 @@ impl Decodable for PathResponse {
 impl Encodable for PathResponse {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.write(FrameType::PathResponse);
+        buf.write(self.0);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MaxData(pub(crate) VarInt);
+
+impl Decodable for MaxData {
+    fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
+        Ok(Self(buf.get()?))
+    }
+}
+impl Encodable for MaxData {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        buf.write(FrameType::MaxData);
         buf.write(self.0);
     }
 }
