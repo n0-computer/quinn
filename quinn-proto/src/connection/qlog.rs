@@ -37,7 +37,7 @@ use qlog::{
 use tracing::warn;
 
 use crate::{
-    Connection, ConnectionId, Frame, Instant, PathId,
+    Connection, ConnectionId, FourTuple, Frame, Instant, PathId,
     connection::{PathData, SentPacket, timer::Timer},
     frame::{EcnCounts, EncodableFrame, StreamMeta},
     packet::{Header, SpaceId},
@@ -106,10 +106,15 @@ impl QlogStream {
         self.emit_event_with_tuple_id(event, now, None);
     }
 
-    fn emit_event_with_tuple_id(&self, event: EventData, now: Instant, tuple: Option<String>) {
+    fn emit_event_with_tuple_id(
+        &self,
+        event: EventData,
+        now: Instant,
+        network_path: Option<String>,
+    ) {
         // Time will be overwritten by `add_event_with_instant`
         let mut event = Event::with_time(0.0, event);
-        event.tuple = tuple;
+        event.tuple = network_path;
         let mut qlog_streamer = self.0.lock().unwrap();
         if let Err(e) = qlog_streamer.add_event_with_instant(event, now) {
             warn!("could not emit qlog event: {e}");
@@ -244,7 +249,7 @@ impl QlogSink {
         }
     }
 
-    pub(super) fn emit_tuple_assigned(&self, path_id: PathId, remote: SocketAddr, now: Instant) {
+    pub(super) fn emit_tuple_assigned(&self, path_id: PathId, tuple: FourTuple, now: Instant) {
         #[cfg(feature = "qlog")]
         {
             let Some(stream) = self.stream.as_ref() else {
@@ -253,10 +258,12 @@ impl QlogSink {
             let tuple_id = fmt_tuple_id(path_id.as_u32() as u64);
             let event = TupleAssigned {
                 tuple_id,
-                tuple_local: None,
+                tuple_local: tuple
+                    .local_ip
+                    .map(|local_ip| tuple_endpoint_info(Some(local_ip), None, None)),
                 tuple_remote: Some(tuple_endpoint_info(
-                    Some(remote.ip()),
-                    Some(remote.port()),
+                    Some(tuple.remote.ip()),
+                    Some(tuple.remote.port()),
                     None,
                 )),
             };

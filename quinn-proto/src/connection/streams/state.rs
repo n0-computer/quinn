@@ -579,15 +579,7 @@ impl StreamsState {
             trace!(id = %meta.id, off = meta.offsets.start, len = meta.offsets.end - meta.offsets.start, fin = meta.fin, "STREAM");
             builder.encode(meta.encoder(encode_length), stats);
 
-            // The range might not be retrievable in a single `get` if it is
-            // stored in noncontiguous fashion. Therefore this loop iterates
-            // until the range is fully copied into the frame.
-            let mut offsets = meta.offsets.clone();
-            while offsets.start != offsets.end {
-                let data = stream.pending.get(offsets.clone());
-                offsets.start += data.len() as u64;
-                builder.buf.put_slice(data);
-            }
+            stream.pending.get_into(meta.offsets.clone(), builder.buf);
             stream_frames.push(meta);
         }
 
