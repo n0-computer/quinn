@@ -14,9 +14,8 @@ use super::{
 };
 use crate::{
     Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
-    coding::BufMutExt,
     connection::{PacketBuilder, stats::FrameStats},
-    frame::{self, Frame, FrameStruct, StreamMetaVec},
+    frame::{self, FrameStruct, StreamMetaVec},
     transport_parameters::TransportParameters,
 };
 
@@ -503,11 +502,7 @@ impl StreamsState {
             rs.record_sent_max_stream_data(max);
 
             trace!(stream = %id, max = max, "MAX_STREAM_DATA");
-            builder.encode(frame::FrameType::MaxStreamData);
-            builder.encode(id);
-            builder.encode_var(max);
-            qlog.frame(&Frame::MaxStreamData { id, offset: max });
-            stats.max_stream_data += 1;
+            builder.encode(frame::MaxStreamData { id, offset: max }, stats);
         }
 
         // MAX_STREAMS
@@ -523,17 +518,8 @@ impl StreamsState {
                 value = self.max_remote[dir as usize],
                 "MAX_STREAMS ({:?})", dir
             );
-            builder.encode(match dir {
-                Dir::Uni => frame::FrameType::MaxStreamsUni,
-                Dir::Bi => frame::FrameType::MaxStreamsBidi,
-            });
             let count = self.max_remote[dir as usize];
-            builder.encode_var(count);
-            qlog.frame(&Frame::MaxStreams { dir, count });
-            match dir {
-                Dir::Uni => stats.max_streams_uni += 1,
-                Dir::Bi => stats.max_streams_bidi += 1,
-            }
+            builder.encode(frame::MaxStreams { dir, count }, stats);
         }
     }
 

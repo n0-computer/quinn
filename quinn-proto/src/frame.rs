@@ -187,6 +187,8 @@ pub(super) enum EncodableFrame<'a> {
     RemoveAddress(RemoveAddress),
     StreamMeta(StreamMetaEncoder<'a>),
     MaxData(MaxData),
+    MaxStreamData(MaxStreamData),
+    MaxStreams(MaxStreams),
 }
 
 impl<'a> EncodableFrame<'a> {
@@ -222,7 +224,9 @@ impl<'a> EncodableFrame<'a> {
             StreamMeta(meta_encoder) => {
                 FrameType::Stream(meta_encoder.meta.get_type(meta_encoder.encode_length))
             }
-            MaxData(max_data) => FrameType::MaxData,
+            MaxData(_) => FrameType::MaxData,
+            MaxStreamData(_) => FrameType::MaxStreamData,
+            MaxStreams(max_streams) => max_streams.get_type(),
         }
     }
 }
@@ -258,6 +262,8 @@ impl<'a> Encodable for EncodableFrame<'a> {
             EncodableFrame::RemoveAddress(remove_address) => remove_address.encode(buf),
             EncodableFrame::StreamMeta(stream_meta) => stream_meta.encode(buf),
             EncodableFrame::MaxData(max_data) => max_data.encode(buf),
+            EncodableFrame::MaxStreamData(max_stream_data) => max_stream_data.encode(buf),
+            EncodableFrame::MaxStreams(max_streams) => max_streams.encode(buf),
         }
     }
 }
@@ -376,8 +382,8 @@ pub(crate) enum Frame {
     NewToken(NewToken),
     Stream(Stream),
     MaxData(MaxData),
-    MaxStreamData { id: StreamId, offset: u64 },
-    MaxStreams { dir: Dir, count: u64 },
+    MaxStreamData(MaxStreamData),
+    MaxStreams(MaxStreams),
     DataBlocked { offset: u64 },
     StreamDataBlocked { id: StreamId, offset: u64 },
     StreamsBlocked { dir: Dir, limit: u64 },
@@ -427,9 +433,8 @@ impl Frame {
             Close(self::Close::Connection(_)) => FrameType::ConnectionClose,
             Close(self::Close::Application(_)) => FrameType::ConnectionClose,
             MaxData(_) => FrameType::MaxData,
-            MaxStreamData { .. } => FrameType::MaxStreamData,
-            MaxStreams { dir: Dir::Bi, .. } => FrameType::MaxStreamsBidi,
-            MaxStreams { dir: Dir::Uni, .. } => FrameType::MaxStreamsUni,
+            MaxStreamData(_) => FrameType::MaxStreamData,
+            MaxStreams(max_streams) => max_streams.get_type(),
             Ping => FrameType::Ping,
             DataBlocked { .. } => FrameType::DataBlocked,
             StreamDataBlocked { .. } => FrameType::StreamDataBlocked,
@@ -566,6 +571,51 @@ impl Encodable for MaxData {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.write(FrameType::MaxData);
         buf.write(self.0);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MaxStreamData {
+    pub(crate) id: StreamId,
+    pub(crate) offset: u64,
+}
+
+impl Decodable for MaxStreamData {
+    fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
+        Ok(Self {
+            id: buf.get()?,
+            offset: buf.get_var()?,
+        })
+    }
+}
+
+impl Encodable for MaxStreamData {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        buf.write(FrameType::MaxStreamData);
+        buf.write(self.id);
+        buf.write_var(self.offset);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MaxStreams {
+    pub(crate) dir: Dir,
+    pub(crate) count: u64,
+}
+
+impl MaxStreams {
+    pub(crate) fn get_type(&self) -> FrameType {
+        match self.dir {
+            Dir::Bi => FrameType::MaxStreamsBidi,
+            Dir::Uni => FrameType::MaxStreamsUni,
+        }
+    }
+}
+
+impl Encodable for MaxStreams {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        buf.write(self.get_type());
+        buf.write_var(self.count);
     }
 }
 
@@ -1301,18 +1351,15 @@ impl Iter {
                 reason: self.take_len()?,
             })),
             FrameType::MaxData => Frame::MaxData(self.bytes.get()?),
-            FrameType::MaxStreamData => Frame::MaxStreamData {
-                id: self.bytes.get()?,
-                offset: self.bytes.get_var()?,
-            },
-            FrameType::MaxStreamsBidi => Frame::MaxStreams {
+            FrameType::MaxStreamData => Frame::MaxStreamData(self.bytes.get()?),
+            FrameType::MaxStreamsBidi => Frame::MaxStreams(MaxStreams {
                 dir: Dir::Bi,
                 count: self.bytes.get_var()?,
-            },
-            FrameType::MaxStreamsUni => Frame::MaxStreams {
+            }),
+            FrameType::MaxStreamsUni => Frame::MaxStreams(MaxStreams {
                 dir: Dir::Uni,
                 count: self.bytes.get_var()?,
-            },
+            }),
             FrameType::Ping => Frame::Ping,
             FrameType::DataBlocked => Frame::DataBlocked {
                 offset: self.bytes.get_var()?,
