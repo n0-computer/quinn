@@ -13,7 +13,7 @@
 <a href=#13 id=13 data-nosnippet>13</a>
 <a href=#14 id=14 data-nosnippet>14</a><span class="kw">use super</span>::{PathId, assembler::Assembler};
 <a href=#15 id=15 data-nosnippet>15</a><span class="kw">use crate</span>::{
-<a href=#16 id=16 data-nosnippet>16</a>    Dir, Duration, Instant, SocketAddr, StreamId, TransportError, TransportErrorCode, VarInt,
+<a href=#16 id=16 data-nosnippet>16</a>    Dir, Duration, FourTuple, Instant, StreamId, TransportError, TransportErrorCode, VarInt,
 <a href=#17 id=17 data-nosnippet>17</a>    connection::StreamsState,
 <a href=#18 id=18 data-nosnippet>18</a>    crypto::Keys,
 <a href=#19 id=19 data-nosnippet>19</a>    frame::{<span class="self">self</span>, AddAddress, RemoveAddress},
@@ -525,10 +525,10 @@
 <a href=#525 id=525 data-nosnippet>525</a>    ///
 <a href=#526 id=526 data-nosnippet>526</a>    /// It is true that a QUIC endpoint will only want to effectively have NEW_TOKEN frames
 <a href=#527 id=527 data-nosnippet>527</a>    /// enqueued for its current path at a given point in time. Based on that, we could conceivably
-<a href=#528 id=528 data-nosnippet>528</a>    /// change this from a vector to an `Option&lt;(SocketAddr, usize)&gt;` or just a `usize` or
+<a href=#528 id=528 data-nosnippet>528</a>    /// change this from a vector to an `Option&lt;(FourTuple, usize)&gt;` or just a `usize` or
 <a href=#529 id=529 data-nosnippet>529</a>    /// something. However, due to the architecture of Quinn, it is considerably simpler to not do
 <a href=#530 id=530 data-nosnippet>530</a>    /// that; consider what such a change would mean for implementing `BitOrAssign` on Self.
-<a href=#531 id=531 data-nosnippet>531</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) new_tokens: Vec&lt;SocketAddr&gt;,
+<a href=#531 id=531 data-nosnippet>531</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) new_tokens: Vec&lt;FourTuple&gt;,
 <a href=#532 id=532 data-nosnippet>532</a>    <span class="doccomment">/// Paths which need to be abandoned
 <a href=#533 id=533 data-nosnippet>533</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) path_abandon: BTreeMap&lt;PathId, TransportErrorCode&gt;,
 <a href=#534 id=534 data-nosnippet>534</a>    <span class="doccomment">/// If a [`frame::PathStatusAvailable`] and [`frame::PathStatusBackup`] need to be sent for a path
