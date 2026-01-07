@@ -5728,6 +5728,7 @@ impl Connection {
             }
         }
 
+        // STREAM
         if !path_exclusive_only && space_id == SpaceId::Data {
             sent.stream_frames =
                 self.streams
