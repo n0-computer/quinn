@@ -132,7 +132,7 @@
 <a href=#132 id=132 data-nosnippet>132</a><span class="kw">impl </span>TryFrom&lt;u64&gt; <span class="kw">for </span>FrameType {
 <a href=#133 id=133 data-nosnippet>133</a>    <span class="kw">type </span>Error = InvalidFrameId;
 <a href=#134 id=134 data-nosnippet>134</a>    <span class="kw">fn </span>try_from(value: u64) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, <span class="self">Self</span>::Error&gt; {
-<a href=#135 id=135 data-nosnippet>135</a>        <span class="kw">match </span>FrameType::from_u64(value) {
+<a href=#135 id=135 data-nosnippet>135</a>        <span class="kw">match </span><span class="self">Self</span>::from_u64(value) {
 <a href=#136 id=136 data-nosnippet>136</a>            <span class="prelude-val">Some</span>(t) =&gt; <span class="prelude-val">Ok</span>(t),
 <a href=#137 id=137 data-nosnippet>137</a>            <span class="prelude-val">None </span>=&gt; {
 <a href=#138 id=138 data-nosnippet>138</a>                <span class="kw">if </span>DatagramInfo::VALUES.contains(<span class="kw-2">&amp;</span>value) {
