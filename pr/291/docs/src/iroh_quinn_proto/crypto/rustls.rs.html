@@ -108,7 +108,7 @@
 <a href=#108 id=108 data-nosnippet>108</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(alert) = <span class="self">self</span>.inner.alert() {
 <a href=#109 id=109 data-nosnippet>109</a>                TransportError {
 <a href=#110 id=110 data-nosnippet>110</a>                    code: TransportErrorCode::crypto(alert.into()),
-<a href=#111 id=111 data-nosnippet>111</a>                    frame: <span class="prelude-val">None</span>,
+<a href=#111 id=111 data-nosnippet>111</a>                    frame: <span class="kw">crate</span>::frame::MaybeFrame::None,
 <a href=#112 id=112 data-nosnippet>112</a>                    reason: e.to_string(),
 <a href=#113 id=113 data-nosnippet>113</a>                    crypto: <span class="prelude-val">Some</span>(Arc::new(e)),
 <a href=#114 id=114 data-nosnippet>114</a>                }

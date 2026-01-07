@@ -209,7 +209,7 @@
 <a href=#209 id=209 data-nosnippet>209</a>    <span class="doccomment">/// The peer's UDP address for this path.
 <a href=#210 id=210 data-nosnippet>210</a>    </span><span class="kw">pub fn </span>remote_address(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;SocketAddr, ClosedPath&gt; {
 <a href=#211 id=211 data-nosnippet>211</a>        <span class="kw">let </span>state = <span class="self">self</span>.conn.state.lock(<span class="string">"per_path_remote_address"</span>);
-<a href=#212 id=212 data-nosnippet>212</a>        state.inner.path_remote_address(<span class="self">self</span>.id)
+<a href=#212 id=212 data-nosnippet>212</a>        <span class="prelude-val">Ok</span>(state.inner.network_path(<span class="self">self</span>.id)<span class="question-mark">?</span>.remote)
 <a href=#213 id=213 data-nosnippet>213</a>    }
 <a href=#214 id=214 data-nosnippet>214</a>
 <a href=#215 id=215 data-nosnippet>215</a>    <span class="doccomment">/// Ping the remote endpoint over this path.
