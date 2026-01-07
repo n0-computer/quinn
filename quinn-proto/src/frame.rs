@@ -20,118 +20,131 @@ use crate::{
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 
-/// Generates the [`FrameType`] enum, and its associated conversions from and to u64
-macro_rules! frame_types {
-    // Process the unit variants.
-    (enum_defs: [$($enum_defs: tt)*] try_from_arms: [$($try_from_arms: tt)*] to_u64_arms:[$($to_u64_arms: tt)*] // accumulators
-     $variant: ident = $value: literal, // VariantName = value,
-     $($token: tt)*) => {
-        frame_types!{
-            enum_defs: [$($enum_defs)* $variant,]
-            try_from_arms: [$($try_from_arms)* $value => Self::$variant,]
-            to_u64_arms: [$($to_u64_arms)* FrameType::$variant => $value,]
-            $($token)*
-        }
-    };
-
-    // Process the tuple variants.
-    (enum_defs: [$($enum_defs: tt)*] try_from_arms: [$($try_from_arms: tt)*] to_u64_arms:[$($to_u64_arms: tt)*] // accumulators
-     $variant: ident($inner: ident), // VariantName(InnerType),
-     $($token: tt)*) => {
-        frame_types!{
-            enum_defs: [$($enum_defs)* $variant($inner),]
-            try_from_arms: [$($try_from_arms)* value if <$inner>::VALUES.contains(&value) => Self::$variant($inner(value as u8)),]
-            to_u64_arms: [$($to_u64_arms)* FrameType::$variant($inner(value)) => value as u64,]
-            $($token)*
-        }
-    };
-
-    // Final generation step.
-    (enum_defs: [$($enum_defs: tt)+] try_from_arms: [$($try_from_arms: tt)+] to_u64_arms: [$($to_u64_arms: tt)+]) => {
-        /// A QUIC frame type
-        #[derive(Copy, Clone, Eq, PartialEq, derive_more::Debug, derive_more::Display)]
-        #[display(rename_all = "SCREAMING_SNAKE_CASE")]
-        #[allow(missing_docs)]
-        pub enum FrameType {
-            $($enum_defs)*
-        }
-
-        pub struct InvalidFrameId(u64);
-
-        impl TryFrom<u64> for FrameType {
-            type Error = InvalidFrameId;
-            fn try_from(value: u64) -> Result<Self, Self::Error> {
-                Ok(match value {
-                    $($try_from_arms)*
-                    other => return Err(InvalidFrameId(other))
-                })
-            }
-        }
-
-        impl FrameType {
-            pub(crate) const fn to_u64(self) -> u64 {
-                match self {
-                    $($to_u64_arms)*
-                }
-            }
-        }
-    };
-}
-
-frame_types! {
-    enum_defs: []
-    try_from_arms: []
-    to_u64_arms: []
-    Padding = 0x00,
-    Ping = 0x01,
-    Ack = 0x02,
-    AckEcn = 0x03,
-    ResetStream = 0x04,
-    StopSending = 0x05,
-    Crypto = 0x06,
-    NewToken = 0x07,
+#[derive(
+    Copy, Clone, Eq, PartialEq, derive_more::Debug, derive_more::Display, enum_assoc::Assoc,
+)]
+#[display(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(missing_docs)]
+#[func(
+    pub(crate) const fn to_u64(self) -> u64,
+    const fn from_u64(rev: u64) -> Option<Self>,
+)]
+pub enum FrameType {
+    #[assoc(to_u64 = 0x00)]
+    Padding,
+    #[assoc(to_u64 = 0x01)]
+    Ping,
+    #[assoc(to_u64 = 0x02)]
+    Ack,
+    #[assoc(to_u64 = 0x03)]
+    AckEcn,
+    #[assoc(to_u64 = 0x04)]
+    ResetStream,
+    #[assoc(to_u64 = 0x05)]
+    StopSending,
+    #[assoc(to_u64 = 0x06)]
+    Crypto,
+    #[assoc(to_u64 = 0x07)]
+    NewToken,
     // STREAM
+    #[assoc(to_u64 = _0.to_u64())]
     Stream(StreamInfo),
-    MaxData = 0x10,
-    MaxStreamData = 0x11,
-    MaxStreamsBidi = 0x12,
-    MaxStreamsUni = 0x13,
-    DataBlocked = 0x14,
-    StreamDataBlocked = 0x15,
-    StreamsBlockedBidi = 0x16,
-    StreamsBlockedUni = 0x17,
-    NewConnectionId = 0x18,
-    RetireConnectionId = 0x19,
-    PathChallenge = 0x1a,
-    PathResponse = 0x1b,
-    ConnectionClose = 0x1c,
-    ApplicationClose = 0x1d,
-    HandshakeDone = 0x1e,
+    #[assoc(to_u64 = 0x10)]
+    MaxData,
+    #[assoc(to_u64 = 0x11)]
+    MaxStreamData,
+    #[assoc(to_u64 = 0x12)]
+    MaxStreamsBidi,
+    #[assoc(to_u64 = 0x13)]
+    MaxStreamsUni,
+    #[assoc(to_u64 = 0x14)]
+    DataBlocked,
+    #[assoc(to_u64 = 0x15)]
+    StreamDataBlocked,
+    #[assoc(to_u64 = 0x16)]
+    StreamsBlockedBidi,
+    #[assoc(to_u64 = 0x17)]
+    StreamsBlockedUni,
+    #[assoc(to_u64 = 0x18)]
+    NewConnectionId,
+    #[assoc(to_u64 = 0x19)]
+    RetireConnectionId,
+    #[assoc(to_u64 = 0x1a)]
+    PathChallenge,
+    #[assoc(to_u64 = 0x1b)]
+    PathResponse,
+    #[assoc(to_u64 = 0x1c)]
+    ConnectionClose,
+    #[assoc(to_u64 = 0x1d)]
+    ApplicationClose,
+    #[assoc(to_u64 = 0x1e)]
+    HandshakeDone,
     // ACK Frequency
-    AckFrequency = 0xaf,
-    ImmediateAck = 0x1f,
+    #[assoc(to_u64 = 0xaf)]
+    AckFrequency,
+    #[assoc(to_u64 = 0x1f)]
+    ImmediateAck,
     // DATAGRAM
+    #[assoc(to_u64 = _0.to_u64())]
     Datagram(DatagramInfo),
     // ADDRESS DISCOVERY REPORT
-    ObservedIpv4Addr = 0x9f81a6,
-    ObservedIpv6Addr = 0x9f81a7,
+    #[assoc(to_u64 = 0x9f81a6)]
+    ObservedIpv4Addr,
+    #[assoc(to_u64 = 0x9f81a7)]
+    ObservedIpv6Addr,
     // Multipath
-    PathAck = 0x15228c00,
-    PathAckEcn = 0x15228c01,
-    PathAbandon = 0x15228c05,
-    PathStatusBackup = 0x15228c07,
-    PathStatusAvailable = 0x15228c08,
-    PathNewConnectionId = 0x15228c09,
-    PathRetireConnectionId = 0x15228c0a,
-    MaxPathId = 0x15228c0c,
-    PathsBlocked = 0x15228c0d,
-    PathCidsBlocked = 0x15228c0e,
+    #[assoc(to_u64 = 0x15228c00)]
+    PathAck,
+    #[assoc(to_u64 = 0x15228c01)]
+    PathAckEcn,
+    #[assoc(to_u64 = 0x15228c05)]
+    PathAbandon,
+    #[assoc(to_u64 = 0x15228c07)]
+    PathStatusBackup,
+    #[assoc(to_u64 = 0x15228c08)]
+    PathStatusAvailable,
+    #[assoc(to_u64 = 0x15228c09)]
+    PathNewConnectionId,
+    #[assoc(to_u64 = 0x15228c0a)]
+    PathRetireConnectionId,
+    #[assoc(to_u64 = 0x15228c0c)]
+    MaxPathId,
+    #[assoc(to_u64 = 0x15228c0d)]
+    PathsBlocked,
+    #[assoc(to_u64 = 0x15228c0e)]
+    PathCidsBlocked,
     // IROH'S NAT TRAVERSAL
-    AddIpv4Address = 0x3d7f90,
-    AddIpv6Address = 0x3d7f91,
-    ReachOutAtIpv4 = 0x3d7f92,
-    ReachOutAtIpv6 = 0x3d7f93,
-    RemoveAddress = 0x3d7f94,
+    #[assoc(to_u64 = 0x3d7f90)]
+    AddIpv4Address,
+    #[assoc(to_u64 = 0x3d7f91)]
+    AddIpv6Address,
+    #[assoc(to_u64 = 0x3d7f92)]
+    ReachOutAtIpv4,
+    #[assoc(to_u64 = 0x3d7f93)]
+    ReachOutAtIpv6,
+    #[assoc(to_u64 = 0x3d7f94)]
+    RemoveAddress,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct InvalidFrameId(u64);
+
+impl TryFrom<u64> for FrameType {
+    type Error = InvalidFrameId;
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        match FrameType::from_u64(value) {
+            Some(t) => Ok(t),
+            None => {
+                if DatagramInfo::VALUES.contains(&value) {
+                    return Ok(Self::Datagram(DatagramInfo(value as u8)));
+                }
+                if StreamInfo::VALUES.contains(&value) {
+                    return Ok(Self::Stream(StreamInfo(value as u8)));
+                }
+                Err(InvalidFrameId(value))
+            }
+        }
+    }
 }
 
 impl FrameType {
@@ -217,6 +230,10 @@ impl StreamInfo {
     fn off(self) -> bool {
         self.0 & 0x04 != 0
     }
+
+    const fn to_u64(self) -> u64 {
+        self.0 as u64
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display)]
@@ -228,6 +245,10 @@ impl DatagramInfo {
 
     fn len(self) -> bool {
         self.0 & 0x01 != 0
+    }
+
+    const fn to_u64(self) -> u64 {
+        self.0 as u64
     }
 }
 
@@ -1949,6 +1970,24 @@ mod test {
     use super::*;
     use crate::coding::Encodable;
     use assert_matches::assert_matches;
+
+    #[test]
+    fn frame_type() {
+        assert_eq!(
+            FrameType::try_from(FrameType::Padding.to_u64()),
+            Ok(FrameType::Padding),
+        );
+
+        assert_eq!(
+            FrameType::try_from(FrameType::Datagram(DatagramInfo(0x30)).to_u64()),
+            Ok(FrameType::Datagram(DatagramInfo(0x30))),
+        );
+
+        assert_eq!(
+            FrameType::try_from(FrameType::Stream(StreamInfo(0x08)).to_u64()),
+            Ok(FrameType::Stream(StreamInfo(0x08))),
+        );
+    }
 
     #[track_caller]
     fn frames(buf: Vec<u8>) -> Vec<Frame> {
