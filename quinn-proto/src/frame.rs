@@ -132,7 +132,7 @@ pub struct InvalidFrameId(u64);
 impl TryFrom<u64> for FrameType {
     type Error = InvalidFrameId;
     fn try_from(value: u64) -> Result<Self, Self::Error> {
-        match FrameType::from_u64(value) {
+        match Self::from_u64(value) {
             Some(t) => Ok(t),
             None => {
                 if DatagramInfo::VALUES.contains(&value) {
