@@ -4,8 +4,8 @@ use bytes::{Buf, BufMut};
 
 use crate::{
     VarInt,
-    coding::{self, BufExt, BufMutExt},
-    frame,
+    coding::{self, BufExt, BufMutExt, Decodable, Encodable},
+    frame::MaybeFrame,
 };
 
 /// Transport-level errors occur when a peer violates the protocol specification
@@ -19,7 +19,7 @@ pub struct Error {
     /// Type of error
     pub code: Code,
     /// Frame type that triggered the error
-    pub frame: Option<frame::FrameType>,
+    pub frame: MaybeFrame,
     /// Human-readable explanation of the reason
     pub reason: String,
     /// An underlying crypto (e.g. TLS) layer error
@@ -31,7 +31,7 @@ impl Error {
     pub fn new(code: Code, reason: String) -> Self {
         Self {
             code,
-            frame: None,
+            frame: MaybeFrame::None,
             reason,
             crypto: None,
         }
@@ -49,8 +49,8 @@ impl Eq for Error {}
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.code.fmt(f)?;
-        if let Some(frame) = self.frame {
-            write!(f, " in {frame}")?;
+        if self.frame != MaybeFrame::None {
+            write!(f, " in {}", self.frame)?;
         }
         if !self.reason.is_empty() {
             write!(f, ": {}", self.reason)?;
@@ -72,10 +72,13 @@ impl Code {
     }
 }
 
-impl coding::Codec for Code {
+impl Decodable for Code {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
         Ok(Self(buf.get_var()?))
     }
+}
+
+impl Encodable for Code {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.write_var(self.0)
     }

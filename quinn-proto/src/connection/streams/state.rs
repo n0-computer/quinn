@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
-    coding::BufMutExt,
+    coding::{BufMutExt, Encodable},
     connection::{qlog::QlogSentPacket, stats::FrameStats},
     frame::{self, Frame, FrameStruct, StreamMetaVec},
     transport_parameters::TransportParameters,
@@ -480,7 +480,7 @@ impl StreamsState {
             }
 
             retransmits.get_or_create().max_data = true;
-            buf.write(frame::FrameType::MAX_DATA);
+            buf.write(frame::FrameType::MaxData);
             buf.write(max);
             qlog.frame(&Frame::MaxData(max));
             stats.max_data += 1;
@@ -511,7 +511,7 @@ impl StreamsState {
             rs.record_sent_max_stream_data(max);
 
             trace!(stream = %id, max = max, "MAX_STREAM_DATA");
-            buf.write(frame::FrameType::MAX_STREAM_DATA);
+            buf.write(frame::FrameType::MaxStreamData);
             buf.write(id);
             buf.write_var(max);
             qlog.frame(&Frame::MaxStreamData { id, offset: max });
@@ -532,8 +532,8 @@ impl StreamsState {
                 "MAX_STREAMS ({:?})", dir
             );
             buf.write(match dir {
-                Dir::Uni => frame::FrameType::MAX_STREAMS_UNI,
-                Dir::Bi => frame::FrameType::MAX_STREAMS_BIDI,
+                Dir::Uni => frame::FrameType::MaxStreamsUni,
+                Dir::Bi => frame::FrameType::MaxStreamsBidi,
             });
             let count = self.max_remote[dir as usize];
             buf.write_var(count);
@@ -599,18 +599,10 @@ impl StreamsState {
 
             let meta = frame::StreamMeta { id, offsets, fin };
             trace!(id = %meta.id, off = meta.offsets.start, len = meta.offsets.end - meta.offsets.start, fin = meta.fin, "STREAM");
-            meta.encode(encode_length, buf);
+            meta.encoder(encode_length).encode(buf);
             qlog.frame_stream(&meta);
 
-            // The range might not be retrievable in a single `get` if it is
-            // stored in noncontiguous fashion. Therefore this loop iterates
-            // until the range is fully copied into the frame.
-            let mut offsets = meta.offsets.clone();
-            while offsets.start != offsets.end {
-                let data = stream.pending.get(offsets.clone());
-                offsets.start += data.len() as u64;
-                buf.put_slice(data);
-            }
+            stream.pending.get_into(meta.offsets.clone(), buf);
             stream_frames.push(meta);
         }
 

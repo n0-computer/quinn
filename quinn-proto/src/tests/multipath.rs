@@ -11,8 +11,8 @@ use tracing::info;
 use crate::tests::util::{CLIENT_PORTS, SERVER_PORTS};
 use crate::{
     ClientConfig, ClosePathError, ConnectionHandle, ConnectionId, ConnectionIdGenerator, Endpoint,
-    EndpointConfig, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator, ServerConfig,
-    TransportConfig, cid_queue::CidQueue,
+    EndpointConfig, FourTuple, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator,
+    ServerConfig, TransportConfig, cid_queue::CidQueue,
 };
 use crate::{Event, PathError, PathEvent};
 
@@ -460,7 +460,7 @@ fn open_path() {
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
     let now = pair.time;
-    let server_addr = pair.server.addr;
+    let server_addr = pair.addrs_to_server();
     let path_id = pair
         .client_conn_mut(client_ch)
         .open_path(server_addr, PathStatus::Available, now)
@@ -485,7 +485,7 @@ fn open_path_key_update() {
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
     let now = pair.time;
-    let server_addr = pair.server.addr;
+    let server_addr = pair.addrs_to_server();
     let path_id = pair
         .client_conn_mut(client_ch)
         .open_path(server_addr, PathStatus::Available, now)
@@ -516,10 +516,13 @@ fn open_path_validation_fails_server_side() {
     let _guard = subscribe();
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
-    let different_addr = SocketAddr::new(
-        [9, 8, 7, 6].into(),
-        SERVER_PORTS.lock().unwrap().next().unwrap(),
-    );
+    let different_addr = FourTuple {
+        remote: SocketAddr::new(
+            [9, 8, 7, 6].into(),
+            SERVER_PORTS.lock().unwrap().next().unwrap(),
+        ),
+        local_ip: None,
+    };
     let now = pair.time;
     let path_id = pair
         .client_conn_mut(client_ch)
@@ -554,9 +557,13 @@ fn open_path_validation_fails_client_side() {
 
     let now = pair.time;
     let addr = pair.server.addr;
+    let network_path = FourTuple {
+        remote: addr,
+        local_ip: None,
+    };
     let path_id = pair
         .client_conn_mut(client_ch)
-        .open_path(addr, PathStatus::Available, now)
+        .open_path(network_path, PathStatus::Available, now)
         .unwrap();
 
     // block the client from receiving anything
@@ -574,7 +581,7 @@ fn close_path() {
     let (mut pair, client_ch, _server_ch) = multipath_pair();
 
     let now = pair.time;
-    let server_addr = pair.server.addr;
+    let server_addr = pair.addrs_to_server();
     let path_id = pair
         .client_conn_mut(client_ch)
         .open_path(server_addr, PathStatus::Available, now)
@@ -610,7 +617,7 @@ fn close_last_path() {
     let (mut pair, client_ch, server_ch) = multipath_pair();
 
     let now = pair.time;
-    let server_addr = pair.server.addr;
+    let server_addr = pair.addrs_to_server();
     let path_id = pair
         .client_conn_mut(client_ch)
         .open_path(server_addr, PathStatus::Available, now)
@@ -684,14 +691,16 @@ fn per_path_observed_address() {
 
     // open a second path
     let now = pair.time;
-    let remote = pair.server.addr;
+    let network_path = pair.addrs_to_server();
     let conn = pair.client_conn_mut(client_ch);
-    let _new_path_id = conn.open_path(remote, PathStatus::Available, now).unwrap();
+    let _new_path_id = conn
+        .open_path(network_path, PathStatus::Available, now)
+        .unwrap();
 
     pair.drive();
     let conn = pair.client_conn_mut(client_ch);
     // check the migration related event
-    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == our_addr);
+    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{ id: PathId::ZERO, addr })) if addr == our_addr);
     // wait for the open event
     let mut opened = false;
     while let Some(ev) = conn.poll() {
@@ -736,7 +745,7 @@ fn mtud_on_two_paths() {
 
     // Open a 2nd path.
     let now = pair.time;
-    let server_addr = pair.server.addr;
+    let server_addr = pair.addrs_to_server();
     let path_id = pair
         .client_conn_mut(client_ch)
         .open_path(server_addr, PathStatus::Available, now)

@@ -41,7 +41,7 @@ mod bloom_token_log;
 #[cfg(feature = "bloom")]
 pub use bloom_token_log::BloomTokenLog;
 
-mod connection;
+pub(crate) mod connection;
 pub use crate::connection::{
     Chunk, Chunks, ClosePathError, ClosedPath, ClosedStream, Connection, ConnectionError,
     ConnectionStats, Datagrams, Event, FinishError, FrameStats, PathError, PathEvent, PathId,
@@ -66,8 +66,11 @@ pub use config::{QlogConfig, QlogFactory, QlogFileFactory};
 pub mod crypto;
 
 mod frame;
-use crate::frame::Frame;
 pub use crate::frame::{ApplicationClose, ConnectionClose, Datagram, FrameType};
+use crate::{
+    coding::{Decodable, Encodable},
+    frame::Frame,
+};
 
 mod endpoint;
 pub use crate::endpoint::{
@@ -112,6 +115,12 @@ use arbitrary::Arbitrary;
 pub(crate) use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub(crate) use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[cfg(feature = "bench")]
+pub mod bench_exports {
+    //! Exports for benchmarks
+    pub use crate::connection::send_buffer::send_buffer_benches;
+}
 
 #[cfg(fuzzing)]
 pub mod fuzzing {
@@ -297,10 +306,12 @@ impl From<StreamId> for u64 {
     }
 }
 
-impl coding::Codec for StreamId {
+impl Decodable for StreamId {
     fn decode<B: bytes::Buf>(buf: &mut B) -> coding::Result<Self> {
         VarInt::decode(buf).map(|x| Self(x.into_inner()))
     }
+}
+impl Encodable for StreamId {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) {
         VarInt::from_u64(self.0).unwrap().encode(buf);
     }
@@ -338,3 +349,69 @@ const MAX_UDP_PAYLOAD: u16 = 65527;
 const TIMER_GRANULARITY: Duration = Duration::from_millis(1);
 /// Maximum number of streams that can be uniquely identified by a stream ID
 const MAX_STREAM_COUNT: u64 = 1 << 60;
+
+/// Identifies a network path by the combination of remote and local addresses
+///
+/// Including the local ensures good behavior when the host has multiple IP addresses on the same
+/// subnet and zero-length connection IDs are in use or when multipath is enabled and multiple
+/// paths exist with the same remote, but different local IP interfaces.
+#[derive(Hash, Eq, PartialEq, Copy, Clone)]
+pub struct FourTuple {
+    /// The remote side of this tuple
+    pub remote: SocketAddr,
+    /// The local side of this tuple.
+    ///
+    /// The socket is irrelevant for our intents and purposes:
+    /// When we send, we can only specify the `src_ip`, not the source port.
+    /// So even if we track the port, we won't be able to make use of it.
+    pub local_ip: Option<IpAddr>,
+}
+
+impl FourTuple {
+    /// Returns whether we think the other address probably represents the same path
+    /// as ours.
+    ///
+    /// If we have a local IP set, then we're exact and only match if the 4-tuples are
+    /// exactly equal.
+    /// If we don't have a local IP set, then we only check the remote addresses for equality.
+    pub fn is_probably_same_path(&self, other: &Self) -> bool {
+        self.remote == other.remote && (self.local_ip.is_none() || self.local_ip == other.local_ip)
+    }
+
+    /// Updates this tuple's local address iff
+    /// - it was unset before,
+    /// - the other tuple has the same remote, and
+    /// - the other tuple has a local address set.
+    ///
+    /// Returns whether this and the other remote are now fully equal.
+    pub fn update_local_if_same_remote(&mut self, other: &Self) -> bool {
+        if self.remote != other.remote {
+            return false;
+        }
+        if self.local_ip.is_some() && self.local_ip != other.local_ip {
+            return false;
+        }
+        self.local_ip = other.local_ip;
+        true
+    }
+}
+
+impl fmt::Display for FourTuple {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("(")?;
+        if let Some(local_ip) = &self.local_ip {
+            local_ip.fmt(f)?;
+            f.write_str(", ")?;
+        } else {
+            f.write_str("<unknown>, ")?;
+        }
+        self.remote.fmt(f)?;
+        f.write_str(")")
+    }
+}
+
+impl fmt::Debug for FourTuple {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self, f)
+    }
+}

@@ -7,6 +7,7 @@ use tracing::{debug, trace};
 use super::Connection;
 use crate::{
     TransportError,
+    coding::Encodable,
     frame::{Datagram, FrameStruct},
 };
 
@@ -182,7 +183,7 @@ impl DatagramState {
         trace!(len = datagram.data.len(), "DATAGRAM");
 
         self.outgoing_total -= datagram.data.len();
-        datagram.encode(true, buf);
+        datagram.encode(buf);
         true
     }
 
