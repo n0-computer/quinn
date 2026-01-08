@@ -27,7 +27,7 @@
 <a href=#27 id=27 data-nosnippet>27</a><span class="kw">use </span>pin_project_lite::pin_project;
 <a href=#28 id=28 data-nosnippet>28</a><span class="kw">use </span>proto::{
 <a href=#29 id=29 data-nosnippet>29</a>    <span class="self">self </span><span class="kw">as </span>proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent,
-<a href=#30 id=30 data-nosnippet>30</a>    EndpointEvent, ServerConfig,
+<a href=#30 id=30 data-nosnippet>30</a>    EndpointEvent, FourTuple, ServerConfig,
 <a href=#31 id=31 data-nosnippet>31</a>};
 <a href=#32 id=32 data-nosnippet>32</a><span class="kw">use </span>rustc_hash::FxHashMap;
 <a href=#33 id=33 data-nosnippet>33</a><span class="attr">#[cfg(all(
@@ -851,81 +851,84 @@
 <a href=#851 id=851 data-nosnippet>851</a>                        <span class="kw">while </span>!data.is_empty() {
 <a href=#852 id=852 data-nosnippet>852</a>                            <span class="kw">let </span>buf = data.split_to(meta.stride.min(data.len()));
 <a href=#853 id=853 data-nosnippet>853</a>                            <span class="kw">let </span><span class="kw-2">mut </span>response_buffer = Vec::new();
-<a href=#854 id=854 data-nosnippet>854</a>                            <span class="kw">match </span>endpoint.handle(
-<a href=#855 id=855 data-nosnippet>855</a>                                now,
-<a href=#856 id=856 data-nosnippet>856</a>                                meta.addr,
-<a href=#857 id=857 data-nosnippet>857</a>                                meta.dst_ip,
-<a href=#858 id=858 data-nosnippet>858</a>                                meta.ecn.map(proto_ecn),
-<a href=#859 id=859 data-nosnippet>859</a>                                buf,
-<a href=#860 id=860 data-nosnippet>860</a>                                <span class="kw-2">&amp;mut </span>response_buffer,
-<a href=#861 id=861 data-nosnippet>861</a>                            ) {
-<a href=#862 id=862 data-nosnippet>862</a>                                <span class="prelude-val">Some</span>(DatagramEvent::NewConnection(incoming)) =&gt; {
-<a href=#863 id=863 data-nosnippet>863</a>                                    <span class="kw">if </span><span class="self">self</span>.connections.close.is_none() {
-<a href=#864 id=864 data-nosnippet>864</a>                                        <span class="self">self</span>.incoming.push_back(incoming);
-<a href=#865 id=865 data-nosnippet>865</a>                                    } <span class="kw">else </span>{
-<a href=#866 id=866 data-nosnippet>866</a>                                        <span class="kw">let </span>transmit =
-<a href=#867 id=867 data-nosnippet>867</a>                                            endpoint.refuse(incoming, <span class="kw-2">&amp;mut </span>response_buffer);
-<a href=#868 id=868 data-nosnippet>868</a>                                        respond(transmit, <span class="kw-2">&amp;</span>response_buffer, sender);
-<a href=#869 id=869 data-nosnippet>869</a>                                    }
-<a href=#870 id=870 data-nosnippet>870</a>                                }
-<a href=#871 id=871 data-nosnippet>871</a>                                <span class="prelude-val">Some</span>(DatagramEvent::ConnectionEvent(handle, event)) =&gt; {
-<a href=#872 id=872 data-nosnippet>872</a>                                    <span class="comment">// Ignoring errors from dropped connections that haven't yet been cleaned up
-<a href=#873 id=873 data-nosnippet>873</a>                                    </span>received_connection_packet = <span class="bool-val">true</span>;
-<a href=#874 id=874 data-nosnippet>874</a>                                    <span class="kw">let _ </span>= <span class="self">self
-<a href=#875 id=875 data-nosnippet>875</a>                                        </span>.connections
-<a href=#876 id=876 data-nosnippet>876</a>                                        .senders
-<a href=#877 id=877 data-nosnippet>877</a>                                        .get_mut(<span class="kw-2">&amp;</span>handle)
-<a href=#878 id=878 data-nosnippet>878</a>                                        .unwrap()
-<a href=#879 id=879 data-nosnippet>879</a>                                        .send(ConnectionEvent::Proto(event));
-<a href=#880 id=880 data-nosnippet>880</a>                                }
-<a href=#881 id=881 data-nosnippet>881</a>                                <span class="prelude-val">Some</span>(DatagramEvent::Response(transmit)) =&gt; {
-<a href=#882 id=882 data-nosnippet>882</a>                                    respond(transmit, <span class="kw-2">&amp;</span>response_buffer, sender);
+<a href=#854 id=854 data-nosnippet>854</a>                            <span class="kw">let </span>addresses = FourTuple {
+<a href=#855 id=855 data-nosnippet>855</a>                                remote: meta.addr,
+<a href=#856 id=856 data-nosnippet>856</a>                                local_ip: meta.dst_ip,
+<a href=#857 id=857 data-nosnippet>857</a>                            };
+<a href=#858 id=858 data-nosnippet>858</a>                            <span class="kw">match </span>endpoint.handle(
+<a href=#859 id=859 data-nosnippet>859</a>                                now,
+<a href=#860 id=860 data-nosnippet>860</a>                                addresses,
+<a href=#861 id=861 data-nosnippet>861</a>                                meta.ecn.map(proto_ecn),
+<a href=#862 id=862 data-nosnippet>862</a>                                buf,
+<a href=#863 id=863 data-nosnippet>863</a>                                <span class="kw-2">&amp;mut </span>response_buffer,
+<a href=#864 id=864 data-nosnippet>864</a>                            ) {
+<a href=#865 id=865 data-nosnippet>865</a>                                <span class="prelude-val">Some</span>(DatagramEvent::NewConnection(incoming)) =&gt; {
+<a href=#866 id=866 data-nosnippet>866</a>                                    <span class="kw">if </span><span class="self">self</span>.connections.close.is_none() {
+<a href=#867 id=867 data-nosnippet>867</a>                                        <span class="self">self</span>.incoming.push_back(incoming);
+<a href=#868 id=868 data-nosnippet>868</a>                                    } <span class="kw">else </span>{
+<a href=#869 id=869 data-nosnippet>869</a>                                        <span class="kw">let </span>transmit =
+<a href=#870 id=870 data-nosnippet>870</a>                                            endpoint.refuse(incoming, <span class="kw-2">&amp;mut </span>response_buffer);
+<a href=#871 id=871 data-nosnippet>871</a>                                        respond(transmit, <span class="kw-2">&amp;</span>response_buffer, sender);
+<a href=#872 id=872 data-nosnippet>872</a>                                    }
+<a href=#873 id=873 data-nosnippet>873</a>                                }
+<a href=#874 id=874 data-nosnippet>874</a>                                <span class="prelude-val">Some</span>(DatagramEvent::ConnectionEvent(handle, event)) =&gt; {
+<a href=#875 id=875 data-nosnippet>875</a>                                    <span class="comment">// Ignoring errors from dropped connections that haven't yet been cleaned up
+<a href=#876 id=876 data-nosnippet>876</a>                                    </span>received_connection_packet = <span class="bool-val">true</span>;
+<a href=#877 id=877 data-nosnippet>877</a>                                    <span class="kw">let _ </span>= <span class="self">self
+<a href=#878 id=878 data-nosnippet>878</a>                                        </span>.connections
+<a href=#879 id=879 data-nosnippet>879</a>                                        .senders
+<a href=#880 id=880 data-nosnippet>880</a>                                        .get_mut(<span class="kw-2">&amp;</span>handle)
+<a href=#881 id=881 data-nosnippet>881</a>                                        .unwrap()
+<a href=#882 id=882 data-nosnippet>882</a>                                        .send(ConnectionEvent::Proto(event));
 <a href=#883 id=883 data-nosnippet>883</a>                                }
-<a href=#884 id=884 data-nosnippet>884</a>                                <span class="prelude-val">None </span>=&gt; {}
-<a href=#885 id=885 data-nosnippet>885</a>                            }
-<a href=#886 id=886 data-nosnippet>886</a>                        }
-<a href=#887 id=887 data-nosnippet>887</a>                    }
-<a href=#888 id=888 data-nosnippet>888</a>                }
-<a href=#889 id=889 data-nosnippet>889</a>                Poll::Pending =&gt; {
-<a href=#890 id=890 data-nosnippet>890</a>                    <span class="kw">return </span><span class="prelude-val">Ok</span>(PollProgress {
-<a href=#891 id=891 data-nosnippet>891</a>                        received_connection_packet,
-<a href=#892 id=892 data-nosnippet>892</a>                        keep_going: <span class="bool-val">false</span>,
-<a href=#893 id=893 data-nosnippet>893</a>                    });
-<a href=#894 id=894 data-nosnippet>894</a>                }
-<a href=#895 id=895 data-nosnippet>895</a>                <span class="comment">// Ignore ECONNRESET as it's undefined in QUIC and may be injected by an
-<a href=#896 id=896 data-nosnippet>896</a>                // attacker
-<a href=#897 id=897 data-nosnippet>897</a>                </span>Poll::Ready(<span class="prelude-val">Err</span>(<span class="kw-2">ref </span>e)) <span class="kw">if </span>e.kind() == io::ErrorKind::ConnectionReset =&gt; {
-<a href=#898 id=898 data-nosnippet>898</a>                    <span class="kw">continue</span>;
-<a href=#899 id=899 data-nosnippet>899</a>                }
-<a href=#900 id=900 data-nosnippet>900</a>                Poll::Ready(<span class="prelude-val">Err</span>(e)) =&gt; {
-<a href=#901 id=901 data-nosnippet>901</a>                    <span class="kw">return </span><span class="prelude-val">Err</span>(e);
+<a href=#884 id=884 data-nosnippet>884</a>                                <span class="prelude-val">Some</span>(DatagramEvent::Response(transmit)) =&gt; {
+<a href=#885 id=885 data-nosnippet>885</a>                                    respond(transmit, <span class="kw-2">&amp;</span>response_buffer, sender);
+<a href=#886 id=886 data-nosnippet>886</a>                                }
+<a href=#887 id=887 data-nosnippet>887</a>                                <span class="prelude-val">None </span>=&gt; {}
+<a href=#888 id=888 data-nosnippet>888</a>                            }
+<a href=#889 id=889 data-nosnippet>889</a>                        }
+<a href=#890 id=890 data-nosnippet>890</a>                    }
+<a href=#891 id=891 data-nosnippet>891</a>                }
+<a href=#892 id=892 data-nosnippet>892</a>                Poll::Pending =&gt; {
+<a href=#893 id=893 data-nosnippet>893</a>                    <span class="kw">return </span><span class="prelude-val">Ok</span>(PollProgress {
+<a href=#894 id=894 data-nosnippet>894</a>                        received_connection_packet,
+<a href=#895 id=895 data-nosnippet>895</a>                        keep_going: <span class="bool-val">false</span>,
+<a href=#896 id=896 data-nosnippet>896</a>                    });
+<a href=#897 id=897 data-nosnippet>897</a>                }
+<a href=#898 id=898 data-nosnippet>898</a>                <span class="comment">// Ignore ECONNRESET as it's undefined in QUIC and may be injected by an
+<a href=#899 id=899 data-nosnippet>899</a>                // attacker
+<a href=#900 id=900 data-nosnippet>900</a>                </span>Poll::Ready(<span class="prelude-val">Err</span>(<span class="kw-2">ref </span>e)) <span class="kw">if </span>e.kind() == io::ErrorKind::ConnectionReset =&gt; {
+<a href=#901 id=901 data-nosnippet>901</a>                    <span class="kw">continue</span>;
 <a href=#902 id=902 data-nosnippet>902</a>                }
-<a href=#903 id=903 data-nosnippet>903</a>            }
-<a href=#904 id=904 data-nosnippet>904</a>            <span class="kw">if </span>!<span class="self">self</span>.recv_limiter.allow_work(|| runtime.now()) {
-<a href=#905 id=905 data-nosnippet>905</a>                <span class="kw">return </span><span class="prelude-val">Ok</span>(PollProgress {
-<a href=#906 id=906 data-nosnippet>906</a>                    received_connection_packet,
-<a href=#907 id=907 data-nosnippet>907</a>                    keep_going: <span class="bool-val">true</span>,
-<a href=#908 id=908 data-nosnippet>908</a>                });
-<a href=#909 id=909 data-nosnippet>909</a>            }
-<a href=#910 id=910 data-nosnippet>910</a>        }
-<a href=#911 id=911 data-nosnippet>911</a>    }
-<a href=#912 id=912 data-nosnippet>912</a>}
-<a href=#913 id=913 data-nosnippet>913</a>
-<a href=#914 id=914 data-nosnippet>914</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>RecvState {
-<a href=#915 id=915 data-nosnippet>915</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter) -&gt; fmt::Result {
-<a href=#916 id=916 data-nosnippet>916</a>        f.debug_struct(<span class="string">"RecvState"</span>)
-<a href=#917 id=917 data-nosnippet>917</a>            .field(<span class="string">"incoming"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.incoming)
-<a href=#918 id=918 data-nosnippet>918</a>            .field(<span class="string">"connections"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.connections)
-<a href=#919 id=919 data-nosnippet>919</a>            <span class="comment">// recv_buf too large
-<a href=#920 id=920 data-nosnippet>920</a>            </span>.field(<span class="string">"recv_limiter"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.recv_limiter)
-<a href=#921 id=921 data-nosnippet>921</a>            .finish_non_exhaustive()
-<a href=#922 id=922 data-nosnippet>922</a>    }
-<a href=#923 id=923 data-nosnippet>923</a>}
-<a href=#924 id=924 data-nosnippet>924</a>
-<a href=#925 id=925 data-nosnippet>925</a><span class="attr">#[derive(Default)]
-<a href=#926 id=926 data-nosnippet>926</a></span><span class="kw">struct </span>PollProgress {
-<a href=#927 id=927 data-nosnippet>927</a>    <span class="doccomment">/// Whether a datagram was routed to an existing connection
-<a href=#928 id=928 data-nosnippet>928</a>    </span>received_connection_packet: bool,
-<a href=#929 id=929 data-nosnippet>929</a>    <span class="doccomment">/// Whether datagram handling was interrupted early by the work limiter for fairness
-<a href=#930 id=930 data-nosnippet>930</a>    </span>keep_going: bool,
-<a href=#931 id=931 data-nosnippet>931</a>}</code></pre></div></section></main></body></html>
+<a href=#903 id=903 data-nosnippet>903</a>                Poll::Ready(<span class="prelude-val">Err</span>(e)) =&gt; {
+<a href=#904 id=904 data-nosnippet>904</a>                    <span class="kw">return </span><span class="prelude-val">Err</span>(e);
+<a href=#905 id=905 data-nosnippet>905</a>                }
+<a href=#906 id=906 data-nosnippet>906</a>            }
+<a href=#907 id=907 data-nosnippet>907</a>            <span class="kw">if </span>!<span class="self">self</span>.recv_limiter.allow_work(|| runtime.now()) {
+<a href=#908 id=908 data-nosnippet>908</a>                <span class="kw">return </span><span class="prelude-val">Ok</span>(PollProgress {
+<a href=#909 id=909 data-nosnippet>909</a>                    received_connection_packet,
+<a href=#910 id=910 data-nosnippet>910</a>                    keep_going: <span class="bool-val">true</span>,
+<a href=#911 id=911 data-nosnippet>911</a>                });
+<a href=#912 id=912 data-nosnippet>912</a>            }
+<a href=#913 id=913 data-nosnippet>913</a>        }
+<a href=#914 id=914 data-nosnippet>914</a>    }
+<a href=#915 id=915 data-nosnippet>915</a>}
+<a href=#916 id=916 data-nosnippet>916</a>
+<a href=#917 id=917 data-nosnippet>917</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>RecvState {
+<a href=#918 id=918 data-nosnippet>918</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter) -&gt; fmt::Result {
+<a href=#919 id=919 data-nosnippet>919</a>        f.debug_struct(<span class="string">"RecvState"</span>)
+<a href=#920 id=920 data-nosnippet>920</a>            .field(<span class="string">"incoming"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.incoming)
+<a href=#921 id=921 data-nosnippet>921</a>            .field(<span class="string">"connections"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.connections)
+<a href=#922 id=922 data-nosnippet>922</a>            <span class="comment">// recv_buf too large
+<a href=#923 id=923 data-nosnippet>923</a>            </span>.field(<span class="string">"recv_limiter"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.recv_limiter)
+<a href=#924 id=924 data-nosnippet>924</a>            .finish_non_exhaustive()
+<a href=#925 id=925 data-nosnippet>925</a>    }
+<a href=#926 id=926 data-nosnippet>926</a>}
+<a href=#927 id=927 data-nosnippet>927</a>
+<a href=#928 id=928 data-nosnippet>928</a><span class="attr">#[derive(Default)]
+<a href=#929 id=929 data-nosnippet>929</a></span><span class="kw">struct </span>PollProgress {
+<a href=#930 id=930 data-nosnippet>930</a>    <span class="doccomment">/// Whether a datagram was routed to an existing connection
+<a href=#931 id=931 data-nosnippet>931</a>    </span>received_connection_packet: bool,
+<a href=#932 id=932 data-nosnippet>932</a>    <span class="doccomment">/// Whether datagram handling was interrupted early by the work limiter for fairness
+<a href=#933 id=933 data-nosnippet>933</a>    </span>keep_going: bool,
+<a href=#934 id=934 data-nosnippet>934</a>}</code></pre></div></section></main></body></html>
