@@ -120,39 +120,36 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str) -> list[dict]:
                 continue
             impl = impl_dir.name
 
-            for condition_dir in impl_dir.iterdir():
-                if not condition_dir.is_dir():
+            for json_file in impl_dir.glob('*.json'):
+                if json_file.name == 'metadata.json':
                     continue
-                condition = condition_dir.name
 
-                # Look for report files
-                for json_file in condition_dir.glob('*.json'):
-                    if json_file.name == 'metadata.json':
-                        continue
+                # Extract condition from filename (e.g., ideal_1_to_1 -> ideal)
+                condition = json_file.stem.split('_')[0] if '_' in json_file.stem else json_file.stem
 
-                    perf_data = parse_quinn_perf_json(json_file)
-                    if perf_data:
-                        netsim_tags = {
-                            "implementation": impl,
-                            "scenario": f"netsim-{condition}",
-                            "test_type": "netsim",
-                            "network_condition": condition,
-                            "commit": commit[:7]
-                        }
+                perf_data = parse_quinn_perf_json(json_file)
+                if perf_data:
+                    netsim_tags = {
+                        "implementation": impl,
+                        "scenario": f"netsim-{condition}",
+                        "test_type": "netsim",
+                        "network_condition": condition,
+                        "commit": commit[:7]
+                    }
 
-                        metrics.append({
-                            "name": "quinn_perf_throughput_download_mbps",
-                            "value": perf_data['download_mbps'],
-                            "timestamp": timestamp,
-                            "tags": netsim_tags.copy()
-                        })
+                    metrics.append({
+                        "name": "quinn_perf_throughput_download_mbps",
+                        "value": perf_data['download_mbps'],
+                        "timestamp": timestamp,
+                        "tags": netsim_tags.copy()
+                    })
 
-                        metrics.append({
-                            "name": "quinn_perf_throughput_upload_mbps",
-                            "value": perf_data['upload_mbps'],
-                            "timestamp": timestamp,
-                            "tags": netsim_tags.copy()
-                        })
+                    metrics.append({
+                        "name": "quinn_perf_throughput_upload_mbps",
+                        "value": perf_data['upload_mbps'],
+                        "timestamp": timestamp,
+                        "tags": netsim_tags.copy()
+                    })
 
     return metrics
 

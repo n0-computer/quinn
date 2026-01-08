@@ -115,21 +115,13 @@ jobs:
           retention-days: 3
 
   netsim-perf:
-    name: Netsim perf
+    name: Netsim perf ${{ matrix.impl }}
     needs: build
     runs-on: [self-hosted, linux, X64]
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        impl:
-          - iroh-quinn
-          - upstream-quinn
-        condition:
-          - ideal
-          - lan
-          - wan
-          - lossy
         include:
           - impl: iroh-quinn
             artifact: quinn-perf-iroh
@@ -165,19 +157,19 @@ jobs:
         id: run_netsim
         continue-on-error: true
         run: |
-          ./.github/scripts/run_netsim_perf.sh ${{ matrix.impl }} ${{ matrix.condition }} /tmp/chuck/netsim
+          ./.github/scripts/run_netsim_perf.sh ${{ matrix.impl }} /tmp/chuck/netsim
 
       - name: Collect results
         if: always()
         run: |
-          mkdir -p results/${{ matrix.impl }}/${{ matrix.condition }}
-          cp /tmp/chuck/netsim/report/*.json results/${{ matrix.impl }}/${{ matrix.condition }}/ 2>/dev/null || true
-          cp /tmp/chuck/netsim/logs/*.log results/${{ matrix.impl }}/${{ matrix.condition }}/ 2>/dev/null || true
+          mkdir -p results/${{ matrix.impl }}
+          cp /tmp/chuck/netsim/report/*.json results/${{ matrix.impl }}/ 2>/dev/null || true
+          cp /tmp/chuck/netsim/logs/*.log results/${{ matrix.impl }}/ 2>/dev/null || true
 
       - uses: actions/upload-artifact@v5
         if: always()
         with:
-          name: netsim-results-${{ matrix.impl }}-${{ matrix.condition }}
+          name: netsim-results-${{ matrix.impl }}
           path: results/
           retention-days: 3
 

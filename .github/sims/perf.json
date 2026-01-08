@@ -56,7 +56,8 @@
                     "parser": "time_1gb",
                     "link": {
                         "latency": 1,
-                        "bw": 1000
+                        "bw": 1000,
+                        "loss": 0
                     }
                 }
             ]

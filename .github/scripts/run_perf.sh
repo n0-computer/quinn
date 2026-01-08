@@ -52,14 +52,14 @@ esac
 echo "Running scenario: $SCENARIO"
 echo "  Upload: $UPLOAD, Download: $DOWNLOAD, Streams: $STREAMS, Duration: ${DURATION}s"
 
-# Start server in background (explicitly bind to IPv4 for nc compatibility)
+# Start server in background
 "$BINARY" server --listen 127.0.0.1:4433 &
 SERVER_PID=$!
 
 # Wait for server to be ready (up to 10 seconds)
 MAX_WAIT=10
 WAIT_COUNT=0
-while ! nc -z 127.0.0.1 4433 2>/dev/null; do
+while ! ss -uln 2>/dev/null | grep -q ':4433 ' && ! lsof -i UDP:4433 >/dev/null 2>&1; do
   sleep 1
   WAIT_COUNT=$((WAIT_COUNT + 1))
   if [ $WAIT_COUNT -ge $MAX_WAIT ]; then

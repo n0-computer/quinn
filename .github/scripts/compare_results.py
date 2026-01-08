@@ -112,28 +112,25 @@ def collect_results(raw_dir: Path, netsim_dir: Path) -> list[PerfResult]:
                 continue
             impl = impl_dir.name
 
-            for condition_dir in impl_dir.iterdir():
-                if not condition_dir.is_dir():
+            for json_file in impl_dir.glob('*.json'):
+                if json_file.name == 'metadata.json':
                     continue
-                condition = condition_dir.name
 
-                # Look for netsim report files
-                for json_file in condition_dir.glob('*.json'):
-                    if json_file.name == 'metadata.json':
-                        continue
+                # Extract condition from filename (e.g., ideal_1_to_1 -> ideal)
+                condition = json_file.stem.split('_')[0] if '_' in json_file.stem else json_file.stem
 
-                    perf_data = parse_quinn_perf_json(json_file)
-                    if perf_data:
-                        results.append(PerfResult(
-                            scenario=f'netsim-{condition}',
-                            impl=impl,
-                            test_type='netsim',
-                            condition=condition,
-                            upload_mbps=perf_data['upload_mbps'],
-                            download_mbps=perf_data['download_mbps'],
-                            cpu_avg=0,
-                            cpu_max=0,
-                        ))
+                perf_data = parse_quinn_perf_json(json_file)
+                if perf_data:
+                    results.append(PerfResult(
+                        scenario=f'netsim-{condition}',
+                        impl=impl,
+                        test_type='netsim',
+                        condition=condition,
+                        upload_mbps=perf_data['upload_mbps'],
+                        download_mbps=perf_data['download_mbps'],
+                        cpu_avg=0,
+                        cpu_max=0,
+                    ))
 
     return results
 
