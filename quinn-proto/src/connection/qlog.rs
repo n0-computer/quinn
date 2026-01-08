@@ -39,9 +39,8 @@ use tracing::warn;
 use crate::{
     Connection, ConnectionId, FourTuple, Frame, Instant, PathId,
     connection::{PathData, SentPacket, timer::Timer},
-    frame::{EcnCounts, EncodableFrame, StreamMeta},
+    frame::EncodableFrame,
     packet::{Header, SpaceId},
-    range_set::ArrayRangeSet,
     transport_parameters::TransportParameters,
 };
 #[cfg(feature = "qlog")]
@@ -49,7 +48,6 @@ use crate::{
     QlogConfig, Side, TransportErrorCode,
     connection::timer::{ConnTimer, PathTimer},
     frame,
-    frame::Close,
 };
 
 /// Shareable handle to a single qlog output stream
@@ -437,12 +435,6 @@ impl QlogSentPacket {
             self.inner.header.packet_type = packet_type(space, is_0rtt);
             self.inner.header.path_id = Some(path_id.as_u32() as u64);
         }
-    }
-
-    /// Adds a frame by pushing a [`Frame`].
-    pub(crate) fn frame(&mut self, frame: &Frame) {
-        #[cfg(feature = "qlog")]
-        self.frame_raw(frame.to_qlog())
     }
 
     /// Adds a PADDING frame.

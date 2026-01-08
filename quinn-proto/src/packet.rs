@@ -527,6 +527,15 @@ impl PartialEncode {
         );
         header_crypto.encrypt(pn_pos, buf);
     }
+
+    #[cfg(test)]
+    pub(crate) fn dummy() -> PartialEncode {
+        PartialEncode {
+            start: 0,
+            header_len: 2,
+            pn: Some((1, true)),
+        }
+    }
 }
 
 /// Plain packet header

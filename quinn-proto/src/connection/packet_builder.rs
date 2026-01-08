@@ -192,6 +192,24 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn simple_data_buf(buf: &'a mut TransmitBuf<'b>) -> Self {
+        Self {
+            buf,
+            space: SpaceId::Data,
+            path: PathId::ZERO,
+            partial_encode: PartialEncode::dummy(),
+            ack_eliciting: true,
+            exact_number: 0,
+            short_header: false,
+            min_size: 100,
+            tag_len: 16,
+            _span: trace_span!("test").entered(),
+            qlog: QlogSentPacket::default(),
+            sent_frames: SentFrames::default(),
+        }
+    }
+
     /// Append the minimum amount of padding to the packet such that, after encryption, the
     /// enclosing datagram will occupy at least `min_size` bytes
     pub(super) fn pad_to(&mut self, min_size: u16) {
@@ -300,7 +318,6 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             trace!("PADDING * {}", padding);
             self.buf.put_bytes(0, padding);
             self.qlog.frame_padding(padding);
-            // TODO(@divma): fix this
         }
 
         let space = &conn.spaces[self.space];

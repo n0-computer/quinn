@@ -6650,7 +6650,9 @@ impl SentFrames {
                     self.largest_acked.insert(PathId::ZERO, max);
                 }
             }
-            Close(close_encoder) => todo!(),
+            Close(_) => {
+                // TODO(@divma): why not set non_
+            }
             PathResponse(_) => self.non_retransmits = true,
             HandshakeDone(_) => self.retransmits_mut().handshake_done = true,
             ReachOut(reach_out) => self
@@ -6692,7 +6694,7 @@ impl SentFrames {
                 .retire_cids
                 .push((retire_cid.path_id.unwrap_or_default(), retire_cid.sequence)),
             Datagram(_) => self.non_retransmits = true,
-            NewToken(new_token) => todo!(),
+            NewToken(_) => {}
             AddAddress(add_address) => {
                 self.retransmits_mut().add_address.insert(add_address);
             }
