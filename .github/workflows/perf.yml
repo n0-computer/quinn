@@ -58,6 +58,7 @@ jobs:
       - name: Clone upstream quinn
         if: matrix.impl == 'upstream-quinn'
         run: |
+          rm -rf /tmp/upstream-quinn
           git clone --depth 1 --branch ${{ steps.quinn-release.outputs.tag }} \
             https://github.com/quinn-rs/quinn.git /tmp/upstream-quinn
 
@@ -80,15 +81,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        impl:
-          - iroh-quinn
-          - upstream-quinn
-        scenario:
-          - small-single
-          - medium-single
-          - large-single
-          - small-concurrent
-          - medium-concurrent
+        impl: [iroh-quinn, upstream-quinn]
         include:
           - impl: iroh-quinn
             artifact: quinn-perf-iroh
@@ -102,15 +95,14 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ./bin
 
-      - name: Run benchmark
+      - name: Run benchmarks
         run: |
           chmod +x ./bin/quinn-perf
-          mkdir -p results/${{ matrix.impl }}/${{ matrix.scenario }}
-          ./.github/scripts/run_perf.sh ./bin/quinn-perf ${{ matrix.scenario }} results/${{ matrix.impl }}/${{ matrix.scenario }}
+          ./.github/scripts/run_perf.sh ./bin/quinn-perf results/${{ matrix.impl }}
 
       - uses: actions/upload-artifact@v5
         with:
-          name: raw-results-${{ matrix.impl }}-${{ matrix.scenario }}
+          name: raw-results-${{ matrix.impl }}
           path: results/
           retention-days: 3
 
@@ -122,6 +114,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        impl: [iroh-quinn, upstream-quinn]
         include:
           - impl: iroh-quinn
             artifact: quinn-perf-iroh
