@@ -211,6 +211,14 @@ jobs:
           python .github/scripts/perf_to_metro.py raw-results/ netsim-results/ \
             --commit ${{ github.sha }} > metro.json
 
+      - name: Show results
+        run: |
+          echo "=== Comparison Report ==="
+          cat comparison.md
+          echo ""
+          echo "=== Metro Metrics ==="
+          cat metro.json
+
       - name: Upload comparison report
         uses: actions/upload-artifact@v5
         with:
@@ -219,6 +227,19 @@ jobs:
             comparison.md
             metro.json
           retention-days: 30
+
+      - name: Publish metrics to Metro
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if [[ -n "${{ secrets.METRO_TOKEN }}" && -n "${{ secrets.METRO_ENDPOINT }}" ]]; then
+            curl -X POST \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${{ secrets.METRO_TOKEN }}" \
+              --data @metro.json \
+              "${{ secrets.METRO_ENDPOINT }}"
+          else
+            echo "Metro secrets not configured, skipping publish"
+          fi
 
       - name: Find existing comment
         if: github.event_name == 'pull_request'
@@ -261,35 +282,3 @@ jobs:
 
             </details>
 
-  publish-metrics:
-    name: Publish to Metro
-    needs: compare
-    if: always() && needs.compare.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/download-artifact@v5
-        with:
-          name: perf-comparison-report
-          path: ./
-
-      - name: Show metrics
-        run: |
-          echo "=== Metro metrics ==="
-          cat metro.json
-          echo ""
-          echo "=== Comparison report ==="
-          cat comparison.md
-
-      - name: Publish metrics to Metro
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          if [[ -n "${{ secrets.METRO_TOKEN }}" && -n "${{ secrets.METRO_ENDPOINT }}" ]]; then
-            curl -X POST \
-              -H "Content-Type: application/json" \
-              -H "Authorization: Bearer ${{ secrets.METRO_TOKEN }}" \
-              --data @metro.json \
-              "${{ secrets.METRO_ENDPOINT }}"
-          else
-            echo "Metro secrets not configured, skipping publish"
-          fi
