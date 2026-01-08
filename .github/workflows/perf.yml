@@ -220,20 +220,45 @@ jobs:
             metro.json
           retention-days: 30
 
-      - name: Comment on PR
+      - name: Find existing comment
         if: github.event_name == 'pull_request'
+        uses: peter-evans/find-comment@v3
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '<!-- perf-report -->'
+
+      - name: Create new PR comment
+        if: github.event_name == 'pull_request' && steps.find-comment.outputs.comment-id == ''
         uses: peter-evans/create-or-update-comment@v5
         with:
           issue-number: ${{ github.event.pull_request.number }}
           body: |
+            <!-- perf-report -->
             ## Performance Comparison Report
+
+            <details>
+            <summary><code>${{ github.event.pull_request.head.sha }}</code></summary>
 
             ${{ steps.compare.outputs.COMPARISON }}
 
-            <details>
-            <summary>View full artifacts</summary>
+            </details>
 
-            Download the full report from the workflow artifacts.
+      - name: Update existing PR comment
+        if: github.event_name == 'pull_request' && steps.find-comment.outputs.comment-id != ''
+        uses: peter-evans/create-or-update-comment@v5
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          edit-mode: append
+          body: |
+
+            ---
+            <details>
+            <summary><code>${{ github.event.pull_request.head.sha }}</code></summary>
+
+            ${{ steps.compare.outputs.COMPARISON }}
+
             </details>
 
   publish-metrics:

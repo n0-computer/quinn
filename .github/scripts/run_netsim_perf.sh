@@ -26,9 +26,4 @@ cd "$NETSIM_DIR"
 echo "Running all test cases sequentially..."
 sudo python3 main.py --max-workers=1 sims/perf
 
-# Generate reports (log errors but don't fail)
-if ! python3 reports_csv.py > "report/${IMPL}_results.json" 2>&1; then
-  echo "Warning: reports_csv.py failed or not found"
-fi
-
 echo "Netsim tests complete: $IMPL"
