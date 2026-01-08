@@ -6650,109 +6650,111 @@
 <a href=#6650 id=6650 data-nosnippet>6650</a>                    <span class="self">self</span>.largest_acked.insert(PathId::ZERO, max);
 <a href=#6651 id=6651 data-nosnippet>6651</a>                }
 <a href=#6652 id=6652 data-nosnippet>6652</a>            }
-<a href=#6653 id=6653 data-nosnippet>6653</a>            Close(close_encoder) =&gt; <span class="macro">todo!</span>(),
-<a href=#6654 id=6654 data-nosnippet>6654</a>            PathResponse(<span class="kw">_</span>) =&gt; <span class="self">self</span>.non_retransmits = <span class="bool-val">true</span>,
-<a href=#6655 id=6655 data-nosnippet>6655</a>            HandshakeDone(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().handshake_done = <span class="bool-val">true</span>,
-<a href=#6656 id=6656 data-nosnippet>6656</a>            ReachOut(reach_out) =&gt; <span class="self">self
-<a href=#6657 id=6657 data-nosnippet>6657</a>                </span>.retransmits_mut()
-<a href=#6658 id=6658 data-nosnippet>6658</a>                .reach_out
-<a href=#6659 id=6659 data-nosnippet>6659</a>                .get_or_insert_with(|| (reach_out.round, Default::default()))
-<a href=#6660 id=6660 data-nosnippet>6660</a>                .<span class="number">1
-<a href=#6661 id=6661 data-nosnippet>6661</a>                </span>.push((reach_out.ip, reach_out.port)),
-<a href=#6662 id=6662 data-nosnippet>6662</a>            ObservedAddr(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().observed_addr = <span class="bool-val">true</span>,
-<a href=#6663 id=6663 data-nosnippet>6663</a>            Ping(<span class="kw">_</span>) =&gt; <span class="self">self</span>.non_retransmits = <span class="bool-val">true</span>,
-<a href=#6664 id=6664 data-nosnippet>6664</a>            ImmediateAck(<span class="kw">_</span>) =&gt; <span class="self">self</span>.non_retransmits = <span class="bool-val">true</span>,
-<a href=#6665 id=6665 data-nosnippet>6665</a>            AckFrequency(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().ack_frequency = <span class="bool-val">true</span>,
-<a href=#6666 id=6666 data-nosnippet>6666</a>            PathChallenge(<span class="kw">_</span>) =&gt; <span class="self">self</span>.non_retransmits = <span class="bool-val">true</span>,
-<a href=#6667 id=6667 data-nosnippet>6667</a>            Crypto(crypto) =&gt; <span class="self">self</span>.retransmits_mut().crypto.push_back(crypto.clone()),
-<a href=#6668 id=6668 data-nosnippet>6668</a>            PathAbandon(path_abandon) =&gt; {
-<a href=#6669 id=6669 data-nosnippet>6669</a>                <span class="self">self</span>.retransmits_mut()
-<a href=#6670 id=6670 data-nosnippet>6670</a>                    .path_abandon
-<a href=#6671 id=6671 data-nosnippet>6671</a>                    .entry(path_abandon.path_id)
-<a href=#6672 id=6672 data-nosnippet>6672</a>                    .or_insert(path_abandon.error_code);
-<a href=#6673 id=6673 data-nosnippet>6673</a>            }
-<a href=#6674 id=6674 data-nosnippet>6674</a>            PathStatusAvailable(frame::PathStatusAvailable { path_id, .. })
-<a href=#6675 id=6675 data-nosnippet>6675</a>            | PathStatusBackup(frame::PathStatusBackup { path_id, .. }) =&gt; {
-<a href=#6676 id=6676 data-nosnippet>6676</a>                <span class="self">self</span>.retransmits_mut().path_status.insert(path_id);
-<a href=#6677 id=6677 data-nosnippet>6677</a>            }
-<a href=#6678 id=6678 data-nosnippet>6678</a>            MaxPathId(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().max_path_id = <span class="bool-val">true</span>,
-<a href=#6679 id=6679 data-nosnippet>6679</a>            PathsBlocked(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().paths_blocked = <span class="bool-val">true</span>,
-<a href=#6680 id=6680 data-nosnippet>6680</a>            PathCidsBlocked(path_cids_blocked) =&gt; <span class="self">self
-<a href=#6681 id=6681 data-nosnippet>6681</a>                </span>.retransmits_mut()
-<a href=#6682 id=6682 data-nosnippet>6682</a>                .path_cids_blocked
-<a href=#6683 id=6683 data-nosnippet>6683</a>                .push(path_cids_blocked.path_id),
-<a href=#6684 id=6684 data-nosnippet>6684</a>            ResetStream(reset) =&gt; <span class="self">self
-<a href=#6685 id=6685 data-nosnippet>6685</a>                </span>.retransmits_mut()
-<a href=#6686 id=6686 data-nosnippet>6686</a>                .reset_stream
-<a href=#6687 id=6687 data-nosnippet>6687</a>                .push((reset.id, reset.error_code)),
-<a href=#6688 id=6688 data-nosnippet>6688</a>            StopSending(stop_sending) =&gt; <span class="self">self</span>.retransmits_mut().stop_sending.push(stop_sending),
-<a href=#6689 id=6689 data-nosnippet>6689</a>            NewConnectionId(new_cid) =&gt; <span class="self">self</span>.retransmits_mut().new_cids.push(new_cid.issued()),
-<a href=#6690 id=6690 data-nosnippet>6690</a>            RetireConnectionId(retire_cid) =&gt; <span class="self">self
-<a href=#6691 id=6691 data-nosnippet>6691</a>                </span>.retransmits_mut()
-<a href=#6692 id=6692 data-nosnippet>6692</a>                .retire_cids
-<a href=#6693 id=6693 data-nosnippet>6693</a>                .push((retire_cid.path_id.unwrap_or_default(), retire_cid.sequence)),
-<a href=#6694 id=6694 data-nosnippet>6694</a>            Datagram(<span class="kw">_</span>) =&gt; <span class="self">self</span>.non_retransmits = <span class="bool-val">true</span>,
-<a href=#6695 id=6695 data-nosnippet>6695</a>            NewToken(new_token) =&gt; <span class="macro">todo!</span>(),
-<a href=#6696 id=6696 data-nosnippet>6696</a>            AddAddress(add_address) =&gt; {
-<a href=#6697 id=6697 data-nosnippet>6697</a>                <span class="self">self</span>.retransmits_mut().add_address.insert(add_address);
-<a href=#6698 id=6698 data-nosnippet>6698</a>            }
-<a href=#6699 id=6699 data-nosnippet>6699</a>            RemoveAddress(remove_address) =&gt; {
-<a href=#6700 id=6700 data-nosnippet>6700</a>                <span class="self">self</span>.retransmits_mut().remove_address.insert(remove_address);
-<a href=#6701 id=6701 data-nosnippet>6701</a>            }
-<a href=#6702 id=6702 data-nosnippet>6702</a>            StreamMeta(stream_meta_encoder) =&gt; <span class="self">self</span>.stream_frames.push(stream_meta_encoder.meta),
-<a href=#6703 id=6703 data-nosnippet>6703</a>            MaxData(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().max_data = <span class="bool-val">true</span>,
-<a href=#6704 id=6704 data-nosnippet>6704</a>            MaxStreamData(max) =&gt; {
-<a href=#6705 id=6705 data-nosnippet>6705</a>                <span class="self">self</span>.retransmits_mut().max_stream_data.insert(max.id);
-<a href=#6706 id=6706 data-nosnippet>6706</a>            }
-<a href=#6707 id=6707 data-nosnippet>6707</a>            MaxStreams(max_streams) =&gt; {
-<a href=#6708 id=6708 data-nosnippet>6708</a>                <span class="self">self</span>.retransmits_mut().max_stream_id[max_streams.dir <span class="kw">as </span>usize] = <span class="bool-val">true
-<a href=#6709 id=6709 data-nosnippet>6709</a>            </span>}
-<a href=#6710 id=6710 data-nosnippet>6710</a>        }
-<a href=#6711 id=6711 data-nosnippet>6711</a>    }
-<a href=#6712 id=6712 data-nosnippet>6712</a>}
-<a href=#6713 id=6713 data-nosnippet>6713</a>
-<a href=#6714 id=6714 data-nosnippet>6714</a><span class="doccomment">/// Compute the negotiated idle timeout based on local and remote max_idle_timeout transport parameters.
-<a href=#6715 id=6715 data-nosnippet>6715</a>///
-<a href=#6716 id=6716 data-nosnippet>6716</a>/// According to the definition of max_idle_timeout, a value of `0` means the timeout is disabled; see &lt;https://www.rfc-editor.org/rfc/rfc9000#section-18.2-4.4.1.&gt;
+<a href=#6653 id=6653 data-nosnippet>6653</a>            Close(<span class="kw">_</span>) =&gt; {
+<a href=#6654 id=6654 data-nosnippet>6654</a>                <span class="comment">// TODO(@divma): why not set non_
+<a href=#6655 id=6655 data-nosnippet>6655</a>            </span>}
+<a href=#6656 id=6656 data-nosnippet>6656</a>            PathResponse(<span class="kw">_</span>) =&gt; <span class="self">self</span>.non_retransmits = <span class="bool-val">true</span>,
+<a href=#6657 id=6657 data-nosnippet>6657</a>            HandshakeDone(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().handshake_done = <span class="bool-val">true</span>,
+<a href=#6658 id=6658 data-nosnippet>6658</a>            ReachOut(reach_out) =&gt; <span class="self">self
+<a href=#6659 id=6659 data-nosnippet>6659</a>                </span>.retransmits_mut()
+<a href=#6660 id=6660 data-nosnippet>6660</a>                .reach_out
+<a href=#6661 id=6661 data-nosnippet>6661</a>                .get_or_insert_with(|| (reach_out.round, Default::default()))
+<a href=#6662 id=6662 data-nosnippet>6662</a>                .<span class="number">1
+<a href=#6663 id=6663 data-nosnippet>6663</a>                </span>.push((reach_out.ip, reach_out.port)),
+<a href=#6664 id=6664 data-nosnippet>6664</a>            ObservedAddr(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().observed_addr = <span class="bool-val">true</span>,
+<a href=#6665 id=6665 data-nosnippet>6665</a>            Ping(<span class="kw">_</span>) =&gt; <span class="self">self</span>.non_retransmits = <span class="bool-val">true</span>,
+<a href=#6666 id=6666 data-nosnippet>6666</a>            ImmediateAck(<span class="kw">_</span>) =&gt; <span class="self">self</span>.non_retransmits = <span class="bool-val">true</span>,
+<a href=#6667 id=6667 data-nosnippet>6667</a>            AckFrequency(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().ack_frequency = <span class="bool-val">true</span>,
+<a href=#6668 id=6668 data-nosnippet>6668</a>            PathChallenge(<span class="kw">_</span>) =&gt; <span class="self">self</span>.non_retransmits = <span class="bool-val">true</span>,
+<a href=#6669 id=6669 data-nosnippet>6669</a>            Crypto(crypto) =&gt; <span class="self">self</span>.retransmits_mut().crypto.push_back(crypto.clone()),
+<a href=#6670 id=6670 data-nosnippet>6670</a>            PathAbandon(path_abandon) =&gt; {
+<a href=#6671 id=6671 data-nosnippet>6671</a>                <span class="self">self</span>.retransmits_mut()
+<a href=#6672 id=6672 data-nosnippet>6672</a>                    .path_abandon
+<a href=#6673 id=6673 data-nosnippet>6673</a>                    .entry(path_abandon.path_id)
+<a href=#6674 id=6674 data-nosnippet>6674</a>                    .or_insert(path_abandon.error_code);
+<a href=#6675 id=6675 data-nosnippet>6675</a>            }
+<a href=#6676 id=6676 data-nosnippet>6676</a>            PathStatusAvailable(frame::PathStatusAvailable { path_id, .. })
+<a href=#6677 id=6677 data-nosnippet>6677</a>            | PathStatusBackup(frame::PathStatusBackup { path_id, .. }) =&gt; {
+<a href=#6678 id=6678 data-nosnippet>6678</a>                <span class="self">self</span>.retransmits_mut().path_status.insert(path_id);
+<a href=#6679 id=6679 data-nosnippet>6679</a>            }
+<a href=#6680 id=6680 data-nosnippet>6680</a>            MaxPathId(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().max_path_id = <span class="bool-val">true</span>,
+<a href=#6681 id=6681 data-nosnippet>6681</a>            PathsBlocked(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().paths_blocked = <span class="bool-val">true</span>,
+<a href=#6682 id=6682 data-nosnippet>6682</a>            PathCidsBlocked(path_cids_blocked) =&gt; <span class="self">self
+<a href=#6683 id=6683 data-nosnippet>6683</a>                </span>.retransmits_mut()
+<a href=#6684 id=6684 data-nosnippet>6684</a>                .path_cids_blocked
+<a href=#6685 id=6685 data-nosnippet>6685</a>                .push(path_cids_blocked.path_id),
+<a href=#6686 id=6686 data-nosnippet>6686</a>            ResetStream(reset) =&gt; <span class="self">self
+<a href=#6687 id=6687 data-nosnippet>6687</a>                </span>.retransmits_mut()
+<a href=#6688 id=6688 data-nosnippet>6688</a>                .reset_stream
+<a href=#6689 id=6689 data-nosnippet>6689</a>                .push((reset.id, reset.error_code)),
+<a href=#6690 id=6690 data-nosnippet>6690</a>            StopSending(stop_sending) =&gt; <span class="self">self</span>.retransmits_mut().stop_sending.push(stop_sending),
+<a href=#6691 id=6691 data-nosnippet>6691</a>            NewConnectionId(new_cid) =&gt; <span class="self">self</span>.retransmits_mut().new_cids.push(new_cid.issued()),
+<a href=#6692 id=6692 data-nosnippet>6692</a>            RetireConnectionId(retire_cid) =&gt; <span class="self">self
+<a href=#6693 id=6693 data-nosnippet>6693</a>                </span>.retransmits_mut()
+<a href=#6694 id=6694 data-nosnippet>6694</a>                .retire_cids
+<a href=#6695 id=6695 data-nosnippet>6695</a>                .push((retire_cid.path_id.unwrap_or_default(), retire_cid.sequence)),
+<a href=#6696 id=6696 data-nosnippet>6696</a>            Datagram(<span class="kw">_</span>) =&gt; <span class="self">self</span>.non_retransmits = <span class="bool-val">true</span>,
+<a href=#6697 id=6697 data-nosnippet>6697</a>            NewToken(<span class="kw">_</span>) =&gt; {}
+<a href=#6698 id=6698 data-nosnippet>6698</a>            AddAddress(add_address) =&gt; {
+<a href=#6699 id=6699 data-nosnippet>6699</a>                <span class="self">self</span>.retransmits_mut().add_address.insert(add_address);
+<a href=#6700 id=6700 data-nosnippet>6700</a>            }
+<a href=#6701 id=6701 data-nosnippet>6701</a>            RemoveAddress(remove_address) =&gt; {
+<a href=#6702 id=6702 data-nosnippet>6702</a>                <span class="self">self</span>.retransmits_mut().remove_address.insert(remove_address);
+<a href=#6703 id=6703 data-nosnippet>6703</a>            }
+<a href=#6704 id=6704 data-nosnippet>6704</a>            StreamMeta(stream_meta_encoder) =&gt; <span class="self">self</span>.stream_frames.push(stream_meta_encoder.meta),
+<a href=#6705 id=6705 data-nosnippet>6705</a>            MaxData(<span class="kw">_</span>) =&gt; <span class="self">self</span>.retransmits_mut().max_data = <span class="bool-val">true</span>,
+<a href=#6706 id=6706 data-nosnippet>6706</a>            MaxStreamData(max) =&gt; {
+<a href=#6707 id=6707 data-nosnippet>6707</a>                <span class="self">self</span>.retransmits_mut().max_stream_data.insert(max.id);
+<a href=#6708 id=6708 data-nosnippet>6708</a>            }
+<a href=#6709 id=6709 data-nosnippet>6709</a>            MaxStreams(max_streams) =&gt; {
+<a href=#6710 id=6710 data-nosnippet>6710</a>                <span class="self">self</span>.retransmits_mut().max_stream_id[max_streams.dir <span class="kw">as </span>usize] = <span class="bool-val">true
+<a href=#6711 id=6711 data-nosnippet>6711</a>            </span>}
+<a href=#6712 id=6712 data-nosnippet>6712</a>        }
+<a href=#6713 id=6713 data-nosnippet>6713</a>    }
+<a href=#6714 id=6714 data-nosnippet>6714</a>}
+<a href=#6715 id=6715 data-nosnippet>6715</a>
+<a href=#6716 id=6716 data-nosnippet>6716</a><span class="doccomment">/// Compute the negotiated idle timeout based on local and remote max_idle_timeout transport parameters.
 <a href=#6717 id=6717 data-nosnippet>6717</a>///
-<a href=#6718 id=6718 data-nosnippet>6718</a>/// According to the negotiation procedure, either the minimum of the timeouts or one specified is used as the negotiated value; see &lt;https://www.rfc-editor.org/rfc/rfc9000#section-10.1-2.&gt;
+<a href=#6718 id=6718 data-nosnippet>6718</a>/// According to the definition of max_idle_timeout, a value of `0` means the timeout is disabled; see &lt;https://www.rfc-editor.org/rfc/rfc9000#section-18.2-4.4.1.&gt;
 <a href=#6719 id=6719 data-nosnippet>6719</a>///
-<a href=#6720 id=6720 data-nosnippet>6720</a>/// Returns the negotiated idle timeout as a `Duration`, or `None` when both endpoints have opted out of idle timeout.
-<a href=#6721 id=6721 data-nosnippet>6721</a></span><span class="kw">fn </span>negotiate_max_idle_timeout(x: <span class="prelude-ty">Option</span>&lt;VarInt&gt;, y: <span class="prelude-ty">Option</span>&lt;VarInt&gt;) -&gt; <span class="prelude-ty">Option</span>&lt;Duration&gt; {
-<a href=#6722 id=6722 data-nosnippet>6722</a>    <span class="kw">match </span>(x, y) {
-<a href=#6723 id=6723 data-nosnippet>6723</a>        (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>) =&gt; <span class="prelude-val">None</span>,
-<a href=#6724 id=6724 data-nosnippet>6724</a>        (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(y)) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(y.<span class="number">0</span>)),
-<a href=#6725 id=6725 data-nosnippet>6725</a>        (<span class="prelude-val">Some</span>(x), <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(x.<span class="number">0</span>)),
-<a href=#6726 id=6726 data-nosnippet>6726</a>        (<span class="prelude-val">Some</span>(x), <span class="prelude-val">Some</span>(y)) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(cmp::min(x, y).<span class="number">0</span>)),
-<a href=#6727 id=6727 data-nosnippet>6727</a>    }
-<a href=#6728 id=6728 data-nosnippet>6728</a>}
-<a href=#6729 id=6729 data-nosnippet>6729</a>
-<a href=#6730 id=6730 data-nosnippet>6730</a><span class="attr">#[cfg(test)]
-<a href=#6731 id=6731 data-nosnippet>6731</a></span><span class="kw">mod </span>tests {
-<a href=#6732 id=6732 data-nosnippet>6732</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#6733 id=6733 data-nosnippet>6733</a>
-<a href=#6734 id=6734 data-nosnippet>6734</a>    <span class="attr">#[test]
-<a href=#6735 id=6735 data-nosnippet>6735</a>    </span><span class="kw">fn </span>negotiate_max_idle_timeout_commutative() {
-<a href=#6736 id=6736 data-nosnippet>6736</a>        <span class="kw">let </span>test_params = [
-<a href=#6737 id=6737 data-nosnippet>6737</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>),
-<a href=#6738 id=6738 data-nosnippet>6738</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">None</span>),
-<a href=#6739 id=6739 data-nosnippet>6739</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">2</span>)), <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">2</span>))),
-<a href=#6740 id=6740 data-nosnippet>6740</a>            (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">None</span>),
-<a href=#6741 id=6741 data-nosnippet>6741</a>            (
-<a href=#6742 id=6742 data-nosnippet>6742</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">2</span>)),
-<a href=#6743 id=6743 data-nosnippet>6743</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)),
-<a href=#6744 id=6744 data-nosnippet>6744</a>                <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">2</span>)),
-<a href=#6745 id=6745 data-nosnippet>6745</a>            ),
-<a href=#6746 id=6746 data-nosnippet>6746</a>            (
-<a href=#6747 id=6747 data-nosnippet>6747</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">1</span>)),
-<a href=#6748 id=6748 data-nosnippet>6748</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">4</span>)),
-<a href=#6749 id=6749 data-nosnippet>6749</a>                <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">1</span>)),
-<a href=#6750 id=6750 data-nosnippet>6750</a>            ),
-<a href=#6751 id=6751 data-nosnippet>6751</a>        ];
-<a href=#6752 id=6752 data-nosnippet>6752</a>
-<a href=#6753 id=6753 data-nosnippet>6753</a>        <span class="kw">for </span>(left, right, result) <span class="kw">in </span>test_params {
-<a href=#6754 id=6754 data-nosnippet>6754</a>            <span class="macro">assert_eq!</span>(negotiate_max_idle_timeout(left, right), result);
-<a href=#6755 id=6755 data-nosnippet>6755</a>            <span class="macro">assert_eq!</span>(negotiate_max_idle_timeout(right, left), result);
-<a href=#6756 id=6756 data-nosnippet>6756</a>        }
-<a href=#6757 id=6757 data-nosnippet>6757</a>    }
-<a href=#6758 id=6758 data-nosnippet>6758</a>}</code></pre></div></section></main></body></html>
+<a href=#6720 id=6720 data-nosnippet>6720</a>/// According to the negotiation procedure, either the minimum of the timeouts or one specified is used as the negotiated value; see &lt;https://www.rfc-editor.org/rfc/rfc9000#section-10.1-2.&gt;
+<a href=#6721 id=6721 data-nosnippet>6721</a>///
+<a href=#6722 id=6722 data-nosnippet>6722</a>/// Returns the negotiated idle timeout as a `Duration`, or `None` when both endpoints have opted out of idle timeout.
+<a href=#6723 id=6723 data-nosnippet>6723</a></span><span class="kw">fn </span>negotiate_max_idle_timeout(x: <span class="prelude-ty">Option</span>&lt;VarInt&gt;, y: <span class="prelude-ty">Option</span>&lt;VarInt&gt;) -&gt; <span class="prelude-ty">Option</span>&lt;Duration&gt; {
+<a href=#6724 id=6724 data-nosnippet>6724</a>    <span class="kw">match </span>(x, y) {
+<a href=#6725 id=6725 data-nosnippet>6725</a>        (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>) =&gt; <span class="prelude-val">None</span>,
+<a href=#6726 id=6726 data-nosnippet>6726</a>        (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(y)) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(y.<span class="number">0</span>)),
+<a href=#6727 id=6727 data-nosnippet>6727</a>        (<span class="prelude-val">Some</span>(x), <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)) | <span class="prelude-val">None</span>) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(x.<span class="number">0</span>)),
+<a href=#6728 id=6728 data-nosnippet>6728</a>        (<span class="prelude-val">Some</span>(x), <span class="prelude-val">Some</span>(y)) =&gt; <span class="prelude-val">Some</span>(Duration::from_millis(cmp::min(x, y).<span class="number">0</span>)),
+<a href=#6729 id=6729 data-nosnippet>6729</a>    }
+<a href=#6730 id=6730 data-nosnippet>6730</a>}
+<a href=#6731 id=6731 data-nosnippet>6731</a>
+<a href=#6732 id=6732 data-nosnippet>6732</a><span class="attr">#[cfg(test)]
+<a href=#6733 id=6733 data-nosnippet>6733</a></span><span class="kw">mod </span>tests {
+<a href=#6734 id=6734 data-nosnippet>6734</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#6735 id=6735 data-nosnippet>6735</a>
+<a href=#6736 id=6736 data-nosnippet>6736</a>    <span class="attr">#[test]
+<a href=#6737 id=6737 data-nosnippet>6737</a>    </span><span class="kw">fn </span>negotiate_max_idle_timeout_commutative() {
+<a href=#6738 id=6738 data-nosnippet>6738</a>        <span class="kw">let </span>test_params = [
+<a href=#6739 id=6739 data-nosnippet>6739</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>),
+<a href=#6740 id=6740 data-nosnippet>6740</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">None</span>),
+<a href=#6741 id=6741 data-nosnippet>6741</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(VarInt(<span class="number">2</span>)), <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">2</span>))),
+<a href=#6742 id=6742 data-nosnippet>6742</a>            (<span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)), <span class="prelude-val">None</span>),
+<a href=#6743 id=6743 data-nosnippet>6743</a>            (
+<a href=#6744 id=6744 data-nosnippet>6744</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">2</span>)),
+<a href=#6745 id=6745 data-nosnippet>6745</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">0</span>)),
+<a href=#6746 id=6746 data-nosnippet>6746</a>                <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">2</span>)),
+<a href=#6747 id=6747 data-nosnippet>6747</a>            ),
+<a href=#6748 id=6748 data-nosnippet>6748</a>            (
+<a href=#6749 id=6749 data-nosnippet>6749</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">1</span>)),
+<a href=#6750 id=6750 data-nosnippet>6750</a>                <span class="prelude-val">Some</span>(VarInt(<span class="number">4</span>)),
+<a href=#6751 id=6751 data-nosnippet>6751</a>                <span class="prelude-val">Some</span>(Duration::from_millis(<span class="number">1</span>)),
+<a href=#6752 id=6752 data-nosnippet>6752</a>            ),
+<a href=#6753 id=6753 data-nosnippet>6753</a>        ];
+<a href=#6754 id=6754 data-nosnippet>6754</a>
+<a href=#6755 id=6755 data-nosnippet>6755</a>        <span class="kw">for </span>(left, right, result) <span class="kw">in </span>test_params {
+<a href=#6756 id=6756 data-nosnippet>6756</a>            <span class="macro">assert_eq!</span>(negotiate_max_idle_timeout(left, right), result);
+<a href=#6757 id=6757 data-nosnippet>6757</a>            <span class="macro">assert_eq!</span>(negotiate_max_idle_timeout(right, left), result);
+<a href=#6758 id=6758 data-nosnippet>6758</a>        }
+<a href=#6759 id=6759 data-nosnippet>6759</a>    }
+<a href=#6760 id=6760 data-nosnippet>6760</a>}</code></pre></div></section></main></body></html>
