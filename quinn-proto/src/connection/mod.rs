@@ -6651,8 +6651,8 @@ impl SentFrames {
                 }
             }
             Close(close_encoder) => todo!(),
-            PathResponse(path_response) => self.non_retransmits = true,
-            HandshakeDone(handshake_done) => self.retransmits_mut().handshake_done = true,
+            PathResponse(_) => self.non_retransmits = true,
+            HandshakeDone(_) => self.retransmits_mut().handshake_done = true,
             ReachOut(reach_out) => self
                 .retransmits_mut()
                 .reach_out
@@ -6660,10 +6660,10 @@ impl SentFrames {
                 .1
                 .push((reach_out.ip, reach_out.port)),
             ObservedAddr(_) => self.retransmits_mut().observed_addr = true,
-            Ping(ping) => self.non_retransmits = true,
-            ImmediateAck(immediate_ack) => self.non_retransmits = true,
-            AckFrequency(ack_frequency) => self.retransmits_mut().ack_frequency = true,
-            PathChallenge(path_challenge) => self.non_retransmits = true,
+            Ping(_) => self.non_retransmits = true,
+            ImmediateAck(_) => self.non_retransmits = true,
+            AckFrequency(_) => self.retransmits_mut().ack_frequency = true,
+            PathChallenge(_) => self.non_retransmits = true,
             Crypto(crypto) => self.retransmits_mut().crypto.push_back(crypto.clone()),
             PathAbandon(path_abandon) => {
                 self.retransmits_mut()
@@ -6675,26 +6675,23 @@ impl SentFrames {
             | PathStatusBackup(frame::PathStatusBackup { path_id, .. }) => {
                 self.retransmits_mut().path_status.insert(path_id);
             }
-            MaxPathId(max_path_id) => self.retransmits_mut().max_path_id = true,
-            PathsBlocked(paths_blocked) => self.retransmits_mut().paths_blocked = true,
+            MaxPathId(_) => self.retransmits_mut().max_path_id = true,
+            PathsBlocked(_) => self.retransmits_mut().paths_blocked = true,
             PathCidsBlocked(path_cids_blocked) => self
                 .retransmits_mut()
                 .path_cids_blocked
                 .push(path_cids_blocked.path_id),
-            ResetStream(reset_stream) => self
+            ResetStream(reset) => self
                 .retransmits_mut()
                 .reset_stream
-                .push((reset_stream.id, reset_stream.error_code)),
+                .push((reset.id, reset.error_code)),
             StopSending(stop_sending) => self.retransmits_mut().stop_sending.push(stop_sending),
-            NewConnectionId(new_connection_id) => self
+            NewConnectionId(new_cid) => self.retransmits_mut().new_cids.push(new_cid.issued()),
+            RetireConnectionId(retire_cid) => self
                 .retransmits_mut()
-                .new_cids
-                .push(new_connection_id.issued()),
-            RetireConnectionId(retire_connection_id) => self.retransmits_mut().retire_cids.push((
-                retire_connection_id.path_id.unwrap_or_default(),
-                retire_connection_id.sequence,
-            )),
-            Datagram(datagram) => self.non_retransmits = true,
+                .retire_cids
+                .push((retire_cid.path_id.unwrap_or_default(), retire_cid.sequence)),
+            Datagram(_) => self.non_retransmits = true,
             NewToken(new_token) => todo!(),
             AddAddress(add_address) => {
                 self.retransmits_mut().add_address.insert(add_address);
@@ -6703,11 +6700,9 @@ impl SentFrames {
                 self.retransmits_mut().remove_address.insert(remove_address);
             }
             StreamMeta(stream_meta_encoder) => self.stream_frames.push(stream_meta_encoder.meta),
-            MaxData(max_data) => self.retransmits_mut().max_data = true,
-            MaxStreamData(max_stream_data) => {
-                self.retransmits_mut()
-                    .max_stream_data
-                    .insert(max_stream_data.id);
+            MaxData(_) => self.retransmits_mut().max_data = true,
+            MaxStreamData(max) => {
+                self.retransmits_mut().max_stream_data.insert(max.id);
             }
             MaxStreams(max_streams) => {
                 self.retransmits_mut().max_stream_id[max_streams.dir as usize] = true

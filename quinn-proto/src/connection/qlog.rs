@@ -459,87 +459,6 @@ impl QlogSentPacket {
         });
     }
 
-    /// Adds an ACK frame.
-    ///
-    /// This is a no-op if the `qlog` feature is not enabled.
-    pub(crate) fn frame_ack(
-        &mut self,
-        delay: u64,
-        ranges: &ArrayRangeSet,
-        ecn: Option<&EcnCounts>,
-    ) {
-        #[cfg(feature = "qlog")]
-        self.frame_raw(QuicFrame::Ack {
-            ack_delay: Some(delay as f32),
-            acked_ranges: Some(AckedRanges::Double(
-                ranges
-                    .iter()
-                    .map(|range| (range.start, range.end))
-                    .collect(),
-            )),
-            ect1: ecn.map(|e| e.ect1),
-            ect0: ecn.map(|e| e.ect0),
-            ce: ecn.map(|e| e.ce),
-            raw: None,
-        });
-    }
-
-    /// Adds a PATH_ACK frame.
-    ///
-    /// This is a no-op if the `qlog` feature is not enabled.
-    pub(crate) fn frame_path_ack(
-        &mut self,
-        path_id: PathId,
-        delay: u64,
-        ranges: &ArrayRangeSet,
-        ecn: Option<&EcnCounts>,
-    ) {
-        #[cfg(feature = "qlog")]
-        self.frame_raw(QuicFrame::PathAck {
-            path_id: path_id.as_u32() as u64,
-            ack_delay: Some(delay as f32),
-            acked_ranges: Some(AckedRanges::Double(
-                ranges
-                    .iter()
-                    .map(|range| (range.start, range.end))
-                    .collect(),
-            )),
-            ect1: ecn.map(|e| e.ect1),
-            ect0: ecn.map(|e| e.ect0),
-            ce: ecn.map(|e| e.ce),
-            raw: None,
-        });
-    }
-
-    /// Adds a DATAGRAM frame.
-    ///
-    /// This is a no-op if the `qlog` feature is not enabled.
-    pub(crate) fn frame_datagram(&mut self, len: u64) {
-        #[cfg(feature = "qlog")]
-        self.frame_raw(QuicFrame::Datagram {
-            raw: Some(RawInfo {
-                length: Some(len),
-                ..Default::default()
-            }),
-        });
-    }
-
-    /// Adds a STREAM frame.
-    ///
-    /// This is a no-op if the `qlog` feature is not enabled.
-    pub(crate) fn frame_stream(&mut self, meta: &StreamMeta) {
-        #[cfg(feature = "qlog")]
-        self.frame_raw(QuicFrame::Stream {
-            stream_id: meta.id.into(),
-            offset: Some(meta.offsets.start),
-            fin: Some(meta.fin),
-            raw: Some(RawInfo {
-                length: Some(meta.offsets.end - meta.offsets.start),
-                ..Default::default()
-            }),
-        });
-    }
-
     /// Adds a frame by pushing a [`QuicFrame`].
     ///
     /// This function is only available if the `qlog` feature is enabled, because constructing a [`QuicFrame`] may involve
@@ -558,6 +477,7 @@ impl QlogSentPacket {
     }
 
     pub(crate) fn record(&mut self, frame: &EncodableFrame) {
+        #[cfg(feature = "qlog")]
         self.frame_raw(frame.to_qlog());
     }
 }
@@ -638,6 +558,444 @@ impl QlogRecvPacket {
     }
 }
 
+/* Frame conversions to qlog */
+#[cfg(feature = "qlog")]
+impl frame::AckEncoder<'_> {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::Ack {
+            ack_delay: Some(self.delay as f32),
+            acked_ranges: Some(AckedRanges::Double(
+                self.ranges
+                    .iter()
+                    .map(|range| (range.start, range.end))
+                    .collect(),
+            )),
+            ect1: self.ecn.map(|e| e.ect1),
+            ect0: self.ecn.map(|e| e.ect0),
+            ce: self.ecn.map(|e| e.ce),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::AckFrequency {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::AckFrequency {
+            sequence_number: self.sequence.into_inner(),
+            ack_eliciting_threshold: self.ack_eliciting_threshold.into_inner(),
+            requested_max_ack_delay: self.request_max_ack_delay.into_inner(),
+            reordering_threshold: self.reordering_threshold.into_inner(),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::AddAddress {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::AddAddress {
+            sequence_number: self.seq_no.into_inner(),
+            ip_v4: match self.ip {
+                IpAddr::V4(ipv4_addr) => Some(ipv4_addr.to_string()),
+                IpAddr::V6(ipv6_addr) => None,
+            },
+            ip_v6: match self.ip {
+                IpAddr::V4(ipv4_addr) => None,
+                IpAddr::V6(ipv6_addr) => Some(ipv6_addr.to_string()),
+            },
+            port: self.port,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::CloseEncoder<'_> {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        self.close.to_qlog()
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::Close {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        match self {
+            frame::Close::Connection(f) => {
+                let (error, error_code) = transport_error(f.error_code);
+                let error = error.map(|transport_error| {
+                    ConnectionClosedFrameError::TransportError(transport_error)
+                });
+                QuicFrame::ConnectionClose {
+                    error_space: Some(ErrorSpace::TransportError),
+                    error,
+                    error_code,
+                    reason: String::from_utf8(f.reason.to_vec()).ok(),
+                    reason_bytes: None,
+                    trigger_frame_type: None,
+                }
+            }
+            frame::Close::Application(f) => QuicFrame::ConnectionClose {
+                error_space: Some(ErrorSpace::ApplicationError),
+                error: None,
+                error_code: Some(f.error_code.into_inner()),
+                reason: String::from_utf8(f.reason.to_vec()).ok(),
+                reason_bytes: None,
+                trigger_frame_type: None,
+            },
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::Crypto {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::Crypto {
+            offset: self.offset,
+            raw: Some(RawInfo {
+                length: Some(self.data.len() as u64),
+                ..Default::default()
+            }),
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::Datagram {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::Datagram {
+            raw: Some(RawInfo {
+                length: Some(self.data.len() as u64),
+                ..Default::default()
+            }),
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::HandshakeDone {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::HandshakeDone { raw: None }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::ImmediateAck {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::ImmediateAck { raw: None }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::MaxData {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::MaxData {
+            maximum: self.0.into(),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::MaxPathId {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::MaxPathId {
+            maximum_path_id: self.0.as_u32().into(),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::MaxStreamData {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::MaxStreamData {
+            stream_id: self.id.into(),
+            maximum: self.offset,
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::MaxStreams {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::MaxStreams {
+            maximum: self.count,
+            stream_type: self.dir.into(),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::NewConnectionId {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::NewConnectionId {
+            sequence_number: self.sequence,
+            retire_prior_to: self.retire_prior_to,
+            connection_id_length: Some(self.id.len() as u8),
+            connection_id: self.id.to_string(),
+            stateless_reset_token: Some(self.reset_token.to_string()),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::NewToken {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::NewToken {
+            token: qlog::Token {
+                ty: Some(TokenType::Retry),
+                raw: Some(RawInfo {
+                    data: HexSlice::maybe_string(Some(&self.token)),
+                    length: Some(self.token.len() as u64),
+                    payload_length: None,
+                }),
+                details: None,
+            },
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::ObservedAddr {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::ObservedAddress {
+            sequence_number: self.seq_no.into_inner(),
+            ip_v4: match self.ip {
+                IpAddr::V4(ipv4_addr) => Some(ipv4_addr.to_string()),
+                IpAddr::V6(ipv6_addr) => None,
+            },
+            ip_v6: match self.ip {
+                IpAddr::V4(ipv4_addr) => None,
+                IpAddr::V6(ipv6_addr) => Some(ipv6_addr.to_string()),
+            },
+            port: self.port,
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::PathAbandon {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::PathAbandon {
+            path_id: self.path_id.as_u32().into(),
+            error_code: self.error_code.into(),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::PathAckEncoder<'_> {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::PathAck {
+            path_id: self.path_id.as_u32() as u64,
+            ack_delay: Some(self.delay as f32),
+            acked_ranges: Some(AckedRanges::Double(
+                self.ranges
+                    .iter()
+                    .map(|range| (range.start, range.end))
+                    .collect(),
+            )),
+            ect1: self.ecn.map(|e| e.ect1),
+            ect0: self.ecn.map(|e| e.ect0),
+            ce: self.ecn.map(|e| e.ce),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::PathChallenge {
+    #[cfg(feature = "qlog")]
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::PathChallenge {
+            data: Some(self.to_string()),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::PathCidsBlocked {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::PathCidsBlocked {
+            path_id: self.path_id.as_u32().into(),
+            next_sequence_number: self.next_seq.into(),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::PathResponse {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::PathResponse {
+            data: Some(self.to_string()),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::ReachOut {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::ReachOut {
+            round: self.round.into_inner(),
+            ip_v4: match self.ip {
+                IpAddr::V4(ipv4_addr) => Some(ipv4_addr.to_string()),
+                IpAddr::V6(ipv6_addr) => None,
+            },
+            ip_v6: match self.ip {
+                IpAddr::V4(ipv4_addr) => None,
+                IpAddr::V6(ipv6_addr) => Some(ipv6_addr.to_string()),
+            },
+            port: self.port,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::Ping {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::Ping { raw: None }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::PathStatusAvailable {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::PathStatusAvailable {
+            path_id: self.path_id.as_u32().into(),
+            path_status_sequence_number: self.status_seq_no.into(),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::PathStatusBackup {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::PathStatusBackup {
+            path_id: self.path_id.as_u32().into(),
+            path_status_sequence_number: self.status_seq_no.into(),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::PathsBlocked {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::PathsBlocked {
+            maximum_path_id: self.0.as_u32().into(),
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::ResetStream {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::ResetStream {
+            stream_id: self.id.into(),
+            error_code: Some(self.error_code.into_inner()),
+            final_size: self.final_offset.into(),
+            error: ApplicationError::Unknown,
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::StopSending {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::StopSending {
+            stream_id: self.id.into(),
+            error_code: Some(self.error_code.into_inner()),
+            error: ApplicationError::Unknown,
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::RetireConnectionId {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::RetireConnectionId {
+            sequence_number: self.sequence,
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::RemoveAddress {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::RemoveAddress {
+            sequence_number: self.seq_no.into_inner(),
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl frame::StreamMetaEncoder {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        let meta = &self.meta;
+        QuicFrame::Stream {
+            stream_id: meta.id.into(),
+            offset: Some(meta.offsets.start),
+            fin: Some(meta.fin),
+            raw: Some(RawInfo {
+                length: Some(meta.offsets.end - meta.offsets.start),
+                ..Default::default()
+            }),
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl<'a> EncodableFrame<'a> {
+    pub(crate) fn to_qlog(&self) -> QuicFrame {
+        match self {
+            EncodableFrame::PathAck(path_ack_encoder) => path_ack_encoder.to_qlog(),
+            EncodableFrame::Ack(ack_encoder) => ack_encoder.to_qlog(),
+            EncodableFrame::Close(close_encoder) => close_encoder.to_qlog(),
+            EncodableFrame::PathResponse(path_response) => path_response.to_qlog(),
+            EncodableFrame::HandshakeDone(handshake_done) => handshake_done.to_qlog(),
+            EncodableFrame::ReachOut(reach_out) => reach_out.to_qlog(),
+            EncodableFrame::ObservedAddr(observed_addr) => observed_addr.to_qlog(),
+            EncodableFrame::Ping(ping) => ping.to_qlog(),
+            EncodableFrame::ImmediateAck(immediate_ack) => immediate_ack.to_qlog(),
+            EncodableFrame::AckFrequency(ack_frequency) => ack_frequency.to_qlog(),
+            EncodableFrame::PathChallenge(path_challenge) => path_challenge.to_qlog(),
+            EncodableFrame::Crypto(crypto) => crypto.to_qlog(),
+            EncodableFrame::PathAbandon(path_abandon) => path_abandon.to_qlog(),
+            EncodableFrame::PathStatusAvailable(status) => status.to_qlog(),
+            EncodableFrame::PathStatusBackup(path_status_backup) => path_status_backup.to_qlog(),
+            EncodableFrame::MaxPathId(max_path_id) => max_path_id.to_qlog(),
+            EncodableFrame::PathsBlocked(paths_blocked) => paths_blocked.to_qlog(),
+            EncodableFrame::PathCidsBlocked(path_cids_blocked) => path_cids_blocked.to_qlog(),
+            EncodableFrame::ResetStream(reset_stream) => reset_stream.to_qlog(),
+            EncodableFrame::StopSending(stop_sending) => stop_sending.to_qlog(),
+            EncodableFrame::NewConnectionId(new_connection_id) => new_connection_id.to_qlog(),
+            EncodableFrame::RetireConnectionId(retire_cid) => retire_cid.to_qlog(),
+            EncodableFrame::Datagram(datagram) => datagram.to_qlog(),
+            EncodableFrame::NewToken(new_token) => new_token.to_qlog(),
+            EncodableFrame::AddAddress(add_address) => add_address.to_qlog(),
+            EncodableFrame::RemoveAddress(remove_address) => remove_address.to_qlog(),
+            EncodableFrame::StreamMeta(stream_meta_encoder) => stream_meta_encoder.to_qlog(),
+            EncodableFrame::MaxData(max_data) => max_data.to_qlog(),
+            EncodableFrame::MaxStreamData(max_stream_data) => max_stream_data.to_qlog(),
+            EncodableFrame::MaxStreams(max_streams) => max_streams.to_qlog(),
+        }
+    }
+}
+
 #[cfg(feature = "qlog")]
 impl Frame {
     /// Converts a [`crate::Frame`] into a [`QuicFrame`].
@@ -650,7 +1008,7 @@ impl Frame {
                     data: None,
                 }),
             },
-            Self::Ping => QuicFrame::Ping { raw: None },
+            Self::Ping => frame::Ping.to_qlog(),
             Self::Ack(f) => QuicFrame::Ack {
                 ack_delay: Some(f.delay as f32),
                 acked_ranges: Some(AckedRanges::Double(
@@ -663,38 +1021,10 @@ impl Frame {
                 ce: f.ecn.as_ref().map(|e| e.ce),
                 raw: None,
             },
-            Self::ResetStream(f) => QuicFrame::ResetStream {
-                stream_id: f.id.into(),
-                error_code: Some(f.error_code.into_inner()),
-                final_size: f.final_offset.into(),
-                error: ApplicationError::Unknown,
-                raw: None,
-            },
-            Self::StopSending(f) => QuicFrame::StopSending {
-                stream_id: f.id.into(),
-                error_code: Some(f.error_code.into_inner()),
-                error: ApplicationError::Unknown,
-                raw: None,
-            },
-            Self::Crypto(f) => QuicFrame::Crypto {
-                offset: f.offset,
-                raw: Some(RawInfo {
-                    length: Some(f.data.len() as u64),
-                    ..Default::default()
-                }),
-            },
-            Self::NewToken(f) => QuicFrame::NewToken {
-                token: qlog::Token {
-                    ty: Some(TokenType::Retry),
-                    raw: Some(RawInfo {
-                        data: HexSlice::maybe_string(Some(&f.token)),
-                        length: Some(f.token.len() as u64),
-                        payload_length: None,
-                    }),
-                    details: None,
-                },
-                raw: None,
-            },
+            Self::ResetStream(f) => f.to_qlog(),
+            Self::StopSending(f) => f.to_qlog(),
+            Self::Crypto(f) => f.to_qlog(),
+            Self::NewToken(f) => f.to_qlog(),
             Self::Stream(s) => QuicFrame::Stream {
                 stream_id: s.id.into(),
                 offset: Some(s.offset),
@@ -704,20 +1034,9 @@ impl Frame {
                     ..Default::default()
                 }),
             },
-            Self::MaxData(v) => QuicFrame::MaxData {
-                maximum: (*v).into(),
-                raw: None,
-            },
-            Self::MaxStreamData { id, offset } => QuicFrame::MaxStreamData {
-                stream_id: (*id).into(),
-                maximum: *offset,
-                raw: None,
-            },
-            Self::MaxStreams { dir, count } => QuicFrame::MaxStreams {
-                maximum: *count,
-                stream_type: (*dir).into(),
-                raw: None,
-            },
+            Self::MaxData(v) => v.to_qlog(),
+            Self::MaxStreamData(f) => f.to_qlog(),
+            Self::MaxStreams(f) => f.to_qlog(),
             Self::DataBlocked { offset } => QuicFrame::DataBlocked {
                 limit: *offset,
                 raw: None,
@@ -732,57 +1051,13 @@ impl Frame {
                 limit: *limit,
                 raw: None,
             },
-            Self::NewConnectionId(f) => QuicFrame::NewConnectionId {
-                sequence_number: f.sequence,
-                retire_prior_to: f.retire_prior_to,
-                connection_id_length: Some(f.id.len() as u8),
-                connection_id: f.id.to_string(),
-                stateless_reset_token: Some(f.reset_token.to_string()),
-                raw: None,
-            },
-            Self::RetireConnectionId(f) => QuicFrame::RetireConnectionId {
-                sequence_number: f.sequence,
-                raw: None,
-            },
-            Self::PathChallenge(token) => QuicFrame::PathChallenge {
-                data: Some(token.to_string()),
-                raw: None,
-            },
-            Self::PathResponse(token) => QuicFrame::PathResponse {
-                data: Some(token.to_string()),
-                raw: None,
-            },
-            Self::Close(close) => match close {
-                Close::Connection(f) => {
-                    let (error, error_code) = transport_error(f.error_code);
-                    let error = error.map(|transport_error| {
-                        ConnectionClosedFrameError::TransportError(transport_error)
-                    });
-                    QuicFrame::ConnectionClose {
-                        error_space: Some(ErrorSpace::TransportError),
-                        error,
-                        error_code,
-                        reason: String::from_utf8(f.reason.to_vec()).ok(),
-                        reason_bytes: None,
-                        trigger_frame_type: None,
-                    }
-                }
-                Close::Application(f) => QuicFrame::ConnectionClose {
-                    error_space: Some(ErrorSpace::ApplicationError),
-                    error: None,
-                    error_code: Some(f.error_code.into_inner()),
-                    reason: String::from_utf8(f.reason.to_vec()).ok(),
-                    reason_bytes: None,
-                    trigger_frame_type: None,
-                },
-            },
-            Self::Datagram(d) => QuicFrame::Datagram {
-                raw: Some(RawInfo {
-                    length: Some(d.data.len() as u64),
-                    ..Default::default()
-                }),
-            },
-            Self::HandshakeDone => QuicFrame::HandshakeDone { raw: None },
+            Self::NewConnectionId(f) => f.to_qlog(),
+            Self::RetireConnectionId(f) => f.to_qlog(),
+            Self::PathChallenge(f) => f.to_qlog(),
+            Self::PathResponse(f) => f.to_qlog(),
+            Self::Close(close) => close.to_qlog(),
+            Self::Datagram(d) => d.to_qlog(),
+            Self::HandshakeDone => frame::HandshakeDone.to_qlog(),
             Self::PathAck(ack) => QuicFrame::PathAck {
                 path_id: ack.path_id.as_u32().into(),
                 ack_delay: Some(ack.delay as f32),
@@ -796,82 +1071,18 @@ impl Frame {
                         .collect(),
                 )),
             },
-            Self::PathAbandon(frame) => QuicFrame::PathAbandon {
-                path_id: frame.path_id.as_u32().into(),
-                error_code: frame.error_code.into(),
-                raw: None,
-            },
-            Self::PathStatusAvailable(frame) => QuicFrame::PathStatusAvailable {
-                path_id: frame.path_id.as_u32().into(),
-                path_status_sequence_number: frame.status_seq_no.into(),
-                raw: None,
-            },
-            Self::PathStatusBackup(frame) => QuicFrame::PathStatusBackup {
-                path_id: frame.path_id.as_u32().into(),
-                path_status_sequence_number: frame.status_seq_no.into(),
-                raw: None,
-            },
-            Self::PathsBlocked(frame) => QuicFrame::PathsBlocked {
-                maximum_path_id: frame.0.as_u32().into(),
-                raw: None,
-            },
-            Self::PathCidsBlocked(frame) => QuicFrame::PathCidsBlocked {
-                path_id: frame.path_id.as_u32().into(),
-                next_sequence_number: frame.next_seq.into(),
-                raw: None,
-            },
-            Self::MaxPathId(id) => QuicFrame::MaxPathId {
-                maximum_path_id: id.0.as_u32().into(),
-                raw: None,
-            },
-            Self::AckFrequency(f) => QuicFrame::AckFrequency {
-                sequence_number: f.sequence.into_inner(),
-                ack_eliciting_threshold: f.ack_eliciting_threshold.into_inner(),
-                requested_max_ack_delay: f.request_max_ack_delay.into_inner(),
-                reordering_threshold: f.reordering_threshold.into_inner(),
-                raw: None,
-            },
-            Self::ImmediateAck => QuicFrame::ImmediateAck { raw: None },
-            Self::ObservedAddr(f) => QuicFrame::ObservedAddress {
-                sequence_number: f.seq_no.into_inner(),
-                ip_v4: match f.ip {
-                    IpAddr::V4(ipv4_addr) => Some(ipv4_addr.to_string()),
-                    IpAddr::V6(ipv6_addr) => None,
-                },
-                ip_v6: match f.ip {
-                    IpAddr::V4(ipv4_addr) => None,
-                    IpAddr::V6(ipv6_addr) => Some(ipv6_addr.to_string()),
-                },
-                port: f.port,
-                raw: None,
-            },
-            Self::AddAddress(f) => QuicFrame::AddAddress {
-                sequence_number: f.seq_no.into_inner(),
-                ip_v4: match f.ip {
-                    IpAddr::V4(ipv4_addr) => Some(ipv4_addr.to_string()),
-                    IpAddr::V6(ipv6_addr) => None,
-                },
-                ip_v6: match f.ip {
-                    IpAddr::V4(ipv4_addr) => None,
-                    IpAddr::V6(ipv6_addr) => Some(ipv6_addr.to_string()),
-                },
-                port: f.port,
-            },
-            Self::ReachOut(f) => QuicFrame::ReachOut {
-                round: f.round.into_inner(),
-                ip_v4: match f.ip {
-                    IpAddr::V4(ipv4_addr) => Some(ipv4_addr.to_string()),
-                    IpAddr::V6(ipv6_addr) => None,
-                },
-                ip_v6: match f.ip {
-                    IpAddr::V4(ipv4_addr) => None,
-                    IpAddr::V6(ipv6_addr) => Some(ipv6_addr.to_string()),
-                },
-                port: f.port,
-            },
-            Self::RemoveAddress(f) => QuicFrame::RemoveAddress {
-                sequence_number: f.seq_no.into_inner(),
-            },
+            Self::PathAbandon(frame) => frame.to_qlog(),
+            Self::PathStatusAvailable(frame) => frame.to_qlog(),
+            Self::PathStatusBackup(frame) => frame.to_qlog(),
+            Self::PathsBlocked(frame) => frame.to_qlog(),
+            Self::PathCidsBlocked(frame) => frame.to_qlog(),
+            Self::MaxPathId(f) => f.to_qlog(),
+            Self::AckFrequency(f) => f.to_qlog(),
+            Self::ImmediateAck => frame::ImmediateAck.to_qlog(),
+            Self::ObservedAddr(f) => f.to_qlog(),
+            Self::AddAddress(f) => f.to_qlog(),
+            Self::ReachOut(f) => f.to_qlog(),
+            Self::RemoveAddress(f) => f.to_qlog(),
         }
     }
 }
