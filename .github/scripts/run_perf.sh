@@ -52,14 +52,14 @@ esac
 echo "Running scenario: $SCENARIO"
 echo "  Upload: $UPLOAD, Download: $DOWNLOAD, Streams: $STREAMS, Duration: ${DURATION}s"
 
-# Start server in background
-"$BINARY" server &
+# Start server in background (explicitly bind to IPv4 for nc compatibility)
+"$BINARY" server --listen 127.0.0.1:4433 &
 SERVER_PID=$!
 
 # Wait for server to be ready (up to 10 seconds)
 MAX_WAIT=10
 WAIT_COUNT=0
-while ! nc -z localhost 4433 2>/dev/null; do
+while ! nc -z 127.0.0.1 4433 2>/dev/null; do
   sleep 1
   WAIT_COUNT=$((WAIT_COUNT + 1))
   if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
@@ -95,7 +95,7 @@ echo "Starting client..."
   --bi-requests "$STREAMS" \
   --duration "$DURATION" \
   --json "$OUTPUT_DIR/results.json" \
-  localhost:4433 || true
+  127.0.0.1:4433 || true
 
 # Stop server
 kill "$SERVER_PID" 2>/dev/null || true

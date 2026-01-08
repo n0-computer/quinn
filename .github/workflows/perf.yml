@@ -145,6 +145,7 @@ jobs:
 
       - name: Fetch netsim
         run: |
+          rm -rf /tmp/chuck
           git clone --depth 1 https://github.com/n0-computer/chuck.git /tmp/chuck
 
       - name: Install netsim deps
