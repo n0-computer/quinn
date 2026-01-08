@@ -239,7 +239,7 @@ jobs:
             ## Performance Comparison Report
 
             <details>
-            <summary><code>${{ github.event.pull_request.head.sha }}</code></summary>
+            <summary><code>${{ github.event.pull_request.head.sha }}</code> - <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">artifacts</a></summary>
 
             ${{ steps.compare.outputs.COMPARISON }}
 
@@ -255,7 +255,7 @@ jobs:
 
             ---
             <details>
-            <summary><code>${{ github.event.pull_request.head.sha }}</code></summary>
+            <summary><code>${{ github.event.pull_request.head.sha }}</code> - <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">artifacts</a></summary>
 
             ${{ steps.compare.outputs.COMPARISON }}
 
@@ -264,7 +264,7 @@ jobs:
   publish-metrics:
     name: Publish to Metro
     needs: compare
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: always() && needs.compare.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -273,7 +273,16 @@ jobs:
           name: perf-comparison-report
           path: ./
 
+      - name: Show metrics
+        run: |
+          echo "=== Metro metrics ==="
+          cat metro.json
+          echo ""
+          echo "=== Comparison report ==="
+          cat comparison.md
+
       - name: Publish metrics to Metro
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           if [[ -n "${{ secrets.METRO_TOKEN }}" && -n "${{ secrets.METRO_ENDPOINT }}" ]]; then
             curl -X POST \

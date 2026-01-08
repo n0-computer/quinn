@@ -18,14 +18,13 @@
                 {
                     "name": "cli",
                     "count": 1,
-                    "cmd": "time ./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 %s:4433",
+                    "cmd": "./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/ideal.json %s:4433",
                     "type": "public",
                     "connect": {
                         "strategy": "plain",
                         "node": "srv"
                     },
-                    "process": "short",
-                    "parser": "time_1gb"
+                    "process": "short"
                 }
             ]
         },
@@ -46,14 +45,13 @@
                 {
                     "name": "cli",
                     "count": 1,
-                    "cmd": "time ./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 %s:4433",
+                    "cmd": "./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/lan.json %s:4433",
                     "type": "public",
                     "connect": {
                         "strategy": "plain",
                         "node": "srv"
                     },
                     "process": "short",
-                    "parser": "time_1gb",
                     "link": {
                         "latency": 1,
                         "bw": 1000,
@@ -79,14 +77,13 @@
                 {
                     "name": "cli",
                     "count": 1,
-                    "cmd": "time ./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 %s:4433",
+                    "cmd": "./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/wan.json %s:4433",
                     "type": "public",
                     "connect": {
                         "strategy": "plain",
                         "node": "srv"
                     },
                     "process": "short",
-                    "parser": "time_1gb",
                     "link": {
                         "latency": 50,
                         "loss": 0.1,
@@ -112,14 +109,13 @@
                 {
                     "name": "cli",
                     "count": 1,
-                    "cmd": "time ./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 %s:4433",
+                    "cmd": "./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/lossy.json %s:4433",
                     "type": "public",
                     "connect": {
                         "strategy": "plain",
                         "node": "srv"
                     },
                     "process": "short",
-                    "parser": "time_1gb",
                     "link": {
                         "latency": 20,
                         "loss": 5,
