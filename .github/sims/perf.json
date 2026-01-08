@@ -1,0 +1,131 @@
+{
+    "name": "quinn_perf",
+    "cases": [
+        {
+            "name": "ideal_1_to_1",
+            "description": "Ideal network conditions - baseline throughput",
+            "nodes": [
+                {
+                    "name": "srv",
+                    "count": 1,
+                    "cmd": "./bins/quinn-perf server",
+                    "type": "public",
+                    "wait": 3,
+                    "connect": {
+                        "strategy": "none"
+                    }
+                },
+                {
+                    "name": "cli",
+                    "count": 1,
+                    "cmd": "time ./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 %s:4433",
+                    "type": "public",
+                    "connect": {
+                        "strategy": "plain",
+                        "node": "srv"
+                    },
+                    "process": "short",
+                    "parser": "time_1gb"
+                }
+            ]
+        },
+        {
+            "name": "lan_1_to_1",
+            "description": "LAN conditions - 1ms latency, 1Gbps",
+            "nodes": [
+                {
+                    "name": "srv",
+                    "count": 1,
+                    "cmd": "./bins/quinn-perf server",
+                    "type": "public",
+                    "wait": 3,
+                    "connect": {
+                        "strategy": "none"
+                    }
+                },
+                {
+                    "name": "cli",
+                    "count": 1,
+                    "cmd": "time ./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 %s:4433",
+                    "type": "public",
+                    "connect": {
+                        "strategy": "plain",
+                        "node": "srv"
+                    },
+                    "process": "short",
+                    "parser": "time_1gb",
+                    "link": {
+                        "latency": 1,
+                        "bw": 1000
+                    }
+                }
+            ]
+        },
+        {
+            "name": "wan_1_to_1",
+            "description": "WAN conditions - 50ms latency, 100Mbps, 0.1% loss",
+            "nodes": [
+                {
+                    "name": "srv",
+                    "count": 1,
+                    "cmd": "./bins/quinn-perf server",
+                    "type": "public",
+                    "wait": 3,
+                    "connect": {
+                        "strategy": "none"
+                    }
+                },
+                {
+                    "name": "cli",
+                    "count": 1,
+                    "cmd": "time ./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 %s:4433",
+                    "type": "public",
+                    "connect": {
+                        "strategy": "plain",
+                        "node": "srv"
+                    },
+                    "process": "short",
+                    "parser": "time_1gb",
+                    "link": {
+                        "latency": 50,
+                        "loss": 0.1,
+                        "bw": 100
+                    }
+                }
+            ]
+        },
+        {
+            "name": "lossy_1_to_1",
+            "description": "Lossy conditions - 20ms latency, 100Mbps, 5% loss",
+            "nodes": [
+                {
+                    "name": "srv",
+                    "count": 1,
+                    "cmd": "./bins/quinn-perf server",
+                    "type": "public",
+                    "wait": 3,
+                    "connect": {
+                        "strategy": "none"
+                    }
+                },
+                {
+                    "name": "cli",
+                    "count": 1,
+                    "cmd": "time ./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 %s:4433",
+                    "type": "public",
+                    "connect": {
+                        "strategy": "plain",
+                        "node": "srv"
+                    },
+                    "process": "short",
+                    "parser": "time_1gb",
+                    "link": {
+                        "latency": 20,
+                        "loss": 5,
+                        "bw": 100
+                    }
+                }
+            ]
+        }
+    ]
+}
