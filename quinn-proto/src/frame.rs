@@ -244,43 +244,6 @@ impl<'a> EncodableFrame<'a> {
     }
 }
 
-impl<'a> Encodable for EncodableFrame<'a> {
-    fn encode<B: BufMut>(&self, buf: &mut B) {
-        match self {
-            EncodableFrame::PathAck(path_ack_encoder) => path_ack_encoder.encode(buf),
-            EncodableFrame::Ack(ack_encoder) => ack_encoder.encode(buf),
-            EncodableFrame::Close(close_encoder) => close_encoder.encode(buf),
-            EncodableFrame::PathResponse(path_response) => path_response.encode(buf),
-            EncodableFrame::HandshakeDone(handshake_done) => handshake_done.encode(buf),
-            EncodableFrame::ReachOut(reach_out) => reach_out.encode(buf),
-            EncodableFrame::ObservedAddr(observed_addr) => observed_addr.encode(buf),
-            EncodableFrame::Ping(ping) => ping.encode(buf),
-            EncodableFrame::ImmediateAck(immediate_ack) => immediate_ack.encode(buf),
-            EncodableFrame::AckFrequency(ack_frequency) => ack_frequency.encode(buf),
-            EncodableFrame::PathChallenge(path_challenge) => path_challenge.encode(buf),
-            EncodableFrame::Crypto(crypto) => crypto.encode(buf),
-            EncodableFrame::PathAbandon(path_abandon) => path_abandon.encode(buf),
-            EncodableFrame::PathStatusAvailable(path_status) => path_status.encode(buf),
-            EncodableFrame::PathStatusBackup(path_status) => path_status.encode(buf),
-            EncodableFrame::MaxPathId(max_path_id) => max_path_id.encode(buf),
-            EncodableFrame::PathsBlocked(paths_blocked) => paths_blocked.encode(buf),
-            EncodableFrame::PathCidsBlocked(path_cids_blocked) => path_cids_blocked.encode(buf),
-            EncodableFrame::ResetStream(reset_stream) => reset_stream.encode(buf),
-            EncodableFrame::StopSending(stop_sending) => stop_sending.encode(buf),
-            EncodableFrame::NewConnectionId(new_connection_id) => new_connection_id.encode(buf),
-            EncodableFrame::RetireConnectionId(retire_cid) => retire_cid.encode(buf),
-            EncodableFrame::Datagram(datagram) => datagram.encode(buf),
-            EncodableFrame::NewToken(new_token) => new_token.encode(buf),
-            EncodableFrame::AddAddress(add_address) => add_address.encode(buf),
-            EncodableFrame::RemoveAddress(remove_address) => remove_address.encode(buf),
-            EncodableFrame::StreamMeta(stream_meta) => stream_meta.encode(buf),
-            EncodableFrame::MaxData(max_data) => max_data.encode(buf),
-            EncodableFrame::MaxStreamData(max_stream_data) => max_stream_data.encode(buf),
-            EncodableFrame::MaxStreams(max_streams) => max_streams.encode(buf),
-        }
-    }
-}
-
 pub(crate) trait FrameStruct {
     /// Smallest number of bytes this type of frame is guaranteed to fit within.
     const SIZE_BOUND: usize;
