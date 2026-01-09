@@ -5599,14 +5599,12 @@ impl Connection {
         if is_multipath_negotiated && space_id == SpaceId::Data {
             if !ranges.is_empty() {
                 trace!("PATH_ACK {path_id:?} {ranges:?}, Delay = {delay_micros}us");
-                builder.encode(
-                    frame::PathAck::encoder(path_id, delay as _, ranges, ecn),
-                    stats,
-                );
+                let frame = frame::PathAck::encoder(path_id, delay, ranges, ecn);
+                builder.encode(frame, stats);
             }
         } else {
             trace!("ACK {ranges:?}, Delay = {delay_micros}us");
-            builder.encode(frame::Ack::encoder(delay as _, ranges, ecn), stats);
+            builder.encode(frame::Ack::encoder(delay, ranges, ecn), stats);
         }
     }
 
@@ -6638,23 +6636,21 @@ impl SentFrames {
                     self.largest_acked.insert(PathId::ZERO, max);
                 }
             }
-            Close(_) => {
-                // TODO(@divma): why not set non_
-            }
+            Close(_) => { /* non retransmittable, but after this we don't really care */ }
             PathResponse(_) => self.non_retransmits = true,
             HandshakeDone(_) => self.retransmits_mut().handshake_done = true,
-            ReachOut(reach_out) => self
+            ReachOut(frame::ReachOut { round, ip, port }) => self
                 .retransmits_mut()
                 .reach_out
-                .get_or_insert_with(|| (reach_out.round, Default::default()))
+                .get_or_insert_with(|| (round, Vec::new()))
                 .1
-                .push((reach_out.ip, reach_out.port)),
+                .push((ip, port)),
             ObservedAddr(_) => self.retransmits_mut().observed_addr = true,
             Ping(_) => self.non_retransmits = true,
             ImmediateAck(_) => self.non_retransmits = true,
             AckFrequency(_) => self.retransmits_mut().ack_frequency = true,
             PathChallenge(_) => self.non_retransmits = true,
-            Crypto(crypto) => self.retransmits_mut().crypto.push_back(crypto.clone()),
+            Crypto(crypto) => self.retransmits_mut().crypto.push_back(crypto),
             PathAbandon(path_abandon) => {
                 self.retransmits_mut()
                     .path_abandon

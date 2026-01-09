@@ -224,11 +224,11 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
 
     pub(super) fn encode<'c>(
         &mut self,
-        frame: impl Into<EncodableFrame<'c>>,
+        frame: impl Into<EncodableFrame<'c>> + Encodable,
         stats: &mut FrameStats,
     ) {
-        let frame = frame.into();
         frame.encode(&mut self.frame_space_mut());
+        let frame = frame.into();
         stats.record(frame.get_type());
         self.qlog.record(&frame);
         self.sent_frames.sent(frame);
