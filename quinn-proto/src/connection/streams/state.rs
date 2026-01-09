@@ -523,6 +523,7 @@ impl StreamsState {
         let mut buf = Vec::with_capacity(capacity);
         let mut transmit_buf =
             crate::connection::TransmitBuf::new(&mut buf, std::num::NonZeroUsize::MIN, 1_200);
+        transmit_buf.start_new_datagram_with_size(capacity);
         let builder = &mut PacketBuilder::simple_data_buf(&mut transmit_buf);
         let stats = &mut FrameStats::default();
         self.write_stream_frames(builder, fair, stats);
