@@ -9,6 +9,7 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime
+import time
 
 
 def parse_quinn_perf_json(path: Path) -> dict | None:
@@ -53,10 +54,19 @@ def parse_metadata_json(path: Path) -> dict | None:
         return None
 
 
-def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str) -> list[dict]:
+def make_tag(impl: str, scenario: str, test_type: str, extra: dict = None) -> str:
+    """Create tag string from components."""
+    parts = [f"impl:{impl}", f"scenario:{scenario}", f"type:{test_type}"]
+    if extra:
+        for k, v in extra.items():
+            parts.append(f"{k}:{v}")
+    return ",".join(parts)
+
+
+def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -> list[dict]:
     """Collect all metrics and convert to Metro format."""
     metrics = []
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = int(time.time())
 
     # Collect raw benchmark results
     if raw_dir.exists():
@@ -77,40 +87,43 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str) -> list[dict]:
                 metadata = parse_metadata_json(metadata_json)
 
                 if perf_data:
-                    base_tags = {
-                        "implementation": impl,
-                        "scenario": scenario,
-                        "test_type": "raw",
-                        "commit": commit[:7]
-                    }
+                    tag = make_tag(impl, scenario, "raw")
 
                     metrics.append({
-                        "name": "quinn_perf_throughput_download_mbps",
-                        "value": perf_data['download_mbps'],
+                        "commitish": commit,
+                        "bucket": bucket,
                         "timestamp": timestamp,
-                        "tags": base_tags.copy()
+                        "name": "throughput_download_mbps",
+                        "tag": tag,
+                        "value": perf_data['download_mbps'],
                     })
 
                     metrics.append({
-                        "name": "quinn_perf_throughput_upload_mbps",
-                        "value": perf_data['upload_mbps'],
+                        "commitish": commit,
+                        "bucket": bucket,
                         "timestamp": timestamp,
-                        "tags": base_tags.copy()
+                        "name": "throughput_upload_mbps",
+                        "tag": tag,
+                        "value": perf_data['upload_mbps'],
                     })
 
                     if metadata:
                         metrics.append({
-                            "name": "quinn_perf_cpu_avg",
-                            "value": metadata.get('cpu_avg', 0),
+                            "commitish": commit,
+                            "bucket": bucket,
                             "timestamp": timestamp,
-                            "tags": base_tags.copy()
+                            "name": "cpu_avg",
+                            "tag": tag,
+                            "value": metadata.get('cpu_avg', 0),
                         })
 
                         metrics.append({
-                            "name": "quinn_perf_cpu_max",
-                            "value": metadata.get('cpu_max', 0),
+                            "commitish": commit,
+                            "bucket": bucket,
                             "timestamp": timestamp,
-                            "tags": base_tags.copy()
+                            "name": "cpu_max",
+                            "tag": tag,
+                            "value": metadata.get('cpu_max', 0),
                         })
 
     # Collect netsim results
@@ -124,31 +137,29 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str) -> list[dict]:
                 if json_file.name == 'metadata.json':
                     continue
 
-                # Extract condition from filename (e.g., ideal_1_to_1 -> ideal)
+                # Extract condition from filename (e.g., ideal.json -> ideal)
                 condition = json_file.stem.split('_')[0] if '_' in json_file.stem else json_file.stem
 
                 perf_data = parse_quinn_perf_json(json_file)
                 if perf_data:
-                    netsim_tags = {
-                        "implementation": impl,
-                        "scenario": f"netsim-{condition}",
-                        "test_type": "netsim",
-                        "network_condition": condition,
-                        "commit": commit[:7]
-                    }
+                    tag = make_tag(impl, f"netsim-{condition}", "netsim", {"network": condition})
 
                     metrics.append({
-                        "name": "quinn_perf_throughput_download_mbps",
-                        "value": perf_data['download_mbps'],
+                        "commitish": commit,
+                        "bucket": bucket,
                         "timestamp": timestamp,
-                        "tags": netsim_tags.copy()
+                        "name": "throughput_download_mbps",
+                        "tag": tag,
+                        "value": perf_data['download_mbps'],
                     })
 
                     metrics.append({
-                        "name": "quinn_perf_throughput_upload_mbps",
-                        "value": perf_data['upload_mbps'],
+                        "commitish": commit,
+                        "bucket": bucket,
                         "timestamp": timestamp,
-                        "tags": netsim_tags.copy()
+                        "name": "throughput_upload_mbps",
+                        "tag": tag,
+                        "value": perf_data['upload_mbps'],
                     })
 
     return metrics
@@ -163,14 +174,9 @@ def main():
 
     args = parser.parse_args()
 
-    metrics = collect_metrics(args.raw_dir, args.netsim_dir, args.commit)
+    metrics = collect_metrics(args.raw_dir, args.netsim_dir, args.commit, args.bucket)
 
-    # Output in Metro format
-    output = {
-        "bucket": args.bucket,
-        "metrics": metrics
-    }
-
+    output = {"metrics": metrics}
     print(json.dumps(output, indent=2))
 
 

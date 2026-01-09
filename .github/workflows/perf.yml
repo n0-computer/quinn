@@ -229,7 +229,8 @@ jobs:
           retention-days: 30
 
       - name: Publish metrics to Metro
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # TODO: revert to: if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: true
         run: |
           if [[ -n "${{ secrets.METRO_TOKEN }}" && -n "${{ secrets.METRO_ENDPOINT }}" ]]; then
             curl -X POST \
