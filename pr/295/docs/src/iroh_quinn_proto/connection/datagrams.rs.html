@@ -177,44 +177,43 @@
 <a href=#177 id=177 data-nosnippet>177</a>            <span class="prelude-val">None </span>=&gt; <span class="kw">return </span><span class="bool-val">false</span>,
 <a href=#178 id=178 data-nosnippet>178</a>        };
 <a href=#179 id=179 data-nosnippet>179</a>
-<a href=#180 id=180 data-nosnippet>180</a>        <span class="kw">let </span>prev_remaining = builder.frame_space_remaining();
-<a href=#181 id=181 data-nosnippet>181</a>        <span class="kw">if </span>prev_remaining &lt; datagram.size(<span class="bool-val">true</span>) {
-<a href=#182 id=182 data-nosnippet>182</a>            <span class="comment">// Future work: we could be more clever about cramming small datagrams into
-<a href=#183 id=183 data-nosnippet>183</a>            // mostly-full packets when a larger one is queued first
-<a href=#184 id=184 data-nosnippet>184</a>            </span><span class="self">self</span>.outgoing.push_front(datagram);
-<a href=#185 id=185 data-nosnippet>185</a>            <span class="kw">return </span><span class="bool-val">false</span>;
-<a href=#186 id=186 data-nosnippet>186</a>        }
-<a href=#187 id=187 data-nosnippet>187</a>
-<a href=#188 id=188 data-nosnippet>188</a>        <span class="macro">trace!</span>(len = datagram.data.len(), <span class="string">"DATAGRAM"</span>);
-<a href=#189 id=189 data-nosnippet>189</a>
-<a href=#190 id=190 data-nosnippet>190</a>        <span class="self">self</span>.outgoing_total -= datagram.data.len();
-<a href=#191 id=191 data-nosnippet>191</a>        builder.encode(datagram, stats);
-<a href=#192 id=192 data-nosnippet>192</a>        <span class="bool-val">true
-<a href=#193 id=193 data-nosnippet>193</a>    </span>}
-<a href=#194 id=194 data-nosnippet>194</a>
-<a href=#195 id=195 data-nosnippet>195</a>    <span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>recv(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;Bytes&gt; {
-<a href=#196 id=196 data-nosnippet>196</a>        <span class="kw">let </span>x = <span class="self">self</span>.incoming.pop_front()<span class="question-mark">?</span>.data;
-<a href=#197 id=197 data-nosnippet>197</a>        <span class="self">self</span>.recv_buffered -= x.len();
-<a href=#198 id=198 data-nosnippet>198</a>        <span class="prelude-val">Some</span>(x)
-<a href=#199 id=199 data-nosnippet>199</a>    }
-<a href=#200 id=200 data-nosnippet>200</a>}
-<a href=#201 id=201 data-nosnippet>201</a>
-<a href=#202 id=202 data-nosnippet>202</a><span class="doccomment">/// Errors that can arise when sending a datagram
-<a href=#203 id=203 data-nosnippet>203</a></span><span class="attr">#[derive(Debug, Error, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-<a href=#204 id=204 data-nosnippet>204</a></span><span class="kw">pub enum </span>SendDatagramError {
-<a href=#205 id=205 data-nosnippet>205</a>    <span class="doccomment">/// The peer does not support receiving datagram frames
-<a href=#206 id=206 data-nosnippet>206</a>    </span><span class="attr">#[error(<span class="string">"datagrams not supported by peer"</span>)]
-<a href=#207 id=207 data-nosnippet>207</a>    </span>UnsupportedByPeer,
-<a href=#208 id=208 data-nosnippet>208</a>    <span class="doccomment">/// Datagram support is disabled locally
-<a href=#209 id=209 data-nosnippet>209</a>    </span><span class="attr">#[error(<span class="string">"datagram support disabled"</span>)]
-<a href=#210 id=210 data-nosnippet>210</a>    </span>Disabled,
-<a href=#211 id=211 data-nosnippet>211</a>    <span class="doccomment">/// The datagram is larger than the connection can currently accommodate
-<a href=#212 id=212 data-nosnippet>212</a>    ///
-<a href=#213 id=213 data-nosnippet>213</a>    /// Indicates that the path MTU minus overhead or the limit advertised by the peer has been
-<a href=#214 id=214 data-nosnippet>214</a>    /// exceeded.
-<a href=#215 id=215 data-nosnippet>215</a>    </span><span class="attr">#[error(<span class="string">"datagram too large"</span>)]
-<a href=#216 id=216 data-nosnippet>216</a>    </span>TooLarge,
-<a href=#217 id=217 data-nosnippet>217</a>    <span class="doccomment">/// Send would block
-<a href=#218 id=218 data-nosnippet>218</a>    </span><span class="attr">#[error(<span class="string">"datagram send blocked"</span>)]
-<a href=#219 id=219 data-nosnippet>219</a>    </span>Blocked(Bytes),
-<a href=#220 id=220 data-nosnippet>220</a>}</code></pre></div></section></main></body></html>
+<a href=#180 id=180 data-nosnippet>180</a>        <span class="kw">if </span>builder.frame_space_remaining() &lt; datagram.size(<span class="bool-val">true</span>) {
+<a href=#181 id=181 data-nosnippet>181</a>            <span class="comment">// Future work: we could be more clever about cramming small datagrams into
+<a href=#182 id=182 data-nosnippet>182</a>            // mostly-full packets when a larger one is queued first
+<a href=#183 id=183 data-nosnippet>183</a>            </span><span class="self">self</span>.outgoing.push_front(datagram);
+<a href=#184 id=184 data-nosnippet>184</a>            <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#185 id=185 data-nosnippet>185</a>        }
+<a href=#186 id=186 data-nosnippet>186</a>
+<a href=#187 id=187 data-nosnippet>187</a>        <span class="macro">trace!</span>(len = datagram.data.len(), <span class="string">"DATAGRAM"</span>);
+<a href=#188 id=188 data-nosnippet>188</a>
+<a href=#189 id=189 data-nosnippet>189</a>        <span class="self">self</span>.outgoing_total -= datagram.data.len();
+<a href=#190 id=190 data-nosnippet>190</a>        builder.encode(datagram, stats);
+<a href=#191 id=191 data-nosnippet>191</a>        <span class="bool-val">true
+<a href=#192 id=192 data-nosnippet>192</a>    </span>}
+<a href=#193 id=193 data-nosnippet>193</a>
+<a href=#194 id=194 data-nosnippet>194</a>    <span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>recv(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;Bytes&gt; {
+<a href=#195 id=195 data-nosnippet>195</a>        <span class="kw">let </span>x = <span class="self">self</span>.incoming.pop_front()<span class="question-mark">?</span>.data;
+<a href=#196 id=196 data-nosnippet>196</a>        <span class="self">self</span>.recv_buffered -= x.len();
+<a href=#197 id=197 data-nosnippet>197</a>        <span class="prelude-val">Some</span>(x)
+<a href=#198 id=198 data-nosnippet>198</a>    }
+<a href=#199 id=199 data-nosnippet>199</a>}
+<a href=#200 id=200 data-nosnippet>200</a>
+<a href=#201 id=201 data-nosnippet>201</a><span class="doccomment">/// Errors that can arise when sending a datagram
+<a href=#202 id=202 data-nosnippet>202</a></span><span class="attr">#[derive(Debug, Error, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+<a href=#203 id=203 data-nosnippet>203</a></span><span class="kw">pub enum </span>SendDatagramError {
+<a href=#204 id=204 data-nosnippet>204</a>    <span class="doccomment">/// The peer does not support receiving datagram frames
+<a href=#205 id=205 data-nosnippet>205</a>    </span><span class="attr">#[error(<span class="string">"datagrams not supported by peer"</span>)]
+<a href=#206 id=206 data-nosnippet>206</a>    </span>UnsupportedByPeer,
+<a href=#207 id=207 data-nosnippet>207</a>    <span class="doccomment">/// Datagram support is disabled locally
+<a href=#208 id=208 data-nosnippet>208</a>    </span><span class="attr">#[error(<span class="string">"datagram support disabled"</span>)]
+<a href=#209 id=209 data-nosnippet>209</a>    </span>Disabled,
+<a href=#210 id=210 data-nosnippet>210</a>    <span class="doccomment">/// The datagram is larger than the connection can currently accommodate
+<a href=#211 id=211 data-nosnippet>211</a>    ///
+<a href=#212 id=212 data-nosnippet>212</a>    /// Indicates that the path MTU minus overhead or the limit advertised by the peer has been
+<a href=#213 id=213 data-nosnippet>213</a>    /// exceeded.
+<a href=#214 id=214 data-nosnippet>214</a>    </span><span class="attr">#[error(<span class="string">"datagram too large"</span>)]
+<a href=#215 id=215 data-nosnippet>215</a>    </span>TooLarge,
+<a href=#216 id=216 data-nosnippet>216</a>    <span class="doccomment">/// Send would block
+<a href=#217 id=217 data-nosnippet>217</a>    </span><span class="attr">#[error(<span class="string">"datagram send blocked"</span>)]
+<a href=#218 id=218 data-nosnippet>218</a>    </span>Blocked(Bytes),
+<a href=#219 id=219 data-nosnippet>219</a>}</code></pre></div></section></main></body></html>
