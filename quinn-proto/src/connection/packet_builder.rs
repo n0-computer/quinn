@@ -374,7 +374,6 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         self.sent_frames.requires_padding = true;
     }
 
-    // TODO(@divma): not ideal
     pub(crate) fn retransmits_mut(&mut self) -> &mut Retransmits {
         self.sent_frames.retransmits_mut()
     }
