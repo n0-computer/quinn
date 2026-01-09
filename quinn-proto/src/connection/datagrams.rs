@@ -167,11 +167,7 @@ impl DatagramState {
     ///
     /// Returns whether a frame was written. At most `max_size` bytes will be written, including
     /// framing.
-    pub(super) fn write<'a, 'b>(
-        &mut self,
-        builder: &mut PacketBuilder,
-        stats: &mut FrameStats,
-    ) -> bool {
+    pub(super) fn write<'a, 'b>(&mut self, buf: &mut PacketBuilder, stat: &mut FrameStats) -> bool {
         let datagram = match self.outgoing.pop_front() {
             Some(x) => x,
             None => return false,
@@ -187,7 +183,7 @@ impl DatagramState {
         trace!(len = datagram.data.len(), "DATAGRAM");
 
         self.outgoing_total -= datagram.data.len();
-        builder.encode(datagram, stats);
+        buf.encode(datagram, stat);
         true
     }
 

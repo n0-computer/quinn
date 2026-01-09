@@ -1292,26 +1292,22 @@ impl Connection {
                 let stats = &mut self.stats.frame_tx;
                 if frame::ConnectionClose::SIZE_BOUND < builder.frame_space_remaining() {
                     let max_frame_size = builder.frame_space_remaining();
-                    match self.state.as_type() {
+                    let close: Close = match self.state.as_type() {
                         StateType::Closed => {
                             let reason: Close =
                                 self.state.as_closed().expect("checked").clone().into();
                             if space_id == SpaceId::Data || reason.is_transport_layer() {
-                                builder.encode(reason.encoder(max_frame_size), stats)
+                                reason
                             } else {
-                                let frame: frame::Close =
-                                    TransportError::APPLICATION_ERROR("").into();
-                                builder.encode(frame.encoder(max_frame_size), stats);
+                                TransportError::APPLICATION_ERROR("").into()
                             }
                         }
-                        StateType::Draining => {
-                            let frame: frame::Close = TransportError::NO_ERROR("").into();
-                            builder.encode(frame.encoder(max_frame_size), stats);
-                        }
+                        StateType::Draining => TransportError::NO_ERROR("").into(),
                         _ => unreachable!(
                             "tried to make a close packet when the connection wasn't closed"
                         ),
                     };
+                    builder.encode(close.encoder(max_frame_size), stats);
                 }
                 builder.finish_and_track(now, self, path_id, pad_datagram);
                 if space_id == self.highest_space {
@@ -1499,7 +1495,6 @@ impl Connection {
                     }
                 }
             };
-
             if let Some((active_cid, probe_size)) = probe_data {
                 // We are definitely sending a DPLPMTUD probe.
                 debug_assert_eq!(transmit.num_datagrams(), 0);
@@ -5043,7 +5038,7 @@ impl Connection {
         space_id: SpaceId,
         path_id: PathId,
         path_exclusive_only: bool,
-        builder: &mut PacketBuilder<'a, 'b>,
+        builder: &mut PacketBuilder,
     ) {
         let pn = builder.exact_number;
         let is_multipath_negotiated = self.is_multipath_negotiated();
@@ -5289,17 +5284,10 @@ impl Connection {
                 .min(max_crypto_data_size);
 
             let data = frame.data.split_to(len);
-            let truncated = frame::Crypto {
-                offset: frame.offset,
-                data,
-            };
-            trace!(
-                "CRYPTO: off {} len {}",
-                truncated.offset,
-                truncated.data.len()
-            );
-            // TODO(@divma): revisit
-            builder.encode(truncated.clone(), stats);
+            let offset = frame.offset;
+            let truncated = frame::Crypto { offset, data };
+            trace!(off = offset, len = truncated.data.len(), "CRYPTO");
+            builder.encode(truncated, stats);
 
             if !frame.data.is_empty() {
                 frame.offset += len as u64;

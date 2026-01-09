@@ -414,7 +414,7 @@ impl StreamsState {
         stats: &mut FrameStats,
     ) {
         // RESET_STREAM
-        while builder.frame_space_remaining() > frame::ResetStream::SIZE_BOUND {
+        while builder.can_write_frame(frame::ResetStream::SIZE_BOUND) {
             let (id, error_code) = match pending.reset_stream.pop() {
                 Some(x) => x,
                 None => break,
@@ -433,7 +433,7 @@ impl StreamsState {
         }
 
         // STOP_SENDING
-        while builder.frame_space_remaining() > frame::StopSending::SIZE_BOUND {
+        while builder.can_write_frame(frame::StopSending::SIZE_BOUND) {
             let frame = match pending.stop_sending.pop() {
                 Some(x) => x,
                 None => break,
@@ -450,7 +450,7 @@ impl StreamsState {
         }
 
         // MAX_DATA
-        if pending.max_data && builder.frame_space_remaining() > 9 {
+        if pending.max_data && builder.can_write_frame(9) {
             pending.max_data = false;
 
             // `local_max_data` can grow bigger than `VarInt`.
@@ -470,7 +470,7 @@ impl StreamsState {
         }
 
         // MAX_STREAM_DATA
-        while builder.frame_space_remaining() > 17 {
+        while builder.can_write_frame(17) {
             let id = match pending.max_stream_data.iter().next() {
                 Some(x) => *x,
                 None => break,
@@ -498,7 +498,7 @@ impl StreamsState {
 
         // MAX_STREAMS
         for dir in Dir::iter() {
-            if !pending.max_stream_id[dir as usize] || builder.frame_space_remaining() <= 9 {
+            if !pending.max_stream_id[dir as usize] || builder.can_write_frame(9) {
                 continue;
             }
 
@@ -519,7 +519,7 @@ impl StreamsState {
         fair: bool,
         stats: &mut FrameStats,
     ) {
-        while builder.frame_space_remaining() > frame::Stream::SIZE_BOUND {
+        while builder.can_write_frame(frame::Stream::SIZE_BOUND) {
             // Pop the stream of the highest priority that currently has pending data. If
             // the stream still has some pending data left after writing, it will be
             // reinserted, otherwise not
