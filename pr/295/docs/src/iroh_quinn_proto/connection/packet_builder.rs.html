@@ -224,11 +224,11 @@
 <a href=#224 id=224 data-nosnippet>224</a>
 <a href=#225 id=225 data-nosnippet>225</a>    <span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>encode&lt;<span class="lifetime">'c</span>&gt;(
 <a href=#226 id=226 data-nosnippet>226</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#227 id=227 data-nosnippet>227</a>        frame: <span class="kw">impl </span>Into&lt;EncodableFrame&lt;<span class="lifetime">'c</span>&gt;&gt;,
+<a href=#227 id=227 data-nosnippet>227</a>        frame: <span class="kw">impl </span>Into&lt;EncodableFrame&lt;<span class="lifetime">'c</span>&gt;&gt; + Encodable,
 <a href=#228 id=228 data-nosnippet>228</a>        stats: <span class="kw-2">&amp;mut </span>FrameStats,
 <a href=#229 id=229 data-nosnippet>229</a>    ) {
-<a href=#230 id=230 data-nosnippet>230</a>        <span class="kw">let </span>frame = frame.into();
-<a href=#231 id=231 data-nosnippet>231</a>        frame.encode(<span class="kw-2">&amp;mut </span><span class="self">self</span>.frame_space_mut());
+<a href=#230 id=230 data-nosnippet>230</a>        frame.encode(<span class="kw-2">&amp;mut </span><span class="self">self</span>.frame_space_mut());
+<a href=#231 id=231 data-nosnippet>231</a>        <span class="kw">let </span>frame = frame.into();
 <a href=#232 id=232 data-nosnippet>232</a>        stats.record(frame.get_type());
 <a href=#233 id=233 data-nosnippet>233</a>        <span class="self">self</span>.qlog.record(<span class="kw-2">&amp;</span>frame);
 <a href=#234 id=234 data-nosnippet>234</a>        <span class="self">self</span>.sent_frames.sent(frame);
