@@ -177,8 +177,7 @@ impl DatagramState {
             None => return false,
         };
 
-        let prev_remaining = builder.frame_space_remaining();
-        if prev_remaining < datagram.size(true) {
+        if builder.frame_space_remaining() < datagram.size(true) {
             // Future work: we could be more clever about cramming small datagrams into
             // mostly-full packets when a larger one is queued first
             self.outgoing.push_front(datagram);
