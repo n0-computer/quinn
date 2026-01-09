@@ -409,7 +409,7 @@ impl StreamsState {
 
     pub(in crate::connection) fn write_control_frames<'a, 'b>(
         &mut self,
-        builder: &mut PacketBuilder<'a, 'b>,
+        builder: &mut PacketBuilder,
         pending: &mut Retransmits,
         stats: &mut FrameStats,
     ) {
@@ -515,7 +515,7 @@ impl StreamsState {
 
     pub(crate) fn write_stream_frames<'a, 'b>(
         &mut self,
-        builder: &mut PacketBuilder<'a, 'b>,
+        builder: &mut PacketBuilder,
         fair: bool,
         stats: &mut FrameStats,
     ) {
