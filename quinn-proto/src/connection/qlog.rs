@@ -612,7 +612,7 @@ impl frame::CloseEncoder<'_> {
 impl frame::Close {
     pub(crate) fn to_qlog(&self) -> QuicFrame {
         match self {
-            frame::Close::Connection(f) => {
+            Self::Connection(f) => {
                 let (error, error_code) = transport_error(f.error_code);
                 let error = error.map(|transport_error| {
                     ConnectionClosedFrameError::TransportError(transport_error)
@@ -626,7 +626,7 @@ impl frame::Close {
                     trigger_frame_type: None,
                 }
             }
-            frame::Close::Application(f) => QuicFrame::ConnectionClose {
+            Self::Application(f) => QuicFrame::ConnectionClose {
                 error_space: Some(ErrorSpace::ApplicationError),
                 error: None,
                 error_code: Some(f.error_code.into_inner()),

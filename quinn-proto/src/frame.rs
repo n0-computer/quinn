@@ -1152,7 +1152,7 @@ pub(crate) struct StreamMetaEncoder {
 
 impl Encodable for StreamMetaEncoder {
     fn encode<W: BufMut>(&self, out: &mut W) {
-        let StreamMetaEncoder {
+        let Self {
             meta,
             encode_length,
         } = self;
