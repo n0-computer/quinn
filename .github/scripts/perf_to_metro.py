@@ -78,12 +78,14 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                 metadata = parse_metadata_json(metadata_json)
 
                 if perf_data:
+                    tag = f"raw_{scenario}.{impl}"
+
                     metrics.append({
                         "commitish": commit,
                         "bucket": bucket,
                         "timestamp": timestamp,
-                        "name": f"raw_{scenario}_download_mbps",
-                        "tag": impl,
+                        "name": "download_mbps",
+                        "tag": tag,
                         "value": perf_data['download_mbps'],
                     })
 
@@ -91,8 +93,8 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                         "commitish": commit,
                         "bucket": bucket,
                         "timestamp": timestamp,
-                        "name": f"raw_{scenario}_upload_mbps",
-                        "tag": impl,
+                        "name": "upload_mbps",
+                        "tag": tag,
                         "value": perf_data['upload_mbps'],
                     })
 
@@ -101,8 +103,8 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                             "commitish": commit,
                             "bucket": bucket,
                             "timestamp": timestamp,
-                            "name": f"raw_{scenario}_cpu_avg",
-                            "tag": impl,
+                            "name": "cpu_avg",
+                            "tag": tag,
                             "value": metadata.get('cpu_avg', 0),
                         })
 
@@ -110,8 +112,8 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                             "commitish": commit,
                             "bucket": bucket,
                             "timestamp": timestamp,
-                            "name": f"raw_{scenario}_cpu_max",
-                            "tag": impl,
+                            "name": "cpu_max",
+                            "tag": tag,
                             "value": metadata.get('cpu_max', 0),
                         })
 
@@ -131,12 +133,14 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
 
                 perf_data = parse_quinn_perf_json(json_file)
                 if perf_data:
+                    tag = f"netsim_{condition}.{impl}"
+
                     metrics.append({
                         "commitish": commit,
                         "bucket": bucket,
                         "timestamp": timestamp,
-                        "name": f"netsim_{condition}_download_mbps",
-                        "tag": impl,
+                        "name": "download_mbps",
+                        "tag": tag,
                         "value": perf_data['download_mbps'],
                     })
 
@@ -144,8 +148,8 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                         "commitish": commit,
                         "bucket": bucket,
                         "timestamp": timestamp,
-                        "name": f"netsim_{condition}_upload_mbps",
-                        "tag": impl,
+                        "name": "upload_mbps",
+                        "tag": tag,
                         "value": perf_data['upload_mbps'],
                     })
 
