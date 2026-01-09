@@ -564,28 +564,20 @@ impl StreamsState {
                 }
             }
 
-            let meta = frame::StreamMeta {
-                id,
-                offsets: offsets.clone(),
-                fin,
-            };
-            trace!(id = %meta.id, off = meta.offsets.start, len = meta.offsets.end - meta.offsets.start, fin = meta.fin, "STREAM");
+            let range = offsets.clone();
+            let meta = frame::StreamMeta { id, offsets, fin };
+            trace!(id = %id, off = range.start, len = range.end - range.start, fin, "STREAM");
             builder.encode(meta.encoder(encode_length), stats);
-            stream.pending.get_into(offsets.clone(), builder.buf);
+            stream.pending.get_into(range, builder.buf);
         }
     }
 
     #[cfg(test)]
-    fn write_stream_frames_for_test(
-        &mut self,
-        capacity: usize,
-        fair: bool,
-    ) -> frame::StreamMetaVec {
-        let mut buf = Vec::with_capacity(capacity);
-        let mut transmit_buf =
-            crate::connection::TransmitBuf::new(&mut buf, std::num::NonZeroUsize::MIN, 1_200);
-        transmit_buf.start_new_datagram_with_size(capacity);
-        let builder = &mut PacketBuilder::simple_data_buf(&mut transmit_buf);
+    fn write_frames_for_test(&mut self, capacity: usize, fair: bool) -> frame::StreamMetaVec {
+        let buf = &mut Vec::with_capacity(capacity);
+        let mut tbuf = crate::connection::TransmitBuf::new(buf, std::num::NonZeroUsize::MIN, 1_200);
+        tbuf.start_new_datagram_with_size(capacity);
+        let builder = &mut PacketBuilder::simple_data_buf(&mut tbuf);
         let stats = &mut FrameStats::default();
         self.write_stream_frames(builder, fair, stats);
         builder.sent_frames().stream_frames.clone()
@@ -1360,7 +1352,7 @@ mod tests {
         high.set_priority(1).unwrap();
         high.write(b"high").unwrap();
 
-        let meta = server.write_stream_frames_for_test(40, true);
+        let meta = server.write_frames_for_test(40, true);
         assert_eq!(meta[0].id, id_high);
         assert_eq!(meta[1].id, id_mid);
         assert_eq!(meta[2].id, id_low);
@@ -1418,7 +1410,7 @@ mod tests {
         };
         high.set_priority(-1).unwrap();
 
-        let meta = server.write_stream_frames_for_test(40, true);
+        let meta = server.write_frames_for_test(40, true);
         assert_eq!(meta.len(), 1);
         assert_eq!(meta[0].id, id_high);
 
@@ -1426,7 +1418,7 @@ mod tests {
         assert_eq!(server.pending.len(), 2);
 
         // Send the remaining data. The initial mid priority one should go first now
-        let meta = server.write_stream_frames_for_test(1000 - 40, true);
+        let meta = server.write_frames_for_test(1000 - 40, true);
         assert_eq!(meta.len(), 2);
         assert_eq!(meta[0].id, id_mid);
         assert_eq!(meta[1].id, id_high);
@@ -1485,7 +1477,7 @@ mod tests {
 
             // loop until all the streams are written
             loop {
-                let meta = server.write_stream_frames_for_test(40, fair);
+                let meta = server.write_frames_for_test(40, fair);
                 if meta.is_empty() {
                     break;
                 }
@@ -1554,7 +1546,7 @@ mod tests {
         let mut metas = vec![];
 
         // Write the first chunk of stream_a
-        let meta = server.write_stream_frames_for_test(40, false);
+        let meta = server.write_frames_for_test(40, false);
         assert!(!meta.is_empty());
         metas.extend(meta);
 
@@ -1570,7 +1562,7 @@ mod tests {
 
         // loop until all the streams are written
         loop {
-            let meta = server.write_stream_frames_for_test(40, false);
+            let meta = server.write_frames_for_test(40, false);
             if meta.is_empty() {
                 break;
             }
