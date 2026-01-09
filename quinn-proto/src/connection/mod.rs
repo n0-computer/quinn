@@ -5032,7 +5032,7 @@ impl Connection {
     /// *path_exclusive_only* means to only build frames which can only be sent on this
     /// *path.  This is used in multipath for backup paths while there is still an active
     /// *path.
-    fn populate_packet<'a, 'b>(
+    fn populate_packet(
         &mut self,
         now: Instant,
         space_id: SpaceId,
@@ -5558,14 +5558,14 @@ impl Connection {
     }
 
     /// Write pending ACKs into a buffer
-    fn populate_acks<'a, 'b>(
+    fn populate_acks(
         now: Instant,
         receiving_ecn: bool,
         path_id: PathId,
         space_id: SpaceId,
         space: &mut PacketSpace,
         is_multipath_negotiated: bool,
-        builder: &mut PacketBuilder<'a, 'b>,
+        builder: &mut PacketBuilder,
         stats: &mut FrameStats,
     ) {
         // 0-RTT packets must never carry acks (which would have to be of handshake packets)
