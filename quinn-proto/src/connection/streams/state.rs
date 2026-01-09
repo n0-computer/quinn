@@ -1,25 +1,20 @@
-#[cfg(test)]
-use std::path::StripPrefixError;
 use std::{
     collections::{VecDeque, hash_map},
     convert::TryFrom,
     mem,
 };
 
-use bytes::BufMut;
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
 
 use super::{
     PendingStreamsQueue, Recv, Retransmits, Send, SendState, ShouldTransmit, StreamEvent,
-    StreamHalf, ThinRetransmits,
+    StreamHalf,
 };
-#[cfg(test)]
-use crate::frame::Stream;
 use crate::{
     Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
     connection::{PacketBuilder, stats::FrameStats},
-    frame::{self, FrameStruct, StreamMetaVec},
+    frame::{self, FrameStruct},
     transport_parameters::TransportParameters,
 };
 
@@ -519,7 +514,11 @@ impl StreamsState {
     }
 
     #[cfg(test)]
-    fn write_stream_frames_for_test(&mut self, capacity: usize, fair: bool) -> StreamMetaVec {
+    fn write_stream_frames_for_test(
+        &mut self,
+        capacity: usize,
+        fair: bool,
+    ) -> frame::StreamMetaVec {
         let mut buf = Vec::with_capacity(capacity);
         let mut transmit_buf =
             crate::connection::TransmitBuf::new(&mut buf, std::num::NonZeroUsize::MIN, 1_200);

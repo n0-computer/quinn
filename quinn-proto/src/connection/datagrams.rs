@@ -1,13 +1,12 @@
 use std::collections::VecDeque;
 
-use bytes::{BufMut, Bytes};
+use bytes::Bytes;
 use thiserror::Error;
 use tracing::{debug, trace};
 
 use super::Connection;
 use crate::{
     FrameStats, TransportError,
-    coding::Encodable,
     connection::PacketBuilder,
     frame::{Datagram, FrameStruct},
 };

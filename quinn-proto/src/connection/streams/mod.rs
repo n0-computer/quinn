@@ -7,7 +7,7 @@ use bytes::Bytes;
 use thiserror::Error;
 use tracing::trace;
 
-use super::spaces::{Retransmits, ThinRetransmits};
+use super::spaces::Retransmits;
 use crate::{
     Dir, StreamId, VarInt,
     connection::streams::state::{get_or_insert_recv, get_or_insert_send},
