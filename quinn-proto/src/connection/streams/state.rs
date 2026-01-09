@@ -513,22 +513,6 @@ impl StreamsState {
         }
     }
 
-    #[cfg(test)]
-    fn write_stream_frames_for_test(
-        &mut self,
-        capacity: usize,
-        fair: bool,
-    ) -> frame::StreamMetaVec {
-        let mut buf = Vec::with_capacity(capacity);
-        let mut transmit_buf =
-            crate::connection::TransmitBuf::new(&mut buf, std::num::NonZeroUsize::MIN, 1_200);
-        transmit_buf.start_new_datagram_with_size(capacity);
-        let builder = &mut PacketBuilder::simple_data_buf(&mut transmit_buf);
-        let stats = &mut FrameStats::default();
-        self.write_stream_frames(builder, fair, stats);
-        builder.sent_frames().stream_frames.clone()
-    }
-
     pub(crate) fn write_stream_frames<'a, 'b>(
         &mut self,
         builder: &mut PacketBuilder<'a, 'b>,
@@ -589,6 +573,22 @@ impl StreamsState {
             builder.encode(meta.encoder(encode_length), stats);
             stream.pending.get_into(offsets.clone(), builder.buf);
         }
+    }
+
+    #[cfg(test)]
+    fn write_stream_frames_for_test(
+        &mut self,
+        capacity: usize,
+        fair: bool,
+    ) -> frame::StreamMetaVec {
+        let mut buf = Vec::with_capacity(capacity);
+        let mut transmit_buf =
+            crate::connection::TransmitBuf::new(&mut buf, std::num::NonZeroUsize::MIN, 1_200);
+        transmit_buf.start_new_datagram_with_size(capacity);
+        let builder = &mut PacketBuilder::simple_data_buf(&mut transmit_buf);
+        let stats = &mut FrameStats::default();
+        self.write_stream_frames(builder, fair, stats);
+        builder.sent_frames().stream_frames.clone()
     }
 
     /// Notify the application that new streams were opened or a stream became readable.
