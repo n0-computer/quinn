@@ -168,7 +168,7 @@ impl Encodable for FrameType {
 
 /// Wrapper type for the encodable frames.
 ///
-/// This includes some "encoder" types instead of the actual read frame, when writting directly to
+/// This includes some "encoder" types instead of the actual read frame, when writing directly to
 /// a buffer is more efficient than building the Frame itself.
 #[derive(derive_more::From)]
 pub(super) enum EncodableFrame<'a> {
