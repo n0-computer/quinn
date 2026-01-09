@@ -78,7 +78,7 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                 metadata = parse_metadata_json(metadata_json)
 
                 if perf_data:
-                    tag = f"raw_{scenario}.{impl}"
+                    tag = f"raw_{scenario.replace('-', '_')}.{impl}"
 
                     metrics.append({
                         "commitish": commit,
