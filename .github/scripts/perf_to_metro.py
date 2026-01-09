@@ -54,15 +54,6 @@ def parse_metadata_json(path: Path) -> dict | None:
         return None
 
 
-def make_tag(impl: str, scenario: str, test_type: str, extra: dict = None) -> str:
-    """Create tag string from components."""
-    parts = [f"impl:{impl}", f"scenario:{scenario}", f"type:{test_type}"]
-    if extra:
-        for k, v in extra.items():
-            parts.append(f"{k}:{v}")
-    return ",".join(parts)
-
-
 def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -> list[dict]:
     """Collect all metrics and convert to Metro format."""
     metrics = []
@@ -87,14 +78,12 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                 metadata = parse_metadata_json(metadata_json)
 
                 if perf_data:
-                    tag = make_tag(impl, scenario, "raw")
-
                     metrics.append({
                         "commitish": commit,
                         "bucket": bucket,
                         "timestamp": timestamp,
-                        "name": "throughput_download_mbps",
-                        "tag": tag,
+                        "name": f"raw_{scenario}_download_mbps",
+                        "tag": impl,
                         "value": perf_data['download_mbps'],
                     })
 
@@ -102,8 +91,8 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                         "commitish": commit,
                         "bucket": bucket,
                         "timestamp": timestamp,
-                        "name": "throughput_upload_mbps",
-                        "tag": tag,
+                        "name": f"raw_{scenario}_upload_mbps",
+                        "tag": impl,
                         "value": perf_data['upload_mbps'],
                     })
 
@@ -112,8 +101,8 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                             "commitish": commit,
                             "bucket": bucket,
                             "timestamp": timestamp,
-                            "name": "cpu_avg",
-                            "tag": tag,
+                            "name": f"raw_{scenario}_cpu_avg",
+                            "tag": impl,
                             "value": metadata.get('cpu_avg', 0),
                         })
 
@@ -121,8 +110,8 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                             "commitish": commit,
                             "bucket": bucket,
                             "timestamp": timestamp,
-                            "name": "cpu_max",
-                            "tag": tag,
+                            "name": f"raw_{scenario}_cpu_max",
+                            "tag": impl,
                             "value": metadata.get('cpu_max', 0),
                         })
 
@@ -142,14 +131,12 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
 
                 perf_data = parse_quinn_perf_json(json_file)
                 if perf_data:
-                    tag = make_tag(impl, f"netsim-{condition}", "netsim", {"network": condition})
-
                     metrics.append({
                         "commitish": commit,
                         "bucket": bucket,
                         "timestamp": timestamp,
-                        "name": "throughput_download_mbps",
-                        "tag": tag,
+                        "name": f"netsim_{condition}_download_mbps",
+                        "tag": impl,
                         "value": perf_data['download_mbps'],
                     })
 
@@ -157,8 +144,8 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                         "commitish": commit,
                         "bucket": bucket,
                         "timestamp": timestamp,
-                        "name": "throughput_upload_mbps",
-                        "tag": tag,
+                        "name": f"netsim_{condition}_upload_mbps",
+                        "tag": impl,
                         "value": perf_data['upload_mbps'],
                     })
 
