@@ -33,8 +33,8 @@ fn multipath_pair() -> (Pair, ConnectionHandle, ConnectionHandle) {
         transport: multipath_transport_cfg.clone(),
         ..server_config()
     });
-    let server = Endpoint::new(Default::default(), Some(server_cfg), true, None);
-    let client = Endpoint::new(Default::default(), None, true, None);
+    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
+    let client = Endpoint::new(Default::default(), None, true);
 
     let mut pair = Pair::new_from_endpoint(client, server);
     let client_cfg = ClientConfig {
@@ -60,7 +60,7 @@ fn non_zero_length_cids() {
         transport: multipath_transport_cfg.clone(),
         ..server_config()
     });
-    let server = Endpoint::new(Default::default(), Some(server_cfg), true, None);
+    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
 
     struct ZeroLenCidGenerator;
 
@@ -80,7 +80,7 @@ fn non_zero_length_cids() {
 
     let mut ep_config = EndpointConfig::default();
     ep_config.cid_generator(|| Box::new(ZeroLenCidGenerator));
-    let client = Endpoint::new(Arc::new(ep_config), None, true, None);
+    let client = Endpoint::new(Arc::new(ep_config), None, true);
 
     let mut pair = Pair::new_from_endpoint(client, server);
     let client_cfg = ClientConfig {
@@ -216,9 +216,8 @@ fn multipath_cid_rotation() {
         }),
         Some(Arc::new(server_cfg)),
         true,
-        None,
     );
-    let client = Endpoint::new(Arc::new(EndpointConfig::default()), None, true, None);
+    let client = Endpoint::new(Arc::new(EndpointConfig::default()), None, true);
 
     let mut pair = Pair::new_from_endpoint(client, server);
     let client_cfg = ClientConfig {
@@ -323,8 +322,8 @@ fn issue_max_path_id() {
         transport: multipath_transport_cfg.clone(),
         ..server_config()
     });
-    let server = Endpoint::new(Default::default(), Some(server_cfg), true, None);
-    let client = Endpoint::new(Default::default(), None, true, None);
+    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
+    let client = Endpoint::new(Default::default(), None, true);
 
     let mut pair = Pair::new_from_endpoint(client, server);
 
@@ -396,8 +395,8 @@ fn issue_max_path_id_reordered() {
         transport: multipath_transport_cfg.clone(),
         ..server_config()
     });
-    let server = Endpoint::new(Default::default(), Some(server_cfg), true, None);
-    let client = Endpoint::new(Default::default(), None, true, None);
+    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
+    let client = Endpoint::new(Default::default(), None, true);
 
     let mut pair = Pair::new_from_endpoint(client, server);
 
@@ -656,8 +655,8 @@ fn per_path_observed_address() {
             transport: transport_cfg.clone(),
             ..server_config()
         });
-        let server = Endpoint::new(Default::default(), Some(server_cfg), true, None);
-        let client = Endpoint::new(Default::default(), None, true, None);
+        let server = Endpoint::new(Default::default(), Some(server_cfg), true);
+        let client = Endpoint::new(Default::default(), None, true);
 
         let mut pair = Pair::new_from_endpoint(client, server);
         let client_cfg = ClientConfig {
@@ -728,8 +727,8 @@ fn mtud_on_two_paths() {
         transport: multipath_transport_cfg.clone(),
         ..server_config()
     });
-    let server = Endpoint::new(Default::default(), Some(server_cfg), true, None);
-    let client = Endpoint::new(Default::default(), None, true, None);
+    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
+    let client = Endpoint::new(Default::default(), None, true);
 
     let mut pair = Pair::new_from_endpoint(client, server);
     pair.mtu = 1200; // Start with a small MTU
