@@ -126,6 +126,7 @@ pub enum FrameType {
     RemoveAddress,
 }
 
+/// Encounter a frame ID that was not valid.
 #[derive(Debug, PartialEq, Eq)]
 pub struct InvalidFrameId(u64);
 
@@ -215,6 +216,7 @@ impl Encodable for MaybeFrame {
     }
 }
 
+#[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display)]
 #[display("STREAM")]
 pub struct StreamInfo(u8);
@@ -236,6 +238,7 @@ impl StreamInfo {
     }
 }
 
+#[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display)]
 #[display("DATAGRAM")]
 pub struct DatagramInfo(u8);
@@ -291,7 +294,7 @@ pub(crate) enum Frame {
 }
 
 impl fmt::Display for Frame {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Eventually all our frames will support fmt::Display and be able to be used to log
         // consistently. For now we fall back to fmt::Debug.
         match self {
@@ -505,7 +508,7 @@ impl Encodable for RetireConnectionId {
 }
 
 #[derive(Clone, Debug)]
-pub enum Close {
+pub(crate) enum Close {
     Connection(ConnectionClose),
     Application(ApplicationClose),
 }
@@ -643,7 +646,7 @@ impl ApplicationClose {
 }
 
 #[derive(Clone, Eq, PartialEq)]
-pub struct PathAck {
+pub(crate) struct PathAck {
     pub path_id: PathId,
     pub largest: u64,
     pub delay: u64,
@@ -676,15 +679,16 @@ impl fmt::Debug for PathAck {
 
 impl<'a> IntoIterator for &'a PathAck {
     type Item = RangeInclusive<u64>;
+    #[allow(unnameable_types)]
     type IntoIter = AckIter<'a>;
 
-    fn into_iter(self) -> AckIter<'a> {
+    fn into_iter(self) -> Self::IntoIter {
         AckIter::new(self.largest, &self.additional[..])
     }
 }
 
 impl PathAck {
-    pub fn into_ack(self) -> (Ack, PathId) {
+    pub(crate) fn into_ack(self) -> (Ack, PathId) {
         let ack = Ack {
             largest: self.largest,
             delay: self.delay,
@@ -761,7 +765,7 @@ impl<'a> Encodable for PathAckEncoder<'a> {
 }
 
 #[derive(Clone, Eq, PartialEq)]
-pub struct Ack {
+pub(crate) struct Ack {
     pub largest: u64,
     pub delay: u64,
     pub additional: Bytes,
@@ -790,6 +794,7 @@ impl fmt::Debug for Ack {
     }
 }
 
+#[allow(unnameable_types)]
 impl<'a> IntoIterator for &'a Ack {
     type Item = RangeInclusive<u64>;
     type IntoIter = AckIter<'a>;
@@ -808,7 +813,7 @@ impl Ack {
         AckEncoder { delay, ranges, ecn }
     }
 
-    pub fn iter(&self) -> AckIter<'_> {
+    pub(crate) fn iter(&self) -> AckIter<'_> {
         self.into_iter()
     }
 }
@@ -849,7 +854,7 @@ impl<'a> Encodable for AckEncoder<'a> {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct EcnCounts {
+pub(crate) struct EcnCounts {
     pub ect0: u64,
     pub ect1: u64,
     pub ce: u64,
@@ -872,7 +877,7 @@ impl std::ops::AddAssign<EcnCodepoint> for EcnCounts {
 }
 
 impl EcnCounts {
-    pub const ZERO: Self = Self {
+    pub(crate) const ZERO: Self = Self {
         ect0: 0,
         ect1: 0,
         ce: 0,
@@ -1354,7 +1359,7 @@ impl From<UnexpectedEnd> for IterErr {
 }
 
 #[derive(Debug, Clone)]
-pub struct AckIter<'a> {
+pub(crate) struct AckIter<'a> {
     largest: u64,
     data: &'a [u8],
 }

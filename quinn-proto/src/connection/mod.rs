@@ -2218,13 +2218,6 @@ impl Connection {
         self.update_keys(None, false);
     }
 
-    // Compatibility wrapper for quinn < 0.11.7. Remove for 0.12.
-    #[doc(hidden)]
-    #[deprecated]
-    pub fn initiate_key_update(&mut self) {
-        self.force_key_update();
-    }
-
     /// Get a session reference
     pub fn crypto_session(&self) -> &dyn crypto::Session {
         &*self.crypto
@@ -2971,7 +2964,12 @@ impl Connection {
             if path.mtud.black_hole_detected(now) {
                 path.congestion.on_mtu_update(path.mtud.current_mtu());
                 if let Some(max_datagram_size) = self.datagrams().max_size() {
-                    self.datagrams.drop_oversized(max_datagram_size);
+                    if self.datagrams.drop_oversized(max_datagram_size)
+                        && self.datagrams.send_blocked
+                    {
+                        self.datagrams.send_blocked = false;
+                        self.events.push_back(Event::DatagramsUnblocked);
+                    }
                 }
                 self.path_stats
                     .entry(path_id)
@@ -6524,7 +6522,7 @@ impl Connection {
 }
 
 impl fmt::Debug for Connection {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Connection")
             .field("handshake_cid", &self.handshake_cid)
             .finish()
@@ -6733,6 +6731,7 @@ pub enum ClosePathError {
     LastOpenPath,
 }
 
+/// Error when the multipath extension was not negotiated, but attempted to be used.
 #[derive(Debug, Error, Clone, Copy)]
 #[error("Multipath extension not negotiated")]
 pub struct MultipathNotNegotiated {
