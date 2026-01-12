@@ -4799,7 +4799,7 @@ impl Connection {
                     // be treated as a connection error of type PROTOCOL_VIOLATION.
                     // Ref <https://www.ietf.org/archive/id/draft-ietf-quic-multipath-14.html#name-paths_blocked-and-path_cids>
                     if self.is_multipath_negotiated() {
-                        if self.local_max_path_id > max_path_id {
+                        if max_path_id > self.local_max_path_id {
                             return Err(TransportError::PROTOCOL_VIOLATION(
                                 "PATHS_BLOCKED maximum path identifier was larger than local maximum",
                             ));
