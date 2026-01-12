@@ -74,7 +74,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
                     now,
                     Close::Connection(frame::ConnectionClose {
                         error_code: TransportErrorCode::AEAD_LIMIT_REACHED,
-                        frame_type: None,
+                        frame_type: frame::MaybeFrame::None,
                         reason: Bytes::from_static(b"confidentiality limit reached"),
                     }),
                 )

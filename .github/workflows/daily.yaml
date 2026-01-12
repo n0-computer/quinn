@@ -141,9 +141,9 @@ jobs:
         uses: n0-computer/discord-webhook-notify@v1
         if: ${{ env.TESTS_RESULT == 'failure' }}
         with:
+          text: "Daily CI failures in **${{ github.repository }}**"
           severity: warn
           details: |
-            Daily CI failures in **${{ github.repository }}**:
             ${{ env.FAILURE_DETAILS }}
             See https://github.com/${{ github.repository }}/actions/workflows/daily.yaml
           webhookUrl: ${{ secrets.DISCORD_N0_GITHUB_CHANNEL_WEBHOOK_URL }}

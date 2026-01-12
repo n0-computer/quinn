@@ -5,6 +5,7 @@ use std::{
     io::{self, Write},
     mem,
     net::{Ipv6Addr, SocketAddr, UdpSocket},
+    num::NonZeroUsize,
     ops::RangeFrom,
     str,
     sync::{Arc, LazyLock, Mutex},
@@ -363,6 +364,20 @@ impl Pair {
     pub(super) fn server_datagrams(&mut self, ch: ConnectionHandle) -> Datagrams<'_> {
         self.server_conn_mut(ch).datagrams()
     }
+
+    pub(super) fn addrs_to_server(&self) -> FourTuple {
+        FourTuple {
+            remote: self.server.addr,
+            local_ip: Some(self.client.addr.ip()),
+        }
+    }
+
+    pub(super) fn addrs_to_client(&self) -> FourTuple {
+        FourTuple {
+            remote: self.client.addr,
+            local_ip: Some(self.server.addr.ip()),
+        }
+    }
 }
 
 impl Default for Pair {
@@ -468,9 +483,13 @@ impl TestEndpoint {
                 remote,
                 dst_ip,
             } = self.inbound.pop_front().unwrap();
-            if let Some(event) = self
-                .endpoint
-                .handle(recv_time, remote, dst_ip, ecn, packet, &mut buf)
+            let network_path = FourTuple {
+                remote,
+                local_ip: dst_ip,
+            };
+            if let Some(event) =
+                self.endpoint
+                    .handle(recv_time, network_path, ecn, packet, &mut buf)
             {
                 match event {
                     DatagramEvent::NewConnection(incoming) => {
@@ -648,7 +667,7 @@ impl ::std::ops::DerefMut for TestEndpoint {
     }
 }
 
-pub(super) fn subscribe() -> tracing::subscriber::DefaultGuard {
+pub(crate) fn subscribe() -> tracing::subscriber::DefaultGuard {
     let builder = tracing_subscriber::FmtSubscriber::builder()
         .with_env_filter(
             tracing_subscriber::EnvFilter::builder()
@@ -791,7 +810,7 @@ pub(super) fn min_opt<T: Ord>(x: Option<T>, y: Option<T>) -> Option<T> {
 }
 
 /// The maximum of datagrams TestEndpoint will produce via `poll_transmit`
-const MAX_DATAGRAMS: usize = 10;
+const MAX_DATAGRAMS: NonZeroUsize = NonZeroUsize::new(10).expect("known");
 
 fn split_transmit(transmit: Transmit, buffer: &[u8]) -> Vec<(Transmit, Bytes)> {
     let mut buffer = Bytes::copy_from_slice(buffer);

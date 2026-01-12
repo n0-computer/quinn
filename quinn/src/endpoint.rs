@@ -5,6 +5,7 @@ use std::{
     io::{self, IoSliceMut},
     mem,
     net::{SocketAddr, SocketAddrV6},
+    num::NonZeroUsize,
     pin::Pin,
     str,
     sync::{Arc, Mutex},
@@ -26,7 +27,7 @@ use bytes::{Bytes, BytesMut};
 use pin_project_lite::pin_project;
 use proto::{
     self as proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent,
-    EndpointEvent, ServerConfig,
+    EndpointEvent, FourTuple, ServerConfig,
 };
 use rustc_hash::FxHashMap;
 #[cfg(all(
@@ -798,13 +799,13 @@ struct RecvState {
 impl RecvState {
     fn new(
         sender: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>,
-        max_receive_segments: usize,
+        max_receive_segments: NonZeroUsize,
         endpoint: &proto::Endpoint,
     ) -> Self {
         let recv_buf = vec![
             0;
             endpoint.config().get_max_udp_payload_size().min(64 * 1024) as usize
-                * max_receive_segments
+                * max_receive_segments.get()
                 * BATCH_SIZE
         ];
         Self {
@@ -850,10 +851,13 @@ impl RecvState {
                         while !data.is_empty() {
                             let buf = data.split_to(meta.stride.min(data.len()));
                             let mut response_buffer = Vec::new();
+                            let addresses = FourTuple {
+                                remote: meta.addr,
+                                local_ip: meta.dst_ip,
+                            };
                             match endpoint.handle(
                                 now,
-                                meta.addr,
-                                meta.dst_ip,
+                                addresses,
                                 meta.ecn.map(proto_ecn),
                                 buf,
                                 &mut response_buffer,

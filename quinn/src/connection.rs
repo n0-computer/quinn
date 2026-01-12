@@ -4,6 +4,7 @@ use std::{
     future::Future,
     io,
     net::{IpAddr, SocketAddr},
+    num::NonZeroUsize,
     pin::Pin,
     sync::{Arc, Weak},
     task::{Context, Poll, Waker, ready},
@@ -27,9 +28,9 @@ use crate::{
     udp_transmit,
 };
 use proto::{
-    ConnectionError, ConnectionHandle, ConnectionStats, Dir, EndpointEvent, PathError, PathEvent,
-    PathId, PathStats, PathStatus, Side, StreamEvent, StreamId, TransportError, TransportErrorCode,
-    congestion::Controller, iroh_hp,
+    ConnectionError, ConnectionHandle, ConnectionStats, Dir, EndpointEvent, FourTuple, PathError,
+    PathEvent, PathId, PathStats, PathStatus, Side, StreamEvent, StreamId, TransportError,
+    TransportErrorCode, congestion::Controller, iroh_hp,
 };
 
 /// In-progress connection attempt future
@@ -52,7 +53,7 @@ impl Connecting {
         let (on_handshake_data_send, on_handshake_data_recv) = oneshot::channel();
         let (on_connected_send, on_connected_recv) = oneshot::channel();
 
-        let conn = ConnectionRef(Arc::new(ConnectionInner {
+        let conn = ConnectionRef(Arc::new(Arc::new(ConnectionInner {
             state: Mutex::new(State::new(
                 conn,
                 handle,
@@ -64,7 +65,7 @@ impl Connecting {
                 runtime.clone(),
             )),
             shared: Shared::default(),
-        }));
+        })));
 
         let driver = ConnectionDriver(conn.clone());
         runtime.spawn(Box::pin(
@@ -185,10 +186,14 @@ impl Connecting {
         let conn = self.conn.as_ref().unwrap();
         let inner = conn.state.lock("local_ip");
 
-        inner.inner.local_ip()
+        inner
+            .inner
+            .network_path(PathId::ZERO)
+            .expect("path exists when connecting")
+            .local_ip
     }
 
-    /// The peer's UDP address
+    /// The peer's UDP addresses
     ///
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn remote_address(&self) -> SocketAddr {
@@ -198,8 +203,9 @@ impl Connecting {
             .state
             .lock("remote_address")
             .inner
-            .path_remote_address(PathId::ZERO)
+            .network_path(PathId::ZERO)
             .expect("path exists when connecting")
+            .remote
     }
 }
 
@@ -390,8 +396,8 @@ impl Connection {
             .filter_map(|id| {
                 state
                     .inner
-                    .path_remote_address(*id)
-                    .map(|ip| ip.is_ipv6())
+                    .network_path(*id)
+                    .map(|addrs| addrs.remote.is_ipv6())
                     .ok()
             })
             .next()
@@ -406,7 +412,13 @@ impl Connection {
         };
 
         let now = state.runtime.now();
-        let open_res = state.inner.open_path_ensure(addr, initial_status, now);
+        // TODO(matheus23): For now this means it's impossible to make use of short-circuiting path validation currently.
+        // However, changing that would mean changing the API.
+        let addrs = FourTuple {
+            remote: addr,
+            local_ip: None,
+        };
+        let open_res = state.inner.open_path_ensure(addrs, initial_status, now);
         state.wake();
         match open_res {
             Ok((path_id, existed)) if existed => {
@@ -453,8 +465,8 @@ impl Connection {
             .filter_map(|id| {
                 state
                     .inner
-                    .path_remote_address(*id)
-                    .map(|ip| ip.is_ipv6())
+                    .network_path(*id)
+                    .map(|addrs| addrs.remote.is_ipv6())
                     .ok()
             })
             .next()
@@ -470,7 +482,13 @@ impl Connection {
 
         let (on_open_path_send, on_open_path_recv) = watch::channel(Ok(()));
         let now = state.runtime.now();
-        let open_res = state.inner.open_path(addr, initial_status, now);
+        // TODO(matheus23): For now this means it's impossible to make use of short-circuiting path validation currently.
+        // However, changing that would mean changing the API.
+        let addrs = FourTuple {
+            remote: addr,
+            local_ip: None,
+        };
+        let open_res = state.inner.open_path(addrs, initial_status, now);
         state.wake();
         match open_res {
             Ok(path_id) => {
@@ -724,9 +742,10 @@ impl Connection {
             .inner
             .paths()
             .iter()
-            .filter_map(|id| state.inner.path_remote_address(*id).ok())
+            .filter_map(|id| state.inner.network_path(*id).ok())
             .next()
             .unwrap()
+            .remote
     }
 
     /// The local IP address which was used when the peer established
@@ -739,7 +758,16 @@ impl Connection {
     /// information. See [`quinn_udp::RecvMeta::dst_ip`](udp::RecvMeta::dst_ip) for a list of
     /// supported platforms when using [`quinn_udp`](udp) for I/O, which is the default.
     pub fn local_ip(&self) -> Option<IpAddr> {
-        self.0.state.lock("local_ip").inner.local_ip()
+        // TODO: an unwrap again
+        let state = self.0.state.lock("remote_address");
+        state
+            .inner
+            .paths()
+            .iter()
+            .filter_map(|id| state.inner.network_path(*id).ok())
+            .next()
+            .unwrap()
+            .local_ip
     }
 
     /// Current best estimate of this connection's latency (round-trip-time)
@@ -1194,10 +1222,12 @@ impl Future for OnClosed {
 }
 
 #[derive(Debug)]
-pub(crate) struct ConnectionRef(Arc<ConnectionInner>);
+#[allow(clippy::redundant_allocation)]
+pub(crate) struct ConnectionRef(Arc<Arc<ConnectionInner>>);
 
 impl ConnectionRef {
-    fn from_arc(inner: Arc<ConnectionInner>) -> Self {
+    #[allow(clippy::redundant_allocation)]
+    fn from_arc(inner: Arc<Arc<ConnectionInner>>) -> Self {
         inner.state.lock("from_arc").ref_count += 1;
         Self(inner)
     }
@@ -1247,7 +1277,7 @@ pub(crate) struct ConnectionInner {
 /// This contains a weak reference to the connection so will not itself keep the connection
 /// alive.
 #[derive(Debug, Clone)]
-pub struct WeakConnectionHandle(Weak<ConnectionInner>);
+pub struct WeakConnectionHandle(Weak<Arc<ConnectionInner>>);
 
 impl WeakConnectionHandle {
     /// Returns `true` if the [`Connection`] associated with this handle is still alive.
@@ -1728,4 +1758,4 @@ const MAX_TRANSMIT_DATAGRAMS: usize = 20;
 /// This can be lower than the maximum platform capabilities, to avoid excessive
 /// memory allocations when calling `poll_transmit()`. Benchmarks have shown
 /// that numbers around 10 are a good compromise.
-const MAX_TRANSMIT_SEGMENTS: usize = 10;
+const MAX_TRANSMIT_SEGMENTS: NonZeroUsize = NonZeroUsize::new(10).expect("known");
