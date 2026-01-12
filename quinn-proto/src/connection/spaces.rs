@@ -534,7 +534,7 @@ pub struct Retransmits {
     /// If a [`frame::PathStatusAvailable`] and [`frame::PathStatusBackup`] need to be sent for a path
     pub(super) path_status: BTreeSet<PathId>,
     /// If a PATH_CIDS_BLOCKED frame needs to be sent for a path
-    pub(super) path_cids_blocked: Vec<PathId>,
+    pub(super) path_cids_blocked: BTreeSet<PathId>,
 
     // Nat traversal data
     /// Addresses to report in `ADD_ADDRESS` frames
