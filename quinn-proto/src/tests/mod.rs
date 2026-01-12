@@ -3958,3 +3958,26 @@ fn handshake_confirmation_no_resumption_shortcut() {
     );
     assert_matches!(pair.client_conn_mut(ch).poll(), None);
 }
+
+#[test]
+fn regression_close_frame_encoding() {
+    let close = ConnectionClose {
+        error_code: TransportErrorCode::NO_ERROR,
+        frame_type: frame::MaybeFrame::None,
+        reason: Bytes::from_static(b"last path abandoned by peer"),
+    };
+
+    let mut buf = BytesMut::new();
+    close.encode(&mut buf, 1100);
+
+    let decoded = frame::Iter::new(buf.freeze())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+
+    let Frame::Close(frame::Close::Connection(close_dec)) = decoded else {
+        panic!("Expected frame::Close to be decoded, but got {decoded:?}");
+    };
+    assert_eq!(close_dec, close);
+}
