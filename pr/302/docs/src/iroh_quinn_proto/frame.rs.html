@@ -208,8 +208,8 @@
 <a href=#208 id=208 data-nosnippet>208</a><span class="kw">impl </span>Encodable <span class="kw">for </span>MaybeFrame {
 <a href=#209 id=209 data-nosnippet>209</a>    <span class="kw">fn </span>encode&lt;B: BufMut&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, buf: <span class="kw-2">&amp;mut </span>B) {
 <a href=#210 id=210 data-nosnippet>210</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#211 id=211 data-nosnippet>211</a>            <span class="self">Self</span>::None =&gt; buf.write(<span class="number">0u64</span>),
-<a href=#212 id=212 data-nosnippet>212</a>            <span class="self">Self</span>::Unknown(frame_id) =&gt; buf.write(<span class="kw-2">*</span>frame_id),
+<a href=#211 id=211 data-nosnippet>211</a>            <span class="self">Self</span>::None =&gt; buf.write_var(<span class="number">0u64</span>),
+<a href=#212 id=212 data-nosnippet>212</a>            <span class="self">Self</span>::Unknown(frame_id) =&gt; buf.write_var(<span class="kw-2">*</span>frame_id),
 <a href=#213 id=213 data-nosnippet>213</a>            <span class="self">Self</span>::Known(frame_type) =&gt; buf.write(<span class="kw-2">*</span>frame_type),
 <a href=#214 id=214 data-nosnippet>214</a>        }
 <a href=#215 id=215 data-nosnippet>215</a>    }
