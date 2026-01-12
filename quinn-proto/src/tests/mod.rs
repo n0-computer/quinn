@@ -3959,6 +3959,15 @@ fn handshake_confirmation_no_resumption_shortcut() {
     assert_matches!(pair.client_conn_mut(ch).poll(), None);
 }
 
+/// This test used to fail due to incorrectly encoding frame::MaybeFrame::None
+/// as 8 bytes of zeroes, instead of a single zero byte that's the correct
+/// representation of a minimal zero as QUIC varint.
+///
+/// This was due to using `buf.write(0u64)` instead of `buf.write_var(0u64)`.
+///
+/// Downstream, this causes ConnectionClose frames to shift the "reason" they encode
+/// too far back (by exactly 7 zeroes too much), in some cases, causing the other side
+/// to misinterpret the reason bytes as other frames and erroring out badly.
 #[test]
 fn regression_close_frame_encoding() {
     let close = ConnectionClose {

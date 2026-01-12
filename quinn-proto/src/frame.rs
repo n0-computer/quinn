@@ -208,8 +208,8 @@ impl Decodable for MaybeFrame {
 impl Encodable for MaybeFrame {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         match self {
-            Self::None => buf.write(0u64),
-            Self::Unknown(frame_id) => buf.write(*frame_id),
+            Self::None => buf.write_var(0u64),
+            Self::Unknown(frame_id) => buf.write_var(*frame_id),
             Self::Known(frame_type) => buf.write(*frame_type),
         }
     }
