@@ -93,25 +93,25 @@ pub enum FrameType {
     #[assoc(to_u64 = 0x9f81a7)]
     ObservedIpv6Addr,
     // Multipath
-    #[assoc(to_u64 = 0x15228c00)]
+    #[assoc(to_u64 = 0x3e)]
     PathAck,
-    #[assoc(to_u64 = 0x15228c01)]
+    #[assoc(to_u64 = 0x3f)]
     PathAckEcn,
-    #[assoc(to_u64 = 0x15228c05)]
+    #[assoc(to_u64 = 0x3e75)]
     PathAbandon,
-    #[assoc(to_u64 = 0x15228c07)]
+    #[assoc(to_u64 = 0x3e76)]
     PathStatusBackup,
-    #[assoc(to_u64 = 0x15228c08)]
+    #[assoc(to_u64 = 0x3e77)]
     PathStatusAvailable,
-    #[assoc(to_u64 = 0x15228c09)]
+    #[assoc(to_u64 = 0x3e78)]
     PathNewConnectionId,
-    #[assoc(to_u64 = 0x15228c0a)]
+    #[assoc(to_u64 = 0x3e79)]
     PathRetireConnectionId,
-    #[assoc(to_u64 = 0x15228c0c)]
+    #[assoc(to_u64 = 0x3e7a)]
     MaxPathId,
-    #[assoc(to_u64 = 0x15228c0d)]
+    #[assoc(to_u64 = 0x3e7b)]
     PathsBlocked,
-    #[assoc(to_u64 = 0x15228c0e)]
+    #[assoc(to_u64 = 0x3e7c)]
     PathCidsBlocked,
     // IROH'S NAT TRAVERSAL
     #[assoc(to_u64 = 0x3d7f90)]
