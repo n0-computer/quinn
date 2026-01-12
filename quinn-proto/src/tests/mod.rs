@@ -3990,3 +3990,12 @@ fn regression_close_frame_encoding() {
     };
     assert_eq!(close_dec, close);
 }
+
+#[test]
+fn regression_maybe_frame_roundtrip() {
+    let ty = frame::MaybeFrame::Unknown(1337); // some unused frame type
+    let mut buf = BytesMut::new();
+    ty.encode(&mut buf);
+    let dec = frame::MaybeFrame::decode(&mut buf.freeze()).unwrap();
+    assert_eq!(dec, ty);
+}
