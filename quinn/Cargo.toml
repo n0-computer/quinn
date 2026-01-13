@@ -1,6 +1,6 @@
 [package]
 name = "iroh-quinn"
-version = "0.14.0"
+version = "0.15.0"
 license.workspace = true
 repository.workspace = true
 description = "Versatile QUIC transport protocol implementation"
@@ -59,13 +59,13 @@ bytes = { workspace = true }
 futures-io = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 pin-project-lite = { workspace = true }
-proto = { package = "iroh-quinn-proto", path = "../quinn-proto", version = "0.13.0", default-features = false }
+proto = { package = "iroh-quinn-proto", path = "../quinn-proto", version = "0.14.0", default-features = false }
 rustls = { workspace = true, optional = true }
 smol = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tracing =  { workspace = true }
 tokio = { workspace = true }
-udp = { package = "iroh-quinn-udp", path = "../quinn-udp", version = "0.6", default-features = false, features = ["tracing"] }
+udp = { package = "iroh-quinn-udp", path = "../quinn-udp", version = "0.7", default-features = false, features = ["tracing"] }
 
 # Fix minimal dependencies for indirect deps
 async-global-executor = { workspace = true, optional = true }
@@ -101,6 +101,9 @@ tokio-stream = "0.1.15"
 
 [build-dependencies]
 cfg_aliases = { workspace = true }
+
+[lints]
+workspace = true
 
 [[example]]
 name = "server"

@@ -53,7 +53,7 @@ impl Connecting {
         let (on_handshake_data_send, on_handshake_data_recv) = oneshot::channel();
         let (on_connected_send, on_connected_recv) = oneshot::channel();
 
-        let conn = ConnectionRef(Arc::new(ConnectionInner {
+        let conn = ConnectionRef(Arc::new(Arc::new(ConnectionInner {
             state: Mutex::new(State::new(
                 conn,
                 handle,
@@ -65,7 +65,7 @@ impl Connecting {
                 runtime.clone(),
             )),
             shared: Shared::default(),
-        }));
+        })));
 
         let driver = ConnectionDriver(conn.clone());
         runtime.spawn(Box::pin(
@@ -211,7 +211,7 @@ impl Connecting {
 
 impl Future for Connecting {
     type Output = Result<Connection, ConnectionError>;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.connected).poll(cx).map(|_| {
             let conn = self.conn.take().unwrap();
             let inner = conn.state.lock("connecting");
@@ -236,7 +236,7 @@ pub struct ZeroRttAccepted(oneshot::Receiver<bool>);
 
 impl Future for ZeroRttAccepted {
     type Output = bool;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.0).poll(cx).map(|x| x.unwrap_or(false))
     }
 }
@@ -258,7 +258,7 @@ struct ConnectionDriver(ConnectionRef);
 impl Future for ConnectionDriver {
     type Output = Result<(), io::Error>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let conn = &mut *self.0.state.lock("poll");
 
         let span = debug_span!("drive", id = conn.handle.0);
@@ -1222,10 +1222,12 @@ impl Future for OnClosed {
 }
 
 #[derive(Debug)]
-pub(crate) struct ConnectionRef(Arc<ConnectionInner>);
+#[allow(clippy::redundant_allocation)]
+pub(crate) struct ConnectionRef(Arc<Arc<ConnectionInner>>);
 
 impl ConnectionRef {
-    fn from_arc(inner: Arc<ConnectionInner>) -> Self {
+    #[allow(clippy::redundant_allocation)]
+    fn from_arc(inner: Arc<Arc<ConnectionInner>>) -> Self {
         inner.state.lock("from_arc").ref_count += 1;
         Self(inner)
     }
@@ -1275,7 +1277,7 @@ pub(crate) struct ConnectionInner {
 /// This contains a weak reference to the connection so will not itself keep the connection
 /// alive.
 #[derive(Debug, Clone)]
-pub struct WeakConnectionHandle(Weak<ConnectionInner>);
+pub struct WeakConnectionHandle(Weak<Arc<ConnectionInner>>);
 
 impl WeakConnectionHandle {
     /// Returns `true` if the [`Connection`] associated with this handle is still alive.
@@ -1382,7 +1384,7 @@ impl State {
         }
     }
 
-    fn drive_transmit(&mut self, cx: &mut Context) -> io::Result<bool> {
+    fn drive_transmit(&mut self, cx: &mut Context<'_>) -> io::Result<bool> {
         let now = self.runtime.now();
         let mut transmits = 0;
 
@@ -1450,7 +1452,7 @@ impl State {
     fn process_conn_events(
         &mut self,
         shared: &Shared,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
     ) -> Result<(), ConnectionError> {
         loop {
             match self.conn_events.poll_recv(cx) {
@@ -1569,7 +1571,7 @@ impl State {
         }
     }
 
-    fn drive_timer(&mut self, cx: &mut Context) -> bool {
+    fn drive_timer(&mut self, cx: &mut Context<'_>) -> bool {
         // Check whether we need to (re)set the timer. If so, we must poll again to ensure the
         // timer is registered with the runtime (and check whether it's already
         // expired).
@@ -1698,7 +1700,7 @@ impl Drop for State {
 }
 
 impl fmt::Debug for State {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("State").field("inner", &self.inner).finish()
     }
 }

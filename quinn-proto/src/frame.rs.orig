@@ -294,6 +294,7 @@ impl Encodable for MaybeFrame {
     }
 }
 
+<<<<<<< HEAD
 pub(crate) struct HandshakeDone;
 
 impl Encodable for HandshakeDone {
@@ -318,7 +319,9 @@ impl Encodable for ImmediateAck {
     }
 }
 
+=======
 #[allow(missing_docs)]
+>>>>>>> n0/main
 #[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display)]
 #[display("STREAM")]
 pub struct StreamInfo(u8);

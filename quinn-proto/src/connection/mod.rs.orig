@@ -5388,7 +5388,16 @@ impl Connection {
                 path_id,
                 next_seq: VarInt(next_seq),
             };
+<<<<<<< HEAD
             builder.encode(frame, stats);
+=======
+            frame.encode(buf);
+            qlog.frame(&Frame::PathCidsBlocked(frame));
+            sent.retransmits
+                .get_or_create()
+                .path_cids_blocked
+                .insert(path_id);
+>>>>>>> n0/main
             trace!(%path_id, next_seq, "PATH_CIDS_BLOCKED");
         }
 
@@ -6669,11 +6678,10 @@ impl SentFrames {
             }
             MaxPathId(_) => self.retransmits_mut().max_path_id = true,
             PathsBlocked(_) => self.retransmits_mut().paths_blocked = true,
-            PathCidsBlocked(path_cids_blocked) => {
-                self.retransmits_mut()
-                    .path_cids_blocked
-                    .insert(path_cids_blocked.path_id);
-            }
+            PathCidsBlocked(path_cids_blocked) => self
+                .retransmits_mut()
+                .path_cids_blocked
+                .push(path_cids_blocked.path_id),
             ResetStream(reset) => self
                 .retransmits_mut()
                 .reset_stream

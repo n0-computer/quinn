@@ -17,6 +17,9 @@ features = ["arbitrary"]
 path = "../quinn-proto"
 package = "iroh-quinn-proto"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
 [[bin]]
 name = "streams"
 path = "fuzz_targets/streams.rs"

@@ -81,8 +81,7 @@ async fn close_endpoint() {
     let mut roots = RootCertStore::empty();
     roots.add(cert.cert.into()).unwrap();
 
-    let mut endpoint =
-        Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+    let endpoint = Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
     endpoint
         .set_default_client_config(ClientConfig::with_root_certificates(Arc::new(roots)).unwrap());
 
@@ -298,7 +297,7 @@ impl EndpointFactory {
 
         let mut roots = rustls::RootCertStore::empty();
         roots.add(self.cert.cert.der().clone()).unwrap();
-        let mut endpoint = Endpoint::new(
+        let endpoint = Endpoint::new(
             self.endpoint_config.clone(),
             Some(server_config),
             UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap(),
@@ -527,7 +526,7 @@ fn run_echo(args: EchoArgs) {
                 .with_no_client_auth();
         client_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
 
-        let mut client = {
+        let client = {
             let _guard = runtime.enter();
             let _guard = error_span!("client").entered();
             Endpoint::client(args.client_addr).unwrap()
@@ -690,7 +689,7 @@ async fn rebind_recv() {
     let mut roots = rustls::RootCertStore::empty();
     roots.add(cert.clone()).unwrap();
 
-    let mut client = Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+    let client = Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
     let mut client_config = ClientConfig::with_root_certificates(Arc::new(roots)).unwrap();
     client_config.transport_config(Arc::new({
         let mut cfg = TransportConfig::default();
@@ -1117,4 +1116,38 @@ async fn on_closed_endpoint_drop() {
     client_res
         .expect("client timeout")
         .expect("client task panicked");
+}
+
+#[tokio::test]
+async fn weak_connection_handle() {
+    let _guard = subscribe();
+    let endpoint = endpoint();
+    let endpoint2 = endpoint.clone();
+    let server_task = tokio::spawn(async move {
+        let conn = endpoint2
+            .accept()
+            .await
+            .expect("endpoint")
+            .await
+            .expect("connection");
+        // create a weak handle to the connection
+        // ensure the underlying connection is not immediately dropped
+        let weak = conn.weak_handle();
+        assert!(weak.is_alive());
+        drop(conn);
+        // wait to ensure the connection is fully cleaned up
+        endpoint2.wait_idle().await;
+        assert!(!weak.is_alive());
+    });
+    let client_task = tokio::spawn(async move {
+        let conn = endpoint
+            .connect(endpoint.local_addr().unwrap(), "localhost")
+            .unwrap()
+            .await
+            .expect("connect");
+        conn.on_closed().await;
+    });
+    let (server_res, client_res) = tokio::join!(server_task, client_task);
+    server_res.expect("server task panicked");
+    client_res.expect("client task panicked");
 }

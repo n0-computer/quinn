@@ -54,12 +54,7 @@ use wasm_bindgen_test::wasm_bindgen_test as test;
 fn version_negotiate_server() {
     let _guard = subscribe();
     let client_addr = "[::2]:7890".parse().unwrap();
-    let mut server = Endpoint::new(
-        Default::default(),
-        Some(Arc::new(server_config())),
-        true,
-        None,
-    );
+    let mut server = Endpoint::new(Default::default(), Some(Arc::new(server_config())), true);
     let now = Instant::now();
     let mut buf = Vec::with_capacity(server.config().get_max_udp_payload_size() as usize);
     let event = server.handle(
@@ -99,7 +94,6 @@ fn version_negotiate_client() {
         }),
         None,
         true,
-        None,
     );
     let (_, mut client_ch) = client
         .connect(Instant::now(), client_config(), server_addr, "localhost")
@@ -209,8 +203,7 @@ fn server_stateless_reset() {
     let mut pair = Pair::new(endpoint_config.clone(), server_config());
     let (client_ch, _) = pair.connect();
     pair.drive(); // Flush any post-handshake frames
-    pair.server.endpoint =
-        Endpoint::new(endpoint_config, Some(Arc::new(server_config())), true, None);
+    pair.server.endpoint = Endpoint::new(endpoint_config, Some(Arc::new(server_config())), true);
     // Force the server to generate the smallest possible stateless reset
     pair.client.connections.get_mut(&client_ch).unwrap().ping();
     info!("resetting");
@@ -238,8 +231,7 @@ fn client_stateless_reset() {
 
     let mut pair = Pair::new(endpoint_config.clone(), server_config());
     let (_, server_ch) = pair.connect();
-    pair.client.endpoint =
-        Endpoint::new(endpoint_config, Some(Arc::new(server_config())), true, None);
+    pair.client.endpoint = Endpoint::new(endpoint_config, Some(Arc::new(server_config())), true);
     // Send something big enough to allow room for a smaller stateless reset.
     pair.server.connections.get_mut(&server_ch).unwrap().close(
         pair.time,
@@ -268,7 +260,6 @@ fn stateless_reset_limit() {
         endpoint_config.clone(),
         Some(Arc::new(server_config())),
         true,
-        None,
     );
     let time = Instant::now();
     let mut buf = Vec::new();
@@ -1699,9 +1690,8 @@ fn cid_rotation() {
         }),
         Some(Arc::new(server_config())),
         true,
-        None,
     );
-    let client = Endpoint::new(Arc::new(EndpointConfig::default()), None, true, None);
+    let client = Endpoint::new(Arc::new(EndpointConfig::default()), None, true);
 
     let mut pair = Pair::new_from_endpoint(client, server);
     let (_, server_ch) = pair.connect();
@@ -2396,12 +2386,7 @@ fn big_cert_and_key() -> (CertificateDer<'static>, PrivateKeyDer<'static>) {
 fn malformed_token_len() {
     let _guard = subscribe();
     let client_addr = "[::2]:7890".parse().unwrap();
-    let mut server = Endpoint::new(
-        Default::default(),
-        Some(Arc::new(server_config())),
-        true,
-        None,
-    );
+    let mut server = Endpoint::new(Default::default(), Some(Arc::new(server_config())), true);
     let mut buf = Vec::with_capacity(server.config().get_max_udp_payload_size() as usize);
     server.handle(
         Instant::now(),
@@ -2518,13 +2503,12 @@ fn migrate_detects_new_mtu_and_respects_original_peer_max_udp_payload_size() {
         Arc::new(server_endpoint_config),
         Some(Arc::new(server_config())),
         true,
-        None,
     );
     let client_endpoint_config = EndpointConfig {
         max_udp_payload_size: VarInt::from(client_max_udp_payload_size),
         ..EndpointConfig::default()
     };
-    let client = Endpoint::new(Arc::new(client_endpoint_config), None, true, None);
+    let client = Endpoint::new(Arc::new(client_endpoint_config), None, true);
     let mut pair = Pair::new_from_endpoint(client, server);
     pair.mtu = 1300;
 
@@ -3229,7 +3213,7 @@ fn ack_frequency_update_max_delay() {
     );
 }
 
-fn stream_chunks(mut recv: RecvStream) -> Vec<u8> {
+fn stream_chunks(mut recv: RecvStream<'_>) -> Vec<u8> {
     let mut buf = Vec::new();
 
     let mut chunks = recv.read(true).unwrap();
@@ -3833,6 +3817,87 @@ fn address_discovery_rebind_retransmission() {
     assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == pair.client.addr);
 }
 
+/// Verify that dropping oversized datagrams will trigger a DatagramsUnblocked event.
+#[test]
+fn oversized_datagrams_trigger_unblock() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    // Start the connection with a large MTU.
+    const INITIAL_MTU: usize = 1300;
+    pair.mtu = INITIAL_MTU;
+
+    let mut client_config = client_config();
+    let mut transport_config = TransportConfig::default();
+    let send_buffer_size = transport_config.datagram_send_buffer_size;
+    transport_config.initial_mtu(INITIAL_MTU as u16);
+    client_config.transport_config(transport_config.into());
+
+    let (client_ch, _) = pair.connect_with(client_config);
+
+    // Send datagrams until the send buffer is full.
+    let max_size = pair.client_datagrams(client_ch).max_size().unwrap();
+    let data = vec![0; max_size];
+    loop {
+        match pair
+            .client_datagrams(client_ch)
+            .send(data.clone().into(), false)
+        {
+            Ok(_) => {}
+            Err(SendDatagramError::Blocked(_)) => {
+                break;
+            }
+            Err(e) => panic!("unexpected error: {e}"),
+        }
+    }
+    // Set the MTU to a smaller value so the queued datagrams cannot be sent.
+    pair.mtu = 1200;
+
+    // Drive the pair until black hole detection kicks in and the path MTU is adjusted.
+    while pair.step() {
+        let err = loop {
+            if let Err(e) = pair
+                .client_datagrams(client_ch)
+                .send(data.clone().into(), false)
+            {
+                break e;
+            }
+        };
+        match err {
+            SendDatagramError::Blocked(_) => {
+                // continue with the next step but drain the DatagramsUnblocked events
+                // emitted datagrams were sent out.
+                while let Some(event) = pair.client_conn_mut(client_ch).poll() {
+                    tracing::info!("ignoring connection event: {event:?}");
+                }
+            }
+            SendDatagramError::TooLarge => {
+                // mtu adjusted, break the loop
+                break;
+            }
+            _ => panic!("unexpected error: {err}"),
+        }
+    }
+
+    assert_eq!(
+        pair.client_conn_mut(client_ch)
+            .path_stats(PathId::ZERO)
+            .unwrap()
+            .black_holes_detected,
+        1,
+        "expected a black hole to have been detected",
+    );
+
+    assert_eq!(
+        pair.client_datagrams(client_ch).send_buffer_space(),
+        send_buffer_size,
+        "expected the send buffer to be empty after too large datagrams were dropped",
+    );
+    match pair.client_conn_mut(client_ch).poll() {
+        Some(Event::DatagramsUnblocked) => {}
+        _ => panic!("expected DatagramsUnblocked event"),
+    }
+}
+
 #[test]
 fn reject_short_idcid() {
     let _guard = subscribe();
@@ -3841,12 +3906,7 @@ fn reject_short_idcid() {
         remote: client_addr,
         local_ip: None,
     };
-    let mut server = Endpoint::new(
-        Default::default(),
-        Some(Arc::new(server_config())),
-        true,
-        None,
-    );
+    let mut server = Endpoint::new(Default::default(), Some(Arc::new(server_config())), true);
     let now = Instant::now();
     let mut buf = Vec::with_capacity(server.config().get_max_udp_payload_size() as usize);
     // Initial header that has an empty DCID but is otherwise well-formed
@@ -3957,4 +4017,45 @@ fn handshake_confirmation_no_resumption_shortcut() {
         Some(Event::HandshakeConfirmed)
     );
     assert_matches!(pair.client_conn_mut(ch).poll(), None);
+}
+
+/// This test used to fail due to incorrectly encoding frame::MaybeFrame::None
+/// as 8 bytes of zeroes, instead of a single zero byte that's the correct
+/// representation of a minimal zero as QUIC varint.
+///
+/// This was due to using `buf.write(0u64)` instead of `buf.write_var(0u64)`.
+///
+/// Downstream, this causes ConnectionClose frames to shift the "reason" they encode
+/// too far back (by exactly 7 zeroes too much), in some cases, causing the other side
+/// to misinterpret the reason bytes as other frames and erroring out badly.
+#[test]
+fn regression_close_frame_encoding() {
+    let close = ConnectionClose {
+        error_code: TransportErrorCode::NO_ERROR,
+        frame_type: frame::MaybeFrame::None,
+        reason: Bytes::from_static(b"last path abandoned by peer"),
+    };
+
+    let mut buf = BytesMut::new();
+    close.encode(&mut buf, 1100);
+
+    let decoded = frame::Iter::new(buf.freeze())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+
+    let Frame::Close(frame::Close::Connection(close_dec)) = decoded else {
+        panic!("Expected frame::Close to be decoded, but got {decoded:?}");
+    };
+    assert_eq!(close_dec, close);
+}
+
+#[test]
+fn regression_maybe_frame_roundtrip() {
+    let ty = frame::MaybeFrame::Unknown(1337); // some unused frame type
+    let mut buf = BytesMut::new();
+    ty.encode(&mut buf);
+    let dec = frame::MaybeFrame::decode(&mut buf.freeze()).unwrap();
+    assert_eq!(dec, ty);
 }

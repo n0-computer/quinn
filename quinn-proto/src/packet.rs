@@ -919,7 +919,7 @@ const KEY_PHASE_BIT: u8 = 0x04;
 
 /// Packet number space identifiers
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-pub enum SpaceId {
+pub(crate) enum SpaceId {
     /// Unprotected packets, used to bootstrap the handshake
     Initial = 0,
     Handshake = 1,
@@ -928,14 +928,14 @@ pub enum SpaceId {
 }
 
 impl SpaceId {
-    pub fn iter() -> impl Iterator<Item = Self> {
+    pub(crate) fn iter() -> impl Iterator<Item = Self> {
         [Self::Initial, Self::Handshake, Self::Data].iter().cloned()
     }
 
     /// Returns the next higher packet space.
     ///
     /// Keeps returning [`SpaceId::Data`] as the highest space.
-    pub fn next(&self) -> Self {
+    pub(crate) fn next(&self) -> Self {
         match self {
             Self::Initial => Self::Handshake,
             Self::Handshake => Self::Data,

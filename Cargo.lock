@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-quinn"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "async-executor",
@@ -1486,7 +1486,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-quinn-proto"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "arbitrary",
  "assert_matches",
@@ -1523,7 +1523,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-quinn-udp"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "cfg_aliases",
  "criterion",
@@ -1532,7 +1532,7 @@ dependencies = [
  "socket2",
  "tokio",
  "tracing",
- "windows-sys 0.61.1",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
