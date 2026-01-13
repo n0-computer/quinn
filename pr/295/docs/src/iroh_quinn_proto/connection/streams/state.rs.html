@@ -429,7 +429,7 @@
 <a href=#429 id=429 data-nosnippet>429</a>                error_code,
 <a href=#430 id=430 data-nosnippet>430</a>                final_offset: VarInt::try_from(stream.offset()).expect(<span class="string">"impossibly large offset"</span>),
 <a href=#431 id=431 data-nosnippet>431</a>            };
-<a href=#432 id=432 data-nosnippet>432</a>            builder.encode(frame, stats);
+<a href=#432 id=432 data-nosnippet>432</a>            builder.write_frame(frame, stats);
 <a href=#433 id=433 data-nosnippet>433</a>        }
 <a href=#434 id=434 data-nosnippet>434</a>
 <a href=#435 id=435 data-nosnippet>435</a>        <span class="comment">// STOP_SENDING
@@ -446,7 +446,7 @@
 <a href=#446 id=446 data-nosnippet>446</a>            // peer, but we discard that information as soon as the application consumes it, so it
 <a href=#447 id=447 data-nosnippet>447</a>            // can't be relied upon regardless.
 <a href=#448 id=448 data-nosnippet>448</a>            </span><span class="macro">trace!</span>(stream = %frame.id, <span class="string">"STOP_SENDING"</span>);
-<a href=#449 id=449 data-nosnippet>449</a>            builder.encode(frame, stats);
+<a href=#449 id=449 data-nosnippet>449</a>            builder.write_frame(frame, stats);
 <a href=#450 id=450 data-nosnippet>450</a>        }
 <a href=#451 id=451 data-nosnippet>451</a>
 <a href=#452 id=452 data-nosnippet>452</a>        <span class="comment">// MAX_DATA
@@ -466,7 +466,7 @@
 <a href=#466 id=466 data-nosnippet>466</a>                </span><span class="self">self</span>.sent_max_data = max;
 <a href=#467 id=467 data-nosnippet>467</a>            }
 <a href=#468 id=468 data-nosnippet>468</a>
-<a href=#469 id=469 data-nosnippet>469</a>            builder.encode(frame::MaxData(max), stats);
+<a href=#469 id=469 data-nosnippet>469</a>            builder.write_frame(frame::MaxData(max), stats);
 <a href=#470 id=470 data-nosnippet>470</a>        }
 <a href=#471 id=471 data-nosnippet>471</a>
 <a href=#472 id=472 data-nosnippet>472</a>        <span class="comment">// MAX_STREAM_DATA
@@ -493,7 +493,7 @@
 <a href=#493 id=493 data-nosnippet>493</a>            rs.record_sent_max_stream_data(max);
 <a href=#494 id=494 data-nosnippet>494</a>
 <a href=#495 id=495 data-nosnippet>495</a>            <span class="macro">trace!</span>(stream = %id, max = max, <span class="string">"MAX_STREAM_DATA"</span>);
-<a href=#496 id=496 data-nosnippet>496</a>            builder.encode(frame::MaxStreamData { id, offset: max }, stats);
+<a href=#496 id=496 data-nosnippet>496</a>            builder.write_frame(frame::MaxStreamData { id, offset: max }, stats);
 <a href=#497 id=497 data-nosnippet>497</a>        }
 <a href=#498 id=498 data-nosnippet>498</a>
 <a href=#499 id=499 data-nosnippet>499</a>        <span class="comment">// MAX_STREAMS
@@ -509,7 +509,7 @@
 <a href=#509 id=509 data-nosnippet>509</a>                <span class="string">"MAX_STREAMS ({:?})"</span>, dir
 <a href=#510 id=510 data-nosnippet>510</a>            );
 <a href=#511 id=511 data-nosnippet>511</a>            <span class="kw">let </span>count = <span class="self">self</span>.max_remote[dir <span class="kw">as </span>usize];
-<a href=#512 id=512 data-nosnippet>512</a>            builder.encode(frame::MaxStreams { dir, count }, stats);
+<a href=#512 id=512 data-nosnippet>512</a>            builder.write_frame(frame::MaxStreams { dir, count }, stats);
 <a href=#513 id=513 data-nosnippet>513</a>        }
 <a href=#514 id=514 data-nosnippet>514</a>    }
 <a href=#515 id=515 data-nosnippet>515</a>
@@ -567,7 +567,7 @@
 <a href=#567 id=567 data-nosnippet>567</a>            <span class="kw">let </span>range = offsets.clone();
 <a href=#568 id=568 data-nosnippet>568</a>            <span class="kw">let </span>meta = frame::StreamMeta { id, offsets, fin };
 <a href=#569 id=569 data-nosnippet>569</a>            <span class="macro">trace!</span>(id = %id, off = range.start, len = range.end - range.start, fin, <span class="string">"STREAM"</span>);
-<a href=#570 id=570 data-nosnippet>570</a>            builder.encode(meta.encoder(encode_length), stats);
+<a href=#570 id=570 data-nosnippet>570</a>            builder.write_frame(meta.encoder(encode_length), stats);
 <a href=#571 id=571 data-nosnippet>571</a>            stream.pending.get_into(range, builder.buf);
 <a href=#572 id=572 data-nosnippet>572</a>        }
 <a href=#573 id=573 data-nosnippet>573</a>    }

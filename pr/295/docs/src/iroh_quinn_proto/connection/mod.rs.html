@@ -1314,7 +1314,7 @@
 <a href=#1314 id=1314 data-nosnippet>1314</a>                            <span class="string">"tried to make a close packet when the connection wasn't closed"
 <a href=#1315 id=1315 data-nosnippet>1315</a>                        </span>),
 <a href=#1316 id=1316 data-nosnippet>1316</a>                    };
-<a href=#1317 id=1317 data-nosnippet>1317</a>                    builder.encode(close.encoder(max_frame_size), stats);
+<a href=#1317 id=1317 data-nosnippet>1317</a>                    builder.write_frame(close.encoder(max_frame_size), stats);
 <a href=#1318 id=1318 data-nosnippet>1318</a>                }
 <a href=#1319 id=1319 data-nosnippet>1319</a>                builder.finish_and_track(now, <span class="self">self</span>, path_id, pad_datagram);
 <a href=#1320 id=1320 data-nosnippet>1320</a>                <span class="kw">if </span>space_id == <span class="self">self</span>.highest_space {
@@ -1344,7 +1344,7 @@
 <a href=#1344 id=1344 data-nosnippet>1344</a>                    //    https://github.com/quinn-rs/quinn/issues/2184
 <a href=#1345 id=1345 data-nosnippet>1345</a>                    </span><span class="kw">let </span>response = frame::PathResponse(token);
 <a href=#1346 id=1346 data-nosnippet>1346</a>                    <span class="macro">trace!</span>(%response, <span class="string">"(off-path)"</span>);
-<a href=#1347 id=1347 data-nosnippet>1347</a>                    builder.encode(response, <span class="kw-2">&amp;mut </span><span class="self">self</span>.stats.frame_tx);
+<a href=#1347 id=1347 data-nosnippet>1347</a>                    builder.write_frame(response, <span class="kw-2">&amp;mut </span><span class="self">self</span>.stats.frame_tx);
 <a href=#1348 id=1348 data-nosnippet>1348</a>                    builder.finish_and_track(now, <span class="self">self</span>, path_id, PadDatagram::ToMinMtu);
 <a href=#1349 id=1349 data-nosnippet>1349</a>                    <span class="self">self</span>.stats.udp_tx.on_sent(<span class="number">1</span>, transmit.len());
 <a href=#1350 id=1350 data-nosnippet>1350</a>                    <span class="kw">return </span><span class="prelude-val">Some</span>(Transmit {
@@ -1520,12 +1520,12 @@
 <a href=#1520 id=1520 data-nosnippet>1520</a>                <span class="comment">// We implement MTU probes as ping packets padded up to the probe size
 <a href=#1521 id=1521 data-nosnippet>1521</a>                </span><span class="macro">trace!</span>(<span class="question-mark">?</span>probe_size, <span class="string">"writing MTUD probe"</span>);
 <a href=#1522 id=1522 data-nosnippet>1522</a>                <span class="macro">trace!</span>(<span class="string">"PING"</span>);
-<a href=#1523 id=1523 data-nosnippet>1523</a>                builder.encode(frame::Ping, <span class="kw-2">&amp;mut </span><span class="self">self</span>.stats.frame_tx);
+<a href=#1523 id=1523 data-nosnippet>1523</a>                builder.write_frame(frame::Ping, <span class="kw-2">&amp;mut </span><span class="self">self</span>.stats.frame_tx);
 <a href=#1524 id=1524 data-nosnippet>1524</a>
 <a href=#1525 id=1525 data-nosnippet>1525</a>                <span class="comment">// If supported by the peer, we want no delays to the probe's ACK
 <a href=#1526 id=1526 data-nosnippet>1526</a>                </span><span class="kw">if </span><span class="self">self</span>.peer_supports_ack_frequency() {
 <a href=#1527 id=1527 data-nosnippet>1527</a>                    <span class="macro">trace!</span>(<span class="string">"IMMEDIATE_ACK"</span>);
-<a href=#1528 id=1528 data-nosnippet>1528</a>                    builder.encode(frame::ImmediateAck, <span class="kw-2">&amp;mut </span><span class="self">self</span>.stats.frame_tx);
+<a href=#1528 id=1528 data-nosnippet>1528</a>                    builder.write_frame(frame::ImmediateAck, <span class="kw-2">&amp;mut </span><span class="self">self</span>.stats.frame_tx);
 <a href=#1529 id=1529 data-nosnippet>1529</a>                }
 <a href=#1530 id=1530 data-nosnippet>1530</a>
 <a href=#1531 id=1531 data-nosnippet>1531</a>                builder.finish_and_track(now, <span class="self">self</span>, path_id, PadDatagram::ToSize(probe_size));
@@ -1698,7 +1698,7 @@
 <a href=#1698 id=1698 data-nosnippet>1698</a>            PacketBuilder::new(now, SpaceId::Data, path_id, <span class="kw-2">*</span>prev_cid, buf, <span class="bool-val">false</span>, <span class="self">self</span>)<span class="question-mark">?</span>;
 <a href=#1699 id=1699 data-nosnippet>1699</a>        <span class="kw">let </span>challenge = frame::PathChallenge(token);
 <a href=#1700 id=1700 data-nosnippet>1700</a>        <span class="macro">trace!</span>(%challenge, <span class="string">"validating previous path"</span>);
-<a href=#1701 id=1701 data-nosnippet>1701</a>        builder.encode(challenge, <span class="kw-2">&amp;mut </span><span class="self">self</span>.stats.frame_tx);
+<a href=#1701 id=1701 data-nosnippet>1701</a>        builder.write_frame(challenge, <span class="kw-2">&amp;mut </span><span class="self">self</span>.stats.frame_tx);
 <a href=#1702 id=1702 data-nosnippet>1702</a>
 <a href=#1703 id=1703 data-nosnippet>1703</a>        <span class="comment">// An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
 <a href=#1704 id=1704 data-nosnippet>1704</a>        // to at least the smallest allowed maximum datagram size of 1200 bytes,
@@ -5059,7 +5059,7 @@
 <a href=#5059 id=5059 data-nosnippet>5059</a>        <span class="comment">// HANDSHAKE_DONE
 <a href=#5060 id=5060 data-nosnippet>5060</a>        </span><span class="kw">if </span>!is_0rtt &amp;&amp; mem::replace(<span class="kw-2">&amp;mut </span>space.pending.handshake_done, <span class="bool-val">false</span>) {
 <a href=#5061 id=5061 data-nosnippet>5061</a>            <span class="macro">trace!</span>(<span class="string">"HANDSHAKE_DONE"</span>);
-<a href=#5062 id=5062 data-nosnippet>5062</a>            builder.encode(frame::HandshakeDone, stats);
+<a href=#5062 id=5062 data-nosnippet>5062</a>            builder.write_frame(frame::HandshakeDone, stats);
 <a href=#5063 id=5063 data-nosnippet>5063</a>        }
 <a href=#5064 id=5064 data-nosnippet>5064</a>
 <a href=#5065 id=5065 data-nosnippet>5065</a>        <span class="comment">// REACH_OUT
@@ -5069,7 +5069,7 @@
 <a href=#5069 id=5069 data-nosnippet>5069</a>                <span class="kw">let </span>reach_out = frame::ReachOut::new(<span class="kw-2">*</span>round, local_addr);
 <a href=#5070 id=5070 data-nosnippet>5070</a>                <span class="kw">if </span>builder.frame_space_remaining() &gt; reach_out.size() {
 <a href=#5071 id=5071 data-nosnippet>5071</a>                    <span class="macro">trace!</span>(%round, <span class="question-mark">?</span>local_addr, <span class="string">"REACH_OUT"</span>);
-<a href=#5072 id=5072 data-nosnippet>5072</a>                    builder.encode(reach_out, stats);
+<a href=#5072 id=5072 data-nosnippet>5072</a>                    builder.write_frame(reach_out, stats);
 <a href=#5073 id=5073 data-nosnippet>5073</a>                } <span class="kw">else </span>{
 <a href=#5074 id=5074 data-nosnippet>5074</a>                    addresses.push(local_addr);
 <a href=#5075 id=5075 data-nosnippet>5075</a>                    <span class="kw">break</span>;
@@ -5093,7 +5093,7 @@
 <a href=#5093 id=5093 data-nosnippet>5093</a>                frame::ObservedAddr::new(path.network_path.remote, <span class="self">self</span>.next_observed_addr_seq_no);
 <a href=#5094 id=5094 data-nosnippet>5094</a>            <span class="kw">if </span>builder.frame_space_remaining() &gt; frame.size() {
 <a href=#5095 id=5095 data-nosnippet>5095</a>                <span class="macro">trace!</span>(seq = %frame.seq_no, ip = %frame.ip, port = frame.port, <span class="string">"OBSERVED_ADDRESS"</span>);
-<a href=#5096 id=5096 data-nosnippet>5096</a>                builder.encode(frame, stats);
+<a href=#5096 id=5096 data-nosnippet>5096</a>                builder.write_frame(frame, stats);
 <a href=#5097 id=5097 data-nosnippet>5097</a>
 <a href=#5098 id=5098 data-nosnippet>5098</a>                <span class="self">self</span>.next_observed_addr_seq_no = <span class="self">self</span>.next_observed_addr_seq_no.saturating_add(<span class="number">1u8</span>);
 <a href=#5099 id=5099 data-nosnippet>5099</a>                path.observed_addr_sent = <span class="bool-val">true</span>;
@@ -5105,7 +5105,7 @@
 <a href=#5105 id=5105 data-nosnippet>5105</a>        <span class="comment">// PING
 <a href=#5106 id=5106 data-nosnippet>5106</a>        </span><span class="kw">if </span>mem::replace(<span class="kw-2">&amp;mut </span>space.for_path(path_id).ping_pending, <span class="bool-val">false</span>) {
 <a href=#5107 id=5107 data-nosnippet>5107</a>            <span class="macro">trace!</span>(<span class="string">"PING"</span>);
-<a href=#5108 id=5108 data-nosnippet>5108</a>            builder.encode(frame::Ping, stats);
+<a href=#5108 id=5108 data-nosnippet>5108</a>            builder.write_frame(frame::Ping, stats);
 <a href=#5109 id=5109 data-nosnippet>5109</a>        }
 <a href=#5110 id=5110 data-nosnippet>5110</a>
 <a href=#5111 id=5111 data-nosnippet>5111</a>        <span class="comment">// IMMEDIATE_ACK
@@ -5116,7 +5116,7 @@
 <a href=#5116 id=5116 data-nosnippet>5116</a>                <span class="string">"immediate acks must be sent in the data space"
 <a href=#5117 id=5117 data-nosnippet>5117</a>            </span>);
 <a href=#5118 id=5118 data-nosnippet>5118</a>            <span class="macro">trace!</span>(<span class="string">"IMMEDIATE_ACK"</span>);
-<a href=#5119 id=5119 data-nosnippet>5119</a>            builder.encode(frame::ImmediateAck, stats);
+<a href=#5119 id=5119 data-nosnippet>5119</a>            builder.write_frame(frame::ImmediateAck, stats);
 <a href=#5120 id=5120 data-nosnippet>5120</a>        }
 <a href=#5121 id=5121 data-nosnippet>5121</a>
 <a href=#5122 id=5122 data-nosnippet>5122</a>        <span class="comment">// ACK
@@ -5165,7 +5165,7 @@
 <a href=#5165 id=5165 data-nosnippet>5165</a>                request_max_ack_delay: max_ack_delay.as_micros().try_into().unwrap_or(VarInt::MAX),
 <a href=#5166 id=5166 data-nosnippet>5166</a>                reordering_threshold: config.reordering_threshold,
 <a href=#5167 id=5167 data-nosnippet>5167</a>            };
-<a href=#5168 id=5168 data-nosnippet>5168</a>            builder.encode(frame, stats);
+<a href=#5168 id=5168 data-nosnippet>5168</a>            builder.write_frame(frame, stats);
 <a href=#5169 id=5169 data-nosnippet>5169</a>
 <a href=#5170 id=5170 data-nosnippet>5170</a>            <span class="self">self</span>.ack_frequency
 <a href=#5171 id=5171 data-nosnippet>5171</a>                .ack_frequency_sent(path_id, pn, max_ack_delay);
@@ -5189,7 +5189,7 @@
 <a href=#5189 id=5189 data-nosnippet>5189</a>            path.challenges_sent.insert(token, info);
 <a href=#5190 id=5190 data-nosnippet>5190</a>            <span class="kw">let </span>challenge = frame::PathChallenge(token);
 <a href=#5191 id=5191 data-nosnippet>5191</a>            <span class="macro">trace!</span>(frame = %challenge);
-<a href=#5192 id=5192 data-nosnippet>5192</a>            builder.encode(challenge, stats);
+<a href=#5192 id=5192 data-nosnippet>5192</a>            builder.write_frame(challenge, stats);
 <a href=#5193 id=5193 data-nosnippet>5193</a>            builder.require_padding();
 <a href=#5194 id=5194 data-nosnippet>5194</a>            <span class="kw">let </span>pto = <span class="self">self</span>.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
 <a href=#5195 id=5195 data-nosnippet>5195</a>            <span class="self">self</span>.timers.set(
@@ -5216,7 +5216,7 @@
 <a href=#5216 id=5216 data-nosnippet>5216</a>                    <span class="self">self</span>.next_observed_addr_seq_no,
 <a href=#5217 id=5217 data-nosnippet>5217</a>                );
 <a href=#5218 id=5218 data-nosnippet>5218</a>                <span class="kw">if </span>builder.frame_space_remaining() &gt; frame.size() {
-<a href=#5219 id=5219 data-nosnippet>5219</a>                    builder.encode(frame, stats);
+<a href=#5219 id=5219 data-nosnippet>5219</a>                    builder.write_frame(frame, stats);
 <a href=#5220 id=5220 data-nosnippet>5220</a>
 <a href=#5221 id=5221 data-nosnippet>5221</a>                    <span class="self">self</span>.next_observed_addr_seq_no =
 <a href=#5222 id=5222 data-nosnippet>5222</a>                        <span class="self">self</span>.next_observed_addr_seq_no.saturating_add(<span class="number">1u8</span>);
@@ -5234,7 +5234,7 @@
 <a href=#5234 id=5234 data-nosnippet>5234</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(token) = path.path_responses.pop_on_path(path.network_path) {
 <a href=#5235 id=5235 data-nosnippet>5235</a>                <span class="kw">let </span>response = frame::PathResponse(token);
 <a href=#5236 id=5236 data-nosnippet>5236</a>                <span class="macro">trace!</span>(frame = %response);
-<a href=#5237 id=5237 data-nosnippet>5237</a>                builder.encode(response, stats);
+<a href=#5237 id=5237 data-nosnippet>5237</a>                builder.write_frame(response, stats);
 <a href=#5238 id=5238 data-nosnippet>5238</a>                builder.require_padding();
 <a href=#5239 id=5239 data-nosnippet>5239</a>
 <a href=#5240 id=5240 data-nosnippet>5240</a>                <span class="comment">// NOTE: this is technically not required but might be useful to ride the
@@ -5251,7 +5251,7 @@
 <a href=#5251 id=5251 data-nosnippet>5251</a>                        <span class="self">self</span>.next_observed_addr_seq_no,
 <a href=#5252 id=5252 data-nosnippet>5252</a>                    );
 <a href=#5253 id=5253 data-nosnippet>5253</a>                    <span class="kw">if </span>builder.frame_space_remaining() &gt; frame.size() {
-<a href=#5254 id=5254 data-nosnippet>5254</a>                        builder.encode(frame, stats);
+<a href=#5254 id=5254 data-nosnippet>5254</a>                        builder.write_frame(frame, stats);
 <a href=#5255 id=5255 data-nosnippet>5255</a>
 <a href=#5256 id=5256 data-nosnippet>5256</a>                        <span class="self">self</span>.next_observed_addr_seq_no =
 <a href=#5257 id=5257 data-nosnippet>5257</a>                            <span class="self">self</span>.next_observed_addr_seq_no.saturating_add(<span class="number">1u8</span>);
@@ -5292,7 +5292,7 @@
 <a href=#5292 id=5292 data-nosnippet>5292</a>            <span class="kw">let </span>offset = frame.offset;
 <a href=#5293 id=5293 data-nosnippet>5293</a>            <span class="kw">let </span>truncated = frame::Crypto { offset, data };
 <a href=#5294 id=5294 data-nosnippet>5294</a>            <span class="macro">trace!</span>(off = offset, len = truncated.data.len(), <span class="string">"CRYPTO"</span>);
-<a href=#5295 id=5295 data-nosnippet>5295</a>            builder.encode(truncated, stats);
+<a href=#5295 id=5295 data-nosnippet>5295</a>            builder.write_frame(truncated, stats);
 <a href=#5296 id=5296 data-nosnippet>5296</a>
 <a href=#5297 id=5297 data-nosnippet>5297</a>            <span class="kw">if </span>!frame.data.is_empty() {
 <a href=#5298 id=5298 data-nosnippet>5298</a>                frame.offset += len <span class="kw">as </span>u64;
@@ -5313,7 +5313,7 @@
 <a href=#5313 id=5313 data-nosnippet>5313</a>                path_id,
 <a href=#5314 id=5314 data-nosnippet>5314</a>                error_code,
 <a href=#5315 id=5315 data-nosnippet>5315</a>            };
-<a href=#5316 id=5316 data-nosnippet>5316</a>            builder.encode(frame, stats);
+<a href=#5316 id=5316 data-nosnippet>5316</a>            builder.write_frame(frame, stats);
 <a href=#5317 id=5317 data-nosnippet>5317</a>            <span class="macro">trace!</span>(%path_id, <span class="string">"PATH_ABANDON"</span>);
 <a href=#5318 id=5318 data-nosnippet>5318</a>        }
 <a href=#5319 id=5319 data-nosnippet>5319</a>
@@ -5337,7 +5337,7 @@
 <a href=#5337 id=5337 data-nosnippet>5337</a>                        path_id,
 <a href=#5338 id=5338 data-nosnippet>5338</a>                        status_seq_no: seq,
 <a href=#5339 id=5339 data-nosnippet>5339</a>                    };
-<a href=#5340 id=5340 data-nosnippet>5340</a>                    builder.encode(frame, stats);
+<a href=#5340 id=5340 data-nosnippet>5340</a>                    builder.write_frame(frame, stats);
 <a href=#5341 id=5341 data-nosnippet>5341</a>                    <span class="macro">trace!</span>(%path_id, %seq, <span class="string">"PATH_STATUS_AVAILABLE"</span>)
 <a href=#5342 id=5342 data-nosnippet>5342</a>                }
 <a href=#5343 id=5343 data-nosnippet>5343</a>                PathStatus::Backup =&gt; {
@@ -5345,7 +5345,7 @@
 <a href=#5345 id=5345 data-nosnippet>5345</a>                        path_id,
 <a href=#5346 id=5346 data-nosnippet>5346</a>                        status_seq_no: seq,
 <a href=#5347 id=5347 data-nosnippet>5347</a>                    };
-<a href=#5348 id=5348 data-nosnippet>5348</a>                    builder.encode(frame, stats);
+<a href=#5348 id=5348 data-nosnippet>5348</a>                    builder.write_frame(frame, stats);
 <a href=#5349 id=5349 data-nosnippet>5349</a>                    <span class="macro">trace!</span>(%path_id, %seq, <span class="string">"PATH_STATUS_BACKUP"</span>)
 <a href=#5350 id=5350 data-nosnippet>5350</a>                }
 <a href=#5351 id=5351 data-nosnippet>5351</a>            }
@@ -5357,7 +5357,7 @@
 <a href=#5357 id=5357 data-nosnippet>5357</a>            &amp;&amp; frame::MaxPathId::SIZE_BOUND &lt;= builder.frame_space_remaining()
 <a href=#5358 id=5358 data-nosnippet>5358</a>        {
 <a href=#5359 id=5359 data-nosnippet>5359</a>            <span class="kw">let </span>frame = frame::MaxPathId(<span class="self">self</span>.local_max_path_id);
-<a href=#5360 id=5360 data-nosnippet>5360</a>            builder.encode(frame, stats);
+<a href=#5360 id=5360 data-nosnippet>5360</a>            builder.write_frame(frame, stats);
 <a href=#5361 id=5361 data-nosnippet>5361</a>            space.pending.max_path_id = <span class="bool-val">false</span>;
 <a href=#5362 id=5362 data-nosnippet>5362</a>            <span class="macro">trace!</span>(val = %<span class="self">self</span>.local_max_path_id, <span class="string">"MAX_PATH_ID"</span>);
 <a href=#5363 id=5363 data-nosnippet>5363</a>        }
@@ -5368,7 +5368,7 @@
 <a href=#5368 id=5368 data-nosnippet>5368</a>            &amp;&amp; frame::PathsBlocked::SIZE_BOUND &lt;= builder.frame_space_remaining()
 <a href=#5369 id=5369 data-nosnippet>5369</a>        {
 <a href=#5370 id=5370 data-nosnippet>5370</a>            <span class="kw">let </span>frame = frame::PathsBlocked(<span class="self">self</span>.remote_max_path_id);
-<a href=#5371 id=5371 data-nosnippet>5371</a>            builder.encode(frame, stats);
+<a href=#5371 id=5371 data-nosnippet>5371</a>            builder.write_frame(frame, stats);
 <a href=#5372 id=5372 data-nosnippet>5372</a>            space.pending.paths_blocked = <span class="bool-val">false</span>;
 <a href=#5373 id=5373 data-nosnippet>5373</a>            <span class="macro">trace!</span>(max_path_id = %<span class="self">self</span>.remote_max_path_id, <span class="string">"PATHS_BLOCKED"</span>);
 <a href=#5374 id=5374 data-nosnippet>5374</a>        }
@@ -5388,7 +5388,7 @@
 <a href=#5388 id=5388 data-nosnippet>5388</a>                path_id,
 <a href=#5389 id=5389 data-nosnippet>5389</a>                next_seq: VarInt(next_seq),
 <a href=#5390 id=5390 data-nosnippet>5390</a>            };
-<a href=#5391 id=5391 data-nosnippet>5391</a>            builder.encode(frame, stats);
+<a href=#5391 id=5391 data-nosnippet>5391</a>            builder.write_frame(frame, stats);
 <a href=#5392 id=5392 data-nosnippet>5392</a>            <span class="macro">trace!</span>(%path_id, next_seq, <span class="string">"PATH_CIDS_BLOCKED"</span>);
 <a href=#5393 id=5393 data-nosnippet>5393</a>        }
 <a href=#5394 id=5394 data-nosnippet>5394</a>
@@ -5445,7 +5445,7 @@
 <a href=#5445 id=5445 data-nosnippet>5445</a>                id: issued.id,
 <a href=#5446 id=5446 data-nosnippet>5446</a>                reset_token: issued.reset_token,
 <a href=#5447 id=5447 data-nosnippet>5447</a>            };
-<a href=#5448 id=5448 data-nosnippet>5448</a>            builder.encode(frame, stats);
+<a href=#5448 id=5448 data-nosnippet>5448</a>            builder.write_frame(frame, stats);
 <a href=#5449 id=5449 data-nosnippet>5449</a>        }
 <a href=#5450 id=5450 data-nosnippet>5450</a>
 <a href=#5451 id=5451 data-nosnippet>5451</a>        <span class="comment">// RETIRE_CONNECTION_ID
@@ -5463,7 +5463,7 @@
 <a href=#5463 id=5463 data-nosnippet>5463</a>                <span class="prelude-val">None </span>=&gt; <span class="kw">break</span>,
 <a href=#5464 id=5464 data-nosnippet>5464</a>            };
 <a href=#5465 id=5465 data-nosnippet>5465</a>            <span class="kw">let </span>frame = frame::RetireConnectionId { path_id, sequence };
-<a href=#5466 id=5466 data-nosnippet>5466</a>            builder.encode(frame, stats);
+<a href=#5466 id=5466 data-nosnippet>5466</a>            builder.write_frame(frame, stats);
 <a href=#5467 id=5467 data-nosnippet>5467</a>        }
 <a href=#5468 id=5468 data-nosnippet>5468</a>
 <a href=#5469 id=5469 data-nosnippet>5469</a>        <span class="comment">// DATAGRAM
@@ -5521,7 +5521,7 @@
 <a href=#5521 id=5521 data-nosnippet>5521</a>            }
 <a href=#5522 id=5522 data-nosnippet>5522</a>
 <a href=#5523 id=5523 data-nosnippet>5523</a>            <span class="macro">trace!</span>(<span class="string">"NEW_TOKEN"</span>);
-<a href=#5524 id=5524 data-nosnippet>5524</a>            builder.encode(new_token, stats);
+<a href=#5524 id=5524 data-nosnippet>5524</a>            builder.write_frame(new_token, stats);
 <a href=#5525 id=5525 data-nosnippet>5525</a>            builder.retransmits_mut().new_tokens.push(network_path);
 <a href=#5526 id=5526 data-nosnippet>5526</a>        }
 <a href=#5527 id=5527 data-nosnippet>5527</a>
@@ -5543,7 +5543,7 @@
 <a href=#5543 id=5543 data-nosnippet>5543</a>                    port = added_address.port,
 <a href=#5544 id=5544 data-nosnippet>5544</a>                    <span class="string">"ADD_ADDRESS"</span>,
 <a href=#5545 id=5545 data-nosnippet>5545</a>                );
-<a href=#5546 id=5546 data-nosnippet>5546</a>                builder.encode(added_address, stats);
+<a href=#5546 id=5546 data-nosnippet>5546</a>                builder.write_frame(added_address, stats);
 <a href=#5547 id=5547 data-nosnippet>5547</a>            } <span class="kw">else </span>{
 <a href=#5548 id=5548 data-nosnippet>5548</a>                <span class="kw">break</span>;
 <a href=#5549 id=5549 data-nosnippet>5549</a>            }
@@ -5555,7 +5555,7 @@
 <a href=#5555 id=5555 data-nosnippet>5555</a>        {
 <a href=#5556 id=5556 data-nosnippet>5556</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(removed_address) = space.pending.remove_address.pop_last() {
 <a href=#5557 id=5557 data-nosnippet>5557</a>                <span class="macro">trace!</span>(seq = %removed_address.seq_no, <span class="string">"REMOVE_ADDRESS"</span>);
-<a href=#5558 id=5558 data-nosnippet>5558</a>                builder.encode(removed_address, stats);
+<a href=#5558 id=5558 data-nosnippet>5558</a>                builder.write_frame(removed_address, stats);
 <a href=#5559 id=5559 data-nosnippet>5559</a>            } <span class="kw">else </span>{
 <a href=#5560 id=5560 data-nosnippet>5560</a>                <span class="kw">break</span>;
 <a href=#5561 id=5561 data-nosnippet>5561</a>            }
@@ -5605,11 +5605,11 @@
 <a href=#5605 id=5605 data-nosnippet>5605</a>            <span class="kw">if </span>!ranges.is_empty() {
 <a href=#5606 id=5606 data-nosnippet>5606</a>                <span class="macro">trace!</span>(<span class="string">"PATH_ACK {path_id:?} {ranges:?}, Delay = {delay_micros}us"</span>);
 <a href=#5607 id=5607 data-nosnippet>5607</a>                <span class="kw">let </span>frame = frame::PathAck::encoder(path_id, delay, ranges, ecn);
-<a href=#5608 id=5608 data-nosnippet>5608</a>                builder.encode(frame, stats);
+<a href=#5608 id=5608 data-nosnippet>5608</a>                builder.write_frame(frame, stats);
 <a href=#5609 id=5609 data-nosnippet>5609</a>            }
 <a href=#5610 id=5610 data-nosnippet>5610</a>        } <span class="kw">else </span>{
 <a href=#5611 id=5611 data-nosnippet>5611</a>            <span class="macro">trace!</span>(<span class="string">"ACK {ranges:?}, Delay = {delay_micros}us"</span>);
-<a href=#5612 id=5612 data-nosnippet>5612</a>            builder.encode(frame::Ack::encoder(delay, ranges, ecn), stats);
+<a href=#5612 id=5612 data-nosnippet>5612</a>            builder.write_frame(frame::Ack::encoder(delay, ranges, ecn), stats);
 <a href=#5613 id=5613 data-nosnippet>5613</a>        }
 <a href=#5614 id=5614 data-nosnippet>5614</a>    }
 <a href=#5615 id=5615 data-nosnippet>5615</a>
