@@ -468,7 +468,7 @@ impl QlogSentPacket {
         }
     }
 
-    pub(crate) fn record(&mut self, frame: &EncodableFrame) {
+    pub(crate) fn record<'a>(&mut self, frame: &EncodableFrame<'a>) {
         #[cfg(feature = "qlog")]
         self.frame_raw(frame.to_qlog());
     }

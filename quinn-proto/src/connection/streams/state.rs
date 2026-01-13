@@ -407,9 +407,9 @@ impl StreamsState {
             .is_some_and(|s| s.can_send_flow_control())
     }
 
-    pub(in crate::connection) fn write_control_frames(
+    pub(in crate::connection) fn write_control_frames<'a, 'b>(
         &mut self,
-        builder: &mut PacketBuilder,
+        builder: &mut PacketBuilder<'a, 'b>,
         pending: &mut Retransmits,
         stats: &mut FrameStats,
     ) {
@@ -513,9 +513,9 @@ impl StreamsState {
         }
     }
 
-    pub(crate) fn write_stream_frames(
+    pub(crate) fn write_stream_frames<'a, 'b>(
         &mut self,
-        builder: &mut PacketBuilder,
+        builder: &mut PacketBuilder<'a, 'b>,
         fair: bool,
         stats: &mut FrameStats,
     ) {
