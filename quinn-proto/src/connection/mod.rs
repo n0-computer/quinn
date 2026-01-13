@@ -166,11 +166,14 @@ pub struct Connection {
     paths: BTreeMap<PathId, PathState>,
     /// Counter to uniquely identify every [`PathData`] created in this connection.
     ///
-    /// Each path gets a unique [`PathData::generation`] when created. This helps identify
-    /// the correct path when RFC9000-style migrations happen, even when they are
-    /// aborted. Multipath does not change this, they can also undergo RFC9000-style
-    /// migrations. The multipath path ID has no relation to this generation counter or
-    /// [`PathData::generation`].
+    /// Each [`PathData`] gets a [`PathData::generation`] that is unique among all
+    /// [`PathData`]s created in the lifetime of this connection. This helps identify the
+    /// correct path when RFC9000-style migrations happen, even when they are
+    /// aborted.
+    ///
+    /// Multipath does not change this, each path can also undergo RFC9000-style
+    /// migrations. So a single multipath path ID could see several [`PathData`]s each with
+    /// their unique [`PathData::generation].
     path_generation_counter: u64,
     /// Whether MTU detection is supported in this environment
     allow_mtud: bool,
