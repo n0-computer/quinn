@@ -79,6 +79,7 @@ rand_pcg = "0.9"
 rcgen = { workspace = true }
 tracing-subscriber = { workspace = true }
 wasm-bindgen-test = { workspace = true }
+proptest-arbitrary-interop = { workspace = true }
 
 # proptest does not support running in Wasm
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]

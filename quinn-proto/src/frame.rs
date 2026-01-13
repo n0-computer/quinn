@@ -887,7 +887,7 @@ impl Encodable for EcnCounts {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Stream {
     pub(crate) id: StreamId,
     pub(crate) offset: u64,

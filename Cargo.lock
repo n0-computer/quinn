@@ -1502,6 +1502,7 @@ dependencies = [
  "lru-slab",
  "n0-qlog",
  "proptest",
+ "proptest-arbitrary-interop",
  "rand",
  "rand_pcg",
  "rcgen",
@@ -1532,7 +1533,7 @@ dependencies = [
  "socket2",
  "tokio",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -2016,6 +2017,16 @@ dependencies = [
  "rusty-fork",
  "tempfile",
  "unarray",
+]
+
+[[package]]
+name = "proptest-arbitrary-interop"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1981e49bd2432249da8b0e11e5557099a8e74690d6b94e721f7dc0bb7f3555f"
+dependencies = [
+ "arbitrary",
+ "proptest",
 ]
 
 [[package]]
