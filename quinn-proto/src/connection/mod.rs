@@ -164,10 +164,14 @@ pub struct Connection {
     /// deterministically select the next PathId to send on.
     // TODO(flub): well does it really? But deterministic is nice for now.
     paths: BTreeMap<PathId, PathState>,
-    /// Incremented every time we see a new path
+    /// Counter of all paths ever seen, multipath or not.
     ///
-    /// Stored separately from `path.generation` to account for aborted migrations
-    path_counter: u64,
+    /// Each path seen gets a [`PathData::generation`] set to this value. This helps
+    /// identify the correct path when RFC9000-style migrations happen, even when they are
+    /// aborted. When multipath is enabled this counter is likewise incremented for each
+    /// [`PathData`] created, multipath or not, so that RFC9000-style migrations are tracked
+    /// in the same way. So generations is global per connection, not per multipath path ID.
+    path_generation_counter: u64,
     /// Whether MTU detection is supported in this environment
     allow_mtud: bool,
     state: State,
@@ -382,7 +386,7 @@ impl Connection {
                     prev: None,
                 },
             )]),
-            path_counter: 0,
+            path_generation_counter: 0,
             allow_mtud,
             state,
             side: connection_side,
@@ -865,12 +869,12 @@ impl Connection {
         debug!(%validated, %path_id, %network_path, "path added");
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
-        self.path_counter = self.path_counter.wrapping_add(1);
+        self.path_generation_counter = self.path_generation_counter.wrapping_add(1);
         let mut data = PathData::new(
             network_path,
             self.allow_mtud,
             Some(peer_max_udp_payload_size),
-            self.path_counter,
+            self.path_generation_counter,
             now,
             &self.config,
         );
@@ -4963,7 +4967,7 @@ impl Connection {
         observed_addr: Option<ObservedAddr>,
     ) {
         trace!(%network_path, %path_id, "migration initiated");
-        self.path_counter = self.path_counter.wrapping_add(1);
+        self.path_generation_counter = self.path_generation_counter.wrapping_add(1);
         // TODO(@divma): conditions for path migration in multipath are very specific, check them
         // again to prevent path migrations that should actually create a new path
 
@@ -4976,7 +4980,7 @@ impl Connection {
         let mut new_path = if network_path.remote.is_ipv4()
             && network_path.remote.ip() == path.network_path.remote.ip()
         {
-            PathData::from_previous(network_path, path, self.path_counter, now)
+            PathData::from_previous(network_path, path, self.path_generation_counter, now)
         } else {
             let peer_max_udp_payload_size =
                 u16::try_from(self.peer_params.max_udp_payload_size.into_inner())
@@ -4985,7 +4989,7 @@ impl Connection {
                 network_path,
                 self.allow_mtud,
                 Some(peer_max_udp_payload_size),
-                self.path_counter,
+                self.path_generation_counter,
                 now,
                 &self.config,
             )
