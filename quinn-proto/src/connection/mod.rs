@@ -164,13 +164,13 @@ pub struct Connection {
     /// deterministically select the next PathId to send on.
     // TODO(flub): well does it really? But deterministic is nice for now.
     paths: BTreeMap<PathId, PathState>,
-    /// Counter of all paths ever seen, multipath or not.
+    /// Counter to uniquely identify every [`PathData`] created in this connection.
     ///
-    /// Each path seen gets a [`PathData::generation`] set to this value. This helps
-    /// identify the correct path when RFC9000-style migrations happen, even when they are
-    /// aborted. When multipath is enabled this counter is likewise incremented for each
-    /// [`PathData`] created, multipath or not, so that RFC9000-style migrations are tracked
-    /// in the same way. So generations is global per connection, not per multipath path ID.
+    /// Each path gets a unique [`PathData::generation`] when created. This helps identify
+    /// the correct path when RFC9000-style migrations happen, even when they are
+    /// aborted. Multipath does not change this, they can also undergo RFC9000-style
+    /// migrations. The multipath path ID has no relation to this generation counter or
+    /// [`PathData::generation`].
     path_generation_counter: u64,
     /// Whether MTU detection is supported in this environment
     allow_mtud: bool,
