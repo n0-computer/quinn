@@ -935,7 +935,7 @@ impl SpaceId {
     /// Returns the next higher packet space.
     ///
     /// Returns `None` if at  [`SpaceId::Data`].
-    pub fn next(&self) -> Option<Self> {
+    pub(crate) fn next(&self) -> Option<Self> {
         match self {
             Self::Initial => Some(Self::Handshake),
             Self::Handshake => Some(Self::Data),
