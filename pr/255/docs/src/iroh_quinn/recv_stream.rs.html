@@ -107,7 +107,7 @@
 <a href=#107 id=107 data-nosnippet>107</a>    /// [`finish`]: crate::SendStream::finish
 <a href=#108 id=108 data-nosnippet>108</a>    </span><span class="kw">pub fn </span>poll_read(
 <a href=#109 id=109 data-nosnippet>109</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#110 id=110 data-nosnippet>110</a>        cx: <span class="kw-2">&amp;mut </span>Context,
+<a href=#110 id=110 data-nosnippet>110</a>        cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#111 id=111 data-nosnippet>111</a>        buf: <span class="kw-2">&amp;mut </span>[u8],
 <a href=#112 id=112 data-nosnippet>112</a>    ) -&gt; Poll&lt;<span class="prelude-ty">Result</span>&lt;usize, ReadError&gt;&gt; {
 <a href=#113 id=113 data-nosnippet>113</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = ReadBuf::new(buf);
@@ -129,7 +129,7 @@
 <a href=#129 id=129 data-nosnippet>129</a>    /// [`finish`]: crate::SendStream::finish
 <a href=#130 id=130 data-nosnippet>130</a>    </span><span class="kw">pub fn </span>poll_read_buf(
 <a href=#131 id=131 data-nosnippet>131</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#132 id=132 data-nosnippet>132</a>        cx: <span class="kw-2">&amp;mut </span>Context,
+<a href=#132 id=132 data-nosnippet>132</a>        cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#133 id=133 data-nosnippet>133</a>        buf: <span class="kw-2">&amp;mut </span>ReadBuf&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#134 id=134 data-nosnippet>134</a>    ) -&gt; Poll&lt;<span class="prelude-ty">Result</span>&lt;(), ReadError&gt;&gt; {
 <a href=#135 id=135 data-nosnippet>135</a>        <span class="kw">if </span>buf.remaining() == <span class="number">0 </span>{
@@ -187,7 +187,7 @@
 <a href=#187 id=187 data-nosnippet>187</a>    /// when the stream becomes readable or is closed.
 <a href=#188 id=188 data-nosnippet>188</a>    </span><span class="kw">fn </span>poll_read_chunk(
 <a href=#189 id=189 data-nosnippet>189</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#190 id=190 data-nosnippet>190</a>        cx: <span class="kw-2">&amp;mut </span>Context,
+<a href=#190 id=190 data-nosnippet>190</a>        cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#191 id=191 data-nosnippet>191</a>        max_length: usize,
 <a href=#192 id=192 data-nosnippet>192</a>        ordered: bool,
 <a href=#193 id=193 data-nosnippet>193</a>    ) -&gt; Poll&lt;<span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Chunk&gt;, ReadError&gt;&gt; {
@@ -214,7 +214,7 @@
 <a href=#214 id=214 data-nosnippet>214</a>    <span class="doccomment">/// Foundation of [`Self::read_chunks`]
 <a href=#215 id=215 data-nosnippet>215</a>    </span><span class="kw">fn </span>poll_read_chunks(
 <a href=#216 id=216 data-nosnippet>216</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#217 id=217 data-nosnippet>217</a>        cx: <span class="kw-2">&amp;mut </span>Context,
+<a href=#217 id=217 data-nosnippet>217</a>        cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#218 id=218 data-nosnippet>218</a>        bufs: <span class="kw-2">&amp;mut </span>[Bytes],
 <a href=#219 id=219 data-nosnippet>219</a>    ) -&gt; Poll&lt;<span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;usize&gt;, ReadError&gt;&gt; {
 <a href=#220 id=220 data-nosnippet>220</a>        <span class="kw">if </span>bufs.is_empty() {
@@ -342,12 +342,12 @@
 <a href=#342 id=342 data-nosnippet>342</a>    /// reading: the amount of data read, and the status after the final read call.
 <a href=#343 id=343 data-nosnippet>343</a>    </span><span class="kw">fn </span>poll_read_generic&lt;T, U&gt;(
 <a href=#344 id=344 data-nosnippet>344</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#345 id=345 data-nosnippet>345</a>        cx: <span class="kw-2">&amp;mut </span>Context,
+<a href=#345 id=345 data-nosnippet>345</a>        cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#346 id=346 data-nosnippet>346</a>        ordered: bool,
 <a href=#347 id=347 data-nosnippet>347</a>        <span class="kw-2">mut </span>read_fn: T,
 <a href=#348 id=348 data-nosnippet>348</a>    ) -&gt; Poll&lt;<span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;U&gt;, ReadError&gt;&gt;
 <a href=#349 id=349 data-nosnippet>349</a>    <span class="kw">where
-<a href=#350 id=350 data-nosnippet>350</a>        </span>T: FnMut(<span class="kw-2">&amp;mut </span>Chunks) -&gt; ReadStatus&lt;U&gt;,
+<a href=#350 id=350 data-nosnippet>350</a>        </span>T: FnMut(<span class="kw-2">&amp;mut </span>Chunks&lt;<span class="lifetime">'_</span>&gt;) -&gt; ReadStatus&lt;U&gt;,
 <a href=#351 id=351 data-nosnippet>351</a>    {
 <a href=#352 id=352 data-nosnippet>352</a>        <span class="kw">use </span>proto::ReadError::<span class="kw-2">*</span>;
 <a href=#353 id=353 data-nosnippet>353</a>        <span class="kw">if </span><span class="self">self</span>.all_data_read {
@@ -514,7 +514,7 @@
 <a href=#514 id=514 data-nosnippet>514</a>
 <a href=#515 id=515 data-nosnippet>515</a><span class="kw">impl </span>Future <span class="kw">for </span>ReadToEnd&lt;<span class="lifetime">'_</span>&gt; {
 <a href=#516 id=516 data-nosnippet>516</a>    <span class="kw">type </span>Output = <span class="prelude-ty">Result</span>&lt;Vec&lt;u8&gt;, ReadToEndError&gt;;
-<a href=#517 id=517 data-nosnippet>517</a>    <span class="kw">fn </span>poll(<span class="kw-2">mut </span><span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
+<a href=#517 id=517 data-nosnippet>517</a>    <span class="kw">fn </span>poll(<span class="kw-2">mut </span><span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
 <a href=#518 id=518 data-nosnippet>518</a>        <span class="kw">loop </span>{
 <a href=#519 id=519 data-nosnippet>519</a>            <span class="kw">match </span><span class="macro">ready!</span>(<span class="self">self</span>.stream.poll_read_chunk(cx, usize::MAX, <span class="bool-val">false</span>))<span class="question-mark">? </span>{
 <a href=#520 id=520 data-nosnippet>520</a>                <span class="prelude-val">Some</span>(chunk) =&gt; {
@@ -559,7 +559,7 @@
 <a href=#559 id=559 data-nosnippet>559</a></span><span class="kw">impl </span>futures_io::AsyncRead <span class="kw">for </span>RecvStream {
 <a href=#560 id=560 data-nosnippet>560</a>    <span class="kw">fn </span>poll_read(
 <a href=#561 id=561 data-nosnippet>561</a>        <span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;,
-<a href=#562 id=562 data-nosnippet>562</a>        cx: <span class="kw-2">&amp;mut </span>Context,
+<a href=#562 id=562 data-nosnippet>562</a>        cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#563 id=563 data-nosnippet>563</a>        buf: <span class="kw-2">&amp;mut </span>[u8],
 <a href=#564 id=564 data-nosnippet>564</a>    ) -&gt; Poll&lt;io::Result&lt;usize&gt;&gt; {
 <a href=#565 id=565 data-nosnippet>565</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = ReadBuf::new(buf);
@@ -679,7 +679,7 @@
 <a href=#679 id=679 data-nosnippet>679</a><span class="kw">impl </span>Future <span class="kw">for </span>Read&lt;<span class="lifetime">'_</span>&gt; {
 <a href=#680 id=680 data-nosnippet>680</a>    <span class="kw">type </span>Output = <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;usize&gt;, ReadError&gt;;
 <a href=#681 id=681 data-nosnippet>681</a>
-<a href=#682 id=682 data-nosnippet>682</a>    <span class="kw">fn </span>poll(<span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
+<a href=#682 id=682 data-nosnippet>682</a>    <span class="kw">fn </span>poll(<span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
 <a href=#683 id=683 data-nosnippet>683</a>        <span class="kw">let </span>this = <span class="self">self</span>.get_mut();
 <a href=#684 id=684 data-nosnippet>684</a>        <span class="macro">ready!</span>(this.stream.poll_read_buf(cx, <span class="kw-2">&amp;mut </span>this.buf))<span class="question-mark">?</span>;
 <a href=#685 id=685 data-nosnippet>685</a>        <span class="kw">match </span>this.buf.filled().len() {
@@ -699,7 +699,7 @@
 <a href=#699 id=699 data-nosnippet>699</a>
 <a href=#700 id=700 data-nosnippet>700</a><span class="kw">impl </span>Future <span class="kw">for </span>ReadExact&lt;<span class="lifetime">'_</span>&gt; {
 <a href=#701 id=701 data-nosnippet>701</a>    <span class="kw">type </span>Output = <span class="prelude-ty">Result</span>&lt;(), ReadExactError&gt;;
-<a href=#702 id=702 data-nosnippet>702</a>    <span class="kw">fn </span>poll(<span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
+<a href=#702 id=702 data-nosnippet>702</a>    <span class="kw">fn </span>poll(<span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
 <a href=#703 id=703 data-nosnippet>703</a>        <span class="kw">let </span>this = <span class="self">self</span>.get_mut();
 <a href=#704 id=704 data-nosnippet>704</a>        <span class="kw">let </span><span class="kw-2">mut </span>remaining = this.buf.remaining();
 <a href=#705 id=705 data-nosnippet>705</a>        <span class="kw">while </span>remaining &gt; <span class="number">0 </span>{
@@ -736,7 +736,7 @@
 <a href=#736 id=736 data-nosnippet>736</a>
 <a href=#737 id=737 data-nosnippet>737</a><span class="kw">impl </span>Future <span class="kw">for </span>ReadChunk&lt;<span class="lifetime">'_</span>&gt; {
 <a href=#738 id=738 data-nosnippet>738</a>    <span class="kw">type </span>Output = <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Chunk&gt;, ReadError&gt;;
-<a href=#739 id=739 data-nosnippet>739</a>    <span class="kw">fn </span>poll(<span class="kw-2">mut </span><span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
+<a href=#739 id=739 data-nosnippet>739</a>    <span class="kw">fn </span>poll(<span class="kw-2">mut </span><span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
 <a href=#740 id=740 data-nosnippet>740</a>        <span class="kw">let </span>(max_length, ordered) = (<span class="self">self</span>.max_length, <span class="self">self</span>.ordered);
 <a href=#741 id=741 data-nosnippet>741</a>        <span class="self">self</span>.stream.poll_read_chunk(cx, max_length, ordered)
 <a href=#742 id=742 data-nosnippet>742</a>    }
@@ -752,7 +752,7 @@
 <a href=#752 id=752 data-nosnippet>752</a>
 <a href=#753 id=753 data-nosnippet>753</a><span class="kw">impl </span>Future <span class="kw">for </span>ReadChunks&lt;<span class="lifetime">'_</span>&gt; {
 <a href=#754 id=754 data-nosnippet>754</a>    <span class="kw">type </span>Output = <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;usize&gt;, ReadError&gt;;
-<a href=#755 id=755 data-nosnippet>755</a>    <span class="kw">fn </span>poll(<span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
+<a href=#755 id=755 data-nosnippet>755</a>    <span class="kw">fn </span>poll(<span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
 <a href=#756 id=756 data-nosnippet>756</a>        <span class="kw">let </span>this = <span class="self">self</span>.get_mut();
 <a href=#757 id=757 data-nosnippet>757</a>        this.stream.poll_read_chunks(cx, this.bufs)
 <a href=#758 id=758 data-nosnippet>758</a>    }
