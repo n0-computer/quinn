@@ -609,7 +609,7 @@ impl Connection {
             self.spaces[SpaceId::Data]
                 .pending
                 .path_cids_blocked
-                .push(path_id);
+                .insert(path_id);
             return Err(PathError::RemoteCidsExhausted);
         }
 
@@ -1056,7 +1056,7 @@ impl Connection {
                     self.spaces[SpaceId::Data]
                         .pending
                         .path_cids_blocked
-                        .push(path_id);
+                        .insert(path_id);
                 } else {
                     trace!(%path_id, "remote CIDs retired for abandoned path");
                 }
@@ -5522,7 +5522,7 @@ impl Connection {
         // PATH_CIDS_BLOCKED
         while space_id == SpaceId::Data && frame::PathCidsBlocked::SIZE_BOUND <= buf.remaining_mut()
         {
-            let Some(path_id) = space.pending.path_cids_blocked.pop() else {
+            let Some(path_id) = space.pending.path_cids_blocked.pop_first() else {
                 break;
             };
             let next_seq = match self.rem_cids.get(&path_id) {
@@ -5538,7 +5538,7 @@ impl Connection {
             sent.retransmits
                 .get_or_create()
                 .path_cids_blocked
-                .push(path_id);
+                .insert(path_id);
             trace!(%path_id, next_seq, "PATH_CIDS_BLOCKED");
             self.stats.frame_tx.path_cids_blocked += 1;
         }
