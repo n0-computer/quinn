@@ -164,13 +164,13 @@
 <a href=#164 id=164 data-nosnippet>164</a>    /// deterministically select the next PathId to send on.
 <a href=#165 id=165 data-nosnippet>165</a>    </span><span class="comment">// TODO(flub): well does it really? But deterministic is nice for now.
 <a href=#166 id=166 data-nosnippet>166</a>    </span>paths: BTreeMap&lt;PathId, PathState&gt;,
-<a href=#167 id=167 data-nosnippet>167</a>    <span class="doccomment">/// Counter of all paths ever seen, multipath or not.
+<a href=#167 id=167 data-nosnippet>167</a>    <span class="doccomment">/// Counter to uniquely identify every [`PathData`] created in this connection.
 <a href=#168 id=168 data-nosnippet>168</a>    ///
-<a href=#169 id=169 data-nosnippet>169</a>    /// Each path seen gets a [`PathData::generation`] set to this value. This helps
-<a href=#170 id=170 data-nosnippet>170</a>    /// identify the correct path when RFC9000-style migrations happen, even when they are
-<a href=#171 id=171 data-nosnippet>171</a>    /// aborted. When multipath is enabled this counter is likewise incremented for each
-<a href=#172 id=172 data-nosnippet>172</a>    /// [`PathData`] created, multipath or not, so that RFC9000-style migrations are tracked
-<a href=#173 id=173 data-nosnippet>173</a>    /// in the same way. So generations is global per connection, not per multipath path ID.
+<a href=#169 id=169 data-nosnippet>169</a>    /// Each path gets a unique [`PathData::generation`] when created. This helps identify
+<a href=#170 id=170 data-nosnippet>170</a>    /// the correct path when RFC9000-style migrations happen, even when they are
+<a href=#171 id=171 data-nosnippet>171</a>    /// aborted. Multipath does not change this, they can also undergo RFC9000-style
+<a href=#172 id=172 data-nosnippet>172</a>    /// migrations. The multipath path ID has no relation to this generation counter or
+<a href=#173 id=173 data-nosnippet>173</a>    /// [`PathData::generation`].
 <a href=#174 id=174 data-nosnippet>174</a>    </span>path_generation_counter: u64,
 <a href=#175 id=175 data-nosnippet>175</a>    <span class="doccomment">/// Whether MTU detection is supported in this environment
 <a href=#176 id=176 data-nosnippet>176</a>    </span>allow_mtud: bool,
