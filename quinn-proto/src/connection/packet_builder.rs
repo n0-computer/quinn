@@ -243,6 +243,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         };
 
         conn.paths.get_mut(&path_id).unwrap().data.sent(
+            now,
             exact_number,
             packet,
             conn.spaces[space_id].for_path(path_id),

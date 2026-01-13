@@ -680,12 +680,12 @@ impl Connection {
         self.endpoint_events
             .push_back(EndpointEventInner::RetireResetToken(path_id));
 
-        let pto = self.pto_max_path(SpaceId::Data, false);
-
+        let end = self.calculate_end_timer(now, 3, SpaceId::Data);
+        let extended_end = self.calculate_end_timer(now, 6, SpaceId::Data);
         let path = self.paths.get_mut(&path_id).expect("checked above");
 
         // We record the time after which receiving data on this path generates a transport error.
-        path.data.last_allowed_receive = Some(now + 3 * pto);
+        path.data.last_allowed_receive = Some(end);
         self.abandoned_paths.insert(path_id);
 
         self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
@@ -696,7 +696,7 @@ impl Connection {
         // PATH_ABANDON or not.
         self.timers.set(
             Timer::PerPath(path_id, PathTimer::DiscardPath),
-            now + 6 * pto,
+            extended_end,
             self.qlog.with_time(now),
         );
         Ok(())
@@ -2667,9 +2667,10 @@ impl Connection {
         };
 
         // QUIC-MULTIPATH § 2.5 Key Phase Update Process: use largest PTO off all paths.
+        let end = self.calculate_end_timer(start, 3, space);
         self.timers.set(
             Timer::Conn(ConnTimer::KeyDiscard),
-            start + self.pto_max_path(space, false) * 3,
+            end,
             self.qlog.with_time(now),
         );
     }
@@ -3152,31 +3153,6 @@ impl Connection {
         }
     }
 
-    /// The maximum probe timeout across all paths
-    ///
-    /// If `is_closing` is set to `true` it will filter out paths that have not yet been used.
-    ///
-    /// See [`Connection::pto`]
-    fn pto_max_path(&self, space: SpaceId, is_closing: bool) -> Duration {
-        match space {
-            SpaceId::Initial | SpaceId::Handshake => self.pto(space, PathId::ZERO),
-            SpaceId::Data => self
-                .paths
-                .iter()
-                .filter_map(|(path_id, state)| {
-                    if is_closing && state.data.total_sent == 0 && state.data.total_recvd == 0 {
-                        // If we are closing and haven't sent anything yet, do not include
-                        None
-                    } else {
-                        let pto = self.pto(space, *path_id);
-                        Some(pto)
-                    }
-                })
-                .max()
-                .expect("there should be one at least path"),
-        }
-    }
-
     /// Probe Timeout
     ///
     /// The PTO is logically the time in which you'd expect to receive an acknowledgement
@@ -3284,12 +3260,10 @@ impl Connection {
                 self.timers
                     .stop(Timer::Conn(ConnTimer::Idle), self.qlog.with_time(now));
             } else {
-                let dt = cmp::max(timeout, 3 * self.pto_max_path(space, false));
-                self.timers.set(
-                    Timer::Conn(ConnTimer::Idle),
-                    now + dt,
-                    self.qlog.with_time(now),
-                );
+                // TODO: include max(timeout)
+                let end = self.calculate_end_timer(now, 3, space);
+                self.timers
+                    .set(Timer::Conn(ConnTimer::Idle), end, self.qlog.with_time(now));
             }
         }
 
@@ -3301,10 +3275,12 @@ impl Connection {
                     self.qlog.with_time(now),
                 );
             } else {
-                let dt = cmp::max(timeout, 3 * self.pto(space, path_id));
+                let pto = self.pto(space, path_id);
+                let end = self.path_data(path_id).timer_offset(now, 3 * pto);
+                let dt = cmp::max(now + timeout, end);
                 self.timers.set(
                     Timer::PerPath(path_id, PathTimer::PathIdle),
-                    now + dt,
+                    dt,
                     self.qlog.with_time(now),
                 );
             }
@@ -5815,15 +5791,36 @@ impl Connection {
         self.timers.reset();
     }
 
+    fn calculate_end_timer(&self, now: Instant, factor: u32, space: SpaceId) -> Instant {
+        match space {
+            SpaceId::Initial | SpaceId::Handshake => {
+                let duration = factor * self.pto(space, PathId::ZERO);
+                self.path_data(PathId::ZERO).timer_offset(now, duration)
+            }
+            SpaceId::Data => self
+                .paths
+                .iter()
+                .filter_map(|(path_id, state)| {
+                    if state.data.total_sent == 0 && state.data.total_recvd == 0 {
+                        // If we are closing and haven't sent anything yet, do not include
+                        None
+                    } else {
+                        let duration = factor * self.pto(self.highest_space, *path_id);
+                        Some(self.path_data(*path_id).timer_offset(now, duration))
+                    }
+                })
+                .max()
+                .unwrap_or(now), // TODO:: reevaluate
+        }
+    }
+
     fn set_close_timer(&mut self, now: Instant) {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO with PTO the max of
         // the PTO for all paths.
-        let pto_max = self.pto_max_path(self.highest_space, true);
-        self.timers.set(
-            Timer::Conn(ConnTimer::Close),
-            now + 3 * pto_max,
-            self.qlog.with_time(now),
-        );
+
+        let end = self.calculate_end_timer(now, 3, self.highest_space);
+        self.timers
+            .set(Timer::Conn(ConnTimer::Close), end, self.qlog.with_time(now));
     }
 
     /// Handle transport parameters received from the peer
