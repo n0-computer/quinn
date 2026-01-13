@@ -192,7 +192,7 @@ impl DatagramState {
         trace!(len = datagram.data.len(), "DATAGRAM");
 
         self.outgoing_total -= datagram.data.len();
-        buf.encode(datagram, stat);
+        buf.write_frame(datagram, stat);
         true
     }
 

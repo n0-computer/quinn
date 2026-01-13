@@ -1314,7 +1314,7 @@ impl Connection {
                             "tried to make a close packet when the connection wasn't closed"
                         ),
                     };
-                    builder.encode(close.encoder(max_frame_size), stats);
+                    builder.write_frame(close.encoder(max_frame_size), stats);
                 }
                 builder.finish_and_track(now, self, path_id, pad_datagram);
                 if space_id == self.highest_space {
@@ -1344,7 +1344,7 @@ impl Connection {
                     //    https://github.com/quinn-rs/quinn/issues/2184
                     let response = frame::PathResponse(token);
                     trace!(%response, "(off-path)");
-                    builder.encode(response, &mut self.stats.frame_tx);
+                    builder.write_frame(response, &mut self.stats.frame_tx);
                     builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
                     self.stats.udp_tx.on_sent(1, transmit.len());
                     return Some(Transmit {
@@ -1520,12 +1520,12 @@ impl Connection {
                 // We implement MTU probes as ping packets padded up to the probe size
                 trace!(?probe_size, "writing MTUD probe");
                 trace!("PING");
-                builder.encode(frame::Ping, &mut self.stats.frame_tx);
+                builder.write_frame(frame::Ping, &mut self.stats.frame_tx);
 
                 // If supported by the peer, we want no delays to the probe's ACK
                 if self.peer_supports_ack_frequency() {
                     trace!("IMMEDIATE_ACK");
-                    builder.encode(frame::ImmediateAck, &mut self.stats.frame_tx);
+                    builder.write_frame(frame::ImmediateAck, &mut self.stats.frame_tx);
                 }
 
                 builder.finish_and_track(now, self, path_id, PadDatagram::ToSize(probe_size));
@@ -1698,7 +1698,7 @@ impl Connection {
             PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
         let challenge = frame::PathChallenge(token);
         trace!(%challenge, "validating previous path");
-        builder.encode(challenge, &mut self.stats.frame_tx);
+        builder.write_frame(challenge, &mut self.stats.frame_tx);
 
         // An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
         // to at least the smallest allowed maximum datagram size of 1200 bytes,
@@ -5059,7 +5059,7 @@ impl Connection {
         // HANDSHAKE_DONE
         if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
             trace!("HANDSHAKE_DONE");
-            builder.encode(frame::HandshakeDone, stats);
+            builder.write_frame(frame::HandshakeDone, stats);
         }
 
         // REACH_OUT
@@ -5069,7 +5069,7 @@ impl Connection {
                 let reach_out = frame::ReachOut::new(*round, local_addr);
                 if builder.frame_space_remaining() > reach_out.size() {
                     trace!(%round, ?local_addr, "REACH_OUT");
-                    builder.encode(reach_out, stats);
+                    builder.write_frame(reach_out, stats);
                 } else {
                     addresses.push(local_addr);
                     break;
@@ -5093,7 +5093,7 @@ impl Connection {
                 frame::ObservedAddr::new(path.network_path.remote, self.next_observed_addr_seq_no);
             if builder.frame_space_remaining() > frame.size() {
                 trace!(seq = %frame.seq_no, ip = %frame.ip, port = frame.port, "OBSERVED_ADDRESS");
-                builder.encode(frame, stats);
+                builder.write_frame(frame, stats);
 
                 self.next_observed_addr_seq_no = self.next_observed_addr_seq_no.saturating_add(1u8);
                 path.observed_addr_sent = true;
@@ -5105,7 +5105,7 @@ impl Connection {
         // PING
         if mem::replace(&mut space.for_path(path_id).ping_pending, false) {
             trace!("PING");
-            builder.encode(frame::Ping, stats);
+            builder.write_frame(frame::Ping, stats);
         }
 
         // IMMEDIATE_ACK
@@ -5116,7 +5116,7 @@ impl Connection {
                 "immediate acks must be sent in the data space"
             );
             trace!("IMMEDIATE_ACK");
-            builder.encode(frame::ImmediateAck, stats);
+            builder.write_frame(frame::ImmediateAck, stats);
         }
 
         // ACK
@@ -5165,7 +5165,7 @@ impl Connection {
                 request_max_ack_delay: max_ack_delay.as_micros().try_into().unwrap_or(VarInt::MAX),
                 reordering_threshold: config.reordering_threshold,
             };
-            builder.encode(frame, stats);
+            builder.write_frame(frame, stats);
 
             self.ack_frequency
                 .ack_frequency_sent(path_id, pn, max_ack_delay);
@@ -5189,7 +5189,7 @@ impl Connection {
             path.challenges_sent.insert(token, info);
             let challenge = frame::PathChallenge(token);
             trace!(frame = %challenge);
-            builder.encode(challenge, stats);
+            builder.write_frame(challenge, stats);
             builder.require_padding();
             let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
             self.timers.set(
@@ -5216,7 +5216,7 @@ impl Connection {
                     self.next_observed_addr_seq_no,
                 );
                 if builder.frame_space_remaining() > frame.size() {
-                    builder.encode(frame, stats);
+                    builder.write_frame(frame, stats);
 
                     self.next_observed_addr_seq_no =
                         self.next_observed_addr_seq_no.saturating_add(1u8);
@@ -5234,7 +5234,7 @@ impl Connection {
             if let Some(token) = path.path_responses.pop_on_path(path.network_path) {
                 let response = frame::PathResponse(token);
                 trace!(frame = %response);
-                builder.encode(response, stats);
+                builder.write_frame(response, stats);
                 builder.require_padding();
 
                 // NOTE: this is technically not required but might be useful to ride the
@@ -5251,7 +5251,7 @@ impl Connection {
                         self.next_observed_addr_seq_no,
                     );
                     if builder.frame_space_remaining() > frame.size() {
-                        builder.encode(frame, stats);
+                        builder.write_frame(frame, stats);
 
                         self.next_observed_addr_seq_no =
                             self.next_observed_addr_seq_no.saturating_add(1u8);
@@ -5292,7 +5292,7 @@ impl Connection {
             let offset = frame.offset;
             let truncated = frame::Crypto { offset, data };
             trace!(off = offset, len = truncated.data.len(), "CRYPTO");
-            builder.encode(truncated, stats);
+            builder.write_frame(truncated, stats);
 
             if !frame.data.is_empty() {
                 frame.offset += len as u64;
@@ -5313,7 +5313,7 @@ impl Connection {
                 path_id,
                 error_code,
             };
-            builder.encode(frame, stats);
+            builder.write_frame(frame, stats);
             trace!(%path_id, "PATH_ABANDON");
         }
 
@@ -5337,7 +5337,7 @@ impl Connection {
                         path_id,
                         status_seq_no: seq,
                     };
-                    builder.encode(frame, stats);
+                    builder.write_frame(frame, stats);
                     trace!(%path_id, %seq, "PATH_STATUS_AVAILABLE")
                 }
                 PathStatus::Backup => {
@@ -5345,7 +5345,7 @@ impl Connection {
                         path_id,
                         status_seq_no: seq,
                     };
-                    builder.encode(frame, stats);
+                    builder.write_frame(frame, stats);
                     trace!(%path_id, %seq, "PATH_STATUS_BACKUP")
                 }
             }
@@ -5357,7 +5357,7 @@ impl Connection {
             && frame::MaxPathId::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let frame = frame::MaxPathId(self.local_max_path_id);
-            builder.encode(frame, stats);
+            builder.write_frame(frame, stats);
             space.pending.max_path_id = false;
             trace!(val = %self.local_max_path_id, "MAX_PATH_ID");
         }
@@ -5368,7 +5368,7 @@ impl Connection {
             && frame::PathsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let frame = frame::PathsBlocked(self.remote_max_path_id);
-            builder.encode(frame, stats);
+            builder.write_frame(frame, stats);
             space.pending.paths_blocked = false;
             trace!(max_path_id = %self.remote_max_path_id, "PATHS_BLOCKED");
         }
@@ -5388,7 +5388,7 @@ impl Connection {
                 path_id,
                 next_seq: VarInt(next_seq),
             };
-            builder.encode(frame, stats);
+            builder.write_frame(frame, stats);
             trace!(%path_id, next_seq, "PATH_CIDS_BLOCKED");
         }
 
@@ -5445,7 +5445,7 @@ impl Connection {
                 id: issued.id,
                 reset_token: issued.reset_token,
             };
-            builder.encode(frame, stats);
+            builder.write_frame(frame, stats);
         }
 
         // RETIRE_CONNECTION_ID
@@ -5463,7 +5463,7 @@ impl Connection {
                 None => break,
             };
             let frame = frame::RetireConnectionId { path_id, sequence };
-            builder.encode(frame, stats);
+            builder.write_frame(frame, stats);
         }
 
         // DATAGRAM
@@ -5521,7 +5521,7 @@ impl Connection {
             }
 
             trace!("NEW_TOKEN");
-            builder.encode(new_token, stats);
+            builder.write_frame(new_token, stats);
             builder.retransmits_mut().new_tokens.push(network_path);
         }
 
@@ -5543,7 +5543,7 @@ impl Connection {
                     port = added_address.port,
                     "ADD_ADDRESS",
                 );
-                builder.encode(added_address, stats);
+                builder.write_frame(added_address, stats);
             } else {
                 break;
             }
@@ -5555,7 +5555,7 @@ impl Connection {
         {
             if let Some(removed_address) = space.pending.remove_address.pop_last() {
                 trace!(seq = %removed_address.seq_no, "REMOVE_ADDRESS");
-                builder.encode(removed_address, stats);
+                builder.write_frame(removed_address, stats);
             } else {
                 break;
             }
@@ -5605,11 +5605,11 @@ impl Connection {
             if !ranges.is_empty() {
                 trace!("PATH_ACK {path_id:?} {ranges:?}, Delay = {delay_micros}us");
                 let frame = frame::PathAck::encoder(path_id, delay, ranges, ecn);
-                builder.encode(frame, stats);
+                builder.write_frame(frame, stats);
             }
         } else {
             trace!("ACK {ranges:?}, Delay = {delay_micros}us");
-            builder.encode(frame::Ack::encoder(delay, ranges, ecn), stats);
+            builder.write_frame(frame::Ack::encoder(delay, ranges, ecn), stats);
         }
     }
 

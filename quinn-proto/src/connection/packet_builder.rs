@@ -222,13 +222,13 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         );
     }
 
-    pub(super) fn encode<'c>(
+    pub(super) fn write_frame<'c>(
         &mut self,
-        frame: impl Into<EncodableFrame<'c>> + Encodable,
+        frame: impl Into<EncodableFrame<'c>>,
         stats: &mut FrameStats,
     ) {
-        frame.encode(&mut self.frame_space_mut());
         let frame = frame.into();
+        frame.encode(&mut self.frame_space_mut());
         stats.record(frame.get_type());
         self.qlog.record(&frame);
         self.sent_frames.sent(frame);

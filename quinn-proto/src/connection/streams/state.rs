@@ -429,7 +429,7 @@ impl StreamsState {
                 error_code,
                 final_offset: VarInt::try_from(stream.offset()).expect("impossibly large offset"),
             };
-            builder.encode(frame, stats);
+            builder.write_frame(frame, stats);
         }
 
         // STOP_SENDING
@@ -446,7 +446,7 @@ impl StreamsState {
             // peer, but we discard that information as soon as the application consumes it, so it
             // can't be relied upon regardless.
             trace!(stream = %frame.id, "STOP_SENDING");
-            builder.encode(frame, stats);
+            builder.write_frame(frame, stats);
         }
 
         // MAX_DATA
@@ -466,7 +466,7 @@ impl StreamsState {
                 self.sent_max_data = max;
             }
 
-            builder.encode(frame::MaxData(max), stats);
+            builder.write_frame(frame::MaxData(max), stats);
         }
 
         // MAX_STREAM_DATA
@@ -493,7 +493,7 @@ impl StreamsState {
             rs.record_sent_max_stream_data(max);
 
             trace!(stream = %id, max = max, "MAX_STREAM_DATA");
-            builder.encode(frame::MaxStreamData { id, offset: max }, stats);
+            builder.write_frame(frame::MaxStreamData { id, offset: max }, stats);
         }
 
         // MAX_STREAMS
@@ -509,7 +509,7 @@ impl StreamsState {
                 "MAX_STREAMS ({:?})", dir
             );
             let count = self.max_remote[dir as usize];
-            builder.encode(frame::MaxStreams { dir, count }, stats);
+            builder.write_frame(frame::MaxStreams { dir, count }, stats);
         }
     }
 
@@ -567,7 +567,7 @@ impl StreamsState {
             let range = offsets.clone();
             let meta = frame::StreamMeta { id, offsets, fin };
             trace!(id = %id, off = range.start, len = range.end - range.start, fin, "STREAM");
-            builder.encode(meta.encoder(encode_length), stats);
+            builder.write_frame(meta.encoder(encode_length), stats);
             stream.pending.get_into(range, builder.buf);
         }
     }
