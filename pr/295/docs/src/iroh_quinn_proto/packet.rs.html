@@ -919,7 +919,7 @@
 <a href=#919 id=919 data-nosnippet>919</a>
 <a href=#920 id=920 data-nosnippet>920</a><span class="doccomment">/// Packet number space identifiers
 <a href=#921 id=921 data-nosnippet>921</a></span><span class="attr">#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-<a href=#922 id=922 data-nosnippet>922</a></span><span class="kw">pub enum </span>SpaceId {
+<a href=#922 id=922 data-nosnippet>922</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">enum </span>SpaceId {
 <a href=#923 id=923 data-nosnippet>923</a>    <span class="doccomment">/// Unprotected packets, used to bootstrap the handshake
 <a href=#924 id=924 data-nosnippet>924</a>    </span>Initial = <span class="number">0</span>,
 <a href=#925 id=925 data-nosnippet>925</a>    Handshake = <span class="number">1</span>,
@@ -928,14 +928,14 @@
 <a href=#928 id=928 data-nosnippet>928</a>}
 <a href=#929 id=929 data-nosnippet>929</a>
 <a href=#930 id=930 data-nosnippet>930</a><span class="kw">impl </span>SpaceId {
-<a href=#931 id=931 data-nosnippet>931</a>    <span class="kw">pub fn </span>iter() -&gt; <span class="kw">impl </span>Iterator&lt;Item = <span class="self">Self</span>&gt; {
+<a href=#931 id=931 data-nosnippet>931</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>iter() -&gt; <span class="kw">impl </span>Iterator&lt;Item = <span class="self">Self</span>&gt; {
 <a href=#932 id=932 data-nosnippet>932</a>        [<span class="self">Self</span>::Initial, <span class="self">Self</span>::Handshake, <span class="self">Self</span>::Data].iter().cloned()
 <a href=#933 id=933 data-nosnippet>933</a>    }
 <a href=#934 id=934 data-nosnippet>934</a>
 <a href=#935 id=935 data-nosnippet>935</a>    <span class="doccomment">/// Returns the next higher packet space.
 <a href=#936 id=936 data-nosnippet>936</a>    ///
 <a href=#937 id=937 data-nosnippet>937</a>    /// Keeps returning [`SpaceId::Data`] as the highest space.
-<a href=#938 id=938 data-nosnippet>938</a>    </span><span class="kw">pub fn </span>next(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="self">Self </span>{
+<a href=#938 id=938 data-nosnippet>938</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>next(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="self">Self </span>{
 <a href=#939 id=939 data-nosnippet>939</a>        <span class="kw">match </span><span class="self">self </span>{
 <a href=#940 id=940 data-nosnippet>940</a>            <span class="self">Self</span>::Initial =&gt; <span class="self">Self</span>::Handshake,
 <a href=#941 id=941 data-nosnippet>941</a>            <span class="self">Self</span>::Handshake =&gt; <span class="self">Self</span>::Data,
