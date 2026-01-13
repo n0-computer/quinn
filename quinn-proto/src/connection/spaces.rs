@@ -351,10 +351,7 @@ impl PacketNumberSpace {
     }
 
     /// Checks whether a skipped packet number was ACKed.
-    pub(super) fn check_ack(
-        &self,
-        range: std::ops::RangeInclusive<u64>,
-    ) -> Result<(), TransportError> {
+    pub(super) fn check_ack(&self, range: std::ops::Range<u64>) -> Result<(), TransportError> {
         if let Some(ref filter) = self.pn_filter {
             if filter
                 .prev_skipped_packet_number
