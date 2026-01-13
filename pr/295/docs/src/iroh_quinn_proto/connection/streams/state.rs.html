@@ -407,9 +407,9 @@
 <a href=#407 id=407 data-nosnippet>407</a>            .is_some_and(|s| s.can_send_flow_control())
 <a href=#408 id=408 data-nosnippet>408</a>    }
 <a href=#409 id=409 data-nosnippet>409</a>
-<a href=#410 id=410 data-nosnippet>410</a>    <span class="kw">pub</span>(<span class="kw">in </span><span class="kw">crate</span>::connection) <span class="kw">fn </span>write_control_frames(
+<a href=#410 id=410 data-nosnippet>410</a>    <span class="kw">pub</span>(<span class="kw">in </span><span class="kw">crate</span>::connection) <span class="kw">fn </span>write_control_frames&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;(
 <a href=#411 id=411 data-nosnippet>411</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#412 id=412 data-nosnippet>412</a>        builder: <span class="kw-2">&amp;mut </span>PacketBuilder,
+<a href=#412 id=412 data-nosnippet>412</a>        builder: <span class="kw-2">&amp;mut </span>PacketBuilder&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;,
 <a href=#413 id=413 data-nosnippet>413</a>        pending: <span class="kw-2">&amp;mut </span>Retransmits,
 <a href=#414 id=414 data-nosnippet>414</a>        stats: <span class="kw-2">&amp;mut </span>FrameStats,
 <a href=#415 id=415 data-nosnippet>415</a>    ) {
@@ -513,9 +513,9 @@
 <a href=#513 id=513 data-nosnippet>513</a>        }
 <a href=#514 id=514 data-nosnippet>514</a>    }
 <a href=#515 id=515 data-nosnippet>515</a>
-<a href=#516 id=516 data-nosnippet>516</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>write_stream_frames(
+<a href=#516 id=516 data-nosnippet>516</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>write_stream_frames&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;(
 <a href=#517 id=517 data-nosnippet>517</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#518 id=518 data-nosnippet>518</a>        builder: <span class="kw-2">&amp;mut </span>PacketBuilder,
+<a href=#518 id=518 data-nosnippet>518</a>        builder: <span class="kw-2">&amp;mut </span>PacketBuilder&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;,
 <a href=#519 id=519 data-nosnippet>519</a>        fair: bool,
 <a href=#520 id=520 data-nosnippet>520</a>        stats: <span class="kw-2">&amp;mut </span>FrameStats,
 <a href=#521 id=521 data-nosnippet>521</a>    ) {

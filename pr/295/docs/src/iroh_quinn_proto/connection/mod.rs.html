@@ -5037,13 +5037,13 @@
 <a href=#5037 id=5037 data-nosnippet>5037</a>    /// *path_exclusive_only* means to only build frames which can only be sent on this
 <a href=#5038 id=5038 data-nosnippet>5038</a>    /// *path.  This is used in multipath for backup paths while there is still an active
 <a href=#5039 id=5039 data-nosnippet>5039</a>    /// *path.
-<a href=#5040 id=5040 data-nosnippet>5040</a>    </span><span class="kw">fn </span>populate_packet(
+<a href=#5040 id=5040 data-nosnippet>5040</a>    </span><span class="kw">fn </span>populate_packet&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;(
 <a href=#5041 id=5041 data-nosnippet>5041</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
 <a href=#5042 id=5042 data-nosnippet>5042</a>        now: Instant,
 <a href=#5043 id=5043 data-nosnippet>5043</a>        space_id: SpaceId,
 <a href=#5044 id=5044 data-nosnippet>5044</a>        path_id: PathId,
 <a href=#5045 id=5045 data-nosnippet>5045</a>        path_exclusive_only: bool,
-<a href=#5046 id=5046 data-nosnippet>5046</a>        builder: <span class="kw-2">&amp;mut </span>PacketBuilder,
+<a href=#5046 id=5046 data-nosnippet>5046</a>        builder: <span class="kw-2">&amp;mut </span>PacketBuilder&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;,
 <a href=#5047 id=5047 data-nosnippet>5047</a>    ) {
 <a href=#5048 id=5048 data-nosnippet>5048</a>        <span class="kw">let </span>pn = builder.exact_number;
 <a href=#5049 id=5049 data-nosnippet>5049</a>        <span class="kw">let </span>is_multipath_negotiated = <span class="self">self</span>.is_multipath_negotiated();
@@ -5563,14 +5563,14 @@
 <a href=#5563 id=5563 data-nosnippet>5563</a>    }
 <a href=#5564 id=5564 data-nosnippet>5564</a>
 <a href=#5565 id=5565 data-nosnippet>5565</a>    <span class="doccomment">/// Write pending ACKs into a buffer
-<a href=#5566 id=5566 data-nosnippet>5566</a>    </span><span class="kw">fn </span>populate_acks(
+<a href=#5566 id=5566 data-nosnippet>5566</a>    </span><span class="kw">fn </span>populate_acks&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;(
 <a href=#5567 id=5567 data-nosnippet>5567</a>        now: Instant,
 <a href=#5568 id=5568 data-nosnippet>5568</a>        receiving_ecn: bool,
 <a href=#5569 id=5569 data-nosnippet>5569</a>        path_id: PathId,
 <a href=#5570 id=5570 data-nosnippet>5570</a>        space_id: SpaceId,
 <a href=#5571 id=5571 data-nosnippet>5571</a>        space: <span class="kw-2">&amp;mut </span>PacketSpace,
 <a href=#5572 id=5572 data-nosnippet>5572</a>        is_multipath_negotiated: bool,
-<a href=#5573 id=5573 data-nosnippet>5573</a>        builder: <span class="kw-2">&amp;mut </span>PacketBuilder,
+<a href=#5573 id=5573 data-nosnippet>5573</a>        builder: <span class="kw-2">&amp;mut </span>PacketBuilder&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;,
 <a href=#5574 id=5574 data-nosnippet>5574</a>        stats: <span class="kw-2">&amp;mut </span>FrameStats,
 <a href=#5575 id=5575 data-nosnippet>5575</a>    ) {
 <a href=#5576 id=5576 data-nosnippet>5576</a>        <span class="comment">// 0-RTT packets must never carry acks (which would have to be of handshake packets)
