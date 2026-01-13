@@ -171,7 +171,9 @@ impl Encodable for FrameType {
 ///
 /// This includes some "encoder" types instead of the actual read frame, when writing directly to
 /// a buffer is more efficient than building the Frame itself.
-#[derive(derive_more::From)]
+#[derive(derive_more::From, enum_assoc::Assoc)]
+#[func(fn encode_inner<B: BufMut>(&self, buf: &mut B) {_0.encode(buf)})]
+#[cfg_attr(feature = "qlog", func(pub(crate) fn to_qlog(&self) -> qlog::events::quic::QuicFrame {_0.to_qlog()}))]
 pub(super) enum EncodableFrame<'a> {
     PathAck(PathAckEncoder<'a>),
     Ack(AckEncoder<'a>),
@@ -242,6 +244,12 @@ impl<'a> EncodableFrame<'a> {
             MaxStreamData(_) => FrameType::MaxStreamData,
             MaxStreams(max_streams) => max_streams.get_type(),
         }
+    }
+}
+
+impl<'a> Encodable for EncodableFrame<'a> {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        self.encode_inner(buf)
     }
 }
 

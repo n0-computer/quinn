@@ -951,44 +951,6 @@ impl frame::StreamMetaEncoder {
 }
 
 #[cfg(feature = "qlog")]
-impl<'a> EncodableFrame<'a> {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
-        match self {
-            EncodableFrame::PathAck(path_ack_encoder) => path_ack_encoder.to_qlog(),
-            EncodableFrame::Ack(ack_encoder) => ack_encoder.to_qlog(),
-            EncodableFrame::Close(close_encoder) => close_encoder.to_qlog(),
-            EncodableFrame::PathResponse(path_response) => path_response.to_qlog(),
-            EncodableFrame::HandshakeDone(handshake_done) => handshake_done.to_qlog(),
-            EncodableFrame::ReachOut(reach_out) => reach_out.to_qlog(),
-            EncodableFrame::ObservedAddr(observed_addr) => observed_addr.to_qlog(),
-            EncodableFrame::Ping(ping) => ping.to_qlog(),
-            EncodableFrame::ImmediateAck(immediate_ack) => immediate_ack.to_qlog(),
-            EncodableFrame::AckFrequency(ack_frequency) => ack_frequency.to_qlog(),
-            EncodableFrame::PathChallenge(path_challenge) => path_challenge.to_qlog(),
-            EncodableFrame::Crypto(crypto) => crypto.to_qlog(),
-            EncodableFrame::PathAbandon(path_abandon) => path_abandon.to_qlog(),
-            EncodableFrame::PathStatusAvailable(status) => status.to_qlog(),
-            EncodableFrame::PathStatusBackup(path_status_backup) => path_status_backup.to_qlog(),
-            EncodableFrame::MaxPathId(max_path_id) => max_path_id.to_qlog(),
-            EncodableFrame::PathsBlocked(paths_blocked) => paths_blocked.to_qlog(),
-            EncodableFrame::PathCidsBlocked(path_cids_blocked) => path_cids_blocked.to_qlog(),
-            EncodableFrame::ResetStream(reset_stream) => reset_stream.to_qlog(),
-            EncodableFrame::StopSending(stop_sending) => stop_sending.to_qlog(),
-            EncodableFrame::NewConnectionId(new_connection_id) => new_connection_id.to_qlog(),
-            EncodableFrame::RetireConnectionId(retire_cid) => retire_cid.to_qlog(),
-            EncodableFrame::Datagram(datagram) => datagram.to_qlog(),
-            EncodableFrame::NewToken(new_token) => new_token.to_qlog(),
-            EncodableFrame::AddAddress(add_address) => add_address.to_qlog(),
-            EncodableFrame::RemoveAddress(remove_address) => remove_address.to_qlog(),
-            EncodableFrame::StreamMeta(stream_meta_encoder) => stream_meta_encoder.to_qlog(),
-            EncodableFrame::MaxData(max_data) => max_data.to_qlog(),
-            EncodableFrame::MaxStreamData(max_stream_data) => max_stream_data.to_qlog(),
-            EncodableFrame::MaxStreams(max_streams) => max_streams.to_qlog(),
-        }
-    }
-}
-
-#[cfg(feature = "qlog")]
 impl Frame {
     /// Converts a [`crate::Frame`] into a [`QuicFrame`].
     pub(crate) fn to_qlog(&self) -> QuicFrame {
