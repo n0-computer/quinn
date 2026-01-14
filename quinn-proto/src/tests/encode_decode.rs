@@ -3,9 +3,9 @@ use proptest::{prelude::*};
 use ring::hmac;
 use std::net::IpAddr;
 use crate::{
-    ApplicationClose, ConnectionId, Datagram, FrameType, MAX_CID_SIZE, PathId, StreamId,
-    TransportErrorCode, VarInt,
-    coding::Encodable,
+    ApplicationClose, ConnectionId, Datagram, FrameType, MAX_CID_SIZE, PathId, TransportErrorCode,
+    VarInt,
+    coding::{BufMutExt, Encodable},
     frame::{
         Close, MaybeFrame, NewConnectionId, ResetStream, StopSending, Stream, PathChallenge,
         PathResponse, MaxPathId, PathsBlocked, PathCidsBlocked, PathAbandon, PathStatusAvailable,
@@ -40,21 +40,6 @@ fn application_close() -> impl Strategy<Value = ApplicationClose> {
         .prop_map(|(error_code, reason)| ApplicationClose { error_code, reason })
 }
 
-fn stream() -> impl Strategy<Value = Stream> {
-    (
-        valid_varint_u64(),
-        valid_varint_u64(),
-        any::<bool>(),
-        prop::collection::vec(any::<u8>(), 0..100),
-    )
-        .prop_map(|(stream_id, offset, fin, data)| Stream {
-            id: StreamId(stream_id),
-            offset,
-            fin,
-            data: Bytes::from(data),
-        })
-}
-
 fn connection_id() -> impl Strategy<Value = ConnectionId> {
     prop::collection::vec(any::<u8>(), 1..=MAX_CID_SIZE).prop_map(|bytes| ConnectionId::new(&bytes))
 }
@@ -84,29 +69,6 @@ fn new_connection_id() -> impl Strategy<Value = NewConnectionId> {
                 reset_token,
             }
         })
-}
-
-fn datagram() -> impl Strategy<Value = Datagram> {
-    prop::collection::vec(any::<u8>(), 0..100).prop_map(|data| Datagram {
-        data: Bytes::from(data),
-    })
-}
-
-fn crypto() -> impl Strategy<Value = Crypto> {
-    (
-        valid_varint_u64(),
-        prop::collection::vec(any::<u8>(), 0..1024),
-    )
-        .prop_map(|(offset, data)| Crypto {
-            offset,
-            data: Bytes::from(data),
-        })
-}
-
-fn new_token() -> impl Strategy<Value = NewToken> {
-    prop::collection::vec(any::<u8>(), 0..1024).prop_map(|token| NewToken {
-        token: Bytes::from(token),
-    })
 }
 
 fn ip_addr() -> impl Strategy<Value = IpAddr> {
@@ -147,7 +109,7 @@ enum TestFrame {
     ResetStream(ResetStream),
     StopSending(StopSending),
     NewConnectionId(#[strategy(new_connection_id())] NewConnectionId),
-    Datagram(#[strategy(datagram())] Datagram),
+    Datagram(Datagram),
     MaxData(MaxData),
     MaxStreamData(MaxStreamData),
     MaxStreams(MaxStreams),
@@ -163,8 +125,8 @@ enum TestFrame {
     Ping(Ping),
     ImmediateAck(ImmediateAck),
     HandshakeDone(HandshakeDone),
-    Crypto(#[strategy(crypto())] Crypto),
-    NewToken(#[strategy(new_token())] NewToken),
+    Crypto(Crypto),
+    NewToken(NewToken),
     AckFrequency(AckFrequency),
     ObservedAddr(#[strategy(observed_addr())] ObservedAddr),
     AddAddress(#[strategy(add_address())] AddAddress),
@@ -173,6 +135,7 @@ enum TestFrame {
     DataBlocked(DataBlocked),
     StreamDataBlocked(StreamDataBlocked),
     StreamsBlocked(StreamsBlocked),
+    Stream(Stream),
 }
 
 impl TryFrom<Frame> for TestFrame {
@@ -210,6 +173,7 @@ impl TryFrom<Frame> for TestFrame {
             Frame::DataBlocked(db) => Ok(Self::DataBlocked(db)),
             Frame::StreamDataBlocked(sdb) => Ok(Self::StreamDataBlocked(sdb)),
             Frame::StreamsBlocked(sb) => Ok(Self::StreamsBlocked(sb)),
+            Frame::Stream(s) => Ok(Self::Stream(s)),
             _ => Err("unsupported frame type"),
         }
     }
@@ -259,6 +223,24 @@ impl Encodable for TestFrame {
             TestFrame::DataBlocked(db) => db.encode(buf),
             TestFrame::StreamDataBlocked(sdb) => sdb.encode(buf),
             TestFrame::StreamsBlocked(sb) => sb.encode(buf),
+            TestFrame::Stream(s) => {
+                // Encode STREAM frame manually
+                let mut ty = 0x08u8;
+                if s.fin {
+                    ty |= 0x01;
+                }
+                ty |= 0x02; // LEN bit (always set for testing)
+                if s.offset != 0 {
+                    ty |= 0x04; // OFF bit
+                }
+                buf.write_var(ty as u64);
+                buf.write(s.id);
+                if s.offset != 0 {
+                    buf.write_var(s.offset);
+                }
+                buf.write_var(s.data.len() as u64);
+                buf.put_slice(&s.data);
+            }
         }
     }
 }

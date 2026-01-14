@@ -23,6 +23,9 @@ use arbitrary::Arbitrary;
 #[cfg(feature = "qlog")]
 use super::connection::qlog::ToQlog;
 
+#[cfg(test)]
+use proptest::{collection, prelude::any, strategy::Strategy};
+
 #[derive(
     Copy, Clone, Eq, PartialEq, derive_more::Debug, derive_more::Display, enum_assoc::Assoc,
 )]
@@ -1224,11 +1227,13 @@ impl Encodable for EcnCounts {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, PartialEq, Eq))]
 pub(crate) struct Stream {
     pub(crate) id: StreamId,
+    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
     pub(crate) offset: u64,
     pub(crate) fin: bool,
+    #[cfg_attr(test, strategy(Strategy::prop_map(collection::vec(any::<u8>(), 0..100), Bytes::from)))]
     pub(crate) data: Bytes,
 }
 
@@ -1313,10 +1318,12 @@ impl Encodable for StreamMetaEncoder {
 pub(crate) type StreamMetaVec = TinyVec<[StreamMeta; 1]>;
 
 #[derive(Debug, Clone, derive_more::Display)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, PartialEq, Eq))]
 #[display("CRYPTO off: {offset} len = {}", data.len())]
 pub(crate) struct Crypto {
+    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
     pub(crate) offset: u64,
+    #[cfg_attr(test, strategy(Strategy::prop_map(collection::vec(any::<u8>(), 0..1024), Bytes::from)))]
     pub(crate) data: Bytes,
 }
 
@@ -1338,9 +1345,10 @@ impl Encodable for Crypto {
 }
 
 #[derive(Debug, Clone, derive_more::Display)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, PartialEq, Eq))]
 #[display("NEW_TOKEN")]
 pub(crate) struct NewToken {
+    #[cfg_attr(test, strategy(Strategy::prop_map(collection::vec(any::<u8>(), 0..1024), Bytes::from)))]
     pub(crate) token: Bytes,
 }
 
@@ -1932,9 +1940,11 @@ impl FrameStruct for NewConnectionId {
 
 /// An unreliable datagram
 #[derive(Debug, Clone, derive_more::Display)]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display("DATAGRAM len: {}", data.len())]
 pub struct Datagram {
     /// Payload
+    #[cfg_attr(test, strategy(Strategy::prop_map(collection::vec(any::<u8>(), 0..100), Bytes::from)))]
     pub data: Bytes,
 }
 
