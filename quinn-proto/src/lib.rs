@@ -329,7 +329,6 @@ impl<'arbitrary> Arbitrary<'arbitrary> for StreamId {
     }
 }
 
-
 /// An outgoing packet
 #[derive(Debug)]
 #[must_use]

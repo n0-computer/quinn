@@ -34,7 +34,7 @@ use super::connection::qlog::ToQlog;
     const fn from_u64(rev: u64) -> Option<Self>,
 )]
 pub enum FrameType {
-    #[assoc(to_u64 = 0x00)] 
+    #[assoc(to_u64 = 0x00)]
     Padding,
     #[assoc(to_u64 = 0x01)]
     Ping,
@@ -276,7 +276,7 @@ impl proptest::arbitrary::Arbitrary for MaybeFrame {
         use proptest::prelude::*;
         prop_oneof![
             Just(MaybeFrame::None),
-            any::<u64>().prop_map(MaybeFrame::Unknown),
+            any::<VarInt>().prop_map(|v| MaybeFrame::Unknown(v.0)),
             any::<FrameType>()
                 .prop_filter("not Padding", |ft| *ft != FrameType::Padding)
                 .prop_map(MaybeFrame::Known),
@@ -576,6 +576,7 @@ impl Encodable for PathResponse {
 }
 
 #[derive(Debug, Clone, Copy, derive_more::Display)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary, PartialEq, Eq))]
 #[display("MAX_DATA({_0})")]
 pub(crate) struct MaxData(pub(crate) VarInt);
 
@@ -598,9 +599,11 @@ impl Encodable for MaxData {
 }
 
 #[derive(Debug, Clone, Copy, derive_more::Display)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary, PartialEq, Eq))]
 #[display("MAX_STREAM_DATA id: {id} max: {offset}")]
 pub(crate) struct MaxStreamData {
     pub(crate) id: StreamId,
+    #[cfg_attr(feature = "proptest", strategy(0u64..(1u64 << 62)))]
     pub(crate) offset: u64,
 }
 

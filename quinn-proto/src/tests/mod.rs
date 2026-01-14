@@ -36,9 +36,15 @@ mod util;
 pub(crate) use util::*;
 
 mod multipath;
-#[cfg(all(not(all(target_family = "wasm", target_os = "unknown")), feature = "proptest"))]
+#[cfg(all(
+    not(all(target_family = "wasm", target_os = "unknown")),
+    feature = "proptest"
+))]
 mod proptest;
-#[cfg(all(not(all(target_family = "wasm", target_os = "unknown")), feature = "proptest"))]
+#[cfg(all(
+    not(all(target_family = "wasm", target_os = "unknown")),
+    feature = "proptest"
+))]
 mod random_interaction;
 mod token;
 
@@ -4056,7 +4062,17 @@ mod encode_decode_tests {
     use bytes::{BufMut, Bytes, BytesMut};
     use proptest::{prelude::*};
     use ring::hmac;
-    use crate::{ApplicationClose, ConnectionId, Datagram, FrameType, MAX_CID_SIZE, PathId, StreamId, TransportErrorCode, VarInt, coding::Encodable, frame::{Close, MaybeFrame, NewConnectionId, ResetStream, StopSending, Stream, PathChallenge, PathResponse, MaxPathId, PathsBlocked, PathCidsBlocked, PathAbandon, PathStatusAvailable, PathStatusBackup}, token::ResetToken};
+    use crate::{
+        ApplicationClose, ConnectionId, Datagram, FrameType, MAX_CID_SIZE, PathId, StreamId,
+        TransportErrorCode, VarInt,
+        coding::Encodable,
+        frame::{
+            Close, MaybeFrame, NewConnectionId, ResetStream, StopSending, Stream, PathChallenge,
+            PathResponse, MaxPathId, PathsBlocked, PathCidsBlocked, PathAbandon,
+            PathStatusAvailable, PathStatusBackup, MaxData, MaxStreamData,
+        },
+        token::ResetToken,
+    };
 
     use super::frame::{Frame, ConnectionClose};
 
@@ -4078,14 +4094,8 @@ mod encode_decode_tests {
     }
 
     fn application_close() -> impl Strategy<Value = ApplicationClose> {
-        (
-            any::<VarInt>(),
-            ".*".prop_map(|s| Bytes::from(s)),
-        )
-            .prop_map(|(error_code, reason)| ApplicationClose {
-                error_code,
-                reason,
-            })
+        (any::<VarInt>(), ".*".prop_map(|s| Bytes::from(s)))
+            .prop_map(|(error_code, reason)| ApplicationClose { error_code, reason })
     }
 
     fn stream() -> impl Strategy<Value = Stream> {
@@ -4103,15 +4113,15 @@ mod encode_decode_tests {
             })
     }
 
-
     fn connection_id() -> impl Strategy<Value = ConnectionId> {
-        prop::collection::vec(any::<u8>(), 1..=MAX_CID_SIZE).prop_map(|bytes| ConnectionId::new(&bytes))
+        prop::collection::vec(any::<u8>(), 1..=MAX_CID_SIZE)
+            .prop_map(|bytes| ConnectionId::new(&bytes))
     }
 
     fn connection_id_and_reset_token() -> impl Strategy<Value = (ConnectionId, ResetToken)> {
         (connection_id(), any::<[u8; 64]>()).prop_map(|(id, reset_key)| {
             let key = hmac::Key::new(hmac::HMAC_SHA256, &reset_key);
-            (id, ResetToken::new(&key, id)) 
+            (id, ResetToken::new(&key, id))
         })
     }
 
@@ -4149,6 +4159,8 @@ mod encode_decode_tests {
         StopSending(StopSending),
         NewConnectionId(#[strategy(new_connection_id())] NewConnectionId),
         Datagram(#[strategy(datagram())] Datagram),
+        MaxData(MaxData),
+        MaxStreamData(MaxStreamData),
         PathChallenge(PathChallenge),
         PathResponse(PathResponse),
         MaxPathId(MaxPathId),
@@ -4169,6 +4181,8 @@ mod encode_decode_tests {
                 Frame::StopSending(ss) => Ok(Self::StopSending(ss)),
                 Frame::NewConnectionId(nc) => Ok(Self::NewConnectionId(nc)),
                 Frame::Datagram(dg) => Ok(Self::Datagram(dg)),
+                Frame::MaxData(md) => Ok(Self::MaxData(md)),
+                Frame::MaxStreamData(msd) => Ok(Self::MaxStreamData(msd)),
                 Frame::PathChallenge(pc) => Ok(Self::PathChallenge(pc)),
                 Frame::PathResponse(pr) => Ok(Self::PathResponse(pr)),
                 Frame::MaxPathId(mpi) => Ok(Self::MaxPathId(mpi)),
@@ -4195,56 +4209,28 @@ mod encode_decode_tests {
     impl Encodable for TestFrame {
         fn encode<B: BufMut>(&self, buf: &mut B) {
             match self {
-                TestFrame::ConnectionClose(cc) => {
-                    cc.encode(buf, usize::MAX)
-                }
-                TestFrame::ApplicationClose(ac) => {
-                    ac.encode(buf, usize::MAX)
-                }
-                TestFrame::ResetStream(rs) => {
-                    rs.encode(buf)
-                }
-                TestFrame::StopSending(ss) => {
-                    ss.encode(buf)
-                }
-                TestFrame::NewConnectionId(nc) => {
-                    nc.encode(buf)
-                }
-                TestFrame::Datagram(dg) => {
-                    dg.encode(buf)
-                }
-                TestFrame::PathChallenge(pc) => {
-                    pc.encode(buf)
-                }
-                TestFrame::PathResponse(pr) => {
-                    pr.encode(buf)
-                }
-                TestFrame::MaxPathId(mpi) => {
-                    mpi.encode(buf)
-                }
-                TestFrame::PathsBlocked(pb) => {
-                    pb.encode(buf)
-                }
-                TestFrame::PathCidsBlocked(pcb) => {
-                    pcb.encode(buf)
-                }
-                TestFrame::PathAbandon(pa) => {
-                    pa.encode(buf)
-                }
-                TestFrame::PathStatusAvailable(psa) => {
-                    psa.encode(buf)
-                }
-                TestFrame::PathStatusBackup(psb) => {
-                    psb.encode(buf)
-                }
+                TestFrame::ConnectionClose(cc) => cc.encode(buf, usize::MAX),
+                TestFrame::ApplicationClose(ac) => ac.encode(buf, usize::MAX),
+                TestFrame::ResetStream(rs) => rs.encode(buf),
+                TestFrame::StopSending(ss) => ss.encode(buf),
+                TestFrame::NewConnectionId(nc) => nc.encode(buf),
+                TestFrame::Datagram(dg) => dg.encode(buf),
+                TestFrame::MaxData(md) => md.encode(buf),
+                TestFrame::MaxStreamData(msd) => msd.encode(buf),
+                TestFrame::PathChallenge(pc) => pc.encode(buf),
+                TestFrame::PathResponse(pr) => pr.encode(buf),
+                TestFrame::MaxPathId(mpi) => mpi.encode(buf),
+                TestFrame::PathsBlocked(pb) => pb.encode(buf),
+                TestFrame::PathCidsBlocked(pcb) => pcb.encode(buf),
+                TestFrame::PathAbandon(pa) => pa.encode(buf),
+                TestFrame::PathStatusAvailable(psa) => psa.encode(buf),
+                TestFrame::PathStatusBackup(psb) => psb.encode(buf),
             }
         }
     }
 
     fn frame() -> impl Strategy<Value = TestFrame> {
-        prop_oneof![
-            connection_close().prop_map(|cc| TestFrame::ConnectionClose(cc)),
-        ]
+        prop_oneof![connection_close().prop_map(|cc| TestFrame::ConnectionClose(cc)),]
     }
 
     #[test_strategy::proptest]

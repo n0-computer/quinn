@@ -6,7 +6,8 @@ use tracing::{debug, trace};
 
 use crate::{
     Connection, ConnectionHandle, Dir, FourTuple, PathId, PathStatus, Side, StreamId,
-    TransportConfig, tests::{Pair, TestEndpoint, client_config},
+    TransportConfig,
+    tests::{Pair, TestEndpoint, client_config},
 };
 
 #[derive(Debug, Clone, Copy, Arbitrary)]
