@@ -184,7 +184,8 @@ pub const DEFAULT_SUPPORTED_VERSIONS: &[u32] = &[
 ];
 
 /// Whether an endpoint was the initiator of a connection
-#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Side {
     /// The initiator of a connection
@@ -218,7 +219,8 @@ impl ops::Not for Side {
 }
 
 /// Whether a stream communicates data in both directions or only from the initiator
-#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Dir {
     /// Data flows in both directions
@@ -326,7 +328,7 @@ impl<'arbitrary> Arbitrary<'arbitrary> for StreamId {
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(feature = "proptest")]
 impl proptest::arbitrary::Arbitrary for StreamId {
     type Parameters = ();
     type Strategy = proptest::strategy::BoxedStrategy<Self>;

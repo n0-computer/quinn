@@ -36,9 +36,9 @@ mod util;
 pub(crate) use util::*;
 
 mod multipath;
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+#[cfg(all(not(all(target_family = "wasm", target_os = "unknown")), feature = "proptest"))]
 mod proptest;
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+#[cfg(all(not(all(target_family = "wasm", target_os = "unknown")), feature = "proptest"))]
 mod random_interaction;
 mod token;
 
@@ -4051,6 +4051,7 @@ fn regression_close_frame_encoding() {
     assert_eq!(close_dec, close);
 }
 
+#[cfg(feature = "proptest")]
 mod encode_decode_tests {
     use bytes::{BufMut, Bytes, BytesMut};
     use proptest::{prelude::*};
@@ -4059,36 +4060,15 @@ mod encode_decode_tests {
 
     use super::frame::{Frame, ConnectionClose};
 
-    fn frame_type() -> impl Strategy<Value = FrameType> {
-        prop_oneof![
-            Just(FrameType::Padding),
-            Just(FrameType::Ping),
-            Just(FrameType::Ack),
-            Just(FrameType::ResetStream),
-            Just(FrameType::StopSending),
-            Just(FrameType::Crypto),
-            Just(FrameType::NewToken),
-            Just(FrameType::MaxData),
-        ]
-    }
-
     fn valid_varint_u64() -> impl Strategy<Value = u64> {
         0..(1u64<<62)
-    }
-
-    fn valid_varint() -> impl Strategy<Value = VarInt> {
-        valid_varint_u64().prop_map(VarInt)
-    }
-
-    fn valid_stream_id() -> impl Strategy<Value = StreamId> {
-        valid_varint_u64().prop_map(StreamId)
     }
 
     fn maybe_frame() -> impl Strategy<Value = MaybeFrame> {
         prop_oneof![
             Just(MaybeFrame::None),
             valid_varint_u64().prop_map(|c| MaybeFrame::Unknown(c)),
-            frame_type().prop_filter("no padding", |ft| *ft != FrameType::Padding).prop_map(|ft| MaybeFrame::Known(ft)),
+            any::<FrameType>().prop_filter("no padding", |ft| *ft != FrameType::Padding).prop_map(|ft| MaybeFrame::Known(ft)),
         ]
     }
 
@@ -4107,7 +4087,7 @@ mod encode_decode_tests {
 
     fn application_close() -> impl Strategy<Value = ApplicationClose> {
         (
-            valid_varint(),
+            any::<VarInt>(),
             ".*".prop_map(|s| Bytes::from(s)),
         )
             .prop_map(|(error_code, reason)| ApplicationClose {
@@ -4131,37 +4111,6 @@ mod encode_decode_tests {
             })
     }
 
-    fn reset_stream() -> impl Strategy<Value = ResetStream> {
-        (
-            valid_stream_id(),
-            valid_varint(),
-            valid_varint(),
-        )
-            .prop_map(|(id, error_code, final_offset)| ResetStream {
-                id,
-                error_code,
-                final_offset,
-            })
-    }
-
-    fn stop_sending() -> impl Strategy<Value = StopSending> {
-        (
-            valid_stream_id(),
-            valid_varint(),
-        )
-            .prop_map(|(id, error_code)| StopSending { id, error_code })
-    }
-
-    fn path_id() -> impl Strategy<Value = PathId> {
-        any::<u32>().prop_map(PathId)
-    }
-
-    fn path_id_opt() -> impl Strategy<Value = Option<PathId>> {
-        prop_oneof![
-            Just(None),
-            path_id().prop_map(Some),
-        ]
-    }
 
     fn connection_id() -> impl Strategy<Value = ConnectionId> {
         prop::collection::vec(any::<u8>(), 1..=MAX_CID_SIZE).prop_map(|bytes| ConnectionId::new(&bytes))
@@ -4176,7 +4125,7 @@ mod encode_decode_tests {
 
     fn new_connection_id() -> impl Strategy<Value = NewConnectionId> {
         (
-            path_id_opt(),
+            any::<Option<PathId>>(),
             valid_varint_u64(),
             valid_varint_u64(),
             connection_id_and_reset_token(),
@@ -4204,8 +4153,8 @@ mod encode_decode_tests {
     enum TestFrame {
         ConnectionClose(#[strategy(connection_close())] ConnectionClose),
         ApplicationClose(#[strategy(application_close())] ApplicationClose),
-        ResetStream(#[strategy(reset_stream())] ResetStream),
-        StopSending(#[strategy(stop_sending())] StopSending),
+        ResetStream(ResetStream),
+        StopSending(StopSending),
         NewConnectionId(#[strategy(new_connection_id())] NewConnectionId),
         Datagram(#[strategy(datagram())] Datagram),
     }
@@ -4273,6 +4222,14 @@ mod encode_decode_tests {
         let mut iter = crate::frame::Iter::new(encoded.freeze()).unwrap();
         let decoded = iter.next().unwrap().unwrap();
         assert_eq!(TestFrame::try_from(decoded), Ok(frame));
+    }
+
+    #[test_strategy::proptest]
+    fn maybe_frame_known_never_padding(frame: MaybeFrame) {
+        // MaybeFrame::Known should never contain FrameType::Padding
+        if let MaybeFrame::Known(ft) = frame {
+            prop_assert_ne!(ft, FrameType::Padding);
+        }
     }
 }
 

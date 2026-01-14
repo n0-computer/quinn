@@ -14,7 +14,8 @@ workspace = ".."
 # NOTE: Please keep this in sync with the feature list in `.github/workflows/codecov.yml`, see
 # comment in that file for more information.
 default = ["rustls-ring", "tracing-log", "bloom"]
-arbitrary = ["dep:arbitrary", "dep:proptest"]
+arbitrary = ["dep:arbitrary"]
+proptest = ["dep:proptest", "dep:test-strategy"]
 aws-lc-rs = ["dep:aws-lc-rs", "aws-lc-rs?/aws-lc-sys", "aws-lc-rs?/prebuilt-nasm"]
 aws-lc-rs-fips = ["aws-lc-rs", "aws-lc-rs?/fips"]
 # Enables BloomTokenLog, and uses it by default
@@ -60,6 +61,7 @@ rustls = { workspace = true, optional = true }
 rustls-platform-verifier = { workspace = true, optional = true }
 slab = { workspace = true }
 sorted-index-buffer = { workspace = true }
+test-strategy = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tinyvec = { workspace = true, features = ["alloc"] }
 tracing = { workspace = true }

@@ -23,6 +23,7 @@ use arbitrary::Arbitrary;
 #[derive(
     Copy, Clone, Eq, PartialEq, derive_more::Debug, derive_more::Display, enum_assoc::Assoc,
 )]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[display(rename_all = "SCREAMING_SNAKE_CASE")]
 #[allow(missing_docs)]
 #[func(
@@ -30,7 +31,7 @@ use arbitrary::Arbitrary;
     const fn from_u64(rev: u64) -> Option<Self>,
 )]
 pub enum FrameType {
-    #[assoc(to_u64 = 0x00)]
+    #[assoc(to_u64 = 0x00)] 
     Padding,
     #[assoc(to_u64 = 0x01)]
     Ping,
@@ -216,10 +217,29 @@ impl Encodable for MaybeFrame {
     }
 }
 
+#[cfg(feature = "proptest")]
+impl proptest::arbitrary::Arbitrary for MaybeFrame {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        prop_oneof![
+            Just(MaybeFrame::None),
+            any::<u64>().prop_map(MaybeFrame::Unknown),
+            any::<FrameType>()
+                .prop_filter("not Padding", |ft| *ft != FrameType::Padding)
+                .prop_map(MaybeFrame::Known),
+        ]
+        .boxed()
+    }
+}
+
 #[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display)]
 #[display("STREAM")]
-pub struct StreamInfo(u8);
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+pub struct StreamInfo(#[cfg_attr(feature = "proptest", strategy(0x08u8..=0x0f))] u8);
 
 impl StreamInfo {
     const VALUES: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
@@ -241,7 +261,8 @@ impl StreamInfo {
 #[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display)]
 #[display("DATAGRAM")]
-pub struct DatagramInfo(u8);
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+pub struct DatagramInfo(#[cfg_attr(feature = "proptest", strategy(0x30u8..=0x31))] u8);
 
 impl DatagramInfo {
     const VALUES: RangeInclusive<u64> = RangeInclusive::new(0x30, 0x31);
@@ -1387,6 +1408,7 @@ impl Iterator for AckIter<'_> {
 
 #[allow(unreachable_pub)] // fuzzing only
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[derive(Debug, Copy, Clone)]
 pub struct ResetStream {
     pub(crate) id: StreamId,
@@ -1407,6 +1429,7 @@ impl Encodable for ResetStream {
     }
 }
 
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct StopSending {
     pub(crate) id: StreamId,
