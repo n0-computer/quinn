@@ -322,19 +322,42 @@ pub struct Connection {
     qlog: QlogSink,
 }
 
+/// Return value for `poll_transmit_path`.
 #[derive(Debug)]
 enum PollPathStatus {
+    /// We have something to send, and data has been accumulated
+    /// on the passed in `transmit`.
     Send,
-    SendTransmit { transmit: Transmit },
-    NothingToSend { congestion_blocked: bool },
+    /// A transmit is ready to be sent out.
+    SendTransmit {
+        /// The transmit to send.
+        transmit: Transmit,
+    },
+    /// Nothing to send currently.
+    NothingToSend {
+        /// Set to `true` if we consider the current inability to send something because of congestion control
+        congestion_blocked: bool,
+    },
 }
 
+/// Return value for `poll_transmit_path_space`.
 #[derive(Debug)]
 enum PollPathSpaceStatus {
+    /// Nothing to send on this space, continue to the next one.
     NextSpace,
+    /// We have something to send, and data has been accumulated
+    /// on the passed in `transmit`.
     Send { last_packet_number: Option<u64> },
-    SendTransmit { transmit: Transmit },
-    NothingToSend { congestion_blocked: bool },
+    /// A transmit is ready to be sent out.
+    SendTransmit {
+        /// The transmit to send.
+        transmit: Transmit,
+    },
+    /// Nothing to send currently.
+    NothingToSend {
+        /// Set to `true` if we consider the current inability to send something because of congestion control
+        congestion_blocked: bool,
+    },
 }
 
 impl Connection {
