@@ -61,7 +61,7 @@ sorted-index-buffer = { workspace = true }
 thiserror = { workspace = true }
 tinyvec = { workspace = true, features = ["alloc"] }
 tracing = { workspace = true }
-derive_more = { version = "2.1.0", features = ["debug", "display"] }
+derive_more = { version = "2.1.0", features = ["debug", "display", "from"] }
 enum-assoc = "1.3.0"
 
 # Feature flags & dependencies for wasm
@@ -90,9 +90,8 @@ name = "send_buffer"
 harness = false
 required-features = ["bench"]
 
-[lints.rust]
-# https://rust-fuzz.github.io/book/cargo-fuzz/guide.html#cfgfuzzing
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+[lints]
+workspace = true
 
 [package.metadata.docs.rs]
 # all non-default features except fips (cannot build on docs.rs environment)

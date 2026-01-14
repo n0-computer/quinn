@@ -45,7 +45,7 @@ impl AsyncTimer for Sleep {
     fn reset(self: Pin<&mut Self>, t: Instant) {
         Self::reset(self, t.into())
     }
-    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<()> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         Future::poll(self, cx)
     }
 }
@@ -61,7 +61,7 @@ impl UdpSenderHelperSocket for UdpSocket {
         self.inner.max_gso_segments()
     }
 
-    fn try_send(&self, transmit: &udp::Transmit) -> io::Result<()> {
+    fn try_send(&self, transmit: &udp::Transmit<'_>) -> io::Result<()> {
         self.io.try_io(Interest::WRITABLE, || {
             self.inner.send((&self.io).into(), transmit)
         })
@@ -78,7 +78,7 @@ impl AsyncUdpSocket for UdpSocket {
 
     fn poll_recv(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         bufs: &mut [std::io::IoSliceMut<'_>],
         meta: &mut [udp::RecvMeta],
     ) -> Poll<io::Result<usize>> {

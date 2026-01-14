@@ -1,4 +1,5 @@
 #![no_main]
+#![cfg(fuzzing)]
 
 extern crate proto;
 
