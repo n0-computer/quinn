@@ -552,8 +552,13 @@ impl QlogRecvPacket {
 
 /* Frame conversions to qlog */
 #[cfg(feature = "qlog")]
-impl frame::AckEncoder<'_> {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+pub(crate) trait ToQlog {
+    fn to_qlog(&self) -> QuicFrame;
+}
+
+#[cfg(feature = "qlog")]
+impl<'a> ToQlog for frame::AckEncoder<'a> {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::Ack {
             ack_delay: Some(self.delay as f32),
             acked_ranges: Some(AckedRanges::Double(
@@ -571,8 +576,8 @@ impl frame::AckEncoder<'_> {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::AckFrequency {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::AckFrequency {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::AckFrequency {
             sequence_number: self.sequence.into_inner(),
             ack_eliciting_threshold: self.ack_eliciting_threshold.into_inner(),
@@ -584,8 +589,8 @@ impl frame::AckFrequency {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::AddAddress {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::AddAddress {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::AddAddress {
             sequence_number: self.seq_no.into_inner(),
             ip_v4: match self.ip {
@@ -602,15 +607,15 @@ impl frame::AddAddress {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::CloseEncoder<'_> {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::CloseEncoder<'_> {
+    fn to_qlog(&self) -> QuicFrame {
         self.close.to_qlog()
     }
 }
 
 #[cfg(feature = "qlog")]
-impl frame::Close {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::Close {
+    fn to_qlog(&self) -> QuicFrame {
         match self {
             Self::Connection(f) => {
                 let (error, error_code) = transport_error(f.error_code);
@@ -639,8 +644,8 @@ impl frame::Close {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::Crypto {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::Crypto {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::Crypto {
             offset: self.offset,
             raw: Some(RawInfo {
@@ -652,8 +657,8 @@ impl frame::Crypto {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::Datagram {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::Datagram {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::Datagram {
             raw: Some(RawInfo {
                 length: Some(self.data.len() as u64),
@@ -664,22 +669,22 @@ impl frame::Datagram {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::HandshakeDone {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::HandshakeDone {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::HandshakeDone { raw: None }
     }
 }
 
 #[cfg(feature = "qlog")]
-impl frame::ImmediateAck {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::ImmediateAck {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::ImmediateAck { raw: None }
     }
 }
 
 #[cfg(feature = "qlog")]
-impl frame::MaxData {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::MaxData {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::MaxData {
             maximum: self.0.into(),
             raw: None,
@@ -688,8 +693,8 @@ impl frame::MaxData {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::MaxPathId {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::MaxPathId {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::MaxPathId {
             maximum_path_id: self.0.as_u32().into(),
             raw: None,
@@ -698,8 +703,8 @@ impl frame::MaxPathId {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::MaxStreamData {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::MaxStreamData {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::MaxStreamData {
             stream_id: self.id.into(),
             maximum: self.offset,
@@ -709,8 +714,8 @@ impl frame::MaxStreamData {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::MaxStreams {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::MaxStreams {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::MaxStreams {
             maximum: self.count,
             stream_type: self.dir.into(),
@@ -720,8 +725,8 @@ impl frame::MaxStreams {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::NewConnectionId {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::NewConnectionId {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::NewConnectionId {
             sequence_number: self.sequence,
             retire_prior_to: self.retire_prior_to,
@@ -734,8 +739,8 @@ impl frame::NewConnectionId {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::NewToken {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::NewToken {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::NewToken {
             token: qlog::Token {
                 ty: Some(TokenType::Retry),
@@ -752,8 +757,8 @@ impl frame::NewToken {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::ObservedAddr {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::ObservedAddr {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::ObservedAddress {
             sequence_number: self.seq_no.into_inner(),
             ip_v4: match self.ip {
@@ -771,8 +776,8 @@ impl frame::ObservedAddr {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::PathAbandon {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::PathAbandon {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::PathAbandon {
             path_id: self.path_id.as_u32().into(),
             error_code: self.error_code.into(),
@@ -782,8 +787,8 @@ impl frame::PathAbandon {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::PathAckEncoder<'_> {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::PathAckEncoder<'_> {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::PathAck {
             path_id: self.path_id.as_u32() as u64,
             ack_delay: Some(self.delay as f32),
@@ -802,9 +807,9 @@ impl frame::PathAckEncoder<'_> {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::PathChallenge {
+impl ToQlog for frame::PathChallenge {
     #[cfg(feature = "qlog")]
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::PathChallenge {
             data: Some(self.to_string()),
             raw: None,
@@ -813,8 +818,8 @@ impl frame::PathChallenge {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::PathCidsBlocked {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::PathCidsBlocked {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::PathCidsBlocked {
             path_id: self.path_id.as_u32().into(),
             next_sequence_number: self.next_seq.into(),
@@ -824,8 +829,8 @@ impl frame::PathCidsBlocked {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::PathResponse {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::PathResponse {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::PathResponse {
             data: Some(self.to_string()),
             raw: None,
@@ -834,8 +839,8 @@ impl frame::PathResponse {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::ReachOut {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::ReachOut {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::ReachOut {
             round: self.round.into_inner(),
             ip_v4: match self.ip {
@@ -852,15 +857,15 @@ impl frame::ReachOut {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::Ping {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::Ping {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::Ping { raw: None }
     }
 }
 
 #[cfg(feature = "qlog")]
-impl frame::PathStatusAvailable {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::PathStatusAvailable {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::PathStatusAvailable {
             path_id: self.path_id.as_u32().into(),
             path_status_sequence_number: self.status_seq_no.into(),
@@ -870,8 +875,8 @@ impl frame::PathStatusAvailable {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::PathStatusBackup {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::PathStatusBackup {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::PathStatusBackup {
             path_id: self.path_id.as_u32().into(),
             path_status_sequence_number: self.status_seq_no.into(),
@@ -881,8 +886,8 @@ impl frame::PathStatusBackup {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::PathsBlocked {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::PathsBlocked {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::PathsBlocked {
             maximum_path_id: self.0.as_u32().into(),
             raw: None,
@@ -891,8 +896,8 @@ impl frame::PathsBlocked {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::ResetStream {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::ResetStream {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::ResetStream {
             stream_id: self.id.into(),
             error_code: Some(self.error_code.into_inner()),
@@ -904,8 +909,8 @@ impl frame::ResetStream {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::StopSending {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::StopSending {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::StopSending {
             stream_id: self.id.into(),
             error_code: Some(self.error_code.into_inner()),
@@ -916,8 +921,8 @@ impl frame::StopSending {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::RetireConnectionId {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::RetireConnectionId {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::RetireConnectionId {
             sequence_number: self.sequence,
             raw: None,
@@ -926,8 +931,8 @@ impl frame::RetireConnectionId {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::RemoveAddress {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::RemoveAddress {
+    fn to_qlog(&self) -> QuicFrame {
         QuicFrame::RemoveAddress {
             sequence_number: self.seq_no.into_inner(),
         }
@@ -935,8 +940,8 @@ impl frame::RemoveAddress {
 }
 
 #[cfg(feature = "qlog")]
-impl frame::StreamMetaEncoder {
-    pub(crate) fn to_qlog(&self) -> QuicFrame {
+impl ToQlog for frame::StreamMetaEncoder {
+    fn to_qlog(&self) -> QuicFrame {
         let meta = &self.meta;
         QuicFrame::Stream {
             stream_id: meta.id.into(),

@@ -529,8 +529,8 @@ impl PartialEncode {
     }
 
     #[cfg(test)]
-    pub(crate) fn dummy() -> PartialEncode {
-        PartialEncode {
+    pub(crate) fn dummy() -> Self {
+        Self {
             start: 0,
             header_len: 2,
             pn: Some((1, true)),

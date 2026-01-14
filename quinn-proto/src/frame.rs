@@ -20,6 +20,9 @@ use crate::{
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 
+#[cfg(feature = "qlog")]
+use super::connection::qlog::ToQlog;
+
 #[derive(
     Copy, Clone, Eq, PartialEq, derive_more::Debug, derive_more::Display, enum_assoc::Assoc,
 )]
