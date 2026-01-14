@@ -134,7 +134,7 @@
 <a href=#134 id=134 data-nosnippet>134</a><span class="kw">impl </span>Future <span class="kw">for </span>IncomingFuture {
 <a href=#135 id=135 data-nosnippet>135</a>    <span class="kw">type </span>Output = <span class="prelude-ty">Result</span>&lt;Connection, ConnectionError&gt;;
 <a href=#136 id=136 data-nosnippet>136</a>
-<a href=#137 id=137 data-nosnippet>137</a>    <span class="kw">fn </span>poll(<span class="kw-2">mut </span><span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
+<a href=#137 id=137 data-nosnippet>137</a>    <span class="kw">fn </span>poll(<span class="kw-2">mut </span><span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;) -&gt; Poll&lt;<span class="self">Self</span>::Output&gt; {
 <a href=#138 id=138 data-nosnippet>138</a>        <span class="kw">match </span><span class="kw-2">&amp;mut </span><span class="self">self</span>.<span class="number">0 </span>{
 <a href=#139 id=139 data-nosnippet>139</a>            <span class="prelude-val">Ok</span>(connecting) =&gt; Pin::new(connecting).poll(cx),
 <a href=#140 id=140 data-nosnippet>140</a>            <span class="prelude-val">Err</span>(e) =&gt; Poll::Ready(<span class="prelude-val">Err</span>(e.clone())),

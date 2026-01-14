@@ -275,8 +275,8 @@
 <a href=#275 id=275 data-nosnippet>275</a>                .mtu_discovery_config
 <a href=#276 id=276 data-nosnippet>276</a>                .as_ref()
 <a href=#277 id=277 data-nosnippet>277</a>                .filter(|<span class="kw">_</span>| allow_mtud)
-<a href=#278 id=278 data-nosnippet>278</a>                .map_or(
-<a href=#279 id=279 data-nosnippet>279</a>                    MtuDiscovery::disabled(config.get_initial_mtu(), config.min_mtu),
+<a href=#278 id=278 data-nosnippet>278</a>                .map_or_else(
+<a href=#279 id=279 data-nosnippet>279</a>                    || MtuDiscovery::disabled(config.get_initial_mtu(), config.min_mtu),
 <a href=#280 id=280 data-nosnippet>280</a>                    |mtud_config| {
 <a href=#281 id=281 data-nosnippet>281</a>                        MtuDiscovery::new(
 <a href=#282 id=282 data-nosnippet>282</a>                            config.get_initial_mtu(),

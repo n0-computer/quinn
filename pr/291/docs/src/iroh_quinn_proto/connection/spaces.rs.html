@@ -534,7 +534,7 @@
 <a href=#534 id=534 data-nosnippet>534</a>    <span class="doccomment">/// If a [`frame::PathStatusAvailable`] and [`frame::PathStatusBackup`] need to be sent for a path
 <a href=#535 id=535 data-nosnippet>535</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) path_status: BTreeSet&lt;PathId&gt;,
 <a href=#536 id=536 data-nosnippet>536</a>    <span class="doccomment">/// If a PATH_CIDS_BLOCKED frame needs to be sent for a path
-<a href=#537 id=537 data-nosnippet>537</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) path_cids_blocked: Vec&lt;PathId&gt;,
+<a href=#537 id=537 data-nosnippet>537</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) path_cids_blocked: BTreeSet&lt;PathId&gt;,
 <a href=#538 id=538 data-nosnippet>538</a>
 <a href=#539 id=539 data-nosnippet>539</a>    <span class="comment">// Nat traversal data
 <a href=#540 id=540 data-nosnippet>540</a>    </span><span class="doccomment">/// Addresses to report in `ADD_ADDRESS` frames
@@ -930,7 +930,7 @@
 <a href=#930 id=930 data-nosnippet>930</a>    <span class="doccomment">/// Returns the delay since the packet with the largest packet number was received
 <a href=#931 id=931 data-nosnippet>931</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>ack_delay(<span class="kw-2">&amp;</span><span class="self">self</span>, now: Instant) -&gt; Duration {
 <a href=#932 id=932 data-nosnippet>932</a>        <span class="self">self</span>.largest_packet
-<a href=#933 id=933 data-nosnippet>933</a>            .map_or(Duration::default(), |(<span class="kw">_</span>, received)| now - received)
+<a href=#933 id=933 data-nosnippet>933</a>            .map_or_else(Duration::default, |(<span class="kw">_</span>, received)| now - received)
 <a href=#934 id=934 data-nosnippet>934</a>    }
 <a href=#935 id=935 data-nosnippet>935</a>
 <a href=#936 id=936 data-nosnippet>936</a>    <span class="doccomment">/// Handle receipt of a new packet
