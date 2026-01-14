@@ -1,5 +1,5 @@
 use std::{
-    fmt::{self, Display, Write},
+    fmt::{self, Display},
     mem,
     net::{IpAddr, SocketAddr},
     ops::{Range, RangeInclusive},
@@ -839,46 +839,13 @@ impl ApplicationClose {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct PathAck {
     pub path_id: PathId,
     pub largest: u64,
     pub delay: u64,
-    pub additional: Bytes,
+    pub ranges: ArrayRangeSet,
     pub ecn: Option<EcnCounts>,
-}
-
-impl fmt::Debug for PathAck {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut ranges = "[".to_string();
-        let mut first = true;
-        for range in self.into_iter() {
-            if !first {
-                ranges.push(',');
-            }
-            write!(ranges, "{range:?}")?;
-            first = false;
-        }
-        ranges.push(']');
-
-        f.debug_struct("PathAck")
-            .field("path_id", &self.path_id)
-            .field("largest", &self.largest)
-            .field("delay", &self.delay)
-            .field("ecn", &self.ecn)
-            .field("ranges", &ranges)
-            .finish()
-    }
-}
-
-impl<'a> IntoIterator for &'a PathAck {
-    type Item = RangeInclusive<u64>;
-    #[allow(unnameable_types)]
-    type IntoIter = AckIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        AckIter::new(self.largest, &self.additional[..])
-    }
 }
 
 impl PathAck {
@@ -886,7 +853,7 @@ impl PathAck {
         let ack = Ack {
             largest: self.largest,
             delay: self.delay,
-            additional: self.additional,
+            ranges: self.ranges,
             ecn: self.ecn,
         };
 
@@ -977,44 +944,12 @@ impl<'a> Encodable for PathAckEncoder<'a> {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct Ack {
     pub largest: u64,
     pub delay: u64,
-    pub additional: Bytes,
+    pub ranges: ArrayRangeSet,
     pub ecn: Option<EcnCounts>,
-}
-
-impl fmt::Debug for Ack {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut ranges = "[".to_string();
-        let mut first = true;
-        for range in self.iter() {
-            if !first {
-                ranges.push(',');
-            }
-            write!(ranges, "{range:?}").unwrap();
-            first = false;
-        }
-        ranges.push(']');
-
-        f.debug_struct("Ack")
-            .field("largest", &self.largest)
-            .field("delay", &self.delay)
-            .field("ecn", &self.ecn)
-            .field("ranges", &ranges)
-            .finish()
-    }
-}
-
-#[allow(unnameable_types)]
-impl<'a> IntoIterator for &'a Ack {
-    type Item = RangeInclusive<u64>;
-    type IntoIter = AckIter<'a>;
-
-    fn into_iter(self) -> AckIter<'a> {
-        AckIter::new(self.largest, &self.additional[..])
-    }
 }
 
 impl Ack {
@@ -1026,8 +961,8 @@ impl Ack {
         AckEncoder { delay, ranges, ecn }
     }
 
-    pub(crate) fn iter(&self) -> AckIter<'_> {
-        self.into_iter()
+    pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = Range<u64>> + '_ {
+        self.ranges.iter()
     }
 
     pub(crate) const fn get_type(&self) -> FrameType {
@@ -1437,46 +1372,63 @@ impl Iter {
                     ty == FrameType::PathRetireConnectionId,
                 )?)
             }
-            FrameType::Ack | FrameType::AckEcn => {
+            FrameType::Ack => {
                 let largest = self.bytes.get_var()?;
                 let delay = self.bytes.get_var()?;
-                let extra_blocks = self.bytes.get_var()? as usize;
-                let n = scan_ack_blocks(&self.bytes, largest, extra_blocks)?;
+                let ranges = read_ack_blocks(&mut self.bytes, largest)?;
                 Frame::Ack(Ack {
                     delay,
                     largest,
-                    additional: self.bytes.split_to(n),
-                    ecn: if ty != FrameType::AckEcn && ty != FrameType::PathAckEcn {
-                        None
-                    } else {
-                        Some(EcnCounts {
-                            ect0: self.bytes.get_var()?,
-                            ect1: self.bytes.get_var()?,
-                            ce: self.bytes.get_var()?,
-                        })
-                    },
+                    ranges,
+                    ecn: None,
                 })
             }
-            FrameType::PathAck | FrameType::PathAckEcn => {
+            FrameType::AckEcn => {
+                let largest = self.bytes.get_var()?;
+                let delay = self.bytes.get_var()?;
+                let ranges = read_ack_blocks(&mut self.bytes, largest)?;
+                let ecn = Some(EcnCounts {
+                    ect0: self.bytes.get_var()?,
+                    ect1: self.bytes.get_var()?,
+                    ce: self.bytes.get_var()?,
+                });
+
+                Frame::Ack(Ack {
+                    delay,
+                    largest,
+                    ranges,
+                    ecn,
+                })
+            }
+            FrameType::PathAck => {
                 let path_id = self.bytes.get()?;
                 let largest = self.bytes.get_var()?;
                 let delay = self.bytes.get_var()?;
-                let extra_blocks = self.bytes.get_var()? as usize;
-                let n = scan_ack_blocks(&self.bytes, largest, extra_blocks)?;
+                let ranges = read_ack_blocks(&mut self.bytes, largest)?;
                 Frame::PathAck(PathAck {
                     path_id,
                     delay,
                     largest,
-                    additional: self.bytes.split_to(n),
-                    ecn: if ty != FrameType::AckEcn && ty != FrameType::PathAckEcn {
-                        None
-                    } else {
-                        Some(EcnCounts {
-                            ect0: self.bytes.get_var()?,
-                            ect1: self.bytes.get_var()?,
-                            ce: self.bytes.get_var()?,
-                        })
-                    },
+                    ranges,
+                    ecn: None,
+                })
+            }
+            FrameType::PathAckEcn => {
+                let path_id = self.bytes.get()?;
+                let largest = self.bytes.get_var()?;
+                let delay = self.bytes.get_var()?;
+                let ranges = read_ack_blocks(&mut self.bytes, largest)?;
+                let ecn = Some(EcnCounts {
+                    ect0: self.bytes.get_var()?,
+                    ect1: self.bytes.get_var()?,
+                    ce: self.bytes.get_var()?,
+                });
+                Frame::PathAck(PathAck {
+                    path_id,
+                    delay,
+                    largest,
+                    ranges,
+                    ecn,
                 })
             }
             FrameType::PathChallenge => Frame::PathChallenge(self.bytes.get()?),
@@ -1587,18 +1539,46 @@ impl From<InvalidFrame> for TransportError {
     }
 }
 
-/// Validate exactly `n` ACK ranges in `buf` and return the number of bytes they cover
-fn scan_ack_blocks(mut buf: &[u8], largest: u64, n: usize) -> Result<usize, IterErr> {
-    let total_len = buf.remaining();
-    let first_block = buf.get_var()?;
-    let mut smallest = largest.checked_sub(first_block).ok_or(IterErr::Malformed)?;
-    for _ in 0..n {
-        let gap = buf.get_var()?;
-        smallest = smallest.checked_sub(gap + 2).ok_or(IterErr::Malformed)?;
-        let block = buf.get_var()?;
-        smallest = smallest.checked_sub(block).ok_or(IterErr::Malformed)?;
+/// Decodes the ACK Ranges from the given buffer.
+///  This means, reading these three values
+///
+/// - ACK Range Count
+/// - First ACK Range
+/// - ACK Ranges
+///
+/// Ref <https://www.rfc-editor.org/rfc/rfc9000.html#name-ack-ranges>
+fn read_ack_blocks(buf: &mut Bytes, mut largest: u64) -> Result<ArrayRangeSet, IterErr> {
+    // Ack Range Count
+    let num_blocks = buf.get_var()?;
+
+    let mut out = ArrayRangeSet::new();
+    let mut block_to_block;
+    let mut range;
+
+    for num_block in 0..num_blocks + 1 {
+        range = buf.get_var()?;
+        range += 1;
+
+        let start = (largest + 1).checked_sub(range).ok_or(IterErr::Malformed)?;
+
+        if range > 0 {
+            out.insert(start..largest + 1);
+        }
+
+        // no gap on the last "block"
+        if num_block < num_blocks {
+            // skip the gap
+            block_to_block = buf.get_var()?;
+            block_to_block += 1;
+            block_to_block += range;
+
+            largest = largest
+                .checked_sub(block_to_block)
+                .ok_or(IterErr::Malformed)?;
+        }
     }
-    Ok(total_len - buf.remaining())
+
+    Ok(out)
 }
 
 #[derive(Debug)]
@@ -1622,33 +1602,6 @@ impl IterErr {
 impl From<UnexpectedEnd> for IterErr {
     fn from(_: UnexpectedEnd) -> Self {
         Self::UnexpectedEnd
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct AckIter<'a> {
-    largest: u64,
-    data: &'a [u8],
-}
-
-impl<'a> AckIter<'a> {
-    fn new(largest: u64, data: &'a [u8]) -> Self {
-        Self { largest, data }
-    }
-}
-
-impl Iterator for AckIter<'_> {
-    type Item = RangeInclusive<u64>;
-    fn next(&mut self) -> Option<RangeInclusive<u64>> {
-        if !self.data.has_remaining() {
-            return None;
-        }
-        let block = self.data.get_var().unwrap();
-        let largest = self.largest;
-        if let Ok(gap) = self.data.get_var() {
-            self.largest -= block + gap + 2;
-        }
-        Some(largest - block..=largest)
     }
 }
 
@@ -2375,7 +2328,7 @@ mod test {
 
     #[test]
     #[allow(clippy::range_plus_one)]
-    fn path_ack_coding() {
+    fn path_ack_coding_with_ecn() {
         const PACKETS: &[u64] = &[1, 2, 3, 5, 10, 11, 14];
         let mut ranges = ArrayRangeSet::new();
         for &packet in PACKETS {
@@ -2394,10 +2347,35 @@ mod test {
         match frames[0] {
             Frame::PathAck(ref ack) => {
                 assert_eq!(ack.path_id, PATH_ID);
-                let mut packets = ack.into_iter().flatten().collect::<Vec<_>>();
+                let mut packets = ack.ranges.iter().flatten().collect::<Vec<_>>();
                 packets.sort_unstable();
                 assert_eq!(&packets[..], PACKETS);
                 assert_eq!(ack.ecn, Some(ECN));
+            }
+            ref x => panic!("incorrect frame {x:?}"),
+        }
+    }
+
+    #[test]
+    #[allow(clippy::range_plus_one)]
+    fn path_ack_coding_no_ecn() {
+        const PACKETS: &[u64] = &[1, 2, 3, 5, 10, 11, 14];
+        let mut ranges = ArrayRangeSet::new();
+        for &packet in PACKETS {
+            ranges.insert(packet..packet + 1);
+        }
+        let mut buf = Vec::new();
+        const PATH_ID: PathId = PathId::MAX;
+        PathAck::encoder(PATH_ID, 42, &ranges, None).encode(&mut buf);
+        let frames = frames(buf);
+        assert_eq!(frames.len(), 1);
+        match frames[0] {
+            Frame::PathAck(ref ack) => {
+                assert_eq!(ack.path_id, PATH_ID);
+                let mut packets = ack.ranges.iter().flatten().collect::<Vec<_>>();
+                packets.sort_unstable();
+                assert_eq!(&packets[..], PACKETS);
+                assert_eq!(ack.ecn, None);
             }
             ref x => panic!("incorrect frame {x:?}"),
         }
