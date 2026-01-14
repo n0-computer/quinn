@@ -65,7 +65,7 @@ test-strategy = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tinyvec = { workspace = true, features = ["alloc"] }
 tracing = { workspace = true }
-derive_more = { version = "2.1.0", features = ["debug", "display"] }
+derive_more = { version = "2.1.0", features = ["debug", "display", "from"] }
 enum-assoc = "1.3.0"
 
 # Feature flags & dependencies for wasm

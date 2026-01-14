@@ -1,7 +1,7 @@
 //! Connection statistics
 
+use crate::Duration;
 use crate::FrameType;
-use crate::{Dir, Duration, frame::Frame};
 
 /// Statistics about UDP datagrams transmitted or received on a connection
 ///
@@ -72,68 +72,52 @@ pub struct FrameStats {
 }
 
 impl FrameStats {
-    pub(crate) fn record(&mut self, frame: &Frame) {
-        match frame {
-            Frame::Padding => {}
-            Frame::Ping => self.ping += 1,
-            Frame::Ack(_) => self.acks += 1,
-            Frame::PathAck(_) => self.path_acks += 1,
-            Frame::ResetStream(_) => self.reset_stream += 1,
-            Frame::StopSending(_) => self.stop_sending += 1,
-            Frame::Crypto(_) => self.crypto += 1,
-            Frame::Datagram(_) => self.datagram += 1,
-            Frame::NewToken(_) => self.new_token += 1,
-            Frame::MaxData(_) => self.max_data += 1,
-            Frame::MaxStreamData { .. } => self.max_stream_data += 1,
-            Frame::MaxStreams { dir, .. } => {
-                if *dir == Dir::Bi {
-                    self.max_streams_bidi += 1;
-                } else {
-                    self.max_streams_uni += 1;
-                }
-            }
-            Frame::DataBlocked { .. } => self.data_blocked += 1,
-            Frame::Stream(_) => self.stream += 1,
-            Frame::StreamDataBlocked { .. } => self.stream_data_blocked += 1,
-            Frame::StreamsBlocked { dir, .. } => {
-                if *dir == Dir::Bi {
-                    self.streams_blocked_bidi += 1;
-                } else {
-                    self.streams_blocked_uni += 1;
-                }
-            }
-            Frame::NewConnectionId(frame) => match frame.path_id {
-                Some(_) => self.path_new_connection_id += 1,
-                None => self.new_connection_id += 1,
-            },
-            Frame::RetireConnectionId(frame) => match frame.get_type() {
-                FrameType::RetireConnectionId => self.retire_connection_id += 1,
-                FrameType::PathRetireConnectionId => self.path_retire_connection_id += 1,
-                _ => unreachable!(),
-            },
-            Frame::PathChallenge(_) => self.path_challenge += 1,
-            Frame::PathResponse(_) => self.path_response += 1,
-            Frame::Close(_) => self.connection_close += 1,
-            Frame::AckFrequency(_) => self.ack_frequency += 1,
-            Frame::ImmediateAck => self.immediate_ack += 1,
-            Frame::HandshakeDone => self.handshake_done = self.handshake_done.saturating_add(1),
-            Frame::ObservedAddr(_) => self.observed_addr += 1,
-            Frame::PathAbandon(_) => self.path_abandon = self.path_abandon.saturating_add(1),
-            Frame::PathStatusAvailable(_) => {
-                self.path_status_available = self.path_status_available.saturating_add(1)
-            }
-            Frame::PathStatusBackup(_) => {
-                self.path_status_backup = self.path_status_backup.saturating_add(1)
-            }
-            Frame::MaxPathId(_) => self.max_path_id = self.max_path_id.saturating_add(1),
-            Frame::PathsBlocked(_) => self.paths_blocked = self.paths_blocked.saturating_add(1),
-            Frame::PathCidsBlocked(_) => {
-                self.path_cids_blocked = self.path_cids_blocked.saturating_add(1)
-            }
-            Frame::AddAddress(_) => self.add_address = self.add_address.saturating_add(1),
-            Frame::ReachOut(_) => self.reach_out = self.reach_out.saturating_add(1),
-            Frame::RemoveAddress(_) => self.remove_address = self.remove_address.saturating_add(1),
+    pub(crate) fn record(&mut self, frame_type: FrameType) {
+        use FrameType::*;
+        // Increments the field. Added for readability
+        macro_rules! inc {
+            ($field_name: ident) => {{ self.$field_name = self.$field_name.saturating_add(1) }};
         }
+        match frame_type {
+            Padding => {}
+            Ping => inc!(ping),
+            Ack | AckEcn => inc!(acks),
+            PathAck | PathAckEcn => inc!(path_acks),
+            ResetStream => inc!(reset_stream),
+            StopSending => inc!(stop_sending),
+            Crypto => inc!(crypto),
+            Datagram(_) => inc!(datagram),
+            NewToken => inc!(new_token),
+            MaxData => inc!(max_data),
+            MaxStreamData => inc!(max_stream_data),
+            MaxStreamsBidi => inc!(max_streams_bidi),
+            MaxStreamsUni => inc!(max_streams_uni),
+            DataBlocked => inc!(data_blocked),
+            Stream(_) => inc!(stream),
+            StreamDataBlocked => inc!(stream_data_blocked),
+            StreamsBlockedUni => inc!(streams_blocked_uni),
+            StreamsBlockedBidi => inc!(streams_blocked_bidi),
+            NewConnectionId => inc!(new_connection_id),
+            PathNewConnectionId => inc!(path_new_connection_id),
+            RetireConnectionId => inc!(retire_connection_id),
+            PathRetireConnectionId => inc!(path_retire_connection_id),
+            PathChallenge => inc!(path_challenge),
+            PathResponse => inc!(path_response),
+            ConnectionClose | ApplicationClose => inc!(connection_close),
+            AckFrequency => inc!(ack_frequency),
+            ImmediateAck => inc!(immediate_ack),
+            HandshakeDone => inc!(handshake_done),
+            ObservedIpv4Addr | ObservedIpv6Addr => inc!(observed_addr),
+            PathAbandon => inc!(path_abandon),
+            PathStatusAvailable => inc!(path_status_available),
+            PathStatusBackup => inc!(path_status_backup),
+            MaxPathId => inc!(max_path_id),
+            PathsBlocked => inc!(paths_blocked),
+            PathCidsBlocked => inc!(path_cids_blocked),
+            AddIpv4Address | AddIpv6Address => inc!(add_address),
+            ReachOutAtIpv4 | ReachOutAtIpv6 => inc!(reach_out),
+            RemoveAddress => inc!(remove_address),
+        };
     }
 }
 
