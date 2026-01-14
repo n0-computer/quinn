@@ -4061,21 +4061,13 @@ mod encode_decode_tests {
     use super::frame::{Frame, ConnectionClose};
 
     fn valid_varint_u64() -> impl Strategy<Value = u64> {
-        0..(1u64<<62)
-    }
-
-    fn maybe_frame() -> impl Strategy<Value = MaybeFrame> {
-        prop_oneof![
-            Just(MaybeFrame::None),
-            valid_varint_u64().prop_map(|c| MaybeFrame::Unknown(c)),
-            any::<FrameType>().prop_filter("no padding", |ft| *ft != FrameType::Padding).prop_map(|ft| MaybeFrame::Known(ft)),
-        ]
+        any::<VarInt>().prop_map(|v| v.0)
     }
 
     fn connection_close() -> impl Strategy<Value = ConnectionClose> {
         (
             any::<u8>().prop_map(|x| TransportErrorCode::crypto(x)),
-            maybe_frame(),
+            any::<MaybeFrame>(),
             ".*".prop_map(|s| Bytes::from(s)),
         )
             .prop_map(|(error_code, frame_type, reason)| ConnectionClose {

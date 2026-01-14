@@ -247,7 +247,8 @@ impl fmt::Display for Dir {
 
 /// Identifier for a stream within a particular connection
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct StreamId(u64);
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+pub struct StreamId(#[cfg_attr(feature = "proptest", strategy(0u64..(1u64 << 62)))] u64);
 
 impl fmt::Display for StreamId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -328,16 +329,6 @@ impl<'arbitrary> Arbitrary<'arbitrary> for StreamId {
     }
 }
 
-#[cfg(feature = "proptest")]
-impl proptest::arbitrary::Arbitrary for StreamId {
-    type Parameters = ();
-    type Strategy = proptest::strategy::BoxedStrategy<Self>;
-
-    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        use proptest::strategy::Strategy;
-        proptest::arbitrary::any::<VarInt>().prop_map(Into::into).boxed()
-    }
-}
 
 /// An outgoing packet
 #[derive(Debug)]
