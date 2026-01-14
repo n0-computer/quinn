@@ -35,6 +35,7 @@ impl Decodable for u8 {
         Ok(buf.get_u8())
     }
 }
+
 impl Encodable for u8 {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.put_u8(*self);
@@ -49,6 +50,7 @@ impl Decodable for u16 {
         Ok(buf.get_u16())
     }
 }
+
 impl Encodable for u16 {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.put_u16(*self);
@@ -63,6 +65,7 @@ impl Decodable for u32 {
         Ok(buf.get_u32())
     }
 }
+
 impl Encodable for u32 {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.put_u32(*self);
@@ -77,6 +80,7 @@ impl Decodable for u64 {
         Ok(buf.get_u64())
     }
 }
+
 impl Encodable for u64 {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.put_u64(*self);
@@ -93,6 +97,7 @@ impl Decodable for Ipv4Addr {
         Ok(octets.into())
     }
 }
+
 impl Encodable for Ipv4Addr {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.put_slice(&self.octets());
@@ -109,6 +114,7 @@ impl Decodable for Ipv6Addr {
         Ok(octets.into())
     }
 }
+
 impl Encodable for Ipv6Addr {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.put_slice(&self.octets());

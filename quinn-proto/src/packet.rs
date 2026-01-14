@@ -528,12 +528,15 @@ impl PartialEncode {
         header_crypto.encrypt(pn_pos, buf);
     }
 
+    /// Creates a [`PartialEncode`] that has not encoded a header into the buffer.
+    ///
+    /// This is used exclusively for testing as such a type is otherwise invalid.
     #[cfg(test)]
-    pub(crate) fn dummy() -> Self {
+    pub(crate) fn no_header() -> Self {
         Self {
             start: 0,
-            header_len: 2,
-            pn: Some((1, true)),
+            header_len: 0,
+            pn: None,
         }
     }
 }
