@@ -130,7 +130,8 @@ pub enum FrameType {
 }
 
 /// Encounter a frame ID that was not valid.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("Invalid frame identifier {_0:02x}")]
 pub struct InvalidFrameId(u64);
 
 impl TryFrom<u64> for FrameType {
@@ -228,8 +229,8 @@ pub enum MaybeFrame {
     /// Not attributed to any particular [`FrameType`].
     None,
     /// Attributed to some frame type this implementation does not recognize.
-    #[display("UNKNOWN{:02x}", _0)]
-    #[debug("Unknown{:02x}", _0)]
+    #[display("UNKNOWN({:02x})", _0)]
+    #[debug("Unknown({:02x})", _0)]
     Unknown(u64),
     /// Attributed to a specific [`FrameType`], never [`FrameType::Padding`].
     Known(FrameType),
@@ -545,6 +546,7 @@ impl Decodable for PathResponse {
         Ok(Self(buf.get()?))
     }
 }
+
 impl Encodable for PathResponse {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.write(FrameType::PathResponse);
@@ -567,6 +569,7 @@ impl Decodable for MaxData {
         Ok(Self(buf.get()?))
     }
 }
+
 impl Encodable for MaxData {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.write(FrameType::MaxData);
