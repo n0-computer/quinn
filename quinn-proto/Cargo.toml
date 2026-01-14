@@ -15,7 +15,6 @@ workspace = ".."
 # comment in that file for more information.
 default = ["rustls-ring", "tracing-log", "bloom"]
 arbitrary = ["dep:arbitrary"]
-proptest = ["dep:proptest", "dep:test-strategy"]
 aws-lc-rs = ["dep:aws-lc-rs", "aws-lc-rs?/aws-lc-sys", "aws-lc-rs?/prebuilt-nasm"]
 aws-lc-rs-fips = ["aws-lc-rs", "aws-lc-rs?/fips"]
 # Enables BloomTokenLog, and uses it by default
@@ -52,7 +51,6 @@ criterion = { workspace = true, optional = true }
 fastbloom = { workspace = true, optional = true }
 identity-hash = { workspace = true }
 lru-slab = { workspace = true }
-proptest = { workspace = true, optional = true }
 qlog = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 rand = { workspace = true }
@@ -61,7 +59,6 @@ rustls = { workspace = true, optional = true }
 rustls-platform-verifier = { workspace = true, optional = true }
 slab = { workspace = true }
 sorted-index-buffer = { workspace = true }
-test-strategy = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tinyvec = { workspace = true, features = ["alloc"] }
 tracing = { workspace = true }

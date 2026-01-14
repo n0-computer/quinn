@@ -185,7 +185,7 @@ pub const DEFAULT_SUPPORTED_VERSIONS: &[u32] = &[
 
 /// Whether an endpoint was the initiator of a connection
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Side {
     /// The initiator of a connection
@@ -220,7 +220,7 @@ impl ops::Not for Side {
 
 /// Whether a stream communicates data in both directions or only from the initiator
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Dir {
     /// Data flows in both directions
@@ -247,8 +247,8 @@ impl fmt::Display for Dir {
 
 /// Identifier for a stream within a particular connection
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
-pub struct StreamId(#[cfg_attr(feature = "proptest", strategy(0u64..(1u64 << 62)))] u64);
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
+pub struct StreamId(#[cfg_attr(test, strategy(0u64..(1u64 << 62)))] u64);
 
 impl fmt::Display for StreamId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

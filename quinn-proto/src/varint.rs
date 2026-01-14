@@ -142,7 +142,7 @@ impl<'arbitrary> Arbitrary<'arbitrary> for VarInt {
     }
 }
 
-#[cfg(feature = "proptest")]
+#[cfg(test)]
 impl proptest::arbitrary::Arbitrary for VarInt {
     type Parameters = ();
     type Strategy = proptest::strategy::BoxedStrategy<Self>;

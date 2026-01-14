@@ -26,7 +26,7 @@ use super::connection::qlog::ToQlog;
 #[derive(
     Copy, Clone, Eq, PartialEq, derive_more::Debug, derive_more::Display, enum_assoc::Assoc,
 )]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display(rename_all = "SCREAMING_SNAKE_CASE")]
 #[allow(missing_docs)]
 #[func(
@@ -267,7 +267,7 @@ impl Encodable for MaybeFrame {
     }
 }
 
-#[cfg(feature = "proptest")]
+#[cfg(test)]
 impl proptest::arbitrary::Arbitrary for MaybeFrame {
     type Parameters = ();
     type Strategy = proptest::strategy::BoxedStrategy<Self>;
@@ -336,8 +336,8 @@ impl Encodable for ImmediateAck {
 #[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display)]
 #[display("STREAM")]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
-pub struct StreamInfo(#[cfg_attr(feature = "proptest", strategy(0x08u8..=0x0f))] u8);
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
+pub struct StreamInfo(#[cfg_attr(test, strategy(0x08u8..=0x0f))] u8);
 
 impl StreamInfo {
     const VALUES: RangeInclusive<u64> = RangeInclusive::new(0x08, 0x0f);
@@ -359,8 +359,8 @@ impl StreamInfo {
 #[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display)]
 #[display("DATAGRAM")]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
-pub struct DatagramInfo(#[cfg_attr(feature = "proptest", strategy(0x30u8..=0x31))] u8);
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
+pub struct DatagramInfo(#[cfg_attr(test, strategy(0x30u8..=0x31))] u8);
 
 impl DatagramInfo {
     const VALUES: RangeInclusive<u64> = RangeInclusive::new(0x30, 0x31);
@@ -525,7 +525,7 @@ impl Frame {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, derive_more::Display)]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display("PATH_CHALLENGE({_0:08x})")]
 pub(crate) struct PathChallenge(pub(crate) u64);
 
@@ -551,7 +551,7 @@ impl Encodable for PathChallenge {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, derive_more::Display)]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display("PATH_RESPONSE({_0:08x})")]
 pub(crate) struct PathResponse(pub(crate) u64);
 
@@ -576,7 +576,7 @@ impl Encodable for PathResponse {
 }
 
 #[derive(Debug, Clone, Copy, derive_more::Display)]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary, PartialEq, Eq))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, PartialEq, Eq))]
 #[display("MAX_DATA({_0})")]
 pub(crate) struct MaxData(pub(crate) VarInt);
 
@@ -599,11 +599,11 @@ impl Encodable for MaxData {
 }
 
 #[derive(Debug, Clone, Copy, derive_more::Display)]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary, PartialEq, Eq))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, PartialEq, Eq))]
 #[display("MAX_STREAM_DATA id: {id} max: {offset}")]
 pub(crate) struct MaxStreamData {
     pub(crate) id: StreamId,
-    #[cfg_attr(feature = "proptest", strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
     pub(crate) offset: u64,
 }
 
@@ -1151,7 +1151,7 @@ impl Encodable for EcnCounts {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "proptest", derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub(crate) struct Stream {
     pub(crate) id: StreamId,
     pub(crate) offset: u64,
@@ -1288,7 +1288,7 @@ impl NewToken {
 }
 
 #[derive(Debug, Clone, derive_more::Display)]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary, PartialEq, Eq))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, PartialEq, Eq))]
 #[display("MAX_PATH_ID path_id: {_0}")]
 pub(crate) struct MaxPathId(pub(crate) PathId);
 
@@ -1315,7 +1315,7 @@ impl Encodable for MaxPathId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Display)]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display("PATHS_BLOCKED remote_max_path_id: {_0}")]
 pub(crate) struct PathsBlocked(pub(crate) PathId);
 
@@ -1343,7 +1343,7 @@ impl Decodable for PathsBlocked {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Display)]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display("PATH_CIDS_BLOCKED path_id: {path_id} next_seq: {next_seq}")]
 pub(crate) struct PathCidsBlocked {
     pub(crate) path_id: PathId,
@@ -1684,7 +1684,7 @@ impl Iterator for AckIter<'_> {
 
 #[allow(unreachable_pub)] // fuzzing only
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[derive(Debug, Copy, Clone, derive_more::Display)]
 #[display("RESET_STREAM id: {id}")]
 pub struct ResetStream {
@@ -1712,7 +1712,7 @@ impl Encodable for ResetStream {
     }
 }
 
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[derive(Debug, Copy, Clone, derive_more::Display)]
 #[display("STOP_SENDING id: {id}")]
 pub(crate) struct StopSending {
@@ -2003,7 +2003,7 @@ impl Encodable for ObservedAddr {
 /* Multipath <https://datatracker.ietf.org/doc/draft-ietf-quic-multipath/> */
 
 #[derive(Debug, PartialEq, Eq, derive_more::Display)]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display("PATH_ABANDON path_id: {path_id}")]
 pub(crate) struct PathAbandon {
     pub(crate) path_id: PathId,
@@ -2036,7 +2036,7 @@ impl Decodable for PathAbandon {
 }
 
 #[derive(Debug, PartialEq, Eq, derive_more::Display)]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display("PATH_STATUS_AVAILABLE path_id: {path_id} seq_no: {status_seq_no}")]
 pub(crate) struct PathStatusAvailable {
     pub(crate) path_id: PathId,
@@ -2070,7 +2070,7 @@ impl Decodable for PathStatusAvailable {
 }
 
 #[derive(Debug, PartialEq, Eq, derive_more::Display)]
-#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display("PATH_STATUS_BACKUP path_id: {path_id} seq_no: {status_seq_no}")]
 pub(crate) struct PathStatusBackup {
     pub(crate) path_id: PathId,
