@@ -47,7 +47,7 @@ use crate::{
 use crate::{
     QlogConfig, Side, TransportErrorCode,
     connection::timer::{ConnTimer, PathTimer},
-    frame,
+    frame::{self, DataBlocked, StreamDataBlocked, StreamsBlocked},
 };
 
 /// Shareable handle to a single qlog output stream
@@ -996,16 +996,18 @@ impl Frame {
             Self::MaxData(v) => v.to_qlog(),
             Self::MaxStreamData(f) => f.to_qlog(),
             Self::MaxStreams(f) => f.to_qlog(),
-            Self::DataBlocked { offset } => QuicFrame::DataBlocked {
+            Self::DataBlocked(DataBlocked(offset)) => QuicFrame::DataBlocked {
                 limit: *offset,
                 raw: None,
             },
-            Self::StreamDataBlocked { id, offset } => QuicFrame::StreamDataBlocked {
-                stream_id: (*id).into(),
-                limit: *offset,
-                raw: None,
-            },
-            Self::StreamsBlocked { dir, limit } => QuicFrame::StreamsBlocked {
+            Self::StreamDataBlocked(StreamDataBlocked { id, offset }) => {
+                QuicFrame::StreamDataBlocked {
+                    stream_id: (*id).into(),
+                    limit: *offset,
+                    raw: None,
+                }
+            }
+            Self::StreamsBlocked(StreamsBlocked { dir, limit }) => QuicFrame::StreamsBlocked {
                 stream_type: (*dir).into(),
                 limit: *limit,
                 raw: None,

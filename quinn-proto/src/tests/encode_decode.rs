@@ -1,4 +1,3 @@
-
 use bytes::{BufMut, Bytes, BytesMut};
 use proptest::{prelude::*};
 use ring::hmac;
@@ -12,7 +11,7 @@ use crate::{
         PathResponse, MaxPathId, PathsBlocked, PathCidsBlocked, PathAbandon, PathStatusAvailable,
         PathStatusBackup, MaxData, MaxStreamData, Ping, ImmediateAck, HandshakeDone, MaxStreams,
         RetireConnectionId, Crypto, NewToken, AckFrequency, ObservedAddr, AddAddress, ReachOut,
-        RemoveAddress,
+        RemoveAddress, DataBlocked, StreamDataBlocked, StreamsBlocked,
     },
     token::ResetToken,
 };
@@ -118,18 +117,27 @@ fn ip_addr() -> impl Strategy<Value = IpAddr> {
 }
 
 fn observed_addr() -> impl Strategy<Value = ObservedAddr> {
-    (any::<VarInt>(), ip_addr(), any::<u16>())
-        .prop_map(|(seq_no, ip, port)| ObservedAddr { seq_no, ip, port })
+    (any::<VarInt>(), ip_addr(), any::<u16>()).prop_map(|(seq_no, ip, port)| ObservedAddr {
+        seq_no,
+        ip,
+        port,
+    })
 }
 
 fn add_address() -> impl Strategy<Value = AddAddress> {
-    (any::<VarInt>(), ip_addr(), any::<u16>())
-        .prop_map(|(seq_no, ip, port)| AddAddress { seq_no, ip, port })
+    (any::<VarInt>(), ip_addr(), any::<u16>()).prop_map(|(seq_no, ip, port)| AddAddress {
+        seq_no,
+        ip,
+        port,
+    })
 }
 
 fn reach_out() -> impl Strategy<Value = ReachOut> {
-    (any::<VarInt>(), ip_addr(), any::<u16>())
-        .prop_map(|(round, ip, port)| ReachOut { round, ip, port })
+    (any::<VarInt>(), ip_addr(), any::<u16>()).prop_map(|(round, ip, port)| ReachOut {
+        round,
+        ip,
+        port,
+    })
 }
 
 #[derive(Debug, test_strategy::Arbitrary)]
@@ -162,6 +170,9 @@ enum TestFrame {
     AddAddress(#[strategy(add_address())] AddAddress),
     ReachOut(#[strategy(reach_out())] ReachOut),
     RemoveAddress(RemoveAddress),
+    DataBlocked(DataBlocked),
+    StreamDataBlocked(StreamDataBlocked),
+    StreamsBlocked(StreamsBlocked),
 }
 
 impl TryFrom<Frame> for TestFrame {
@@ -196,6 +207,9 @@ impl TryFrom<Frame> for TestFrame {
             Frame::AddAddress(aa) => Ok(Self::AddAddress(aa)),
             Frame::ReachOut(ro) => Ok(Self::ReachOut(ro)),
             Frame::RemoveAddress(ra) => Ok(Self::RemoveAddress(ra)),
+            Frame::DataBlocked(db) => Ok(Self::DataBlocked(db)),
+            Frame::StreamDataBlocked(sdb) => Ok(Self::StreamDataBlocked(sdb)),
+            Frame::StreamsBlocked(sb) => Ok(Self::StreamsBlocked(sb)),
             _ => Err("unsupported frame type"),
         }
     }
@@ -242,6 +256,9 @@ impl Encodable for TestFrame {
             TestFrame::AddAddress(aa) => aa.encode(buf),
             TestFrame::ReachOut(ro) => ro.encode(buf),
             TestFrame::RemoveAddress(ra) => ra.encode(buf),
+            TestFrame::DataBlocked(db) => db.encode(buf),
+            TestFrame::StreamDataBlocked(sdb) => sdb.encode(buf),
+            TestFrame::StreamsBlocked(sb) => sb.encode(buf),
         }
     }
 }

@@ -392,9 +392,9 @@ pub(crate) enum Frame {
     MaxData(MaxData),
     MaxStreamData(MaxStreamData),
     MaxStreams(MaxStreams),
-    DataBlocked { offset: u64 },
-    StreamDataBlocked { id: StreamId, offset: u64 },
-    StreamsBlocked { dir: Dir, limit: u64 },
+    DataBlocked(DataBlocked),
+    StreamDataBlocked(StreamDataBlocked),
+    StreamsBlocked(StreamsBlocked),
     NewConnectionId(NewConnectionId),
     RetireConnectionId(RetireConnectionId),
     PathChallenge(PathChallenge),
@@ -444,10 +444,9 @@ impl Frame {
             MaxStreamData(_) => FrameType::MaxStreamData,
             MaxStreams(max_streams) => max_streams.get_type(),
             Ping => FrameType::Ping,
-            DataBlocked { .. } => FrameType::DataBlocked,
-            StreamDataBlocked { .. } => FrameType::StreamDataBlocked,
-            StreamsBlocked { dir: Dir::Bi, .. } => FrameType::StreamsBlockedBidi,
-            StreamsBlocked { dir: Dir::Uni, .. } => FrameType::StreamsBlockedUni,
+            DataBlocked(_) => FrameType::DataBlocked,
+            StreamDataBlocked(sdb) => sdb.get_type(),
+            StreamsBlocked(sb) => sb.get_type(),
             StopSending { .. } => FrameType::StopSending,
             RetireConnectionId(retire_frame) => retire_frame.get_type(),
             Ack(ack) => ack.get_type(),
@@ -576,6 +575,72 @@ impl Encodable for PathResponse {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.write(FrameType::PathResponse);
         buf.write(self.0);
+    }
+}
+
+#[derive(Debug, Clone, Copy, derive_more::Display)]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, PartialEq, Eq))]
+#[display("DATA_BLOCKED offset: {_0}")]
+pub(crate) struct DataBlocked(#[cfg_attr(test, strategy(0u64..(1u64 << 62)))] pub(crate) u64);
+
+impl DataBlocked {
+    const fn get_type(&self) -> FrameType {
+        FrameType::DataBlocked
+    }
+}
+
+impl Encodable for DataBlocked {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        buf.write(FrameType::DataBlocked);
+        buf.write_var(self.0);
+    }
+}
+
+#[derive(Debug, Clone, Copy, derive_more::Display)]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, PartialEq, Eq))]
+#[display("STREAM_DATA_BLOCKED id: {id} offset: {offset}")]
+pub(crate) struct StreamDataBlocked {
+    pub(crate) id: StreamId,
+    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    pub(crate) offset: u64,
+}
+
+impl StreamDataBlocked {
+    const fn get_type(&self) -> FrameType {
+        FrameType::StreamDataBlocked
+    }
+}
+
+impl Encodable for StreamDataBlocked {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        buf.write(FrameType::StreamDataBlocked);
+        buf.write(self.id);
+        buf.write_var(self.offset);
+    }
+}
+
+#[derive(Debug, Clone, Copy, derive_more::Display)]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, PartialEq, Eq))]
+#[display("STREAMS_BLOCKED dir: {:?} limit: {limit}", dir)]
+pub(crate) struct StreamsBlocked {
+    pub(crate) dir: Dir,
+    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    pub(crate) limit: u64,
+}
+
+impl StreamsBlocked {
+    const fn get_type(&self) -> FrameType {
+        match self.dir {
+            Dir::Bi => FrameType::StreamsBlockedBidi,
+            Dir::Uni => FrameType::StreamsBlockedUni,
+        }
+    }
+}
+
+impl Encodable for StreamsBlocked {
+    fn encode<B: BufMut>(&self, buf: &mut B) {
+        buf.write(self.get_type());
+        buf.write_var(self.limit);
     }
 }
 
@@ -1452,21 +1517,19 @@ impl Iter {
                 count: self.bytes.get_var()?,
             }),
             FrameType::Ping => Frame::Ping,
-            FrameType::DataBlocked => Frame::DataBlocked {
-                offset: self.bytes.get_var()?,
-            },
-            FrameType::StreamDataBlocked => Frame::StreamDataBlocked {
+            FrameType::DataBlocked => Frame::DataBlocked(DataBlocked(self.bytes.get_var()?)),
+            FrameType::StreamDataBlocked => Frame::StreamDataBlocked(StreamDataBlocked {
                 id: self.bytes.get()?,
                 offset: self.bytes.get_var()?,
-            },
-            FrameType::StreamsBlockedBidi => Frame::StreamsBlocked {
+            }),
+            FrameType::StreamsBlockedBidi => Frame::StreamsBlocked(StreamsBlocked {
                 dir: Dir::Bi,
                 limit: self.bytes.get_var()?,
-            },
-            FrameType::StreamsBlockedUni => Frame::StreamsBlocked {
+            }),
+            FrameType::StreamsBlockedUni => Frame::StreamsBlocked(StreamsBlocked {
                 dir: Dir::Uni,
                 limit: self.bytes.get_var()?,
-            },
+            }),
             FrameType::StopSending => Frame::StopSending(StopSending {
                 id: self.bytes.get()?,
                 error_code: self.bytes.get()?,
