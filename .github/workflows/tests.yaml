@@ -47,7 +47,7 @@ jobs:
             os: macOS-latest
             release-os: darwin
             release-arch: aarch64
-            runner: [macOS, ARM64, debug]
+            runner: [debug]
     env:
       # Using self-hosted runners so use local cache for sccache and
       # not SCCACHE_GHA_ENABLED.
