@@ -534,7 +534,7 @@ pub struct Retransmits {
     /// If a [`frame::PathStatusAvailable`] and [`frame::PathStatusBackup`] need to be sent for a path
     pub(super) path_status: BTreeSet<PathId>,
     /// If a PATH_CIDS_BLOCKED frame needs to be sent for a path
-    pub(super) path_cids_blocked: Vec<PathId>,
+    pub(super) path_cids_blocked: BTreeSet<PathId>,
 
     // Nat traversal data
     /// Addresses to report in `ADD_ADDRESS` frames
@@ -930,7 +930,7 @@ impl PendingAcks {
     /// Returns the delay since the packet with the largest packet number was received
     pub(super) fn ack_delay(&self, now: Instant) -> Duration {
         self.largest_packet
-            .map_or(Duration::default(), |(_, received)| now - received)
+            .map_or_else(Duration::default, |(_, received)| now - received)
     }
 
     /// Handle receipt of a new packet

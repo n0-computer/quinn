@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
 
-use bytes::{BufMut, Bytes};
+use bytes::Bytes;
 use thiserror::Error;
 use tracing::{debug, trace};
 
 use super::Connection;
 use crate::{
-    TransportError,
-    coding::Encodable,
+    FrameStats, TransportError,
+    connection::PacketBuilder,
     frame::{Datagram, FrameStruct},
 };
 
@@ -146,9 +146,12 @@ impl DatagramState {
 
     /// Discard outgoing datagrams with a payload larger than `max_payload` bytes
     ///
+    /// Returns whether any datagrams were dropped.
+    ///
     /// Used to ensure that reductions in MTU don't get us stuck in a state where we have a datagram
     /// queued but can't send it.
-    pub(super) fn drop_oversized(&mut self, max_payload: usize) {
+    pub(super) fn drop_oversized(&mut self, max_payload: usize) -> bool {
+        let mut dropped_any = false;
         self.outgoing.retain(|datagram| {
             let result = datagram.data.len() < max_payload;
             if !result {
@@ -158,32 +161,36 @@ impl DatagramState {
                     max_payload
                 );
                 self.outgoing_total -= datagram.data.len();
+                dropped_any = true;
             }
             result
         });
+        dropped_any
     }
 
     /// Attempt to write a datagram frame into `buf`, consuming it from `self.outgoing`
     ///
     /// Returns whether a frame was written. At most `max_size` bytes will be written, including
     /// framing.
-    pub(super) fn write(&mut self, buf: &mut impl BufMut) -> bool {
+    pub(super) fn write<'a, 'b>(
+        &mut self,
+        buf: &mut PacketBuilder<'a, 'b>,
+        stat: &mut FrameStats,
+    ) -> bool {
         let datagram = match self.outgoing.pop_front() {
             Some(x) => x,
             None => return false,
         };
 
-        if buf.remaining_mut() < datagram.size(true) {
+        if buf.frame_space_remaining() < datagram.size(true) {
             // Future work: we could be more clever about cramming small datagrams into
             // mostly-full packets when a larger one is queued first
             self.outgoing.push_front(datagram);
             return false;
         }
 
-        trace!(len = datagram.data.len(), "DATAGRAM");
-
         self.outgoing_total -= datagram.data.len();
-        datagram.encode(buf);
+        buf.write_frame(datagram, stat);
         true
     }
 

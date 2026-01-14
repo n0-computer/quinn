@@ -4,19 +4,17 @@ use std::{
     mem,
 };
 
-use bytes::BufMut;
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
 
 use super::{
     PendingStreamsQueue, Recv, Retransmits, Send, SendState, ShouldTransmit, StreamEvent,
-    StreamHalf, ThinRetransmits,
+    StreamHalf,
 };
 use crate::{
     Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
-    coding::{BufMutExt, Encodable},
-    connection::{qlog::QlogSentPacket, stats::FrameStats},
-    frame::{self, Frame, FrameStruct, StreamMetaVec},
+    connection::{PacketBuilder, stats::FrameStats},
+    frame::{self, FrameStruct},
     transport_parameters::TransportParameters,
 };
 
@@ -409,16 +407,14 @@ impl StreamsState {
             .is_some_and(|s| s.can_send_flow_control())
     }
 
-    pub(in crate::connection) fn write_control_frames(
+    pub(in crate::connection) fn write_control_frames<'a, 'b>(
         &mut self,
-        buf: &mut impl BufMut,
+        builder: &mut PacketBuilder<'a, 'b>,
         pending: &mut Retransmits,
-        retransmits: &mut ThinRetransmits,
         stats: &mut FrameStats,
-        #[allow(unused)] qlog: &mut QlogSentPacket,
     ) {
         // RESET_STREAM
-        while buf.remaining_mut() > frame::ResetStream::SIZE_BOUND {
+        while builder.frame_space_remaining() > frame::ResetStream::SIZE_BOUND {
             let (id, error_code) = match pending.reset_stream.pop() {
                 Some(x) => x,
                 None => break,
@@ -427,23 +423,16 @@ impl StreamsState {
                 Some(x) => x,
                 None => continue,
             };
-            trace!(stream = %id, "RESET_STREAM");
-            retransmits
-                .get_or_create()
-                .reset_stream
-                .push((id, error_code));
             let frame = frame::ResetStream {
                 id,
                 error_code,
                 final_offset: VarInt::try_from(stream.offset()).expect("impossibly large offset"),
             };
-            frame.encode(buf);
-            qlog.frame(&Frame::ResetStream(frame));
-            stats.reset_stream += 1;
+            builder.write_frame(frame, stats);
         }
 
         // STOP_SENDING
-        while buf.remaining_mut() > frame::StopSending::SIZE_BOUND {
+        while builder.frame_space_remaining() > frame::StopSending::SIZE_BOUND {
             let frame = match pending.stop_sending.pop() {
                 Some(x) => x,
                 None => break,
@@ -455,15 +444,11 @@ impl StreamsState {
             // a little by dropping the frame if we specifically know the stream's been reset by the
             // peer, but we discard that information as soon as the application consumes it, so it
             // can't be relied upon regardless.
-            trace!(stream = %frame.id, "STOP_SENDING");
-            frame.encode(buf);
-            qlog.frame(&Frame::StopSending(frame));
-            retransmits.get_or_create().stop_sending.push(frame);
-            stats.stop_sending += 1;
+            builder.write_frame(frame, stats);
         }
 
         // MAX_DATA
-        if pending.max_data && buf.remaining_mut() > 9 {
+        if pending.max_data && builder.frame_space_remaining() > 9 {
             pending.max_data = false;
 
             // `local_max_data` can grow bigger than `VarInt`.
@@ -471,7 +456,6 @@ impl StreamsState {
             // maximum allowed `VarInt` size.
             let max = VarInt::try_from(self.local_max_data).unwrap_or(VarInt::MAX);
 
-            trace!(value = max.into_inner(), "MAX_DATA");
             if max > self.sent_max_data {
                 // Record that a `MAX_DATA` announcing a certain window was sent. This will
                 // suppress enqueuing further `MAX_DATA` frames unless either the previous
@@ -479,15 +463,11 @@ impl StreamsState {
                 self.sent_max_data = max;
             }
 
-            retransmits.get_or_create().max_data = true;
-            buf.write(frame::FrameType::MaxData);
-            buf.write(max);
-            qlog.frame(&Frame::MaxData(max));
-            stats.max_data += 1;
+            builder.write_frame(frame::MaxData(max), stats);
         }
 
         // MAX_STREAM_DATA
-        while buf.remaining_mut() > 17 {
+        while builder.frame_space_remaining() > 17 {
             let id = match pending.max_stream_data.iter().next() {
                 Some(x) => *x,
                 None => break,
@@ -505,54 +485,32 @@ impl StreamsState {
             if !rs.can_send_flow_control() {
                 continue;
             }
-            retransmits.get_or_create().max_stream_data.insert(id);
 
             let (max, _) = rs.max_stream_data(self.stream_receive_window);
             rs.record_sent_max_stream_data(max);
-
-            trace!(stream = %id, max = max, "MAX_STREAM_DATA");
-            buf.write(frame::FrameType::MaxStreamData);
-            buf.write(id);
-            buf.write_var(max);
-            qlog.frame(&Frame::MaxStreamData { id, offset: max });
-            stats.max_stream_data += 1;
+            builder.write_frame(frame::MaxStreamData { id, offset: max }, stats);
         }
 
         // MAX_STREAMS
         for dir in Dir::iter() {
-            if !pending.max_stream_id[dir as usize] || buf.remaining_mut() <= 9 {
+            if !pending.max_stream_id[dir as usize] || builder.frame_space_remaining() <= 9 {
                 continue;
             }
 
             pending.max_stream_id[dir as usize] = false;
-            retransmits.get_or_create().max_stream_id[dir as usize] = true;
             self.sent_max_remote[dir as usize] = self.max_remote[dir as usize];
-            trace!(
-                value = self.max_remote[dir as usize],
-                "MAX_STREAMS ({:?})", dir
-            );
-            buf.write(match dir {
-                Dir::Uni => frame::FrameType::MaxStreamsUni,
-                Dir::Bi => frame::FrameType::MaxStreamsBidi,
-            });
             let count = self.max_remote[dir as usize];
-            buf.write_var(count);
-            qlog.frame(&Frame::MaxStreams { dir, count });
-            match dir {
-                Dir::Uni => stats.max_streams_uni += 1,
-                Dir::Bi => stats.max_streams_bidi += 1,
-            }
+            builder.write_frame(frame::MaxStreams { dir, count }, stats);
         }
     }
 
-    pub(crate) fn write_stream_frames(
+    pub(in crate::connection) fn write_stream_frames<'a, 'b>(
         &mut self,
-        buf: &mut impl BufMut,
+        builder: &mut PacketBuilder<'a, 'b>,
         fair: bool,
-        #[allow(unused)] qlog: &mut QlogSentPacket,
-    ) -> StreamMetaVec {
-        let mut stream_frames = StreamMetaVec::new();
-        while buf.remaining_mut() > frame::Stream::SIZE_BOUND {
+        stats: &mut FrameStats,
+    ) {
+        while builder.frame_space_remaining() > frame::Stream::SIZE_BOUND {
             // Pop the stream of the highest priority that currently has pending data. If
             // the stream still has some pending data left after writing, it will be
             // reinserted, otherwise not
@@ -577,7 +535,7 @@ impl StreamsState {
 
             // Now that we know the `StreamId`, we can better account for how many bytes
             // are required to encode it.
-            let max_buf_size = buf.remaining_mut() - 1 - VarInt::size(id.into());
+            let max_buf_size = builder.frame_space_remaining() - 1 - VarInt::size(id.into());
             let (offsets, encode_length) = stream.pending.poll_transmit(max_buf_size);
             let fin = offsets.end == stream.pending.offset()
                 && matches!(stream.state, SendState::DataSent { .. });
@@ -597,16 +555,22 @@ impl StreamsState {
                 }
             }
 
+            let range = offsets.clone();
             let meta = frame::StreamMeta { id, offsets, fin };
-            trace!(id = %meta.id, off = meta.offsets.start, len = meta.offsets.end - meta.offsets.start, fin = meta.fin, "STREAM");
-            meta.encoder(encode_length).encode(buf);
-            qlog.frame_stream(&meta);
-
-            stream.pending.get_into(meta.offsets.clone(), buf);
-            stream_frames.push(meta);
+            builder.write_frame(meta.encoder(encode_length), stats);
+            stream.pending.get_into(range, builder.buf);
         }
+    }
 
-        stream_frames
+    #[cfg(test)]
+    fn write_frames_for_test(&mut self, capacity: usize, fair: bool) -> frame::StreamMetaVec {
+        let buf = &mut Vec::with_capacity(capacity);
+        let mut tbuf = crate::connection::TransmitBuf::new(buf, std::num::NonZeroUsize::MIN, 1_200);
+        tbuf.start_new_datagram_with_size(capacity);
+        let builder = &mut PacketBuilder::simple_data_buf(&mut tbuf);
+        let stats = &mut FrameStats::default();
+        self.write_stream_frames(builder, fair, stats);
+        builder.sent_frames().stream_frames.clone()
     }
 
     /// Notify the application that new streams were opened or a stream became readable.
@@ -1378,8 +1342,7 @@ mod tests {
         high.set_priority(1).unwrap();
         high.write(b"high").unwrap();
 
-        let mut buf = Vec::with_capacity(40);
-        let meta = server.write_stream_frames(&mut buf, true, &mut Default::default());
+        let meta = server.write_frames_for_test(40, true);
         assert_eq!(meta[0].id, id_high);
         assert_eq!(meta[1].id, id_mid);
         assert_eq!(meta[2].id, id_low);
@@ -1437,18 +1400,15 @@ mod tests {
         };
         high.set_priority(-1).unwrap();
 
-        let mut buf = Vec::with_capacity(1000).limit(40);
-        let meta = server.write_stream_frames(&mut buf, true, &mut Default::default());
+        let meta = server.write_frames_for_test(40, true);
         assert_eq!(meta.len(), 1);
         assert_eq!(meta[0].id, id_high);
 
         // After requeuing we should end up with 2 priorities - not 3
         assert_eq!(server.pending.len(), 2);
 
-        let mut buf = buf.into_inner();
-
         // Send the remaining data. The initial mid priority one should go first now
-        let meta = server.write_stream_frames(&mut buf, true, &mut Default::default());
+        let meta = server.write_frames_for_test(1000 - 40, true);
         assert_eq!(meta.len(), 2);
         assert_eq!(meta[0].id, id_mid);
         assert_eq!(meta[1].id, id_high);
@@ -1504,18 +1464,14 @@ mod tests {
             stream_c.write(&[b'c'; 100]).unwrap();
 
             let mut metas = vec![];
-            let mut buf = Vec::with_capacity(1024);
 
             // loop until all the streams are written
             loop {
-                let mut chunk_buf = buf.limit(40);
-                let meta =
-                    server.write_stream_frames(&mut chunk_buf, fair, &mut Default::default());
+                let meta = server.write_frames_for_test(40, fair);
                 if meta.is_empty() {
                     break;
                 }
                 metas.extend(meta);
-                buf = chunk_buf.into_inner();
             }
 
             assert!(!server.can_send_stream_data());
@@ -1578,12 +1534,9 @@ mod tests {
         stream_b.write(&[b'b'; 100]).unwrap();
 
         let mut metas = vec![];
-        let buf = Vec::with_capacity(1024);
 
         // Write the first chunk of stream_a
-        let mut chunk_buf = buf.limit(40);
-        let meta = server.write_stream_frames(&mut chunk_buf, false, &mut Default::default());
-        let mut buf = chunk_buf.into_inner();
+        let meta = server.write_frames_for_test(40, false);
         assert!(!meta.is_empty());
         metas.extend(meta);
 
@@ -1599,9 +1552,7 @@ mod tests {
 
         // loop until all the streams are written
         loop {
-            let mut chunk_buf = buf.limit(40);
-            let meta = server.write_stream_frames(&mut chunk_buf, false, &mut Default::default());
-            buf = chunk_buf.into_inner();
+            let meta = server.write_frames_for_test(40, false);
             if meta.is_empty() {
                 break;
             }

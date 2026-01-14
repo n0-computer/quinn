@@ -109,7 +109,7 @@ async fn run(options: Opt) -> Result<()> {
     let mut client_config =
         quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
     client_config.transport_config(Arc::new(transport));
-    let mut endpoint = quinn::Endpoint::client(options.bind)?;
+    let endpoint = quinn::Endpoint::client(options.bind)?;
     endpoint.set_default_client_config(client_config);
 
     let request = format!("GET {}\r\n", url.path());

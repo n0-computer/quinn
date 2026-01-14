@@ -54,7 +54,6 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Endpoint {
     pub(crate) inner: EndpointRef,
-    pub(crate) default_client_config: Option<ClientConfig>,
     runtime: Arc<dyn Runtime>,
 }
 
@@ -153,12 +152,7 @@ impl Endpoint {
         let allow_mtud = !socket.may_fragment();
         let rc = EndpointRef::new(
             socket,
-            proto::Endpoint::new(
-                Arc::new(config),
-                server_config.map(Arc::new),
-                allow_mtud,
-                None,
-            ),
+            proto::Endpoint::new(Arc::new(config), server_config.map(Arc::new), allow_mtud),
             addr.is_ipv6(),
             runtime.clone(),
         );
@@ -171,11 +165,7 @@ impl Endpoint {
             }
             .instrument(Span::current()),
         ));
-        Ok(Self {
-            inner: rc,
-            default_client_config: None,
-            runtime,
-        })
+        Ok(Self { inner: rc, runtime })
     }
 
     /// Get the next incoming connection attempt from a client
@@ -192,8 +182,8 @@ impl Endpoint {
     }
 
     /// Set the client configuration used by `connect`
-    pub fn set_default_client_config(&mut self, config: ClientConfig) {
-        self.default_client_config = Some(config);
+    pub fn set_default_client_config(&self, config: ClientConfig) {
+        self.inner.0.state.lock().unwrap().default_client_config = Some(config);
     }
 
     /// Connect to a remote endpoint
@@ -205,9 +195,16 @@ impl Endpoint {
     /// May fail immediately due to configuration errors, or in the future if the connection could
     /// not be established.
     pub fn connect(&self, addr: SocketAddr, server_name: &str) -> Result<Connecting, ConnectError> {
-        let config = match &self.default_client_config {
-            Some(config) => config.clone(),
-            None => return Err(ConnectError::NoDefaultClientConfig),
+        let Some(config) = self
+            .inner
+            .0
+            .state
+            .lock()
+            .unwrap()
+            .default_client_config
+            .clone()
+        else {
+            return Err(ConnectError::NoDefaultClientConfig);
         };
 
         self.connect_with(config, addr, server_name)
@@ -379,7 +376,7 @@ pub(crate) struct EndpointDriver(pub(crate) EndpointRef);
 impl Future for EndpointDriver {
     type Output = Result<(), io::Error>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut endpoint = self.0.state.lock().unwrap();
         if endpoint.driver.is_none() {
             endpoint.driver = Some(cx.waker().clone());
@@ -497,6 +494,7 @@ pub(crate) struct State {
     driver_lost: bool,
     runtime: Arc<dyn Runtime>,
     stats: EndpointStats,
+    default_client_config: Option<ClientConfig>,
 }
 
 #[derive(Debug)]
@@ -506,7 +504,7 @@ pub(crate) struct Shared {
 }
 
 impl State {
-    fn drive_recv(&mut self, cx: &mut Context, now: Instant) -> Result<bool, io::Error> {
+    fn drive_recv(&mut self, cx: &mut Context<'_>, now: Instant) -> Result<bool, io::Error> {
         let get_time = || self.runtime.now();
         self.recv_state.recv_limiter.start_cycle(get_time);
         if let Some(socket) = &mut self.prev_socket {
@@ -541,7 +539,7 @@ impl State {
         Ok(poll_res.keep_going)
     }
 
-    fn handle_events(&mut self, cx: &mut Context, shared: &Shared) -> bool {
+    fn handle_events(&mut self, cx: &mut Context<'_>, shared: &Shared) -> bool {
         for _ in 0..IO_LOOP_BOUND {
             let (ch, event) = match self.events.poll_recv(cx) {
                 Poll::Ready(Some(x)) => x,
@@ -753,6 +751,7 @@ impl EndpointRef {
                 recv_state,
                 runtime,
                 stats: EndpointStats::default(),
+                default_client_config: None,
             }),
         }))
     }
@@ -822,7 +821,7 @@ impl RecvState {
 
     fn poll_socket(
         &mut self,
-        cx: &mut Context,
+        cx: &mut Context<'_>,
         endpoint: &mut proto::Endpoint,
         socket: &mut dyn AsyncUdpSocket,
         sender: &mut Pin<Box<dyn UdpSender>>,
@@ -831,7 +830,7 @@ impl RecvState {
     ) -> Result<PollProgress, io::Error> {
         let mut received_connection_packet = false;
         let mut metas = [RecvMeta::default(); BATCH_SIZE];
-        let mut iovs: [IoSliceMut; BATCH_SIZE] = {
+        let mut iovs: [IoSliceMut<'_>; BATCH_SIZE] = {
             let mut bufs = self
                 .recv_buf
                 .chunks_mut(self.recv_buf.len() / BATCH_SIZE)
@@ -915,7 +914,7 @@ impl RecvState {
 }
 
 impl fmt::Debug for RecvState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RecvState")
             .field("incoming", &self.incoming)
             .field("connections", &self.connections)

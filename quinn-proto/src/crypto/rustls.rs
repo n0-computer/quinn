@@ -274,7 +274,7 @@ pub struct HandshakeData {
 /// A QUIC-compatible TLS client configuration
 ///
 /// Quinn implicitly constructs a `QuicClientConfig` with reasonable defaults within
-/// [`ClientConfig::with_root_certificates()`][root_certs] and [`ClientConfig::with_platform_verifier()`][platform].
+/// [`ClientConfig::with_root_certificates()`][root_certs] and [`ClientConfig::try_with_platform_verifier()`][platform].
 /// Alternatively, `QuicClientConfig`'s [`TryFrom`] implementation can be used to wrap around a
 /// custom [`rustls::ClientConfig`], in which case care should be taken around certain points:
 ///
@@ -288,7 +288,7 @@ pub struct HandshakeData {
 /// 256 server names.
 ///
 /// [root_certs]: crate::config::ClientConfig::with_root_certificates()
-/// [platform]: crate::config::ClientConfig::with_platform_verifier()
+/// [platform]: crate::config::ClientConfig::try_with_platform_verifier()
 pub struct QuicClientConfig {
     pub(crate) inner: Arc<rustls::ClientConfig>,
     initial: Suite,
@@ -416,7 +416,7 @@ pub struct NoInitialCipherSuite {
 }
 
 impl std::fmt::Display for NoInitialCipherSuite {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self.specific {
             true => "invalid cipher suite specified",
             false => "no initial cipher suite found",

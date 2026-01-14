@@ -67,8 +67,8 @@ impl Pair {
         client_config.rng_seed(Some(client_seed));
         server_config.rng_seed(Some(server_seed));
 
-        let server = Endpoint::new(Arc::new(client_config), Some(Arc::new(cfg)), true, None);
-        let client = Endpoint::new(Arc::new(server_config), None, true, None);
+        let server = Endpoint::new(Arc::new(client_config), Some(Arc::new(cfg)), true);
+        let client = Endpoint::new(Arc::new(server_config), None, true);
 
         let server_addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 4433);
         let client_addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 44433);
@@ -96,13 +96,8 @@ impl Pair {
     }
 
     pub(super) fn new(endpoint_config: Arc<EndpointConfig>, server_config: ServerConfig) -> Self {
-        let server = Endpoint::new(
-            endpoint_config.clone(),
-            Some(Arc::new(server_config)),
-            true,
-            None,
-        );
-        let client = Endpoint::new(endpoint_config, None, true, None);
+        let server = Endpoint::new(endpoint_config.clone(), Some(Arc::new(server_config)), true);
+        let client = Endpoint::new(endpoint_config, None, true);
 
         Self::new_from_endpoint(client, server)
     }

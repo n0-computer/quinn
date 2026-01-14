@@ -556,3 +556,28 @@ fn regression_never_idle3() {
         pair.server_conn_mut(server_ch)
     )));
 }
+
+#[test]
+fn regression_frame_encoding_error() {
+    let prefix = "regression_frame_encoding_error";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
+        TestOp::ClosePath(Side::Client, 0, 0),
+    ];
+
+    let _guard = subscribe();
+    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
