@@ -582,8 +582,8 @@ fn open_path_validation_fails_client_side() {
 fn open_path_ensure_after_abandon() {
     let _guard = subscribe();
     let (mut pair, client_ch, _server_ch) = multipath_pair();
-    let mut second_client_addr = pair.client.addr.clone();
-    let mut second_server_addr = pair.server.addr.clone();
+    let mut second_client_addr = pair.client.addr;
+    let mut second_server_addr = pair.server.addr;
     second_client_addr.set_port(second_client_addr.port() + 1);
     second_server_addr.set_port(second_server_addr.port() + 1);
     pair.routes = Some(RoutingTable::simple_symmetric(
