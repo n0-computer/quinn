@@ -225,8 +225,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
     /// Writes a frame into the underlying buffer.
     ///
     /// It will also:
-    /// - Track the frame so that it's registered with the path id once [`Self::finish_and_track`]
-    ///   is called.
+    /// - Track the frame so that it's registered with the path once [`Self::finish_and_track`] is
+    ///   called.
     /// - Register the sent frame with the given [`FrameStats`].
     /// - If the qlog feature is enabled, register the frame.
     /// - Log the frame.
@@ -241,8 +241,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
     /// Writes a frame into the underlying buffer.
     ///
     /// It will also:
-    /// - Track the frame so that it's registered with the path id once [`Self::finish_and_track`]
-    ///   is called.
+    /// - Track the frame so that it's registered with the path once [`Self::finish_and_track`] is
+    ///   called.
     /// - Register the sent frame with the given [`FrameStats`].
     /// - If the qlog feature is enabled, register the frame.
     /// - Log the frame. If a `msg` is given, this will be added to the log.
