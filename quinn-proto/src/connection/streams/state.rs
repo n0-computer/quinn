@@ -504,7 +504,7 @@ impl StreamsState {
         }
     }
 
-    pub(crate) fn write_stream_frames<'a, 'b>(
+    pub(in crate::connection) fn write_stream_frames<'a, 'b>(
         &mut self,
         builder: &mut PacketBuilder<'a, 'b>,
         fair: bool,
