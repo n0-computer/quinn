@@ -423,7 +423,6 @@ impl StreamsState {
                 Some(x) => x,
                 None => continue,
             };
-            trace!(stream = %id, "RESET_STREAM");
             let frame = frame::ResetStream {
                 id,
                 error_code,
@@ -445,7 +444,6 @@ impl StreamsState {
             // a little by dropping the frame if we specifically know the stream's been reset by the
             // peer, but we discard that information as soon as the application consumes it, so it
             // can't be relied upon regardless.
-            trace!(stream = %frame.id, "STOP_SENDING");
             builder.write_frame(frame, stats);
         }
 
@@ -458,7 +456,6 @@ impl StreamsState {
             // maximum allowed `VarInt` size.
             let max = VarInt::try_from(self.local_max_data).unwrap_or(VarInt::MAX);
 
-            trace!(value = max.into_inner(), "MAX_DATA");
             if max > self.sent_max_data {
                 // Record that a `MAX_DATA` announcing a certain window was sent. This will
                 // suppress enqueuing further `MAX_DATA` frames unless either the previous
@@ -491,8 +488,6 @@ impl StreamsState {
 
             let (max, _) = rs.max_stream_data(self.stream_receive_window);
             rs.record_sent_max_stream_data(max);
-
-            trace!(stream = %id, max = max, "MAX_STREAM_DATA");
             builder.write_frame(frame::MaxStreamData { id, offset: max }, stats);
         }
 
@@ -504,10 +499,6 @@ impl StreamsState {
 
             pending.max_stream_id[dir as usize] = false;
             self.sent_max_remote[dir as usize] = self.max_remote[dir as usize];
-            trace!(
-                value = self.max_remote[dir as usize],
-                "MAX_STREAMS ({:?})", dir
-            );
             let count = self.max_remote[dir as usize];
             builder.write_frame(frame::MaxStreams { dir, count }, stats);
         }
@@ -566,7 +557,6 @@ impl StreamsState {
 
             let range = offsets.clone();
             let meta = frame::StreamMeta { id, offsets, fin };
-            trace!(id = %id, off = range.start, len = range.end - range.start, fin, "STREAM");
             builder.write_frame(meta.encoder(encode_length), stats);
             stream.pending.get_into(range, builder.buf);
         }

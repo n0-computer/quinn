@@ -1,5 +1,5 @@
 use std::{
-    fmt::{self, Write},
+    fmt::{self, Display, Write},
     mem,
     net::{IpAddr, SocketAddr},
     ops::{Range, RangeInclusive},
@@ -171,8 +171,9 @@ impl Encodable for FrameType {
 ///
 /// This includes some "encoder" types instead of the actual read frame, when writing directly to
 /// a buffer is more efficient than building the Frame itself.
-#[derive(derive_more::From, enum_assoc::Assoc)]
+#[derive(derive_more::From, enum_assoc::Assoc, derive_more::Display)]
 #[func(fn encode_inner<B: BufMut>(&self, buf: &mut B) {_0.encode(buf)})]
+#[func(pub(crate) const fn get_type(&self) -> FrameType {_0.get_type()})]
 #[cfg_attr(feature = "qlog", func(pub(crate) fn to_qlog(&self) -> qlog::events::quic::QuicFrame {_0.to_qlog()}))]
 pub(super) enum EncodableFrame<'a> {
     PathAck(PathAckEncoder<'a>),
@@ -205,46 +206,6 @@ pub(super) enum EncodableFrame<'a> {
     MaxData(MaxData),
     MaxStreamData(MaxStreamData),
     MaxStreams(MaxStreams),
-}
-
-impl<'a> EncodableFrame<'a> {
-    pub(super) fn get_type(&self) -> FrameType {
-        use EncodableFrame::*;
-        match self {
-            PathAck(path_ack_encoder) => path_ack_encoder.get_type(),
-            Ack(ack_encoder) => ack_encoder.get_type(),
-            Close(close_encoder) => close_encoder.get_type(),
-            PathResponse(_) => FrameType::PathResponse,
-            HandshakeDone(_) => FrameType::HandshakeDone,
-            ReachOut(reach_out) => reach_out.get_type(),
-            ObservedAddr(observed_addr) => observed_addr.get_type(),
-            Ping(_) => FrameType::Ping,
-            ImmediateAck(_) => FrameType::ImmediateAck,
-            AckFrequency(_) => FrameType::AckFrequency,
-            PathChallenge(_) => FrameType::PathChallenge,
-            Crypto(_) => FrameType::Crypto,
-            PathAbandon(_) => FrameType::PathAbandon,
-            PathStatusAvailable(_) => FrameType::PathStatusAvailable,
-            PathStatusBackup(_) => FrameType::PathStatusBackup,
-            MaxPathId(_) => FrameType::MaxPathId,
-            PathsBlocked(_) => FrameType::PathsBlocked,
-            PathCidsBlocked(_) => FrameType::PathCidsBlocked,
-            ResetStream(_) => FrameType::ResetStream,
-            StopSending(_) => FrameType::StopSending,
-            NewConnectionId(new_connection_id) => new_connection_id.get_type(),
-            RetireConnectionId(retire_connection_id) => retire_connection_id.get_type(),
-            Datagram(_) => FrameType::Datagram(DatagramInfo(*DatagramInfo::VALUES.start() as u8)),
-            NewToken(_) => FrameType::NewToken,
-            AddAddress(add_address) => add_address.get_type(),
-            RemoveAddress(_) => FrameType::RemoveAddress,
-            StreamMeta(meta_encoder) => {
-                FrameType::Stream(meta_encoder.meta.get_type(meta_encoder.encode_length))
-            }
-            MaxData(_) => FrameType::MaxData,
-            MaxStreamData(_) => FrameType::MaxStreamData,
-            MaxStreams(max_streams) => max_streams.get_type(),
-        }
-    }
 }
 
 impl<'a> Encodable for EncodableFrame<'a> {
@@ -302,7 +263,15 @@ impl Encodable for MaybeFrame {
     }
 }
 
+#[derive(derive_more::Display)]
+#[display("HANDSHAKE_DONE")]
 pub(crate) struct HandshakeDone;
+
+impl HandshakeDone {
+    const fn get_type(&self) -> FrameType {
+        FrameType::HandshakeDone
+    }
+}
 
 impl Encodable for HandshakeDone {
     fn encode<B: BufMut>(&self, buf: &mut B) {
@@ -310,7 +279,15 @@ impl Encodable for HandshakeDone {
     }
 }
 
+#[derive(derive_more::Display)]
+#[display("PING")]
 pub(crate) struct Ping;
+
+impl Ping {
+    const fn get_type(&self) -> FrameType {
+        FrameType::Ping
+    }
+}
 
 impl Encodable for Ping {
     fn encode<B: BufMut>(&self, buf: &mut B) {
@@ -318,7 +295,15 @@ impl Encodable for Ping {
     }
 }
 
+#[derive(derive_more::Display)]
+#[display("IMMEDIATE_ACK")]
 pub(crate) struct ImmediateAck;
+
+impl ImmediateAck {
+    const fn get_type(&self) -> FrameType {
+        FrameType::ImmediateAck
+    }
+}
 
 impl Encodable for ImmediateAck {
     fn encode<B: BufMut>(&self, buf: &mut B) {
@@ -521,12 +506,18 @@ pub(crate) struct PathChallenge(pub(crate) u64);
 
 impl PathChallenge {
     pub(crate) const SIZE_BOUND: usize = 9;
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::PathChallenge
+    }
 }
+
 impl Decodable for PathChallenge {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
         Ok(Self(buf.get()?))
     }
 }
+
 impl Encodable for PathChallenge {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.write(FrameType::PathChallenge);
@@ -540,6 +531,10 @@ pub(crate) struct PathResponse(pub(crate) u64);
 
 impl PathResponse {
     pub(crate) const SIZE_BOUND: usize = 9;
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::PathResponse
+    }
 }
 
 impl Decodable for PathResponse {
@@ -554,8 +549,15 @@ impl Encodable for PathResponse {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, derive_more::Display)]
+#[display("MAX_DATA({_0})")]
 pub(crate) struct MaxData(pub(crate) VarInt);
+
+impl MaxData {
+    const fn get_type(&self) -> FrameType {
+        FrameType::MaxData
+    }
+}
 
 impl Decodable for MaxData {
     fn decode<B: Buf>(buf: &mut B) -> coding::Result<Self> {
@@ -569,10 +571,17 @@ impl Encodable for MaxData {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, derive_more::Display)]
+#[display("MAX_STREAM_DATA id: {id} max: {offset}")]
 pub(crate) struct MaxStreamData {
     pub(crate) id: StreamId,
     pub(crate) offset: u64,
+}
+
+impl MaxStreamData {
+    const fn get_type(&self) -> FrameType {
+        FrameType::MaxStreamData
+    }
 }
 
 impl Decodable for MaxStreamData {
@@ -592,14 +601,15 @@ impl Encodable for MaxStreamData {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, derive_more::Display)]
+#[display("{} count: {count}", self.get_type())]
 pub(crate) struct MaxStreams {
     pub(crate) dir: Dir,
     pub(crate) count: u64,
 }
 
 impl MaxStreams {
-    pub(crate) fn get_type(&self) -> FrameType {
+    const fn get_type(&self) -> FrameType {
         match self.dir {
             Dir::Bi => FrameType::MaxStreamsBidi,
             Dir::Uni => FrameType::MaxStreamsUni,
@@ -614,7 +624,8 @@ impl Encodable for MaxStreams {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, derive_more::Display)]
+#[display("{} {} seq: {sequence}", self.get_type(), DisplayOption::new("path_id", path_id.as_ref()))]
 pub(crate) struct RetireConnectionId {
     pub(crate) path_id: Option<PathId>,
     pub(crate) sequence: u64,
@@ -646,7 +657,7 @@ impl RetireConnectionId {
     }
 
     /// Get the [`FrameType`] for this [`RetireConnectionId`]
-    pub(crate) fn get_type(&self) -> FrameType {
+    const fn get_type(&self) -> FrameType {
         if self.path_id.is_some() {
             FrameType::PathRetireConnectionId
         } else {
@@ -676,7 +687,7 @@ impl Encodable for RetireConnectionId {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::Display)]
 pub(crate) enum Close {
     Connection(ConnectionClose),
     Application(ApplicationClose),
@@ -695,13 +706,15 @@ impl Close {
     }
 }
 
+#[derive(derive_more::Display)]
+#[display("{close}")]
 pub(crate) struct CloseEncoder<'a> {
     pub(crate) close: &'a Close,
     max_len: usize,
 }
 
 impl<'a> CloseEncoder<'a> {
-    fn get_type(&self) -> FrameType {
+    const fn get_type(&self) -> FrameType {
         match self.close {
             Close::Connection(_) => FrameType::ConnectionClose,
             Close::Application(_) => FrameType::ApplicationClose,
@@ -900,6 +913,8 @@ impl PathAck {
     }
 }
 
+#[derive(derive_more::Display)]
+#[display("{} path_id: {path_id} ranges: {ranges:?} delay: {delay}µs", self.get_type())]
 pub(crate) struct PathAckEncoder<'a> {
     pub(super) path_id: PathId,
     pub(super) delay: u64,
@@ -908,7 +923,7 @@ pub(crate) struct PathAckEncoder<'a> {
 }
 
 impl<'a> PathAckEncoder<'a> {
-    fn get_type(&self) -> FrameType {
+    const fn get_type(&self) -> FrameType {
         match self.ecn.is_some() {
             true => FrameType::PathAckEcn,
             false => FrameType::PathAck,
@@ -1021,6 +1036,8 @@ impl Ack {
     }
 }
 
+#[derive(derive_more::Display)]
+#[display("{} ranges: {ranges:?} delay: {delay}µs", self.get_type())]
 pub(crate) struct AckEncoder<'a> {
     pub(crate) delay: u64,
     pub(crate) ranges: &'a ArrayRangeSet,
@@ -1028,7 +1045,7 @@ pub(crate) struct AckEncoder<'a> {
 }
 
 impl<'a> AckEncoder<'a> {
-    fn get_type(&self) -> FrameType {
+    const fn get_type(&self) -> FrameType {
         match self.ecn.is_some() {
             true => FrameType::AckEcn,
             false => FrameType::Ack,
@@ -1117,7 +1134,8 @@ impl FrameStruct for Stream {
 }
 
 /// Metadata from a stream frame
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::Display)]
+#[display("STREAM id: {id} off: {} len: {} fin: {fin}", offsets.start, offsets.end - offsets.start)]
 pub(crate) struct StreamMeta {
     pub(crate) id: StreamId,
     pub(crate) offsets: Range<u64>,
@@ -1143,7 +1161,7 @@ impl StreamMeta {
         }
     }
 
-    pub(crate) fn get_type(&self, encode_length: bool) -> StreamInfo {
+    const fn get_type(&self, encode_length: bool) -> StreamInfo {
         let mut ty = *StreamInfo::VALUES.start();
         if self.offsets.start != 0 {
             ty |= 0x04;
@@ -1158,9 +1176,17 @@ impl StreamMeta {
     }
 }
 
+#[derive(derive_more::Display)]
+#[display("{meta}")]
 pub(crate) struct StreamMetaEncoder {
     pub(crate) meta: StreamMeta,
     encode_length: bool,
+}
+
+impl StreamMetaEncoder {
+    const fn get_type(&self) -> FrameType {
+        FrameType::Stream(self.meta.get_type(self.encode_length))
+    }
 }
 
 impl Encodable for StreamMetaEncoder {
@@ -1183,7 +1209,8 @@ impl Encodable for StreamMetaEncoder {
 /// A vector of [`StreamMeta`] with optimization for the single element case
 pub(crate) type StreamMetaVec = TinyVec<[StreamMeta; 1]>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::Display)]
+#[display("CRYPTO off: {offset} len = {}", data.len())]
 pub(crate) struct Crypto {
     pub(crate) offset: u64,
     pub(crate) data: Bytes,
@@ -1191,6 +1218,10 @@ pub(crate) struct Crypto {
 
 impl Crypto {
     pub(crate) const SIZE_BOUND: usize = 17;
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::Crypto
+    }
 }
 
 impl Encodable for Crypto {
@@ -1202,7 +1233,8 @@ impl Encodable for Crypto {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::Display)]
+#[display("NEW_TOKEN")]
 pub(crate) struct NewToken {
     pub(crate) token: Bytes,
 }
@@ -1219,14 +1251,23 @@ impl NewToken {
     pub(crate) fn size(&self) -> usize {
         1 + VarInt::from_u64(self.token.len() as u64).unwrap().size() + self.token.len()
     }
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::NewToken
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::Display)]
+#[display("MAX_PATH_ID path_id: {_0}")]
 pub(crate) struct MaxPathId(pub(crate) PathId);
 
 impl MaxPathId {
     pub(crate) const SIZE_BOUND: usize =
         FrameType::MaxPathId.size() + VarInt(u32::MAX as u64).size();
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::MaxPathId
+    }
 }
 
 impl Decodable for MaxPathId {
@@ -1242,12 +1283,17 @@ impl Encodable for MaxPathId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, derive_more::Display)]
+#[display("PATHS_BLOCKED remote_max_path_id: {_0}")]
 pub(crate) struct PathsBlocked(pub(crate) PathId);
 
 impl PathsBlocked {
     pub(crate) const SIZE_BOUND: usize =
         FrameType::PathsBlocked.size() + VarInt(u32::MAX as u64).size();
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::PathsBlocked
+    }
 }
 
 impl Encodable for PathsBlocked {
@@ -1264,7 +1310,8 @@ impl Decodable for PathsBlocked {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, derive_more::Display)]
+#[display("PATH_CIDS_BLOCKED path_id: {path_id} next_seq: {next_seq}")]
 pub(crate) struct PathCidsBlocked {
     pub(crate) path_id: PathId,
     pub(crate) next_seq: VarInt,
@@ -1273,6 +1320,10 @@ pub(crate) struct PathCidsBlocked {
 impl PathCidsBlocked {
     pub(crate) const SIZE_BOUND: usize =
         FrameType::PathCidsBlocked.size() + VarInt(u32::MAX as u64).size() + VarInt::MAX.size();
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::PathCidsBlocked
+    }
 }
 
 impl Decodable for PathCidsBlocked {
@@ -1600,11 +1651,18 @@ impl Iterator for AckIter<'_> {
 
 #[allow(unreachable_pub)] // fuzzing only
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, derive_more::Display)]
+#[display("RESET_STREAM id: {id}")]
 pub struct ResetStream {
     pub(crate) id: StreamId,
     pub(crate) error_code: VarInt,
     pub(crate) final_offset: VarInt,
+}
+
+impl ResetStream {
+    const fn get_type(&self) -> FrameType {
+        FrameType::ResetStream
+    }
 }
 
 impl FrameStruct for ResetStream {
@@ -1620,7 +1678,8 @@ impl Encodable for ResetStream {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, derive_more::Display)]
+#[display("STOP_SENDING id: {id}")]
 pub(crate) struct StopSending {
     pub(crate) id: StreamId,
     pub(crate) error_code: VarInt,
@@ -1628,6 +1687,12 @@ pub(crate) struct StopSending {
 
 impl FrameStruct for StopSending {
     const SIZE_BOUND: usize = 1 + 8 + 8;
+}
+
+impl StopSending {
+    const fn get_type(&self) -> FrameType {
+        FrameType::StopSending
+    }
 }
 
 impl Encodable for StopSending {
@@ -1638,7 +1703,8 @@ impl Encodable for StopSending {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display)]
+#[display("{} {} seq: {sequence} id: {id}", self.get_type(), DisplayOption::new("path_id", path_id.as_ref()))]
 pub(crate) struct NewConnectionId {
     pub(crate) path_id: Option<PathId>,
     pub(crate) sequence: u64,
@@ -1677,7 +1743,7 @@ impl NewConnectionId {
             + reset_token_len
     };
 
-    pub(crate) fn get_type(&self) -> FrameType {
+    const fn get_type(&self) -> FrameType {
         if self.path_id.is_some() {
             FrameType::PathNewConnectionId
         } else {
@@ -1757,7 +1823,8 @@ impl FrameStruct for NewConnectionId {
 }
 
 /// An unreliable datagram
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::Display)]
+#[display("DATAGRAM len: {}", data.len())]
 pub struct Datagram {
     /// Payload
     pub data: Bytes,
@@ -1775,6 +1842,10 @@ impl Datagram {
             0
         } + self.data.len()
     }
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::Datagram(DatagramInfo(*DatagramInfo::VALUES.start() as u8))
+    }
 }
 
 impl Encodable for Datagram {
@@ -1790,12 +1861,19 @@ impl Encodable for Datagram {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display)]
+#[display("ACK_FREQUENCY max_ack_delay: {}µs", request_max_ack_delay.0)]
 pub(crate) struct AckFrequency {
     pub(crate) sequence: VarInt,
     pub(crate) ack_eliciting_threshold: VarInt,
     pub(crate) request_max_ack_delay: VarInt,
     pub(crate) reordering_threshold: VarInt,
+}
+
+impl AckFrequency {
+    const fn get_type(&self) -> FrameType {
+        FrameType::AckFrequency
+    }
 }
 
 impl Encodable for AckFrequency {
@@ -1812,7 +1890,8 @@ impl Encodable for AckFrequency {
 
 /// Conjunction of the information contained in the address discovery frames
 /// ([`FrameType::ObservedIpv4Addr`], [`FrameType::ObservedIpv6Addr`]).
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, derive_more::Display)]
+#[display("{} seq_no: {seq_no} addr: {}", self.get_type(), self.socket_addr())]
 pub(crate) struct ObservedAddr {
     /// Monotonically increasing integer within the same connection.
     pub(crate) seq_no: VarInt,
@@ -1832,7 +1911,7 @@ impl ObservedAddr {
     }
 
     /// Get the [`FrameType`] for this frame.
-    pub(crate) fn get_type(&self) -> FrameType {
+    const fn get_type(&self) -> FrameType {
         if self.ip.is_ipv6() {
             FrameType::ObservedIpv6Addr
         } else {
@@ -1888,7 +1967,8 @@ impl Encodable for ObservedAddr {
 
 /* Multipath <https://datatracker.ietf.org/doc/draft-ietf-quic-multipath/> */
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, derive_more::Display)]
+#[display("PATH_ABANDON path_id: {path_id}")]
 pub(crate) struct PathAbandon {
     pub(crate) path_id: PathId,
     pub(crate) error_code: TransportErrorCode,
@@ -1896,6 +1976,10 @@ pub(crate) struct PathAbandon {
 
 impl PathAbandon {
     pub(crate) const SIZE_BOUND: usize = FrameType::PathAbandon.size() + 8 + 8;
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::PathAbandon
+    }
 }
 
 impl Encodable for PathAbandon {
@@ -1915,7 +1999,8 @@ impl Decodable for PathAbandon {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, derive_more::Display)]
+#[display("PATH_STATUS_AVAILABLE path_id: {path_id} seq_no: {status_seq_no}")]
 pub(crate) struct PathStatusAvailable {
     pub(crate) path_id: PathId,
     pub(crate) status_seq_no: VarInt,
@@ -1924,6 +2009,10 @@ pub(crate) struct PathStatusAvailable {
 impl PathStatusAvailable {
     const TYPE: FrameType = FrameType::PathStatusAvailable;
     pub(crate) const SIZE_BOUND: usize = FrameType::PathStatusAvailable.size() + 8 + 8;
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::PathStatusAvailable
+    }
 }
 
 impl Encodable for PathStatusAvailable {
@@ -1943,7 +2032,8 @@ impl Decodable for PathStatusAvailable {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, derive_more::Display)]
+#[display("PATH_STATUS_BACKUP path_id: {path_id} seq_no: {status_seq_no}")]
 pub(crate) struct PathStatusBackup {
     pub(crate) path_id: PathId,
     pub(crate) status_seq_no: VarInt,
@@ -1951,6 +2041,10 @@ pub(crate) struct PathStatusBackup {
 
 impl PathStatusBackup {
     const TYPE: FrameType = FrameType::PathStatusBackup;
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::PathStatusBackup
+    }
 }
 
 impl Encodable for PathStatusBackup {
@@ -1974,9 +2068,8 @@ impl Decodable for PathStatusBackup {
 
 /// Conjunction of the information contained in the add address frames
 /// ([`FrameType::AddIpv4Address`], [`FrameType::AddIpv6Address`]).
-#[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
-// TODO(@divma): remove
-#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord, derive_more::Display)]
+#[display("{} seq_no: {seq_no} addr: {}", self.get_type(), self.socket_addr())]
 pub(crate) struct AddAddress {
     /// Monotonically increasing integer within the same connection
     // TODO(@divma): both assumed, the draft has no mention of this but it's standard
@@ -2003,7 +2096,7 @@ impl AddAddress {
     }
 
     /// Get the [`FrameType`] for this frame.
-    pub(crate) const fn get_type(&self) -> FrameType {
+    const fn get_type(&self) -> FrameType {
         if self.ip.is_ipv6() {
             FrameType::AddIpv6Address
         } else {
@@ -2063,9 +2156,8 @@ impl Encodable for AddAddress {
 
 /// Conjunction of the information contained in the reach out frames
 /// ([`FrameType::ReachOutAtIpv4`], [`FrameType::ReachOutAtIpv6`])
-#[derive(Debug, PartialEq, Eq, Clone)]
-// TODO(@divma): remove
-#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq, Clone, derive_more::Display)]
+#[display("REACH_OUT round: {round} local_addr: {}", self.socket_addr())]
 pub(crate) struct ReachOut {
     /// The sequence number of the NAT Traversal attempts
     pub(crate) round: VarInt,
@@ -2146,9 +2238,8 @@ impl Encodable for ReachOut {
 }
 
 /// Frame signaling an address is no longer being advertised
-#[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
-// TODO(@divma): remove
-#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord, derive_more::Display)]
+#[display("REMOVE_ADDRESS seq_no: {seq_no}")]
 pub(crate) struct RemoveAddress {
     /// The sequence number of the address advertisement to be removed
     pub(crate) seq_no: VarInt,
@@ -2183,12 +2274,40 @@ impl RemoveAddress {
             seq_no: bytes.get()?,
         })
     }
+
+    const fn get_type(&self) -> FrameType {
+        FrameType::RemoveAddress
+    }
 }
 
 impl Encodable for RemoveAddress {
     fn encode<W: BufMut>(&self, buf: &mut W) {
         buf.write(Self::TYPE);
         buf.write(self.seq_no);
+    }
+}
+
+/// Helper struct for display implementations.
+// NOTE: Due to lifetimes in fmt::Arguments it's not possible to make this a simple function that
+// avoids allocations.
+struct DisplayOption<T: Display> {
+    field_name: &'static str,
+    op: Option<T>,
+}
+
+impl<T: Display> DisplayOption<T> {
+    fn new(field_name: &'static str, op: Option<T>) -> Self {
+        Self { field_name, op }
+    }
+}
+
+impl<T: Display> Display for DisplayOption<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(x) = self.op.as_ref() {
+            write!(f, "{}: {x}", self.field_name)
+        } else {
+            fmt::Result::Ok(())
+        }
     }
 }
 

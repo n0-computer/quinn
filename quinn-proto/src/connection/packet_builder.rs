@@ -227,11 +227,24 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         frame: impl Into<EncodableFrame<'c>>,
         stats: &mut FrameStats,
     ) {
+        self.write_frame_with_log_msg(frame, stats, None);
+    }
+
+    pub fn write_frame_with_log_msg<'c>(
+        &mut self,
+        frame: impl Into<EncodableFrame<'c>>,
+        stats: &mut FrameStats,
+        msg: Option<&'static str>,
+    ) {
         let frame = frame.into();
         frame.encode(&mut self.frame_space_mut());
         stats.record(frame.get_type());
         self.qlog.record(&frame);
-        self.sent_frames.sent(frame);
+        match msg {
+            Some(msg) => trace!(%frame, msg),
+            None => trace!(%frame),
+        }
+        self.sent_frames.record_sent_frame(frame);
     }
 
     /// Returns a writable buffer limited to the remaining frame space
