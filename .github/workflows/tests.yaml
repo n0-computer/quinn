@@ -69,7 +69,7 @@ jobs:
           tool: nextest@${{ env.NEXTEST_VERSION }}
 
       - name: Install sccache
-        uses: n0-computer/sccache-action
+        uses: n0-computer/sccache-action@main
 
       # Go is required for FIPS builds (aws-lc-rs-fips feature)
       - name: Setup Go
