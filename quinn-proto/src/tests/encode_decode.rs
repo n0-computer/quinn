@@ -2,6 +2,7 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use proptest::{prelude::*};
 use ring::hmac;
+use std::net::IpAddr;
 use crate::{
     ApplicationClose, ConnectionId, Datagram, FrameType, MAX_CID_SIZE, PathId, StreamId,
     TransportErrorCode, VarInt,
@@ -9,7 +10,9 @@ use crate::{
     frame::{
         Close, MaybeFrame, NewConnectionId, ResetStream, StopSending, Stream, PathChallenge,
         PathResponse, MaxPathId, PathsBlocked, PathCidsBlocked, PathAbandon, PathStatusAvailable,
-        PathStatusBackup, MaxData, MaxStreamData,
+        PathStatusBackup, MaxData, MaxStreamData, Ping, ImmediateAck, HandshakeDone, MaxStreams,
+        RetireConnectionId, Crypto, NewToken, AckFrequency, ObservedAddr, AddAddress, ReachOut,
+        RemoveAddress,
     },
     token::ResetToken,
 };
@@ -90,6 +93,45 @@ fn datagram() -> impl Strategy<Value = Datagram> {
     })
 }
 
+fn crypto() -> impl Strategy<Value = Crypto> {
+    (
+        valid_varint_u64(),
+        prop::collection::vec(any::<u8>(), 0..1024),
+    )
+        .prop_map(|(offset, data)| Crypto {
+            offset,
+            data: Bytes::from(data),
+        })
+}
+
+fn new_token() -> impl Strategy<Value = NewToken> {
+    prop::collection::vec(any::<u8>(), 0..1024).prop_map(|token| NewToken {
+        token: Bytes::from(token),
+    })
+}
+
+fn ip_addr() -> impl Strategy<Value = IpAddr> {
+    prop_oneof![
+        any::<[u8; 4]>().prop_map(|octets| IpAddr::from(octets)),
+        any::<[u16; 8]>().prop_map(|segments| IpAddr::from(segments)),
+    ]
+}
+
+fn observed_addr() -> impl Strategy<Value = ObservedAddr> {
+    (any::<VarInt>(), ip_addr(), any::<u16>())
+        .prop_map(|(seq_no, ip, port)| ObservedAddr { seq_no, ip, port })
+}
+
+fn add_address() -> impl Strategy<Value = AddAddress> {
+    (any::<VarInt>(), ip_addr(), any::<u16>())
+        .prop_map(|(seq_no, ip, port)| AddAddress { seq_no, ip, port })
+}
+
+fn reach_out() -> impl Strategy<Value = ReachOut> {
+    (any::<VarInt>(), ip_addr(), any::<u16>())
+        .prop_map(|(round, ip, port)| ReachOut { round, ip, port })
+}
+
 #[derive(Debug, test_strategy::Arbitrary)]
 enum TestFrame {
     ConnectionClose(#[strategy(connection_close())] ConnectionClose),
@@ -100,6 +142,8 @@ enum TestFrame {
     Datagram(#[strategy(datagram())] Datagram),
     MaxData(MaxData),
     MaxStreamData(MaxStreamData),
+    MaxStreams(MaxStreams),
+    RetireConnectionId(RetireConnectionId),
     PathChallenge(PathChallenge),
     PathResponse(PathResponse),
     MaxPathId(MaxPathId),
@@ -108,6 +152,16 @@ enum TestFrame {
     PathAbandon(PathAbandon),
     PathStatusAvailable(PathStatusAvailable),
     PathStatusBackup(PathStatusBackup),
+    Ping(Ping),
+    ImmediateAck(ImmediateAck),
+    HandshakeDone(HandshakeDone),
+    Crypto(#[strategy(crypto())] Crypto),
+    NewToken(#[strategy(new_token())] NewToken),
+    AckFrequency(AckFrequency),
+    ObservedAddr(#[strategy(observed_addr())] ObservedAddr),
+    AddAddress(#[strategy(add_address())] AddAddress),
+    ReachOut(#[strategy(reach_out())] ReachOut),
+    RemoveAddress(RemoveAddress),
 }
 
 impl TryFrom<Frame> for TestFrame {
@@ -122,6 +176,8 @@ impl TryFrom<Frame> for TestFrame {
             Frame::Datagram(dg) => Ok(Self::Datagram(dg)),
             Frame::MaxData(md) => Ok(Self::MaxData(md)),
             Frame::MaxStreamData(msd) => Ok(Self::MaxStreamData(msd)),
+            Frame::MaxStreams(ms) => Ok(Self::MaxStreams(ms)),
+            Frame::RetireConnectionId(rci) => Ok(Self::RetireConnectionId(rci)),
             Frame::PathChallenge(pc) => Ok(Self::PathChallenge(pc)),
             Frame::PathResponse(pr) => Ok(Self::PathResponse(pr)),
             Frame::MaxPathId(mpi) => Ok(Self::MaxPathId(mpi)),
@@ -130,6 +186,16 @@ impl TryFrom<Frame> for TestFrame {
             Frame::PathAbandon(pa) => Ok(Self::PathAbandon(pa)),
             Frame::PathStatusAvailable(psa) => Ok(Self::PathStatusAvailable(psa)),
             Frame::PathStatusBackup(psb) => Ok(Self::PathStatusBackup(psb)),
+            Frame::Ping => Ok(Self::Ping(Ping)),
+            Frame::ImmediateAck => Ok(Self::ImmediateAck(ImmediateAck)),
+            Frame::HandshakeDone => Ok(Self::HandshakeDone(HandshakeDone)),
+            Frame::Crypto(c) => Ok(Self::Crypto(c)),
+            Frame::NewToken(nt) => Ok(Self::NewToken(nt)),
+            Frame::AckFrequency(af) => Ok(Self::AckFrequency(af)),
+            Frame::ObservedAddr(oa) => Ok(Self::ObservedAddr(oa)),
+            Frame::AddAddress(aa) => Ok(Self::AddAddress(aa)),
+            Frame::ReachOut(ro) => Ok(Self::ReachOut(ro)),
+            Frame::RemoveAddress(ra) => Ok(Self::RemoveAddress(ra)),
             _ => Err("unsupported frame type"),
         }
     }
@@ -156,6 +222,8 @@ impl Encodable for TestFrame {
             TestFrame::Datagram(dg) => dg.encode(buf),
             TestFrame::MaxData(md) => md.encode(buf),
             TestFrame::MaxStreamData(msd) => msd.encode(buf),
+            TestFrame::MaxStreams(ms) => ms.encode(buf),
+            TestFrame::RetireConnectionId(rci) => rci.encode(buf),
             TestFrame::PathChallenge(pc) => pc.encode(buf),
             TestFrame::PathResponse(pr) => pr.encode(buf),
             TestFrame::MaxPathId(mpi) => mpi.encode(buf),
@@ -164,6 +232,16 @@ impl Encodable for TestFrame {
             TestFrame::PathAbandon(pa) => pa.encode(buf),
             TestFrame::PathStatusAvailable(psa) => psa.encode(buf),
             TestFrame::PathStatusBackup(psb) => psb.encode(buf),
+            TestFrame::Ping(p) => p.encode(buf),
+            TestFrame::ImmediateAck(ia) => ia.encode(buf),
+            TestFrame::HandshakeDone(hd) => hd.encode(buf),
+            TestFrame::Crypto(c) => c.encode(buf),
+            TestFrame::NewToken(nt) => nt.encode(buf),
+            TestFrame::AckFrequency(af) => af.encode(buf),
+            TestFrame::ObservedAddr(oa) => oa.encode(buf),
+            TestFrame::AddAddress(aa) => aa.encode(buf),
+            TestFrame::ReachOut(ro) => ro.encode(buf),
+            TestFrame::RemoveAddress(ra) => ra.encode(buf),
         }
     }
 }

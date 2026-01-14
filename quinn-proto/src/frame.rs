@@ -277,6 +277,7 @@ impl proptest::arbitrary::Arbitrary for MaybeFrame {
         prop_oneof![
             Just(MaybeFrame::None),
             any::<VarInt>().prop_map(|v| MaybeFrame::Unknown(v.0)),
+            // do not generate padding frames here, since they are not allowed in MaybeFrame::Known
             any::<FrameType>()
                 .prop_filter("not Padding", |ft| *ft != FrameType::Padding)
                 .prop_map(MaybeFrame::Known),
@@ -286,6 +287,7 @@ impl proptest::arbitrary::Arbitrary for MaybeFrame {
 }
 
 #[derive(derive_more::Display)]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, Debug, Clone, PartialEq, Eq))]
 #[display("HANDSHAKE_DONE")]
 pub(crate) struct HandshakeDone;
 
@@ -302,6 +304,7 @@ impl Encodable for HandshakeDone {
 }
 
 #[derive(derive_more::Display)]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, Debug, Clone, PartialEq, Eq))]
 #[display("PING")]
 pub(crate) struct Ping;
 
@@ -318,6 +321,7 @@ impl Encodable for Ping {
 }
 
 #[derive(derive_more::Display)]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, Debug, Clone, PartialEq, Eq))]
 #[display("IMMEDIATE_ACK")]
 pub(crate) struct ImmediateAck;
 
@@ -631,9 +635,11 @@ impl Encodable for MaxStreamData {
 }
 
 #[derive(Debug, Clone, Copy, derive_more::Display)]
+#[cfg_attr(test, derive(test_strategy::Arbitrary, PartialEq, Eq))]
 #[display("{} count: {count}", self.get_type())]
 pub(crate) struct MaxStreams {
     pub(crate) dir: Dir,
+    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
     pub(crate) count: u64,
 }
 
@@ -654,9 +660,11 @@ impl Encodable for MaxStreams {
 }
 
 #[derive(Debug, PartialEq, Eq, derive_more::Display)]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display("{} {} seq: {sequence}", self.get_type(), DisplayOption::new("path_id", path_id.as_ref()))]
 pub(crate) struct RetireConnectionId {
     pub(crate) path_id: Option<PathId>,
+    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
     pub(crate) sequence: u64,
 }
 
@@ -1240,6 +1248,7 @@ impl Encodable for StreamMetaEncoder {
 pub(crate) type StreamMetaVec = TinyVec<[StreamMeta; 1]>;
 
 #[derive(Debug, Clone, derive_more::Display)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[display("CRYPTO off: {offset} len = {}", data.len())]
 pub(crate) struct Crypto {
     pub(crate) offset: u64,
@@ -1264,6 +1273,7 @@ impl Encodable for Crypto {
 }
 
 #[derive(Debug, Clone, derive_more::Display)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[display("NEW_TOKEN")]
 pub(crate) struct NewToken {
     pub(crate) token: Bytes,
@@ -1897,6 +1907,7 @@ impl Encodable for Datagram {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display)]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display("ACK_FREQUENCY max_ack_delay: {}µs", request_max_ack_delay.0)]
 pub(crate) struct AckFrequency {
     pub(crate) sequence: VarInt,
@@ -2277,6 +2288,7 @@ impl Encodable for ReachOut {
 
 /// Frame signaling an address is no longer being advertised
 #[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord, derive_more::Display)]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[display("REMOVE_ADDRESS seq_no: {seq_no}")]
 pub(crate) struct RemoveAddress {
     /// The sequence number of the address advertisement to be removed
