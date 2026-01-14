@@ -1,3 +1,4 @@
+use std::fmt::{self, Write};
 use std::ops::Range;
 
 use tinyvec::TinyVec;
@@ -16,8 +17,24 @@ use tinyvec::TinyVec;
 /// `ArrayRangeSet` is especially useful for tracking ACK ranges where the amount
 /// of ranges is usually very low (since ACK numbers are in consecutive fashion
 /// unless reordering or packet loss occur).
-#[derive(Debug, Default)]
+#[derive(Default, PartialEq, Eq)]
 pub(crate) struct ArrayRangeSet(TinyVec<[Range<u64>; ARRAY_RANGE_SET_INLINE_CAPACITY]>);
+
+impl fmt::Debug for ArrayRangeSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_char('[')?;
+        let mut first = true;
+        for range in self.0.iter() {
+            if !first {
+                f.write_char(',')?;
+            }
+            write!(f, "{range:?}")?;
+            first = false;
+        }
+        f.write_char(']')?;
+        Ok(())
+    }
+}
 
 /// The capacity of elements directly stored in [`ArrayRangeSet`]
 ///
