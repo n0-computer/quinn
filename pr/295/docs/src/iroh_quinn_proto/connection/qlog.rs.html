@@ -552,694 +552,699 @@
 <a href=#552 id=552 data-nosnippet>552</a>
 <a href=#553 id=553 data-nosnippet>553</a><span class="comment">/* Frame conversions to qlog */
 <a href=#554 id=554 data-nosnippet>554</a></span><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#555 id=555 data-nosnippet>555</a></span><span class="kw">impl </span>frame::AckEncoder&lt;<span class="lifetime">'_</span>&gt; {
-<a href=#556 id=556 data-nosnippet>556</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#557 id=557 data-nosnippet>557</a>        QuicFrame::Ack {
-<a href=#558 id=558 data-nosnippet>558</a>            ack_delay: <span class="prelude-val">Some</span>(<span class="self">self</span>.delay <span class="kw">as </span>f32),
-<a href=#559 id=559 data-nosnippet>559</a>            acked_ranges: <span class="prelude-val">Some</span>(AckedRanges::Double(
-<a href=#560 id=560 data-nosnippet>560</a>                <span class="self">self</span>.ranges
-<a href=#561 id=561 data-nosnippet>561</a>                    .iter()
-<a href=#562 id=562 data-nosnippet>562</a>                    .map(|range| (range.start, range.end))
-<a href=#563 id=563 data-nosnippet>563</a>                    .collect(),
-<a href=#564 id=564 data-nosnippet>564</a>            )),
-<a href=#565 id=565 data-nosnippet>565</a>            ect1: <span class="self">self</span>.ecn.map(|e| e.ect1),
-<a href=#566 id=566 data-nosnippet>566</a>            ect0: <span class="self">self</span>.ecn.map(|e| e.ect0),
-<a href=#567 id=567 data-nosnippet>567</a>            ce: <span class="self">self</span>.ecn.map(|e| e.ce),
-<a href=#568 id=568 data-nosnippet>568</a>            raw: <span class="prelude-val">None</span>,
-<a href=#569 id=569 data-nosnippet>569</a>        }
-<a href=#570 id=570 data-nosnippet>570</a>    }
-<a href=#571 id=571 data-nosnippet>571</a>}
-<a href=#572 id=572 data-nosnippet>572</a>
-<a href=#573 id=573 data-nosnippet>573</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#574 id=574 data-nosnippet>574</a></span><span class="kw">impl </span>frame::AckFrequency {
-<a href=#575 id=575 data-nosnippet>575</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#576 id=576 data-nosnippet>576</a>        QuicFrame::AckFrequency {
-<a href=#577 id=577 data-nosnippet>577</a>            sequence_number: <span class="self">self</span>.sequence.into_inner(),
-<a href=#578 id=578 data-nosnippet>578</a>            ack_eliciting_threshold: <span class="self">self</span>.ack_eliciting_threshold.into_inner(),
-<a href=#579 id=579 data-nosnippet>579</a>            requested_max_ack_delay: <span class="self">self</span>.request_max_ack_delay.into_inner(),
-<a href=#580 id=580 data-nosnippet>580</a>            reordering_threshold: <span class="self">self</span>.reordering_threshold.into_inner(),
-<a href=#581 id=581 data-nosnippet>581</a>            raw: <span class="prelude-val">None</span>,
-<a href=#582 id=582 data-nosnippet>582</a>        }
-<a href=#583 id=583 data-nosnippet>583</a>    }
-<a href=#584 id=584 data-nosnippet>584</a>}
-<a href=#585 id=585 data-nosnippet>585</a>
-<a href=#586 id=586 data-nosnippet>586</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#587 id=587 data-nosnippet>587</a></span><span class="kw">impl </span>frame::AddAddress {
-<a href=#588 id=588 data-nosnippet>588</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#589 id=589 data-nosnippet>589</a>        QuicFrame::AddAddress {
-<a href=#590 id=590 data-nosnippet>590</a>            sequence_number: <span class="self">self</span>.seq_no.into_inner(),
-<a href=#591 id=591 data-nosnippet>591</a>            ip_v4: <span class="kw">match </span><span class="self">self</span>.ip {
-<a href=#592 id=592 data-nosnippet>592</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">Some</span>(ipv4_addr.to_string()),
-<a href=#593 id=593 data-nosnippet>593</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">None</span>,
-<a href=#594 id=594 data-nosnippet>594</a>            },
-<a href=#595 id=595 data-nosnippet>595</a>            ip_v6: <span class="kw">match </span><span class="self">self</span>.ip {
-<a href=#596 id=596 data-nosnippet>596</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">None</span>,
-<a href=#597 id=597 data-nosnippet>597</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">Some</span>(ipv6_addr.to_string()),
-<a href=#598 id=598 data-nosnippet>598</a>            },
-<a href=#599 id=599 data-nosnippet>599</a>            port: <span class="self">self</span>.port,
-<a href=#600 id=600 data-nosnippet>600</a>        }
-<a href=#601 id=601 data-nosnippet>601</a>    }
-<a href=#602 id=602 data-nosnippet>602</a>}
-<a href=#603 id=603 data-nosnippet>603</a>
-<a href=#604 id=604 data-nosnippet>604</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#605 id=605 data-nosnippet>605</a></span><span class="kw">impl </span>frame::CloseEncoder&lt;<span class="lifetime">'_</span>&gt; {
-<a href=#606 id=606 data-nosnippet>606</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#607 id=607 data-nosnippet>607</a>        <span class="self">self</span>.close.to_qlog()
-<a href=#608 id=608 data-nosnippet>608</a>    }
-<a href=#609 id=609 data-nosnippet>609</a>}
-<a href=#610 id=610 data-nosnippet>610</a>
-<a href=#611 id=611 data-nosnippet>611</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#612 id=612 data-nosnippet>612</a></span><span class="kw">impl </span>frame::Close {
-<a href=#613 id=613 data-nosnippet>613</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#614 id=614 data-nosnippet>614</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#615 id=615 data-nosnippet>615</a>            <span class="self">Self</span>::Connection(f) =&gt; {
-<a href=#616 id=616 data-nosnippet>616</a>                <span class="kw">let </span>(error, error_code) = transport_error(f.error_code);
-<a href=#617 id=617 data-nosnippet>617</a>                <span class="kw">let </span>error = error.map(|transport_error| {
-<a href=#618 id=618 data-nosnippet>618</a>                    ConnectionClosedFrameError::TransportError(transport_error)
-<a href=#619 id=619 data-nosnippet>619</a>                });
-<a href=#620 id=620 data-nosnippet>620</a>                QuicFrame::ConnectionClose {
-<a href=#621 id=621 data-nosnippet>621</a>                    error_space: <span class="prelude-val">Some</span>(ErrorSpace::TransportError),
-<a href=#622 id=622 data-nosnippet>622</a>                    error,
-<a href=#623 id=623 data-nosnippet>623</a>                    error_code,
-<a href=#624 id=624 data-nosnippet>624</a>                    reason: String::from_utf8(f.reason.to_vec()).ok(),
-<a href=#625 id=625 data-nosnippet>625</a>                    reason_bytes: <span class="prelude-val">None</span>,
-<a href=#626 id=626 data-nosnippet>626</a>                    trigger_frame_type: <span class="prelude-val">None</span>,
-<a href=#627 id=627 data-nosnippet>627</a>                }
-<a href=#628 id=628 data-nosnippet>628</a>            }
-<a href=#629 id=629 data-nosnippet>629</a>            <span class="self">Self</span>::Application(f) =&gt; QuicFrame::ConnectionClose {
-<a href=#630 id=630 data-nosnippet>630</a>                error_space: <span class="prelude-val">Some</span>(ErrorSpace::ApplicationError),
-<a href=#631 id=631 data-nosnippet>631</a>                error: <span class="prelude-val">None</span>,
-<a href=#632 id=632 data-nosnippet>632</a>                error_code: <span class="prelude-val">Some</span>(f.error_code.into_inner()),
-<a href=#633 id=633 data-nosnippet>633</a>                reason: String::from_utf8(f.reason.to_vec()).ok(),
-<a href=#634 id=634 data-nosnippet>634</a>                reason_bytes: <span class="prelude-val">None</span>,
-<a href=#635 id=635 data-nosnippet>635</a>                trigger_frame_type: <span class="prelude-val">None</span>,
-<a href=#636 id=636 data-nosnippet>636</a>            },
-<a href=#637 id=637 data-nosnippet>637</a>        }
-<a href=#638 id=638 data-nosnippet>638</a>    }
-<a href=#639 id=639 data-nosnippet>639</a>}
-<a href=#640 id=640 data-nosnippet>640</a>
-<a href=#641 id=641 data-nosnippet>641</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#642 id=642 data-nosnippet>642</a></span><span class="kw">impl </span>frame::Crypto {
-<a href=#643 id=643 data-nosnippet>643</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#644 id=644 data-nosnippet>644</a>        QuicFrame::Crypto {
-<a href=#645 id=645 data-nosnippet>645</a>            offset: <span class="self">self</span>.offset,
-<a href=#646 id=646 data-nosnippet>646</a>            raw: <span class="prelude-val">Some</span>(RawInfo {
-<a href=#647 id=647 data-nosnippet>647</a>                length: <span class="prelude-val">Some</span>(<span class="self">self</span>.data.len() <span class="kw">as </span>u64),
-<a href=#648 id=648 data-nosnippet>648</a>                ..Default::default()
-<a href=#649 id=649 data-nosnippet>649</a>            }),
-<a href=#650 id=650 data-nosnippet>650</a>        }
-<a href=#651 id=651 data-nosnippet>651</a>    }
-<a href=#652 id=652 data-nosnippet>652</a>}
-<a href=#653 id=653 data-nosnippet>653</a>
-<a href=#654 id=654 data-nosnippet>654</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#655 id=655 data-nosnippet>655</a></span><span class="kw">impl </span>frame::Datagram {
-<a href=#656 id=656 data-nosnippet>656</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#657 id=657 data-nosnippet>657</a>        QuicFrame::Datagram {
-<a href=#658 id=658 data-nosnippet>658</a>            raw: <span class="prelude-val">Some</span>(RawInfo {
-<a href=#659 id=659 data-nosnippet>659</a>                length: <span class="prelude-val">Some</span>(<span class="self">self</span>.data.len() <span class="kw">as </span>u64),
-<a href=#660 id=660 data-nosnippet>660</a>                ..Default::default()
-<a href=#661 id=661 data-nosnippet>661</a>            }),
-<a href=#662 id=662 data-nosnippet>662</a>        }
-<a href=#663 id=663 data-nosnippet>663</a>    }
-<a href=#664 id=664 data-nosnippet>664</a>}
-<a href=#665 id=665 data-nosnippet>665</a>
-<a href=#666 id=666 data-nosnippet>666</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#667 id=667 data-nosnippet>667</a></span><span class="kw">impl </span>frame::HandshakeDone {
-<a href=#668 id=668 data-nosnippet>668</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#669 id=669 data-nosnippet>669</a>        QuicFrame::HandshakeDone { raw: <span class="prelude-val">None </span>}
-<a href=#670 id=670 data-nosnippet>670</a>    }
-<a href=#671 id=671 data-nosnippet>671</a>}
-<a href=#672 id=672 data-nosnippet>672</a>
-<a href=#673 id=673 data-nosnippet>673</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#674 id=674 data-nosnippet>674</a></span><span class="kw">impl </span>frame::ImmediateAck {
-<a href=#675 id=675 data-nosnippet>675</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#676 id=676 data-nosnippet>676</a>        QuicFrame::ImmediateAck { raw: <span class="prelude-val">None </span>}
-<a href=#677 id=677 data-nosnippet>677</a>    }
-<a href=#678 id=678 data-nosnippet>678</a>}
-<a href=#679 id=679 data-nosnippet>679</a>
-<a href=#680 id=680 data-nosnippet>680</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#681 id=681 data-nosnippet>681</a></span><span class="kw">impl </span>frame::MaxData {
-<a href=#682 id=682 data-nosnippet>682</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#683 id=683 data-nosnippet>683</a>        QuicFrame::MaxData {
-<a href=#684 id=684 data-nosnippet>684</a>            maximum: <span class="self">self</span>.<span class="number">0</span>.into(),
-<a href=#685 id=685 data-nosnippet>685</a>            raw: <span class="prelude-val">None</span>,
-<a href=#686 id=686 data-nosnippet>686</a>        }
-<a href=#687 id=687 data-nosnippet>687</a>    }
-<a href=#688 id=688 data-nosnippet>688</a>}
-<a href=#689 id=689 data-nosnippet>689</a>
-<a href=#690 id=690 data-nosnippet>690</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#691 id=691 data-nosnippet>691</a></span><span class="kw">impl </span>frame::MaxPathId {
-<a href=#692 id=692 data-nosnippet>692</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#693 id=693 data-nosnippet>693</a>        QuicFrame::MaxPathId {
-<a href=#694 id=694 data-nosnippet>694</a>            maximum_path_id: <span class="self">self</span>.<span class="number">0</span>.as_u32().into(),
-<a href=#695 id=695 data-nosnippet>695</a>            raw: <span class="prelude-val">None</span>,
-<a href=#696 id=696 data-nosnippet>696</a>        }
-<a href=#697 id=697 data-nosnippet>697</a>    }
-<a href=#698 id=698 data-nosnippet>698</a>}
-<a href=#699 id=699 data-nosnippet>699</a>
-<a href=#700 id=700 data-nosnippet>700</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#701 id=701 data-nosnippet>701</a></span><span class="kw">impl </span>frame::MaxStreamData {
-<a href=#702 id=702 data-nosnippet>702</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#703 id=703 data-nosnippet>703</a>        QuicFrame::MaxStreamData {
-<a href=#704 id=704 data-nosnippet>704</a>            stream_id: <span class="self">self</span>.id.into(),
-<a href=#705 id=705 data-nosnippet>705</a>            maximum: <span class="self">self</span>.offset,
-<a href=#706 id=706 data-nosnippet>706</a>            raw: <span class="prelude-val">None</span>,
-<a href=#707 id=707 data-nosnippet>707</a>        }
-<a href=#708 id=708 data-nosnippet>708</a>    }
-<a href=#709 id=709 data-nosnippet>709</a>}
-<a href=#710 id=710 data-nosnippet>710</a>
-<a href=#711 id=711 data-nosnippet>711</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#712 id=712 data-nosnippet>712</a></span><span class="kw">impl </span>frame::MaxStreams {
-<a href=#713 id=713 data-nosnippet>713</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#714 id=714 data-nosnippet>714</a>        QuicFrame::MaxStreams {
-<a href=#715 id=715 data-nosnippet>715</a>            maximum: <span class="self">self</span>.count,
-<a href=#716 id=716 data-nosnippet>716</a>            stream_type: <span class="self">self</span>.dir.into(),
-<a href=#717 id=717 data-nosnippet>717</a>            raw: <span class="prelude-val">None</span>,
-<a href=#718 id=718 data-nosnippet>718</a>        }
-<a href=#719 id=719 data-nosnippet>719</a>    }
-<a href=#720 id=720 data-nosnippet>720</a>}
-<a href=#721 id=721 data-nosnippet>721</a>
-<a href=#722 id=722 data-nosnippet>722</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#723 id=723 data-nosnippet>723</a></span><span class="kw">impl </span>frame::NewConnectionId {
-<a href=#724 id=724 data-nosnippet>724</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#725 id=725 data-nosnippet>725</a>        QuicFrame::NewConnectionId {
-<a href=#726 id=726 data-nosnippet>726</a>            sequence_number: <span class="self">self</span>.sequence,
-<a href=#727 id=727 data-nosnippet>727</a>            retire_prior_to: <span class="self">self</span>.retire_prior_to,
-<a href=#728 id=728 data-nosnippet>728</a>            connection_id_length: <span class="prelude-val">Some</span>(<span class="self">self</span>.id.len() <span class="kw">as </span>u8),
-<a href=#729 id=729 data-nosnippet>729</a>            connection_id: <span class="self">self</span>.id.to_string(),
-<a href=#730 id=730 data-nosnippet>730</a>            stateless_reset_token: <span class="prelude-val">Some</span>(<span class="self">self</span>.reset_token.to_string()),
-<a href=#731 id=731 data-nosnippet>731</a>            raw: <span class="prelude-val">None</span>,
-<a href=#732 id=732 data-nosnippet>732</a>        }
-<a href=#733 id=733 data-nosnippet>733</a>    }
-<a href=#734 id=734 data-nosnippet>734</a>}
-<a href=#735 id=735 data-nosnippet>735</a>
-<a href=#736 id=736 data-nosnippet>736</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#737 id=737 data-nosnippet>737</a></span><span class="kw">impl </span>frame::NewToken {
-<a href=#738 id=738 data-nosnippet>738</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#739 id=739 data-nosnippet>739</a>        QuicFrame::NewToken {
-<a href=#740 id=740 data-nosnippet>740</a>            token: qlog::Token {
-<a href=#741 id=741 data-nosnippet>741</a>                ty: <span class="prelude-val">Some</span>(TokenType::Retry),
-<a href=#742 id=742 data-nosnippet>742</a>                raw: <span class="prelude-val">Some</span>(RawInfo {
-<a href=#743 id=743 data-nosnippet>743</a>                    data: HexSlice::maybe_string(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.token)),
-<a href=#744 id=744 data-nosnippet>744</a>                    length: <span class="prelude-val">Some</span>(<span class="self">self</span>.token.len() <span class="kw">as </span>u64),
-<a href=#745 id=745 data-nosnippet>745</a>                    payload_length: <span class="prelude-val">None</span>,
-<a href=#746 id=746 data-nosnippet>746</a>                }),
-<a href=#747 id=747 data-nosnippet>747</a>                details: <span class="prelude-val">None</span>,
-<a href=#748 id=748 data-nosnippet>748</a>            },
-<a href=#749 id=749 data-nosnippet>749</a>            raw: <span class="prelude-val">None</span>,
-<a href=#750 id=750 data-nosnippet>750</a>        }
-<a href=#751 id=751 data-nosnippet>751</a>    }
-<a href=#752 id=752 data-nosnippet>752</a>}
-<a href=#753 id=753 data-nosnippet>753</a>
-<a href=#754 id=754 data-nosnippet>754</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#755 id=755 data-nosnippet>755</a></span><span class="kw">impl </span>frame::ObservedAddr {
-<a href=#756 id=756 data-nosnippet>756</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#757 id=757 data-nosnippet>757</a>        QuicFrame::ObservedAddress {
-<a href=#758 id=758 data-nosnippet>758</a>            sequence_number: <span class="self">self</span>.seq_no.into_inner(),
-<a href=#759 id=759 data-nosnippet>759</a>            ip_v4: <span class="kw">match </span><span class="self">self</span>.ip {
-<a href=#760 id=760 data-nosnippet>760</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">Some</span>(ipv4_addr.to_string()),
-<a href=#761 id=761 data-nosnippet>761</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">None</span>,
-<a href=#762 id=762 data-nosnippet>762</a>            },
-<a href=#763 id=763 data-nosnippet>763</a>            ip_v6: <span class="kw">match </span><span class="self">self</span>.ip {
-<a href=#764 id=764 data-nosnippet>764</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">None</span>,
-<a href=#765 id=765 data-nosnippet>765</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">Some</span>(ipv6_addr.to_string()),
-<a href=#766 id=766 data-nosnippet>766</a>            },
-<a href=#767 id=767 data-nosnippet>767</a>            port: <span class="self">self</span>.port,
-<a href=#768 id=768 data-nosnippet>768</a>            raw: <span class="prelude-val">None</span>,
-<a href=#769 id=769 data-nosnippet>769</a>        }
-<a href=#770 id=770 data-nosnippet>770</a>    }
-<a href=#771 id=771 data-nosnippet>771</a>}
-<a href=#772 id=772 data-nosnippet>772</a>
-<a href=#773 id=773 data-nosnippet>773</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#774 id=774 data-nosnippet>774</a></span><span class="kw">impl </span>frame::PathAbandon {
-<a href=#775 id=775 data-nosnippet>775</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#776 id=776 data-nosnippet>776</a>        QuicFrame::PathAbandon {
-<a href=#777 id=777 data-nosnippet>777</a>            path_id: <span class="self">self</span>.path_id.as_u32().into(),
-<a href=#778 id=778 data-nosnippet>778</a>            error_code: <span class="self">self</span>.error_code.into(),
-<a href=#779 id=779 data-nosnippet>779</a>            raw: <span class="prelude-val">None</span>,
-<a href=#780 id=780 data-nosnippet>780</a>        }
-<a href=#781 id=781 data-nosnippet>781</a>    }
-<a href=#782 id=782 data-nosnippet>782</a>}
-<a href=#783 id=783 data-nosnippet>783</a>
-<a href=#784 id=784 data-nosnippet>784</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#785 id=785 data-nosnippet>785</a></span><span class="kw">impl </span>frame::PathAckEncoder&lt;<span class="lifetime">'_</span>&gt; {
-<a href=#786 id=786 data-nosnippet>786</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#787 id=787 data-nosnippet>787</a>        QuicFrame::PathAck {
-<a href=#788 id=788 data-nosnippet>788</a>            path_id: <span class="self">self</span>.path_id.as_u32() <span class="kw">as </span>u64,
-<a href=#789 id=789 data-nosnippet>789</a>            ack_delay: <span class="prelude-val">Some</span>(<span class="self">self</span>.delay <span class="kw">as </span>f32),
-<a href=#790 id=790 data-nosnippet>790</a>            acked_ranges: <span class="prelude-val">Some</span>(AckedRanges::Double(
-<a href=#791 id=791 data-nosnippet>791</a>                <span class="self">self</span>.ranges
-<a href=#792 id=792 data-nosnippet>792</a>                    .iter()
-<a href=#793 id=793 data-nosnippet>793</a>                    .map(|range| (range.start, range.end))
-<a href=#794 id=794 data-nosnippet>794</a>                    .collect(),
-<a href=#795 id=795 data-nosnippet>795</a>            )),
-<a href=#796 id=796 data-nosnippet>796</a>            ect1: <span class="self">self</span>.ecn.map(|e| e.ect1),
-<a href=#797 id=797 data-nosnippet>797</a>            ect0: <span class="self">self</span>.ecn.map(|e| e.ect0),
-<a href=#798 id=798 data-nosnippet>798</a>            ce: <span class="self">self</span>.ecn.map(|e| e.ce),
-<a href=#799 id=799 data-nosnippet>799</a>            raw: <span class="prelude-val">None</span>,
-<a href=#800 id=800 data-nosnippet>800</a>        }
-<a href=#801 id=801 data-nosnippet>801</a>    }
-<a href=#802 id=802 data-nosnippet>802</a>}
-<a href=#803 id=803 data-nosnippet>803</a>
-<a href=#804 id=804 data-nosnippet>804</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#805 id=805 data-nosnippet>805</a></span><span class="kw">impl </span>frame::PathChallenge {
-<a href=#806 id=806 data-nosnippet>806</a>    <span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#807 id=807 data-nosnippet>807</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#808 id=808 data-nosnippet>808</a>        QuicFrame::PathChallenge {
-<a href=#809 id=809 data-nosnippet>809</a>            data: <span class="prelude-val">Some</span>(<span class="self">self</span>.to_string()),
-<a href=#810 id=810 data-nosnippet>810</a>            raw: <span class="prelude-val">None</span>,
-<a href=#811 id=811 data-nosnippet>811</a>        }
-<a href=#812 id=812 data-nosnippet>812</a>    }
-<a href=#813 id=813 data-nosnippet>813</a>}
-<a href=#814 id=814 data-nosnippet>814</a>
-<a href=#815 id=815 data-nosnippet>815</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#816 id=816 data-nosnippet>816</a></span><span class="kw">impl </span>frame::PathCidsBlocked {
-<a href=#817 id=817 data-nosnippet>817</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#818 id=818 data-nosnippet>818</a>        QuicFrame::PathCidsBlocked {
-<a href=#819 id=819 data-nosnippet>819</a>            path_id: <span class="self">self</span>.path_id.as_u32().into(),
-<a href=#820 id=820 data-nosnippet>820</a>            next_sequence_number: <span class="self">self</span>.next_seq.into(),
-<a href=#821 id=821 data-nosnippet>821</a>            raw: <span class="prelude-val">None</span>,
-<a href=#822 id=822 data-nosnippet>822</a>        }
-<a href=#823 id=823 data-nosnippet>823</a>    }
-<a href=#824 id=824 data-nosnippet>824</a>}
-<a href=#825 id=825 data-nosnippet>825</a>
-<a href=#826 id=826 data-nosnippet>826</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#827 id=827 data-nosnippet>827</a></span><span class="kw">impl </span>frame::PathResponse {
-<a href=#828 id=828 data-nosnippet>828</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#829 id=829 data-nosnippet>829</a>        QuicFrame::PathResponse {
-<a href=#830 id=830 data-nosnippet>830</a>            data: <span class="prelude-val">Some</span>(<span class="self">self</span>.to_string()),
-<a href=#831 id=831 data-nosnippet>831</a>            raw: <span class="prelude-val">None</span>,
-<a href=#832 id=832 data-nosnippet>832</a>        }
-<a href=#833 id=833 data-nosnippet>833</a>    }
-<a href=#834 id=834 data-nosnippet>834</a>}
-<a href=#835 id=835 data-nosnippet>835</a>
-<a href=#836 id=836 data-nosnippet>836</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#837 id=837 data-nosnippet>837</a></span><span class="kw">impl </span>frame::ReachOut {
-<a href=#838 id=838 data-nosnippet>838</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#839 id=839 data-nosnippet>839</a>        QuicFrame::ReachOut {
-<a href=#840 id=840 data-nosnippet>840</a>            round: <span class="self">self</span>.round.into_inner(),
-<a href=#841 id=841 data-nosnippet>841</a>            ip_v4: <span class="kw">match </span><span class="self">self</span>.ip {
-<a href=#842 id=842 data-nosnippet>842</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">Some</span>(ipv4_addr.to_string()),
-<a href=#843 id=843 data-nosnippet>843</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">None</span>,
-<a href=#844 id=844 data-nosnippet>844</a>            },
-<a href=#845 id=845 data-nosnippet>845</a>            ip_v6: <span class="kw">match </span><span class="self">self</span>.ip {
-<a href=#846 id=846 data-nosnippet>846</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">None</span>,
-<a href=#847 id=847 data-nosnippet>847</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">Some</span>(ipv6_addr.to_string()),
-<a href=#848 id=848 data-nosnippet>848</a>            },
-<a href=#849 id=849 data-nosnippet>849</a>            port: <span class="self">self</span>.port,
-<a href=#850 id=850 data-nosnippet>850</a>        }
-<a href=#851 id=851 data-nosnippet>851</a>    }
-<a href=#852 id=852 data-nosnippet>852</a>}
-<a href=#853 id=853 data-nosnippet>853</a>
-<a href=#854 id=854 data-nosnippet>854</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#855 id=855 data-nosnippet>855</a></span><span class="kw">impl </span>frame::Ping {
-<a href=#856 id=856 data-nosnippet>856</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#857 id=857 data-nosnippet>857</a>        QuicFrame::Ping { raw: <span class="prelude-val">None </span>}
-<a href=#858 id=858 data-nosnippet>858</a>    }
-<a href=#859 id=859 data-nosnippet>859</a>}
-<a href=#860 id=860 data-nosnippet>860</a>
-<a href=#861 id=861 data-nosnippet>861</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#862 id=862 data-nosnippet>862</a></span><span class="kw">impl </span>frame::PathStatusAvailable {
-<a href=#863 id=863 data-nosnippet>863</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#864 id=864 data-nosnippet>864</a>        QuicFrame::PathStatusAvailable {
-<a href=#865 id=865 data-nosnippet>865</a>            path_id: <span class="self">self</span>.path_id.as_u32().into(),
-<a href=#866 id=866 data-nosnippet>866</a>            path_status_sequence_number: <span class="self">self</span>.status_seq_no.into(),
-<a href=#867 id=867 data-nosnippet>867</a>            raw: <span class="prelude-val">None</span>,
-<a href=#868 id=868 data-nosnippet>868</a>        }
-<a href=#869 id=869 data-nosnippet>869</a>    }
-<a href=#870 id=870 data-nosnippet>870</a>}
-<a href=#871 id=871 data-nosnippet>871</a>
-<a href=#872 id=872 data-nosnippet>872</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#873 id=873 data-nosnippet>873</a></span><span class="kw">impl </span>frame::PathStatusBackup {
-<a href=#874 id=874 data-nosnippet>874</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#875 id=875 data-nosnippet>875</a>        QuicFrame::PathStatusBackup {
-<a href=#876 id=876 data-nosnippet>876</a>            path_id: <span class="self">self</span>.path_id.as_u32().into(),
-<a href=#877 id=877 data-nosnippet>877</a>            path_status_sequence_number: <span class="self">self</span>.status_seq_no.into(),
-<a href=#878 id=878 data-nosnippet>878</a>            raw: <span class="prelude-val">None</span>,
-<a href=#879 id=879 data-nosnippet>879</a>        }
-<a href=#880 id=880 data-nosnippet>880</a>    }
-<a href=#881 id=881 data-nosnippet>881</a>}
-<a href=#882 id=882 data-nosnippet>882</a>
-<a href=#883 id=883 data-nosnippet>883</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#884 id=884 data-nosnippet>884</a></span><span class="kw">impl </span>frame::PathsBlocked {
-<a href=#885 id=885 data-nosnippet>885</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#886 id=886 data-nosnippet>886</a>        QuicFrame::PathsBlocked {
-<a href=#887 id=887 data-nosnippet>887</a>            maximum_path_id: <span class="self">self</span>.<span class="number">0</span>.as_u32().into(),
-<a href=#888 id=888 data-nosnippet>888</a>            raw: <span class="prelude-val">None</span>,
-<a href=#889 id=889 data-nosnippet>889</a>        }
-<a href=#890 id=890 data-nosnippet>890</a>    }
-<a href=#891 id=891 data-nosnippet>891</a>}
-<a href=#892 id=892 data-nosnippet>892</a>
-<a href=#893 id=893 data-nosnippet>893</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#894 id=894 data-nosnippet>894</a></span><span class="kw">impl </span>frame::ResetStream {
-<a href=#895 id=895 data-nosnippet>895</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#896 id=896 data-nosnippet>896</a>        QuicFrame::ResetStream {
-<a href=#897 id=897 data-nosnippet>897</a>            stream_id: <span class="self">self</span>.id.into(),
-<a href=#898 id=898 data-nosnippet>898</a>            error_code: <span class="prelude-val">Some</span>(<span class="self">self</span>.error_code.into_inner()),
-<a href=#899 id=899 data-nosnippet>899</a>            final_size: <span class="self">self</span>.final_offset.into(),
-<a href=#900 id=900 data-nosnippet>900</a>            error: ApplicationError::Unknown,
-<a href=#901 id=901 data-nosnippet>901</a>            raw: <span class="prelude-val">None</span>,
-<a href=#902 id=902 data-nosnippet>902</a>        }
-<a href=#903 id=903 data-nosnippet>903</a>    }
-<a href=#904 id=904 data-nosnippet>904</a>}
-<a href=#905 id=905 data-nosnippet>905</a>
-<a href=#906 id=906 data-nosnippet>906</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#907 id=907 data-nosnippet>907</a></span><span class="kw">impl </span>frame::StopSending {
-<a href=#908 id=908 data-nosnippet>908</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#909 id=909 data-nosnippet>909</a>        QuicFrame::StopSending {
-<a href=#910 id=910 data-nosnippet>910</a>            stream_id: <span class="self">self</span>.id.into(),
-<a href=#911 id=911 data-nosnippet>911</a>            error_code: <span class="prelude-val">Some</span>(<span class="self">self</span>.error_code.into_inner()),
-<a href=#912 id=912 data-nosnippet>912</a>            error: ApplicationError::Unknown,
-<a href=#913 id=913 data-nosnippet>913</a>            raw: <span class="prelude-val">None</span>,
-<a href=#914 id=914 data-nosnippet>914</a>        }
-<a href=#915 id=915 data-nosnippet>915</a>    }
-<a href=#916 id=916 data-nosnippet>916</a>}
-<a href=#917 id=917 data-nosnippet>917</a>
-<a href=#918 id=918 data-nosnippet>918</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#919 id=919 data-nosnippet>919</a></span><span class="kw">impl </span>frame::RetireConnectionId {
-<a href=#920 id=920 data-nosnippet>920</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#921 id=921 data-nosnippet>921</a>        QuicFrame::RetireConnectionId {
-<a href=#922 id=922 data-nosnippet>922</a>            sequence_number: <span class="self">self</span>.sequence,
-<a href=#923 id=923 data-nosnippet>923</a>            raw: <span class="prelude-val">None</span>,
-<a href=#924 id=924 data-nosnippet>924</a>        }
-<a href=#925 id=925 data-nosnippet>925</a>    }
-<a href=#926 id=926 data-nosnippet>926</a>}
-<a href=#927 id=927 data-nosnippet>927</a>
-<a href=#928 id=928 data-nosnippet>928</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#929 id=929 data-nosnippet>929</a></span><span class="kw">impl </span>frame::RemoveAddress {
-<a href=#930 id=930 data-nosnippet>930</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#931 id=931 data-nosnippet>931</a>        QuicFrame::RemoveAddress {
-<a href=#932 id=932 data-nosnippet>932</a>            sequence_number: <span class="self">self</span>.seq_no.into_inner(),
-<a href=#933 id=933 data-nosnippet>933</a>        }
-<a href=#934 id=934 data-nosnippet>934</a>    }
-<a href=#935 id=935 data-nosnippet>935</a>}
-<a href=#936 id=936 data-nosnippet>936</a>
-<a href=#937 id=937 data-nosnippet>937</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#938 id=938 data-nosnippet>938</a></span><span class="kw">impl </span>frame::StreamMetaEncoder {
-<a href=#939 id=939 data-nosnippet>939</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#940 id=940 data-nosnippet>940</a>        <span class="kw">let </span>meta = <span class="kw-2">&amp;</span><span class="self">self</span>.meta;
-<a href=#941 id=941 data-nosnippet>941</a>        QuicFrame::Stream {
-<a href=#942 id=942 data-nosnippet>942</a>            stream_id: meta.id.into(),
-<a href=#943 id=943 data-nosnippet>943</a>            offset: <span class="prelude-val">Some</span>(meta.offsets.start),
-<a href=#944 id=944 data-nosnippet>944</a>            fin: <span class="prelude-val">Some</span>(meta.fin),
-<a href=#945 id=945 data-nosnippet>945</a>            raw: <span class="prelude-val">Some</span>(RawInfo {
-<a href=#946 id=946 data-nosnippet>946</a>                length: <span class="prelude-val">Some</span>(meta.offsets.end - meta.offsets.start),
-<a href=#947 id=947 data-nosnippet>947</a>                ..Default::default()
-<a href=#948 id=948 data-nosnippet>948</a>            }),
-<a href=#949 id=949 data-nosnippet>949</a>        }
-<a href=#950 id=950 data-nosnippet>950</a>    }
-<a href=#951 id=951 data-nosnippet>951</a>}
-<a href=#952 id=952 data-nosnippet>952</a>
-<a href=#953 id=953 data-nosnippet>953</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#954 id=954 data-nosnippet>954</a></span><span class="kw">impl </span>Frame {
-<a href=#955 id=955 data-nosnippet>955</a>    <span class="doccomment">/// Converts a [`crate::Frame`] into a [`QuicFrame`].
-<a href=#956 id=956 data-nosnippet>956</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
-<a href=#957 id=957 data-nosnippet>957</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#958 id=958 data-nosnippet>958</a>            <span class="self">Self</span>::Padding =&gt; QuicFrame::Padding {
-<a href=#959 id=959 data-nosnippet>959</a>                raw: <span class="prelude-val">Some</span>(RawInfo {
-<a href=#960 id=960 data-nosnippet>960</a>                    length: <span class="prelude-val">None</span>,
-<a href=#961 id=961 data-nosnippet>961</a>                    payload_length: <span class="prelude-val">Some</span>(<span class="number">1</span>),
-<a href=#962 id=962 data-nosnippet>962</a>                    data: <span class="prelude-val">None</span>,
-<a href=#963 id=963 data-nosnippet>963</a>                }),
-<a href=#964 id=964 data-nosnippet>964</a>            },
-<a href=#965 id=965 data-nosnippet>965</a>            <span class="self">Self</span>::Ping =&gt; frame::Ping.to_qlog(),
-<a href=#966 id=966 data-nosnippet>966</a>            <span class="self">Self</span>::Ack(f) =&gt; QuicFrame::Ack {
-<a href=#967 id=967 data-nosnippet>967</a>                ack_delay: <span class="prelude-val">Some</span>(f.delay <span class="kw">as </span>f32),
-<a href=#968 id=968 data-nosnippet>968</a>                acked_ranges: <span class="prelude-val">Some</span>(AckedRanges::Double(
-<a href=#969 id=969 data-nosnippet>969</a>                    f.iter()
-<a href=#970 id=970 data-nosnippet>970</a>                        .map(|range| (<span class="kw-2">*</span>range.start(), <span class="kw-2">*</span>range.end()))
-<a href=#971 id=971 data-nosnippet>971</a>                        .collect(),
-<a href=#972 id=972 data-nosnippet>972</a>                )),
-<a href=#973 id=973 data-nosnippet>973</a>                ect1: f.ecn.as_ref().map(|e| e.ect1),
-<a href=#974 id=974 data-nosnippet>974</a>                ect0: f.ecn.as_ref().map(|e| e.ect0),
-<a href=#975 id=975 data-nosnippet>975</a>                ce: f.ecn.as_ref().map(|e| e.ce),
-<a href=#976 id=976 data-nosnippet>976</a>                raw: <span class="prelude-val">None</span>,
-<a href=#977 id=977 data-nosnippet>977</a>            },
-<a href=#978 id=978 data-nosnippet>978</a>            <span class="self">Self</span>::ResetStream(f) =&gt; f.to_qlog(),
-<a href=#979 id=979 data-nosnippet>979</a>            <span class="self">Self</span>::StopSending(f) =&gt; f.to_qlog(),
-<a href=#980 id=980 data-nosnippet>980</a>            <span class="self">Self</span>::Crypto(f) =&gt; f.to_qlog(),
-<a href=#981 id=981 data-nosnippet>981</a>            <span class="self">Self</span>::NewToken(f) =&gt; f.to_qlog(),
-<a href=#982 id=982 data-nosnippet>982</a>            <span class="self">Self</span>::Stream(s) =&gt; QuicFrame::Stream {
-<a href=#983 id=983 data-nosnippet>983</a>                stream_id: s.id.into(),
-<a href=#984 id=984 data-nosnippet>984</a>                offset: <span class="prelude-val">Some</span>(s.offset),
-<a href=#985 id=985 data-nosnippet>985</a>                fin: <span class="prelude-val">Some</span>(s.fin),
-<a href=#986 id=986 data-nosnippet>986</a>                raw: <span class="prelude-val">Some</span>(RawInfo {
-<a href=#987 id=987 data-nosnippet>987</a>                    length: <span class="prelude-val">Some</span>(s.data.len() <span class="kw">as </span>u64),
-<a href=#988 id=988 data-nosnippet>988</a>                    ..Default::default()
-<a href=#989 id=989 data-nosnippet>989</a>                }),
-<a href=#990 id=990 data-nosnippet>990</a>            },
-<a href=#991 id=991 data-nosnippet>991</a>            <span class="self">Self</span>::MaxData(v) =&gt; v.to_qlog(),
-<a href=#992 id=992 data-nosnippet>992</a>            <span class="self">Self</span>::MaxStreamData(f) =&gt; f.to_qlog(),
-<a href=#993 id=993 data-nosnippet>993</a>            <span class="self">Self</span>::MaxStreams(f) =&gt; f.to_qlog(),
-<a href=#994 id=994 data-nosnippet>994</a>            <span class="self">Self</span>::DataBlocked { offset } =&gt; QuicFrame::DataBlocked {
-<a href=#995 id=995 data-nosnippet>995</a>                limit: <span class="kw-2">*</span>offset,
-<a href=#996 id=996 data-nosnippet>996</a>                raw: <span class="prelude-val">None</span>,
-<a href=#997 id=997 data-nosnippet>997</a>            },
-<a href=#998 id=998 data-nosnippet>998</a>            <span class="self">Self</span>::StreamDataBlocked { id, offset } =&gt; QuicFrame::StreamDataBlocked {
-<a href=#999 id=999 data-nosnippet>999</a>                stream_id: (<span class="kw-2">*</span>id).into(),
+<a href=#555 id=555 data-nosnippet>555</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">trait </span>ToQlog {
+<a href=#556 id=556 data-nosnippet>556</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame;
+<a href=#557 id=557 data-nosnippet>557</a>}
+<a href=#558 id=558 data-nosnippet>558</a>
+<a href=#559 id=559 data-nosnippet>559</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#560 id=560 data-nosnippet>560</a></span><span class="kw">impl</span>&lt;<span class="lifetime">'a</span>&gt; ToQlog <span class="kw">for </span>frame::AckEncoder&lt;<span class="lifetime">'a</span>&gt; {
+<a href=#561 id=561 data-nosnippet>561</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#562 id=562 data-nosnippet>562</a>        QuicFrame::Ack {
+<a href=#563 id=563 data-nosnippet>563</a>            ack_delay: <span class="prelude-val">Some</span>(<span class="self">self</span>.delay <span class="kw">as </span>f32),
+<a href=#564 id=564 data-nosnippet>564</a>            acked_ranges: <span class="prelude-val">Some</span>(AckedRanges::Double(
+<a href=#565 id=565 data-nosnippet>565</a>                <span class="self">self</span>.ranges
+<a href=#566 id=566 data-nosnippet>566</a>                    .iter()
+<a href=#567 id=567 data-nosnippet>567</a>                    .map(|range| (range.start, range.end))
+<a href=#568 id=568 data-nosnippet>568</a>                    .collect(),
+<a href=#569 id=569 data-nosnippet>569</a>            )),
+<a href=#570 id=570 data-nosnippet>570</a>            ect1: <span class="self">self</span>.ecn.map(|e| e.ect1),
+<a href=#571 id=571 data-nosnippet>571</a>            ect0: <span class="self">self</span>.ecn.map(|e| e.ect0),
+<a href=#572 id=572 data-nosnippet>572</a>            ce: <span class="self">self</span>.ecn.map(|e| e.ce),
+<a href=#573 id=573 data-nosnippet>573</a>            raw: <span class="prelude-val">None</span>,
+<a href=#574 id=574 data-nosnippet>574</a>        }
+<a href=#575 id=575 data-nosnippet>575</a>    }
+<a href=#576 id=576 data-nosnippet>576</a>}
+<a href=#577 id=577 data-nosnippet>577</a>
+<a href=#578 id=578 data-nosnippet>578</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#579 id=579 data-nosnippet>579</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::AckFrequency {
+<a href=#580 id=580 data-nosnippet>580</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#581 id=581 data-nosnippet>581</a>        QuicFrame::AckFrequency {
+<a href=#582 id=582 data-nosnippet>582</a>            sequence_number: <span class="self">self</span>.sequence.into_inner(),
+<a href=#583 id=583 data-nosnippet>583</a>            ack_eliciting_threshold: <span class="self">self</span>.ack_eliciting_threshold.into_inner(),
+<a href=#584 id=584 data-nosnippet>584</a>            requested_max_ack_delay: <span class="self">self</span>.request_max_ack_delay.into_inner(),
+<a href=#585 id=585 data-nosnippet>585</a>            reordering_threshold: <span class="self">self</span>.reordering_threshold.into_inner(),
+<a href=#586 id=586 data-nosnippet>586</a>            raw: <span class="prelude-val">None</span>,
+<a href=#587 id=587 data-nosnippet>587</a>        }
+<a href=#588 id=588 data-nosnippet>588</a>    }
+<a href=#589 id=589 data-nosnippet>589</a>}
+<a href=#590 id=590 data-nosnippet>590</a>
+<a href=#591 id=591 data-nosnippet>591</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#592 id=592 data-nosnippet>592</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::AddAddress {
+<a href=#593 id=593 data-nosnippet>593</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#594 id=594 data-nosnippet>594</a>        QuicFrame::AddAddress {
+<a href=#595 id=595 data-nosnippet>595</a>            sequence_number: <span class="self">self</span>.seq_no.into_inner(),
+<a href=#596 id=596 data-nosnippet>596</a>            ip_v4: <span class="kw">match </span><span class="self">self</span>.ip {
+<a href=#597 id=597 data-nosnippet>597</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">Some</span>(ipv4_addr.to_string()),
+<a href=#598 id=598 data-nosnippet>598</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">None</span>,
+<a href=#599 id=599 data-nosnippet>599</a>            },
+<a href=#600 id=600 data-nosnippet>600</a>            ip_v6: <span class="kw">match </span><span class="self">self</span>.ip {
+<a href=#601 id=601 data-nosnippet>601</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">None</span>,
+<a href=#602 id=602 data-nosnippet>602</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">Some</span>(ipv6_addr.to_string()),
+<a href=#603 id=603 data-nosnippet>603</a>            },
+<a href=#604 id=604 data-nosnippet>604</a>            port: <span class="self">self</span>.port,
+<a href=#605 id=605 data-nosnippet>605</a>        }
+<a href=#606 id=606 data-nosnippet>606</a>    }
+<a href=#607 id=607 data-nosnippet>607</a>}
+<a href=#608 id=608 data-nosnippet>608</a>
+<a href=#609 id=609 data-nosnippet>609</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#610 id=610 data-nosnippet>610</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::CloseEncoder&lt;<span class="lifetime">'_</span>&gt; {
+<a href=#611 id=611 data-nosnippet>611</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#612 id=612 data-nosnippet>612</a>        <span class="self">self</span>.close.to_qlog()
+<a href=#613 id=613 data-nosnippet>613</a>    }
+<a href=#614 id=614 data-nosnippet>614</a>}
+<a href=#615 id=615 data-nosnippet>615</a>
+<a href=#616 id=616 data-nosnippet>616</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#617 id=617 data-nosnippet>617</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::Close {
+<a href=#618 id=618 data-nosnippet>618</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#619 id=619 data-nosnippet>619</a>        <span class="kw">match </span><span class="self">self </span>{
+<a href=#620 id=620 data-nosnippet>620</a>            <span class="self">Self</span>::Connection(f) =&gt; {
+<a href=#621 id=621 data-nosnippet>621</a>                <span class="kw">let </span>(error, error_code) = transport_error(f.error_code);
+<a href=#622 id=622 data-nosnippet>622</a>                <span class="kw">let </span>error = error.map(|transport_error| {
+<a href=#623 id=623 data-nosnippet>623</a>                    ConnectionClosedFrameError::TransportError(transport_error)
+<a href=#624 id=624 data-nosnippet>624</a>                });
+<a href=#625 id=625 data-nosnippet>625</a>                QuicFrame::ConnectionClose {
+<a href=#626 id=626 data-nosnippet>626</a>                    error_space: <span class="prelude-val">Some</span>(ErrorSpace::TransportError),
+<a href=#627 id=627 data-nosnippet>627</a>                    error,
+<a href=#628 id=628 data-nosnippet>628</a>                    error_code,
+<a href=#629 id=629 data-nosnippet>629</a>                    reason: String::from_utf8(f.reason.to_vec()).ok(),
+<a href=#630 id=630 data-nosnippet>630</a>                    reason_bytes: <span class="prelude-val">None</span>,
+<a href=#631 id=631 data-nosnippet>631</a>                    trigger_frame_type: <span class="prelude-val">None</span>,
+<a href=#632 id=632 data-nosnippet>632</a>                }
+<a href=#633 id=633 data-nosnippet>633</a>            }
+<a href=#634 id=634 data-nosnippet>634</a>            <span class="self">Self</span>::Application(f) =&gt; QuicFrame::ConnectionClose {
+<a href=#635 id=635 data-nosnippet>635</a>                error_space: <span class="prelude-val">Some</span>(ErrorSpace::ApplicationError),
+<a href=#636 id=636 data-nosnippet>636</a>                error: <span class="prelude-val">None</span>,
+<a href=#637 id=637 data-nosnippet>637</a>                error_code: <span class="prelude-val">Some</span>(f.error_code.into_inner()),
+<a href=#638 id=638 data-nosnippet>638</a>                reason: String::from_utf8(f.reason.to_vec()).ok(),
+<a href=#639 id=639 data-nosnippet>639</a>                reason_bytes: <span class="prelude-val">None</span>,
+<a href=#640 id=640 data-nosnippet>640</a>                trigger_frame_type: <span class="prelude-val">None</span>,
+<a href=#641 id=641 data-nosnippet>641</a>            },
+<a href=#642 id=642 data-nosnippet>642</a>        }
+<a href=#643 id=643 data-nosnippet>643</a>    }
+<a href=#644 id=644 data-nosnippet>644</a>}
+<a href=#645 id=645 data-nosnippet>645</a>
+<a href=#646 id=646 data-nosnippet>646</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#647 id=647 data-nosnippet>647</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::Crypto {
+<a href=#648 id=648 data-nosnippet>648</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#649 id=649 data-nosnippet>649</a>        QuicFrame::Crypto {
+<a href=#650 id=650 data-nosnippet>650</a>            offset: <span class="self">self</span>.offset,
+<a href=#651 id=651 data-nosnippet>651</a>            raw: <span class="prelude-val">Some</span>(RawInfo {
+<a href=#652 id=652 data-nosnippet>652</a>                length: <span class="prelude-val">Some</span>(<span class="self">self</span>.data.len() <span class="kw">as </span>u64),
+<a href=#653 id=653 data-nosnippet>653</a>                ..Default::default()
+<a href=#654 id=654 data-nosnippet>654</a>            }),
+<a href=#655 id=655 data-nosnippet>655</a>        }
+<a href=#656 id=656 data-nosnippet>656</a>    }
+<a href=#657 id=657 data-nosnippet>657</a>}
+<a href=#658 id=658 data-nosnippet>658</a>
+<a href=#659 id=659 data-nosnippet>659</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#660 id=660 data-nosnippet>660</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::Datagram {
+<a href=#661 id=661 data-nosnippet>661</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#662 id=662 data-nosnippet>662</a>        QuicFrame::Datagram {
+<a href=#663 id=663 data-nosnippet>663</a>            raw: <span class="prelude-val">Some</span>(RawInfo {
+<a href=#664 id=664 data-nosnippet>664</a>                length: <span class="prelude-val">Some</span>(<span class="self">self</span>.data.len() <span class="kw">as </span>u64),
+<a href=#665 id=665 data-nosnippet>665</a>                ..Default::default()
+<a href=#666 id=666 data-nosnippet>666</a>            }),
+<a href=#667 id=667 data-nosnippet>667</a>        }
+<a href=#668 id=668 data-nosnippet>668</a>    }
+<a href=#669 id=669 data-nosnippet>669</a>}
+<a href=#670 id=670 data-nosnippet>670</a>
+<a href=#671 id=671 data-nosnippet>671</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#672 id=672 data-nosnippet>672</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::HandshakeDone {
+<a href=#673 id=673 data-nosnippet>673</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#674 id=674 data-nosnippet>674</a>        QuicFrame::HandshakeDone { raw: <span class="prelude-val">None </span>}
+<a href=#675 id=675 data-nosnippet>675</a>    }
+<a href=#676 id=676 data-nosnippet>676</a>}
+<a href=#677 id=677 data-nosnippet>677</a>
+<a href=#678 id=678 data-nosnippet>678</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#679 id=679 data-nosnippet>679</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::ImmediateAck {
+<a href=#680 id=680 data-nosnippet>680</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#681 id=681 data-nosnippet>681</a>        QuicFrame::ImmediateAck { raw: <span class="prelude-val">None </span>}
+<a href=#682 id=682 data-nosnippet>682</a>    }
+<a href=#683 id=683 data-nosnippet>683</a>}
+<a href=#684 id=684 data-nosnippet>684</a>
+<a href=#685 id=685 data-nosnippet>685</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#686 id=686 data-nosnippet>686</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::MaxData {
+<a href=#687 id=687 data-nosnippet>687</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#688 id=688 data-nosnippet>688</a>        QuicFrame::MaxData {
+<a href=#689 id=689 data-nosnippet>689</a>            maximum: <span class="self">self</span>.<span class="number">0</span>.into(),
+<a href=#690 id=690 data-nosnippet>690</a>            raw: <span class="prelude-val">None</span>,
+<a href=#691 id=691 data-nosnippet>691</a>        }
+<a href=#692 id=692 data-nosnippet>692</a>    }
+<a href=#693 id=693 data-nosnippet>693</a>}
+<a href=#694 id=694 data-nosnippet>694</a>
+<a href=#695 id=695 data-nosnippet>695</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#696 id=696 data-nosnippet>696</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::MaxPathId {
+<a href=#697 id=697 data-nosnippet>697</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#698 id=698 data-nosnippet>698</a>        QuicFrame::MaxPathId {
+<a href=#699 id=699 data-nosnippet>699</a>            maximum_path_id: <span class="self">self</span>.<span class="number">0</span>.as_u32().into(),
+<a href=#700 id=700 data-nosnippet>700</a>            raw: <span class="prelude-val">None</span>,
+<a href=#701 id=701 data-nosnippet>701</a>        }
+<a href=#702 id=702 data-nosnippet>702</a>    }
+<a href=#703 id=703 data-nosnippet>703</a>}
+<a href=#704 id=704 data-nosnippet>704</a>
+<a href=#705 id=705 data-nosnippet>705</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#706 id=706 data-nosnippet>706</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::MaxStreamData {
+<a href=#707 id=707 data-nosnippet>707</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#708 id=708 data-nosnippet>708</a>        QuicFrame::MaxStreamData {
+<a href=#709 id=709 data-nosnippet>709</a>            stream_id: <span class="self">self</span>.id.into(),
+<a href=#710 id=710 data-nosnippet>710</a>            maximum: <span class="self">self</span>.offset,
+<a href=#711 id=711 data-nosnippet>711</a>            raw: <span class="prelude-val">None</span>,
+<a href=#712 id=712 data-nosnippet>712</a>        }
+<a href=#713 id=713 data-nosnippet>713</a>    }
+<a href=#714 id=714 data-nosnippet>714</a>}
+<a href=#715 id=715 data-nosnippet>715</a>
+<a href=#716 id=716 data-nosnippet>716</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#717 id=717 data-nosnippet>717</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::MaxStreams {
+<a href=#718 id=718 data-nosnippet>718</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#719 id=719 data-nosnippet>719</a>        QuicFrame::MaxStreams {
+<a href=#720 id=720 data-nosnippet>720</a>            maximum: <span class="self">self</span>.count,
+<a href=#721 id=721 data-nosnippet>721</a>            stream_type: <span class="self">self</span>.dir.into(),
+<a href=#722 id=722 data-nosnippet>722</a>            raw: <span class="prelude-val">None</span>,
+<a href=#723 id=723 data-nosnippet>723</a>        }
+<a href=#724 id=724 data-nosnippet>724</a>    }
+<a href=#725 id=725 data-nosnippet>725</a>}
+<a href=#726 id=726 data-nosnippet>726</a>
+<a href=#727 id=727 data-nosnippet>727</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#728 id=728 data-nosnippet>728</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::NewConnectionId {
+<a href=#729 id=729 data-nosnippet>729</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#730 id=730 data-nosnippet>730</a>        QuicFrame::NewConnectionId {
+<a href=#731 id=731 data-nosnippet>731</a>            sequence_number: <span class="self">self</span>.sequence,
+<a href=#732 id=732 data-nosnippet>732</a>            retire_prior_to: <span class="self">self</span>.retire_prior_to,
+<a href=#733 id=733 data-nosnippet>733</a>            connection_id_length: <span class="prelude-val">Some</span>(<span class="self">self</span>.id.len() <span class="kw">as </span>u8),
+<a href=#734 id=734 data-nosnippet>734</a>            connection_id: <span class="self">self</span>.id.to_string(),
+<a href=#735 id=735 data-nosnippet>735</a>            stateless_reset_token: <span class="prelude-val">Some</span>(<span class="self">self</span>.reset_token.to_string()),
+<a href=#736 id=736 data-nosnippet>736</a>            raw: <span class="prelude-val">None</span>,
+<a href=#737 id=737 data-nosnippet>737</a>        }
+<a href=#738 id=738 data-nosnippet>738</a>    }
+<a href=#739 id=739 data-nosnippet>739</a>}
+<a href=#740 id=740 data-nosnippet>740</a>
+<a href=#741 id=741 data-nosnippet>741</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#742 id=742 data-nosnippet>742</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::NewToken {
+<a href=#743 id=743 data-nosnippet>743</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#744 id=744 data-nosnippet>744</a>        QuicFrame::NewToken {
+<a href=#745 id=745 data-nosnippet>745</a>            token: qlog::Token {
+<a href=#746 id=746 data-nosnippet>746</a>                ty: <span class="prelude-val">Some</span>(TokenType::Retry),
+<a href=#747 id=747 data-nosnippet>747</a>                raw: <span class="prelude-val">Some</span>(RawInfo {
+<a href=#748 id=748 data-nosnippet>748</a>                    data: HexSlice::maybe_string(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.token)),
+<a href=#749 id=749 data-nosnippet>749</a>                    length: <span class="prelude-val">Some</span>(<span class="self">self</span>.token.len() <span class="kw">as </span>u64),
+<a href=#750 id=750 data-nosnippet>750</a>                    payload_length: <span class="prelude-val">None</span>,
+<a href=#751 id=751 data-nosnippet>751</a>                }),
+<a href=#752 id=752 data-nosnippet>752</a>                details: <span class="prelude-val">None</span>,
+<a href=#753 id=753 data-nosnippet>753</a>            },
+<a href=#754 id=754 data-nosnippet>754</a>            raw: <span class="prelude-val">None</span>,
+<a href=#755 id=755 data-nosnippet>755</a>        }
+<a href=#756 id=756 data-nosnippet>756</a>    }
+<a href=#757 id=757 data-nosnippet>757</a>}
+<a href=#758 id=758 data-nosnippet>758</a>
+<a href=#759 id=759 data-nosnippet>759</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#760 id=760 data-nosnippet>760</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::ObservedAddr {
+<a href=#761 id=761 data-nosnippet>761</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#762 id=762 data-nosnippet>762</a>        QuicFrame::ObservedAddress {
+<a href=#763 id=763 data-nosnippet>763</a>            sequence_number: <span class="self">self</span>.seq_no.into_inner(),
+<a href=#764 id=764 data-nosnippet>764</a>            ip_v4: <span class="kw">match </span><span class="self">self</span>.ip {
+<a href=#765 id=765 data-nosnippet>765</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">Some</span>(ipv4_addr.to_string()),
+<a href=#766 id=766 data-nosnippet>766</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">None</span>,
+<a href=#767 id=767 data-nosnippet>767</a>            },
+<a href=#768 id=768 data-nosnippet>768</a>            ip_v6: <span class="kw">match </span><span class="self">self</span>.ip {
+<a href=#769 id=769 data-nosnippet>769</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">None</span>,
+<a href=#770 id=770 data-nosnippet>770</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">Some</span>(ipv6_addr.to_string()),
+<a href=#771 id=771 data-nosnippet>771</a>            },
+<a href=#772 id=772 data-nosnippet>772</a>            port: <span class="self">self</span>.port,
+<a href=#773 id=773 data-nosnippet>773</a>            raw: <span class="prelude-val">None</span>,
+<a href=#774 id=774 data-nosnippet>774</a>        }
+<a href=#775 id=775 data-nosnippet>775</a>    }
+<a href=#776 id=776 data-nosnippet>776</a>}
+<a href=#777 id=777 data-nosnippet>777</a>
+<a href=#778 id=778 data-nosnippet>778</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#779 id=779 data-nosnippet>779</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::PathAbandon {
+<a href=#780 id=780 data-nosnippet>780</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#781 id=781 data-nosnippet>781</a>        QuicFrame::PathAbandon {
+<a href=#782 id=782 data-nosnippet>782</a>            path_id: <span class="self">self</span>.path_id.as_u32().into(),
+<a href=#783 id=783 data-nosnippet>783</a>            error_code: <span class="self">self</span>.error_code.into(),
+<a href=#784 id=784 data-nosnippet>784</a>            raw: <span class="prelude-val">None</span>,
+<a href=#785 id=785 data-nosnippet>785</a>        }
+<a href=#786 id=786 data-nosnippet>786</a>    }
+<a href=#787 id=787 data-nosnippet>787</a>}
+<a href=#788 id=788 data-nosnippet>788</a>
+<a href=#789 id=789 data-nosnippet>789</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#790 id=790 data-nosnippet>790</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::PathAckEncoder&lt;<span class="lifetime">'_</span>&gt; {
+<a href=#791 id=791 data-nosnippet>791</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#792 id=792 data-nosnippet>792</a>        QuicFrame::PathAck {
+<a href=#793 id=793 data-nosnippet>793</a>            path_id: <span class="self">self</span>.path_id.as_u32() <span class="kw">as </span>u64,
+<a href=#794 id=794 data-nosnippet>794</a>            ack_delay: <span class="prelude-val">Some</span>(<span class="self">self</span>.delay <span class="kw">as </span>f32),
+<a href=#795 id=795 data-nosnippet>795</a>            acked_ranges: <span class="prelude-val">Some</span>(AckedRanges::Double(
+<a href=#796 id=796 data-nosnippet>796</a>                <span class="self">self</span>.ranges
+<a href=#797 id=797 data-nosnippet>797</a>                    .iter()
+<a href=#798 id=798 data-nosnippet>798</a>                    .map(|range| (range.start, range.end))
+<a href=#799 id=799 data-nosnippet>799</a>                    .collect(),
+<a href=#800 id=800 data-nosnippet>800</a>            )),
+<a href=#801 id=801 data-nosnippet>801</a>            ect1: <span class="self">self</span>.ecn.map(|e| e.ect1),
+<a href=#802 id=802 data-nosnippet>802</a>            ect0: <span class="self">self</span>.ecn.map(|e| e.ect0),
+<a href=#803 id=803 data-nosnippet>803</a>            ce: <span class="self">self</span>.ecn.map(|e| e.ce),
+<a href=#804 id=804 data-nosnippet>804</a>            raw: <span class="prelude-val">None</span>,
+<a href=#805 id=805 data-nosnippet>805</a>        }
+<a href=#806 id=806 data-nosnippet>806</a>    }
+<a href=#807 id=807 data-nosnippet>807</a>}
+<a href=#808 id=808 data-nosnippet>808</a>
+<a href=#809 id=809 data-nosnippet>809</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#810 id=810 data-nosnippet>810</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::PathChallenge {
+<a href=#811 id=811 data-nosnippet>811</a>    <span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#812 id=812 data-nosnippet>812</a>    </span><span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#813 id=813 data-nosnippet>813</a>        QuicFrame::PathChallenge {
+<a href=#814 id=814 data-nosnippet>814</a>            data: <span class="prelude-val">Some</span>(<span class="self">self</span>.to_string()),
+<a href=#815 id=815 data-nosnippet>815</a>            raw: <span class="prelude-val">None</span>,
+<a href=#816 id=816 data-nosnippet>816</a>        }
+<a href=#817 id=817 data-nosnippet>817</a>    }
+<a href=#818 id=818 data-nosnippet>818</a>}
+<a href=#819 id=819 data-nosnippet>819</a>
+<a href=#820 id=820 data-nosnippet>820</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#821 id=821 data-nosnippet>821</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::PathCidsBlocked {
+<a href=#822 id=822 data-nosnippet>822</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#823 id=823 data-nosnippet>823</a>        QuicFrame::PathCidsBlocked {
+<a href=#824 id=824 data-nosnippet>824</a>            path_id: <span class="self">self</span>.path_id.as_u32().into(),
+<a href=#825 id=825 data-nosnippet>825</a>            next_sequence_number: <span class="self">self</span>.next_seq.into(),
+<a href=#826 id=826 data-nosnippet>826</a>            raw: <span class="prelude-val">None</span>,
+<a href=#827 id=827 data-nosnippet>827</a>        }
+<a href=#828 id=828 data-nosnippet>828</a>    }
+<a href=#829 id=829 data-nosnippet>829</a>}
+<a href=#830 id=830 data-nosnippet>830</a>
+<a href=#831 id=831 data-nosnippet>831</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#832 id=832 data-nosnippet>832</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::PathResponse {
+<a href=#833 id=833 data-nosnippet>833</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#834 id=834 data-nosnippet>834</a>        QuicFrame::PathResponse {
+<a href=#835 id=835 data-nosnippet>835</a>            data: <span class="prelude-val">Some</span>(<span class="self">self</span>.to_string()),
+<a href=#836 id=836 data-nosnippet>836</a>            raw: <span class="prelude-val">None</span>,
+<a href=#837 id=837 data-nosnippet>837</a>        }
+<a href=#838 id=838 data-nosnippet>838</a>    }
+<a href=#839 id=839 data-nosnippet>839</a>}
+<a href=#840 id=840 data-nosnippet>840</a>
+<a href=#841 id=841 data-nosnippet>841</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#842 id=842 data-nosnippet>842</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::ReachOut {
+<a href=#843 id=843 data-nosnippet>843</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#844 id=844 data-nosnippet>844</a>        QuicFrame::ReachOut {
+<a href=#845 id=845 data-nosnippet>845</a>            round: <span class="self">self</span>.round.into_inner(),
+<a href=#846 id=846 data-nosnippet>846</a>            ip_v4: <span class="kw">match </span><span class="self">self</span>.ip {
+<a href=#847 id=847 data-nosnippet>847</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">Some</span>(ipv4_addr.to_string()),
+<a href=#848 id=848 data-nosnippet>848</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">None</span>,
+<a href=#849 id=849 data-nosnippet>849</a>            },
+<a href=#850 id=850 data-nosnippet>850</a>            ip_v6: <span class="kw">match </span><span class="self">self</span>.ip {
+<a href=#851 id=851 data-nosnippet>851</a>                IpAddr::V4(ipv4_addr) =&gt; <span class="prelude-val">None</span>,
+<a href=#852 id=852 data-nosnippet>852</a>                IpAddr::V6(ipv6_addr) =&gt; <span class="prelude-val">Some</span>(ipv6_addr.to_string()),
+<a href=#853 id=853 data-nosnippet>853</a>            },
+<a href=#854 id=854 data-nosnippet>854</a>            port: <span class="self">self</span>.port,
+<a href=#855 id=855 data-nosnippet>855</a>        }
+<a href=#856 id=856 data-nosnippet>856</a>    }
+<a href=#857 id=857 data-nosnippet>857</a>}
+<a href=#858 id=858 data-nosnippet>858</a>
+<a href=#859 id=859 data-nosnippet>859</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#860 id=860 data-nosnippet>860</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::Ping {
+<a href=#861 id=861 data-nosnippet>861</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#862 id=862 data-nosnippet>862</a>        QuicFrame::Ping { raw: <span class="prelude-val">None </span>}
+<a href=#863 id=863 data-nosnippet>863</a>    }
+<a href=#864 id=864 data-nosnippet>864</a>}
+<a href=#865 id=865 data-nosnippet>865</a>
+<a href=#866 id=866 data-nosnippet>866</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#867 id=867 data-nosnippet>867</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::PathStatusAvailable {
+<a href=#868 id=868 data-nosnippet>868</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#869 id=869 data-nosnippet>869</a>        QuicFrame::PathStatusAvailable {
+<a href=#870 id=870 data-nosnippet>870</a>            path_id: <span class="self">self</span>.path_id.as_u32().into(),
+<a href=#871 id=871 data-nosnippet>871</a>            path_status_sequence_number: <span class="self">self</span>.status_seq_no.into(),
+<a href=#872 id=872 data-nosnippet>872</a>            raw: <span class="prelude-val">None</span>,
+<a href=#873 id=873 data-nosnippet>873</a>        }
+<a href=#874 id=874 data-nosnippet>874</a>    }
+<a href=#875 id=875 data-nosnippet>875</a>}
+<a href=#876 id=876 data-nosnippet>876</a>
+<a href=#877 id=877 data-nosnippet>877</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#878 id=878 data-nosnippet>878</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::PathStatusBackup {
+<a href=#879 id=879 data-nosnippet>879</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#880 id=880 data-nosnippet>880</a>        QuicFrame::PathStatusBackup {
+<a href=#881 id=881 data-nosnippet>881</a>            path_id: <span class="self">self</span>.path_id.as_u32().into(),
+<a href=#882 id=882 data-nosnippet>882</a>            path_status_sequence_number: <span class="self">self</span>.status_seq_no.into(),
+<a href=#883 id=883 data-nosnippet>883</a>            raw: <span class="prelude-val">None</span>,
+<a href=#884 id=884 data-nosnippet>884</a>        }
+<a href=#885 id=885 data-nosnippet>885</a>    }
+<a href=#886 id=886 data-nosnippet>886</a>}
+<a href=#887 id=887 data-nosnippet>887</a>
+<a href=#888 id=888 data-nosnippet>888</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#889 id=889 data-nosnippet>889</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::PathsBlocked {
+<a href=#890 id=890 data-nosnippet>890</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#891 id=891 data-nosnippet>891</a>        QuicFrame::PathsBlocked {
+<a href=#892 id=892 data-nosnippet>892</a>            maximum_path_id: <span class="self">self</span>.<span class="number">0</span>.as_u32().into(),
+<a href=#893 id=893 data-nosnippet>893</a>            raw: <span class="prelude-val">None</span>,
+<a href=#894 id=894 data-nosnippet>894</a>        }
+<a href=#895 id=895 data-nosnippet>895</a>    }
+<a href=#896 id=896 data-nosnippet>896</a>}
+<a href=#897 id=897 data-nosnippet>897</a>
+<a href=#898 id=898 data-nosnippet>898</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#899 id=899 data-nosnippet>899</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::ResetStream {
+<a href=#900 id=900 data-nosnippet>900</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#901 id=901 data-nosnippet>901</a>        QuicFrame::ResetStream {
+<a href=#902 id=902 data-nosnippet>902</a>            stream_id: <span class="self">self</span>.id.into(),
+<a href=#903 id=903 data-nosnippet>903</a>            error_code: <span class="prelude-val">Some</span>(<span class="self">self</span>.error_code.into_inner()),
+<a href=#904 id=904 data-nosnippet>904</a>            final_size: <span class="self">self</span>.final_offset.into(),
+<a href=#905 id=905 data-nosnippet>905</a>            error: ApplicationError::Unknown,
+<a href=#906 id=906 data-nosnippet>906</a>            raw: <span class="prelude-val">None</span>,
+<a href=#907 id=907 data-nosnippet>907</a>        }
+<a href=#908 id=908 data-nosnippet>908</a>    }
+<a href=#909 id=909 data-nosnippet>909</a>}
+<a href=#910 id=910 data-nosnippet>910</a>
+<a href=#911 id=911 data-nosnippet>911</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#912 id=912 data-nosnippet>912</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::StopSending {
+<a href=#913 id=913 data-nosnippet>913</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#914 id=914 data-nosnippet>914</a>        QuicFrame::StopSending {
+<a href=#915 id=915 data-nosnippet>915</a>            stream_id: <span class="self">self</span>.id.into(),
+<a href=#916 id=916 data-nosnippet>916</a>            error_code: <span class="prelude-val">Some</span>(<span class="self">self</span>.error_code.into_inner()),
+<a href=#917 id=917 data-nosnippet>917</a>            error: ApplicationError::Unknown,
+<a href=#918 id=918 data-nosnippet>918</a>            raw: <span class="prelude-val">None</span>,
+<a href=#919 id=919 data-nosnippet>919</a>        }
+<a href=#920 id=920 data-nosnippet>920</a>    }
+<a href=#921 id=921 data-nosnippet>921</a>}
+<a href=#922 id=922 data-nosnippet>922</a>
+<a href=#923 id=923 data-nosnippet>923</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#924 id=924 data-nosnippet>924</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::RetireConnectionId {
+<a href=#925 id=925 data-nosnippet>925</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#926 id=926 data-nosnippet>926</a>        QuicFrame::RetireConnectionId {
+<a href=#927 id=927 data-nosnippet>927</a>            sequence_number: <span class="self">self</span>.sequence,
+<a href=#928 id=928 data-nosnippet>928</a>            raw: <span class="prelude-val">None</span>,
+<a href=#929 id=929 data-nosnippet>929</a>        }
+<a href=#930 id=930 data-nosnippet>930</a>    }
+<a href=#931 id=931 data-nosnippet>931</a>}
+<a href=#932 id=932 data-nosnippet>932</a>
+<a href=#933 id=933 data-nosnippet>933</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#934 id=934 data-nosnippet>934</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::RemoveAddress {
+<a href=#935 id=935 data-nosnippet>935</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#936 id=936 data-nosnippet>936</a>        QuicFrame::RemoveAddress {
+<a href=#937 id=937 data-nosnippet>937</a>            sequence_number: <span class="self">self</span>.seq_no.into_inner(),
+<a href=#938 id=938 data-nosnippet>938</a>        }
+<a href=#939 id=939 data-nosnippet>939</a>    }
+<a href=#940 id=940 data-nosnippet>940</a>}
+<a href=#941 id=941 data-nosnippet>941</a>
+<a href=#942 id=942 data-nosnippet>942</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#943 id=943 data-nosnippet>943</a></span><span class="kw">impl </span>ToQlog <span class="kw">for </span>frame::StreamMetaEncoder {
+<a href=#944 id=944 data-nosnippet>944</a>    <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#945 id=945 data-nosnippet>945</a>        <span class="kw">let </span>meta = <span class="kw-2">&amp;</span><span class="self">self</span>.meta;
+<a href=#946 id=946 data-nosnippet>946</a>        QuicFrame::Stream {
+<a href=#947 id=947 data-nosnippet>947</a>            stream_id: meta.id.into(),
+<a href=#948 id=948 data-nosnippet>948</a>            offset: <span class="prelude-val">Some</span>(meta.offsets.start),
+<a href=#949 id=949 data-nosnippet>949</a>            fin: <span class="prelude-val">Some</span>(meta.fin),
+<a href=#950 id=950 data-nosnippet>950</a>            raw: <span class="prelude-val">Some</span>(RawInfo {
+<a href=#951 id=951 data-nosnippet>951</a>                length: <span class="prelude-val">Some</span>(meta.offsets.end - meta.offsets.start),
+<a href=#952 id=952 data-nosnippet>952</a>                ..Default::default()
+<a href=#953 id=953 data-nosnippet>953</a>            }),
+<a href=#954 id=954 data-nosnippet>954</a>        }
+<a href=#955 id=955 data-nosnippet>955</a>    }
+<a href=#956 id=956 data-nosnippet>956</a>}
+<a href=#957 id=957 data-nosnippet>957</a>
+<a href=#958 id=958 data-nosnippet>958</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#959 id=959 data-nosnippet>959</a></span><span class="kw">impl </span>Frame {
+<a href=#960 id=960 data-nosnippet>960</a>    <span class="doccomment">/// Converts a [`crate::Frame`] into a [`QuicFrame`].
+<a href=#961 id=961 data-nosnippet>961</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_qlog(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; QuicFrame {
+<a href=#962 id=962 data-nosnippet>962</a>        <span class="kw">match </span><span class="self">self </span>{
+<a href=#963 id=963 data-nosnippet>963</a>            <span class="self">Self</span>::Padding =&gt; QuicFrame::Padding {
+<a href=#964 id=964 data-nosnippet>964</a>                raw: <span class="prelude-val">Some</span>(RawInfo {
+<a href=#965 id=965 data-nosnippet>965</a>                    length: <span class="prelude-val">None</span>,
+<a href=#966 id=966 data-nosnippet>966</a>                    payload_length: <span class="prelude-val">Some</span>(<span class="number">1</span>),
+<a href=#967 id=967 data-nosnippet>967</a>                    data: <span class="prelude-val">None</span>,
+<a href=#968 id=968 data-nosnippet>968</a>                }),
+<a href=#969 id=969 data-nosnippet>969</a>            },
+<a href=#970 id=970 data-nosnippet>970</a>            <span class="self">Self</span>::Ping =&gt; frame::Ping.to_qlog(),
+<a href=#971 id=971 data-nosnippet>971</a>            <span class="self">Self</span>::Ack(f) =&gt; QuicFrame::Ack {
+<a href=#972 id=972 data-nosnippet>972</a>                ack_delay: <span class="prelude-val">Some</span>(f.delay <span class="kw">as </span>f32),
+<a href=#973 id=973 data-nosnippet>973</a>                acked_ranges: <span class="prelude-val">Some</span>(AckedRanges::Double(
+<a href=#974 id=974 data-nosnippet>974</a>                    f.iter()
+<a href=#975 id=975 data-nosnippet>975</a>                        .map(|range| (<span class="kw-2">*</span>range.start(), <span class="kw-2">*</span>range.end()))
+<a href=#976 id=976 data-nosnippet>976</a>                        .collect(),
+<a href=#977 id=977 data-nosnippet>977</a>                )),
+<a href=#978 id=978 data-nosnippet>978</a>                ect1: f.ecn.as_ref().map(|e| e.ect1),
+<a href=#979 id=979 data-nosnippet>979</a>                ect0: f.ecn.as_ref().map(|e| e.ect0),
+<a href=#980 id=980 data-nosnippet>980</a>                ce: f.ecn.as_ref().map(|e| e.ce),
+<a href=#981 id=981 data-nosnippet>981</a>                raw: <span class="prelude-val">None</span>,
+<a href=#982 id=982 data-nosnippet>982</a>            },
+<a href=#983 id=983 data-nosnippet>983</a>            <span class="self">Self</span>::ResetStream(f) =&gt; f.to_qlog(),
+<a href=#984 id=984 data-nosnippet>984</a>            <span class="self">Self</span>::StopSending(f) =&gt; f.to_qlog(),
+<a href=#985 id=985 data-nosnippet>985</a>            <span class="self">Self</span>::Crypto(f) =&gt; f.to_qlog(),
+<a href=#986 id=986 data-nosnippet>986</a>            <span class="self">Self</span>::NewToken(f) =&gt; f.to_qlog(),
+<a href=#987 id=987 data-nosnippet>987</a>            <span class="self">Self</span>::Stream(s) =&gt; QuicFrame::Stream {
+<a href=#988 id=988 data-nosnippet>988</a>                stream_id: s.id.into(),
+<a href=#989 id=989 data-nosnippet>989</a>                offset: <span class="prelude-val">Some</span>(s.offset),
+<a href=#990 id=990 data-nosnippet>990</a>                fin: <span class="prelude-val">Some</span>(s.fin),
+<a href=#991 id=991 data-nosnippet>991</a>                raw: <span class="prelude-val">Some</span>(RawInfo {
+<a href=#992 id=992 data-nosnippet>992</a>                    length: <span class="prelude-val">Some</span>(s.data.len() <span class="kw">as </span>u64),
+<a href=#993 id=993 data-nosnippet>993</a>                    ..Default::default()
+<a href=#994 id=994 data-nosnippet>994</a>                }),
+<a href=#995 id=995 data-nosnippet>995</a>            },
+<a href=#996 id=996 data-nosnippet>996</a>            <span class="self">Self</span>::MaxData(v) =&gt; v.to_qlog(),
+<a href=#997 id=997 data-nosnippet>997</a>            <span class="self">Self</span>::MaxStreamData(f) =&gt; f.to_qlog(),
+<a href=#998 id=998 data-nosnippet>998</a>            <span class="self">Self</span>::MaxStreams(f) =&gt; f.to_qlog(),
+<a href=#999 id=999 data-nosnippet>999</a>            <span class="self">Self</span>::DataBlocked { offset } =&gt; QuicFrame::DataBlocked {
 <a href=#1000 id=1000 data-nosnippet>1000</a>                limit: <span class="kw-2">*</span>offset,
 <a href=#1001 id=1001 data-nosnippet>1001</a>                raw: <span class="prelude-val">None</span>,
 <a href=#1002 id=1002 data-nosnippet>1002</a>            },
-<a href=#1003 id=1003 data-nosnippet>1003</a>            <span class="self">Self</span>::StreamsBlocked { dir, limit } =&gt; QuicFrame::StreamsBlocked {
-<a href=#1004 id=1004 data-nosnippet>1004</a>                stream_type: (<span class="kw-2">*</span>dir).into(),
-<a href=#1005 id=1005 data-nosnippet>1005</a>                limit: <span class="kw-2">*</span>limit,
+<a href=#1003 id=1003 data-nosnippet>1003</a>            <span class="self">Self</span>::StreamDataBlocked { id, offset } =&gt; QuicFrame::StreamDataBlocked {
+<a href=#1004 id=1004 data-nosnippet>1004</a>                stream_id: (<span class="kw-2">*</span>id).into(),
+<a href=#1005 id=1005 data-nosnippet>1005</a>                limit: <span class="kw-2">*</span>offset,
 <a href=#1006 id=1006 data-nosnippet>1006</a>                raw: <span class="prelude-val">None</span>,
 <a href=#1007 id=1007 data-nosnippet>1007</a>            },
-<a href=#1008 id=1008 data-nosnippet>1008</a>            <span class="self">Self</span>::NewConnectionId(f) =&gt; f.to_qlog(),
-<a href=#1009 id=1009 data-nosnippet>1009</a>            <span class="self">Self</span>::RetireConnectionId(f) =&gt; f.to_qlog(),
-<a href=#1010 id=1010 data-nosnippet>1010</a>            <span class="self">Self</span>::PathChallenge(f) =&gt; f.to_qlog(),
-<a href=#1011 id=1011 data-nosnippet>1011</a>            <span class="self">Self</span>::PathResponse(f) =&gt; f.to_qlog(),
-<a href=#1012 id=1012 data-nosnippet>1012</a>            <span class="self">Self</span>::Close(close) =&gt; close.to_qlog(),
-<a href=#1013 id=1013 data-nosnippet>1013</a>            <span class="self">Self</span>::Datagram(d) =&gt; d.to_qlog(),
-<a href=#1014 id=1014 data-nosnippet>1014</a>            <span class="self">Self</span>::HandshakeDone =&gt; frame::HandshakeDone.to_qlog(),
-<a href=#1015 id=1015 data-nosnippet>1015</a>            <span class="self">Self</span>::PathAck(ack) =&gt; QuicFrame::PathAck {
-<a href=#1016 id=1016 data-nosnippet>1016</a>                path_id: ack.path_id.as_u32().into(),
-<a href=#1017 id=1017 data-nosnippet>1017</a>                ack_delay: <span class="prelude-val">Some</span>(ack.delay <span class="kw">as </span>f32),
-<a href=#1018 id=1018 data-nosnippet>1018</a>                ect1: ack.ecn.as_ref().map(|e| e.ect1),
-<a href=#1019 id=1019 data-nosnippet>1019</a>                ect0: ack.ecn.as_ref().map(|e| e.ect0),
-<a href=#1020 id=1020 data-nosnippet>1020</a>                ce: ack.ecn.as_ref().map(|e| e.ce),
-<a href=#1021 id=1021 data-nosnippet>1021</a>                raw: <span class="prelude-val">None</span>,
-<a href=#1022 id=1022 data-nosnippet>1022</a>                acked_ranges: <span class="prelude-val">Some</span>(AckedRanges::Double(
-<a href=#1023 id=1023 data-nosnippet>1023</a>                    ack.into_iter()
-<a href=#1024 id=1024 data-nosnippet>1024</a>                        .map(|range| (<span class="kw-2">*</span>range.start(), <span class="kw-2">*</span>range.end()))
-<a href=#1025 id=1025 data-nosnippet>1025</a>                        .collect(),
-<a href=#1026 id=1026 data-nosnippet>1026</a>                )),
-<a href=#1027 id=1027 data-nosnippet>1027</a>            },
-<a href=#1028 id=1028 data-nosnippet>1028</a>            <span class="self">Self</span>::PathAbandon(frame) =&gt; frame.to_qlog(),
-<a href=#1029 id=1029 data-nosnippet>1029</a>            <span class="self">Self</span>::PathStatusAvailable(frame) =&gt; frame.to_qlog(),
-<a href=#1030 id=1030 data-nosnippet>1030</a>            <span class="self">Self</span>::PathStatusBackup(frame) =&gt; frame.to_qlog(),
-<a href=#1031 id=1031 data-nosnippet>1031</a>            <span class="self">Self</span>::PathsBlocked(frame) =&gt; frame.to_qlog(),
-<a href=#1032 id=1032 data-nosnippet>1032</a>            <span class="self">Self</span>::PathCidsBlocked(frame) =&gt; frame.to_qlog(),
-<a href=#1033 id=1033 data-nosnippet>1033</a>            <span class="self">Self</span>::MaxPathId(f) =&gt; f.to_qlog(),
-<a href=#1034 id=1034 data-nosnippet>1034</a>            <span class="self">Self</span>::AckFrequency(f) =&gt; f.to_qlog(),
-<a href=#1035 id=1035 data-nosnippet>1035</a>            <span class="self">Self</span>::ImmediateAck =&gt; frame::ImmediateAck.to_qlog(),
-<a href=#1036 id=1036 data-nosnippet>1036</a>            <span class="self">Self</span>::ObservedAddr(f) =&gt; f.to_qlog(),
-<a href=#1037 id=1037 data-nosnippet>1037</a>            <span class="self">Self</span>::AddAddress(f) =&gt; f.to_qlog(),
-<a href=#1038 id=1038 data-nosnippet>1038</a>            <span class="self">Self</span>::ReachOut(f) =&gt; f.to_qlog(),
-<a href=#1039 id=1039 data-nosnippet>1039</a>            <span class="self">Self</span>::RemoveAddress(f) =&gt; f.to_qlog(),
-<a href=#1040 id=1040 data-nosnippet>1040</a>        }
-<a href=#1041 id=1041 data-nosnippet>1041</a>    }
-<a href=#1042 id=1042 data-nosnippet>1042</a>}
-<a href=#1043 id=1043 data-nosnippet>1043</a>
-<a href=#1044 id=1044 data-nosnippet>1044</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#1045 id=1045 data-nosnippet>1045</a></span><span class="kw">impl </span>From&lt;<span class="kw">crate</span>::Dir&gt; <span class="kw">for </span>StreamType {
-<a href=#1046 id=1046 data-nosnippet>1046</a>    <span class="kw">fn </span>from(value: <span class="kw">crate</span>::Dir) -&gt; <span class="self">Self </span>{
-<a href=#1047 id=1047 data-nosnippet>1047</a>        <span class="kw">match </span>value {
-<a href=#1048 id=1048 data-nosnippet>1048</a>            <span class="kw">crate</span>::Dir::Bi =&gt; <span class="self">Self</span>::Bidirectional,
-<a href=#1049 id=1049 data-nosnippet>1049</a>            <span class="kw">crate</span>::Dir::Uni =&gt; <span class="self">Self</span>::Unidirectional,
-<a href=#1050 id=1050 data-nosnippet>1050</a>        }
-<a href=#1051 id=1051 data-nosnippet>1051</a>    }
-<a href=#1052 id=1052 data-nosnippet>1052</a>}
-<a href=#1053 id=1053 data-nosnippet>1053</a>
-<a href=#1054 id=1054 data-nosnippet>1054</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#1055 id=1055 data-nosnippet>1055</a></span><span class="kw">fn </span>packet_type(space: SpaceId, is_0rtt: bool) -&gt; PacketType {
-<a href=#1056 id=1056 data-nosnippet>1056</a>    <span class="kw">match </span>space {
-<a href=#1057 id=1057 data-nosnippet>1057</a>        SpaceId::Initial =&gt; PacketType::Initial,
-<a href=#1058 id=1058 data-nosnippet>1058</a>        SpaceId::Handshake =&gt; PacketType::Handshake,
-<a href=#1059 id=1059 data-nosnippet>1059</a>        SpaceId::Data <span class="kw">if </span>is_0rtt =&gt; PacketType::ZeroRtt,
-<a href=#1060 id=1060 data-nosnippet>1060</a>        SpaceId::Data =&gt; PacketType::OneRtt,
-<a href=#1061 id=1061 data-nosnippet>1061</a>    }
-<a href=#1062 id=1062 data-nosnippet>1062</a>}
-<a href=#1063 id=1063 data-nosnippet>1063</a>
-<a href=#1064 id=1064 data-nosnippet>1064</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#1065 id=1065 data-nosnippet>1065</a></span><span class="kw">fn </span>stringify_cid(cid: ConnectionId) -&gt; String {
-<a href=#1066 id=1066 data-nosnippet>1066</a>    <span class="macro">format!</span>(<span class="string">"{cid}"</span>)
+<a href=#1008 id=1008 data-nosnippet>1008</a>            <span class="self">Self</span>::StreamsBlocked { dir, limit } =&gt; QuicFrame::StreamsBlocked {
+<a href=#1009 id=1009 data-nosnippet>1009</a>                stream_type: (<span class="kw-2">*</span>dir).into(),
+<a href=#1010 id=1010 data-nosnippet>1010</a>                limit: <span class="kw-2">*</span>limit,
+<a href=#1011 id=1011 data-nosnippet>1011</a>                raw: <span class="prelude-val">None</span>,
+<a href=#1012 id=1012 data-nosnippet>1012</a>            },
+<a href=#1013 id=1013 data-nosnippet>1013</a>            <span class="self">Self</span>::NewConnectionId(f) =&gt; f.to_qlog(),
+<a href=#1014 id=1014 data-nosnippet>1014</a>            <span class="self">Self</span>::RetireConnectionId(f) =&gt; f.to_qlog(),
+<a href=#1015 id=1015 data-nosnippet>1015</a>            <span class="self">Self</span>::PathChallenge(f) =&gt; f.to_qlog(),
+<a href=#1016 id=1016 data-nosnippet>1016</a>            <span class="self">Self</span>::PathResponse(f) =&gt; f.to_qlog(),
+<a href=#1017 id=1017 data-nosnippet>1017</a>            <span class="self">Self</span>::Close(close) =&gt; close.to_qlog(),
+<a href=#1018 id=1018 data-nosnippet>1018</a>            <span class="self">Self</span>::Datagram(d) =&gt; d.to_qlog(),
+<a href=#1019 id=1019 data-nosnippet>1019</a>            <span class="self">Self</span>::HandshakeDone =&gt; frame::HandshakeDone.to_qlog(),
+<a href=#1020 id=1020 data-nosnippet>1020</a>            <span class="self">Self</span>::PathAck(ack) =&gt; QuicFrame::PathAck {
+<a href=#1021 id=1021 data-nosnippet>1021</a>                path_id: ack.path_id.as_u32().into(),
+<a href=#1022 id=1022 data-nosnippet>1022</a>                ack_delay: <span class="prelude-val">Some</span>(ack.delay <span class="kw">as </span>f32),
+<a href=#1023 id=1023 data-nosnippet>1023</a>                ect1: ack.ecn.as_ref().map(|e| e.ect1),
+<a href=#1024 id=1024 data-nosnippet>1024</a>                ect0: ack.ecn.as_ref().map(|e| e.ect0),
+<a href=#1025 id=1025 data-nosnippet>1025</a>                ce: ack.ecn.as_ref().map(|e| e.ce),
+<a href=#1026 id=1026 data-nosnippet>1026</a>                raw: <span class="prelude-val">None</span>,
+<a href=#1027 id=1027 data-nosnippet>1027</a>                acked_ranges: <span class="prelude-val">Some</span>(AckedRanges::Double(
+<a href=#1028 id=1028 data-nosnippet>1028</a>                    ack.into_iter()
+<a href=#1029 id=1029 data-nosnippet>1029</a>                        .map(|range| (<span class="kw-2">*</span>range.start(), <span class="kw-2">*</span>range.end()))
+<a href=#1030 id=1030 data-nosnippet>1030</a>                        .collect(),
+<a href=#1031 id=1031 data-nosnippet>1031</a>                )),
+<a href=#1032 id=1032 data-nosnippet>1032</a>            },
+<a href=#1033 id=1033 data-nosnippet>1033</a>            <span class="self">Self</span>::PathAbandon(frame) =&gt; frame.to_qlog(),
+<a href=#1034 id=1034 data-nosnippet>1034</a>            <span class="self">Self</span>::PathStatusAvailable(frame) =&gt; frame.to_qlog(),
+<a href=#1035 id=1035 data-nosnippet>1035</a>            <span class="self">Self</span>::PathStatusBackup(frame) =&gt; frame.to_qlog(),
+<a href=#1036 id=1036 data-nosnippet>1036</a>            <span class="self">Self</span>::PathsBlocked(frame) =&gt; frame.to_qlog(),
+<a href=#1037 id=1037 data-nosnippet>1037</a>            <span class="self">Self</span>::PathCidsBlocked(frame) =&gt; frame.to_qlog(),
+<a href=#1038 id=1038 data-nosnippet>1038</a>            <span class="self">Self</span>::MaxPathId(f) =&gt; f.to_qlog(),
+<a href=#1039 id=1039 data-nosnippet>1039</a>            <span class="self">Self</span>::AckFrequency(f) =&gt; f.to_qlog(),
+<a href=#1040 id=1040 data-nosnippet>1040</a>            <span class="self">Self</span>::ImmediateAck =&gt; frame::ImmediateAck.to_qlog(),
+<a href=#1041 id=1041 data-nosnippet>1041</a>            <span class="self">Self</span>::ObservedAddr(f) =&gt; f.to_qlog(),
+<a href=#1042 id=1042 data-nosnippet>1042</a>            <span class="self">Self</span>::AddAddress(f) =&gt; f.to_qlog(),
+<a href=#1043 id=1043 data-nosnippet>1043</a>            <span class="self">Self</span>::ReachOut(f) =&gt; f.to_qlog(),
+<a href=#1044 id=1044 data-nosnippet>1044</a>            <span class="self">Self</span>::RemoveAddress(f) =&gt; f.to_qlog(),
+<a href=#1045 id=1045 data-nosnippet>1045</a>        }
+<a href=#1046 id=1046 data-nosnippet>1046</a>    }
+<a href=#1047 id=1047 data-nosnippet>1047</a>}
+<a href=#1048 id=1048 data-nosnippet>1048</a>
+<a href=#1049 id=1049 data-nosnippet>1049</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#1050 id=1050 data-nosnippet>1050</a></span><span class="kw">impl </span>From&lt;<span class="kw">crate</span>::Dir&gt; <span class="kw">for </span>StreamType {
+<a href=#1051 id=1051 data-nosnippet>1051</a>    <span class="kw">fn </span>from(value: <span class="kw">crate</span>::Dir) -&gt; <span class="self">Self </span>{
+<a href=#1052 id=1052 data-nosnippet>1052</a>        <span class="kw">match </span>value {
+<a href=#1053 id=1053 data-nosnippet>1053</a>            <span class="kw">crate</span>::Dir::Bi =&gt; <span class="self">Self</span>::Bidirectional,
+<a href=#1054 id=1054 data-nosnippet>1054</a>            <span class="kw">crate</span>::Dir::Uni =&gt; <span class="self">Self</span>::Unidirectional,
+<a href=#1055 id=1055 data-nosnippet>1055</a>        }
+<a href=#1056 id=1056 data-nosnippet>1056</a>    }
+<a href=#1057 id=1057 data-nosnippet>1057</a>}
+<a href=#1058 id=1058 data-nosnippet>1058</a>
+<a href=#1059 id=1059 data-nosnippet>1059</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#1060 id=1060 data-nosnippet>1060</a></span><span class="kw">fn </span>packet_type(space: SpaceId, is_0rtt: bool) -&gt; PacketType {
+<a href=#1061 id=1061 data-nosnippet>1061</a>    <span class="kw">match </span>space {
+<a href=#1062 id=1062 data-nosnippet>1062</a>        SpaceId::Initial =&gt; PacketType::Initial,
+<a href=#1063 id=1063 data-nosnippet>1063</a>        SpaceId::Handshake =&gt; PacketType::Handshake,
+<a href=#1064 id=1064 data-nosnippet>1064</a>        SpaceId::Data <span class="kw">if </span>is_0rtt =&gt; PacketType::ZeroRtt,
+<a href=#1065 id=1065 data-nosnippet>1065</a>        SpaceId::Data =&gt; PacketType::OneRtt,
+<a href=#1066 id=1066 data-nosnippet>1066</a>    }
 <a href=#1067 id=1067 data-nosnippet>1067</a>}
 <a href=#1068 id=1068 data-nosnippet>1068</a>
 <a href=#1069 id=1069 data-nosnippet>1069</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#1070 id=1070 data-nosnippet>1070</a></span><span class="kw">fn </span>tuple_endpoint_info(
-<a href=#1071 id=1071 data-nosnippet>1071</a>    ip: <span class="prelude-ty">Option</span>&lt;IpAddr&gt;,
-<a href=#1072 id=1072 data-nosnippet>1072</a>    port: <span class="prelude-ty">Option</span>&lt;u16&gt;,
-<a href=#1073 id=1073 data-nosnippet>1073</a>    cid: <span class="prelude-ty">Option</span>&lt;ConnectionId&gt;,
-<a href=#1074 id=1074 data-nosnippet>1074</a>) -&gt; TupleEndpointInfo {
-<a href=#1075 id=1075 data-nosnippet>1075</a>    <span class="kw">let </span>(ip_v4, port_v4, ip_v6, port_v6) = <span class="kw">match </span>ip {
-<a href=#1076 id=1076 data-nosnippet>1076</a>        <span class="prelude-val">Some</span>(addr) =&gt; <span class="kw">match </span>addr {
-<a href=#1077 id=1077 data-nosnippet>1077</a>            IpAddr::V4(ipv4_addr) =&gt; (<span class="prelude-val">Some</span>(ipv4_addr.to_string()), port, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>),
-<a href=#1078 id=1078 data-nosnippet>1078</a>            IpAddr::V6(ipv6_addr) =&gt; (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(ipv6_addr.to_string()), port),
-<a href=#1079 id=1079 data-nosnippet>1079</a>        },
-<a href=#1080 id=1080 data-nosnippet>1080</a>        <span class="prelude-val">None </span>=&gt; (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>),
-<a href=#1081 id=1081 data-nosnippet>1081</a>    };
-<a href=#1082 id=1082 data-nosnippet>1082</a>    TupleEndpointInfo {
-<a href=#1083 id=1083 data-nosnippet>1083</a>        ip_v4,
-<a href=#1084 id=1084 data-nosnippet>1084</a>        port_v4,
-<a href=#1085 id=1085 data-nosnippet>1085</a>        ip_v6,
-<a href=#1086 id=1086 data-nosnippet>1086</a>        port_v6,
-<a href=#1087 id=1087 data-nosnippet>1087</a>        connection_ids: cid.map(|cid| <span class="macro">vec!</span>[cid.to_string()]),
-<a href=#1088 id=1088 data-nosnippet>1088</a>    }
-<a href=#1089 id=1089 data-nosnippet>1089</a>}
-<a href=#1090 id=1090 data-nosnippet>1090</a>
-<a href=#1091 id=1091 data-nosnippet>1091</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#1092 id=1092 data-nosnippet>1092</a></span><span class="kw">fn </span>transport_error(code: TransportErrorCode) -&gt; (<span class="prelude-ty">Option</span>&lt;quic::TransportError&gt;, <span class="prelude-ty">Option</span>&lt;u64&gt;) {
-<a href=#1093 id=1093 data-nosnippet>1093</a>    <span class="kw">let </span>transport_error = <span class="kw">match </span>code {
-<a href=#1094 id=1094 data-nosnippet>1094</a>        TransportErrorCode::NO_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::NoError),
-<a href=#1095 id=1095 data-nosnippet>1095</a>        TransportErrorCode::INTERNAL_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::InternalError),
-<a href=#1096 id=1096 data-nosnippet>1096</a>        TransportErrorCode::CONNECTION_REFUSED =&gt; <span class="prelude-val">Some</span>(quic::TransportError::ConnectionRefused),
-<a href=#1097 id=1097 data-nosnippet>1097</a>        TransportErrorCode::FLOW_CONTROL_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::FlowControlError),
-<a href=#1098 id=1098 data-nosnippet>1098</a>        TransportErrorCode::STREAM_LIMIT_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::StreamLimitError),
-<a href=#1099 id=1099 data-nosnippet>1099</a>        TransportErrorCode::STREAM_STATE_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::StreamStateError),
-<a href=#1100 id=1100 data-nosnippet>1100</a>        TransportErrorCode::FINAL_SIZE_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::FinalSizeError),
-<a href=#1101 id=1101 data-nosnippet>1101</a>        TransportErrorCode::FRAME_ENCODING_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::FrameEncodingError),
-<a href=#1102 id=1102 data-nosnippet>1102</a>        TransportErrorCode::TRANSPORT_PARAMETER_ERROR =&gt; {
-<a href=#1103 id=1103 data-nosnippet>1103</a>            <span class="prelude-val">Some</span>(quic::TransportError::TransportParameterError)
-<a href=#1104 id=1104 data-nosnippet>1104</a>        }
-<a href=#1105 id=1105 data-nosnippet>1105</a>        TransportErrorCode::CONNECTION_ID_LIMIT_ERROR =&gt; {
-<a href=#1106 id=1106 data-nosnippet>1106</a>            <span class="prelude-val">Some</span>(quic::TransportError::ConnectionIdLimitError)
-<a href=#1107 id=1107 data-nosnippet>1107</a>        }
-<a href=#1108 id=1108 data-nosnippet>1108</a>        TransportErrorCode::PROTOCOL_VIOLATION =&gt; <span class="prelude-val">Some</span>(quic::TransportError::ProtocolViolation),
-<a href=#1109 id=1109 data-nosnippet>1109</a>        TransportErrorCode::INVALID_TOKEN =&gt; <span class="prelude-val">Some</span>(quic::TransportError::InvalidToken),
-<a href=#1110 id=1110 data-nosnippet>1110</a>        TransportErrorCode::APPLICATION_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::ApplicationError),
-<a href=#1111 id=1111 data-nosnippet>1111</a>        TransportErrorCode::CRYPTO_BUFFER_EXCEEDED =&gt; {
-<a href=#1112 id=1112 data-nosnippet>1112</a>            <span class="prelude-val">Some</span>(quic::TransportError::CryptoBufferExceeded)
-<a href=#1113 id=1113 data-nosnippet>1113</a>        }
-<a href=#1114 id=1114 data-nosnippet>1114</a>        TransportErrorCode::KEY_UPDATE_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::KeyUpdateError),
-<a href=#1115 id=1115 data-nosnippet>1115</a>        TransportErrorCode::AEAD_LIMIT_REACHED =&gt; <span class="prelude-val">Some</span>(quic::TransportError::AeadLimitReached),
-<a href=#1116 id=1116 data-nosnippet>1116</a>        TransportErrorCode::NO_VIABLE_PATH =&gt; <span class="prelude-val">Some</span>(quic::TransportError::NoViablePath),
-<a href=#1117 id=1117 data-nosnippet>1117</a>        <span class="comment">// multipath
-<a href=#1118 id=1118 data-nosnippet>1118</a>        </span>TransportErrorCode::APPLICATION_ABANDON_PATH =&gt; {
-<a href=#1119 id=1119 data-nosnippet>1119</a>            <span class="prelude-val">Some</span>(quic::TransportError::ApplicationAbandonPath)
-<a href=#1120 id=1120 data-nosnippet>1120</a>        }
-<a href=#1121 id=1121 data-nosnippet>1121</a>        TransportErrorCode::PATH_RESOURCE_LIMIT_REACHED =&gt; {
-<a href=#1122 id=1122 data-nosnippet>1122</a>            <span class="prelude-val">Some</span>(quic::TransportError::PathResourceLimitReached)
-<a href=#1123 id=1123 data-nosnippet>1123</a>        }
-<a href=#1124 id=1124 data-nosnippet>1124</a>        TransportErrorCode::PATH_UNSTABLE_OR_POOR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::PathUnstableOrPoor),
-<a href=#1125 id=1125 data-nosnippet>1125</a>        TransportErrorCode::NO_CID_AVAILABLE_FOR_PATH =&gt; {
-<a href=#1126 id=1126 data-nosnippet>1126</a>            <span class="prelude-val">Some</span>(quic::TransportError::NoCidsAvailableForPath)
-<a href=#1127 id=1127 data-nosnippet>1127</a>        }
-<a href=#1128 id=1128 data-nosnippet>1128</a>        <span class="kw">_ </span>=&gt; <span class="prelude-val">None</span>,
-<a href=#1129 id=1129 data-nosnippet>1129</a>    };
-<a href=#1130 id=1130 data-nosnippet>1130</a>    <span class="kw">let </span>code = <span class="kw">match </span>transport_error {
-<a href=#1131 id=1131 data-nosnippet>1131</a>        <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Some</span>(code.into()),
-<a href=#1132 id=1132 data-nosnippet>1132</a>        <span class="prelude-val">Some</span>(<span class="kw">_</span>) =&gt; <span class="prelude-val">None</span>,
-<a href=#1133 id=1133 data-nosnippet>1133</a>    };
-<a href=#1134 id=1134 data-nosnippet>1134</a>    (transport_error, code)
-<a href=#1135 id=1135 data-nosnippet>1135</a>}
-<a href=#1136 id=1136 data-nosnippet>1136</a>
-<a href=#1137 id=1137 data-nosnippet>1137</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#1138 id=1138 data-nosnippet>1138</a></span><span class="kw">fn </span>fmt_tuple_id(path_id: u64) -&gt; String {
-<a href=#1139 id=1139 data-nosnippet>1139</a>    <span class="macro">format!</span>(<span class="string">"p{path_id}"</span>)
+<a href=#1070 id=1070 data-nosnippet>1070</a></span><span class="kw">fn </span>stringify_cid(cid: ConnectionId) -&gt; String {
+<a href=#1071 id=1071 data-nosnippet>1071</a>    <span class="macro">format!</span>(<span class="string">"{cid}"</span>)
+<a href=#1072 id=1072 data-nosnippet>1072</a>}
+<a href=#1073 id=1073 data-nosnippet>1073</a>
+<a href=#1074 id=1074 data-nosnippet>1074</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#1075 id=1075 data-nosnippet>1075</a></span><span class="kw">fn </span>tuple_endpoint_info(
+<a href=#1076 id=1076 data-nosnippet>1076</a>    ip: <span class="prelude-ty">Option</span>&lt;IpAddr&gt;,
+<a href=#1077 id=1077 data-nosnippet>1077</a>    port: <span class="prelude-ty">Option</span>&lt;u16&gt;,
+<a href=#1078 id=1078 data-nosnippet>1078</a>    cid: <span class="prelude-ty">Option</span>&lt;ConnectionId&gt;,
+<a href=#1079 id=1079 data-nosnippet>1079</a>) -&gt; TupleEndpointInfo {
+<a href=#1080 id=1080 data-nosnippet>1080</a>    <span class="kw">let </span>(ip_v4, port_v4, ip_v6, port_v6) = <span class="kw">match </span>ip {
+<a href=#1081 id=1081 data-nosnippet>1081</a>        <span class="prelude-val">Some</span>(addr) =&gt; <span class="kw">match </span>addr {
+<a href=#1082 id=1082 data-nosnippet>1082</a>            IpAddr::V4(ipv4_addr) =&gt; (<span class="prelude-val">Some</span>(ipv4_addr.to_string()), port, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>),
+<a href=#1083 id=1083 data-nosnippet>1083</a>            IpAddr::V6(ipv6_addr) =&gt; (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(ipv6_addr.to_string()), port),
+<a href=#1084 id=1084 data-nosnippet>1084</a>        },
+<a href=#1085 id=1085 data-nosnippet>1085</a>        <span class="prelude-val">None </span>=&gt; (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>),
+<a href=#1086 id=1086 data-nosnippet>1086</a>    };
+<a href=#1087 id=1087 data-nosnippet>1087</a>    TupleEndpointInfo {
+<a href=#1088 id=1088 data-nosnippet>1088</a>        ip_v4,
+<a href=#1089 id=1089 data-nosnippet>1089</a>        port_v4,
+<a href=#1090 id=1090 data-nosnippet>1090</a>        ip_v6,
+<a href=#1091 id=1091 data-nosnippet>1091</a>        port_v6,
+<a href=#1092 id=1092 data-nosnippet>1092</a>        connection_ids: cid.map(|cid| <span class="macro">vec!</span>[cid.to_string()]),
+<a href=#1093 id=1093 data-nosnippet>1093</a>    }
+<a href=#1094 id=1094 data-nosnippet>1094</a>}
+<a href=#1095 id=1095 data-nosnippet>1095</a>
+<a href=#1096 id=1096 data-nosnippet>1096</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#1097 id=1097 data-nosnippet>1097</a></span><span class="kw">fn </span>transport_error(code: TransportErrorCode) -&gt; (<span class="prelude-ty">Option</span>&lt;quic::TransportError&gt;, <span class="prelude-ty">Option</span>&lt;u64&gt;) {
+<a href=#1098 id=1098 data-nosnippet>1098</a>    <span class="kw">let </span>transport_error = <span class="kw">match </span>code {
+<a href=#1099 id=1099 data-nosnippet>1099</a>        TransportErrorCode::NO_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::NoError),
+<a href=#1100 id=1100 data-nosnippet>1100</a>        TransportErrorCode::INTERNAL_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::InternalError),
+<a href=#1101 id=1101 data-nosnippet>1101</a>        TransportErrorCode::CONNECTION_REFUSED =&gt; <span class="prelude-val">Some</span>(quic::TransportError::ConnectionRefused),
+<a href=#1102 id=1102 data-nosnippet>1102</a>        TransportErrorCode::FLOW_CONTROL_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::FlowControlError),
+<a href=#1103 id=1103 data-nosnippet>1103</a>        TransportErrorCode::STREAM_LIMIT_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::StreamLimitError),
+<a href=#1104 id=1104 data-nosnippet>1104</a>        TransportErrorCode::STREAM_STATE_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::StreamStateError),
+<a href=#1105 id=1105 data-nosnippet>1105</a>        TransportErrorCode::FINAL_SIZE_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::FinalSizeError),
+<a href=#1106 id=1106 data-nosnippet>1106</a>        TransportErrorCode::FRAME_ENCODING_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::FrameEncodingError),
+<a href=#1107 id=1107 data-nosnippet>1107</a>        TransportErrorCode::TRANSPORT_PARAMETER_ERROR =&gt; {
+<a href=#1108 id=1108 data-nosnippet>1108</a>            <span class="prelude-val">Some</span>(quic::TransportError::TransportParameterError)
+<a href=#1109 id=1109 data-nosnippet>1109</a>        }
+<a href=#1110 id=1110 data-nosnippet>1110</a>        TransportErrorCode::CONNECTION_ID_LIMIT_ERROR =&gt; {
+<a href=#1111 id=1111 data-nosnippet>1111</a>            <span class="prelude-val">Some</span>(quic::TransportError::ConnectionIdLimitError)
+<a href=#1112 id=1112 data-nosnippet>1112</a>        }
+<a href=#1113 id=1113 data-nosnippet>1113</a>        TransportErrorCode::PROTOCOL_VIOLATION =&gt; <span class="prelude-val">Some</span>(quic::TransportError::ProtocolViolation),
+<a href=#1114 id=1114 data-nosnippet>1114</a>        TransportErrorCode::INVALID_TOKEN =&gt; <span class="prelude-val">Some</span>(quic::TransportError::InvalidToken),
+<a href=#1115 id=1115 data-nosnippet>1115</a>        TransportErrorCode::APPLICATION_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::ApplicationError),
+<a href=#1116 id=1116 data-nosnippet>1116</a>        TransportErrorCode::CRYPTO_BUFFER_EXCEEDED =&gt; {
+<a href=#1117 id=1117 data-nosnippet>1117</a>            <span class="prelude-val">Some</span>(quic::TransportError::CryptoBufferExceeded)
+<a href=#1118 id=1118 data-nosnippet>1118</a>        }
+<a href=#1119 id=1119 data-nosnippet>1119</a>        TransportErrorCode::KEY_UPDATE_ERROR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::KeyUpdateError),
+<a href=#1120 id=1120 data-nosnippet>1120</a>        TransportErrorCode::AEAD_LIMIT_REACHED =&gt; <span class="prelude-val">Some</span>(quic::TransportError::AeadLimitReached),
+<a href=#1121 id=1121 data-nosnippet>1121</a>        TransportErrorCode::NO_VIABLE_PATH =&gt; <span class="prelude-val">Some</span>(quic::TransportError::NoViablePath),
+<a href=#1122 id=1122 data-nosnippet>1122</a>        <span class="comment">// multipath
+<a href=#1123 id=1123 data-nosnippet>1123</a>        </span>TransportErrorCode::APPLICATION_ABANDON_PATH =&gt; {
+<a href=#1124 id=1124 data-nosnippet>1124</a>            <span class="prelude-val">Some</span>(quic::TransportError::ApplicationAbandonPath)
+<a href=#1125 id=1125 data-nosnippet>1125</a>        }
+<a href=#1126 id=1126 data-nosnippet>1126</a>        TransportErrorCode::PATH_RESOURCE_LIMIT_REACHED =&gt; {
+<a href=#1127 id=1127 data-nosnippet>1127</a>            <span class="prelude-val">Some</span>(quic::TransportError::PathResourceLimitReached)
+<a href=#1128 id=1128 data-nosnippet>1128</a>        }
+<a href=#1129 id=1129 data-nosnippet>1129</a>        TransportErrorCode::PATH_UNSTABLE_OR_POOR =&gt; <span class="prelude-val">Some</span>(quic::TransportError::PathUnstableOrPoor),
+<a href=#1130 id=1130 data-nosnippet>1130</a>        TransportErrorCode::NO_CID_AVAILABLE_FOR_PATH =&gt; {
+<a href=#1131 id=1131 data-nosnippet>1131</a>            <span class="prelude-val">Some</span>(quic::TransportError::NoCidsAvailableForPath)
+<a href=#1132 id=1132 data-nosnippet>1132</a>        }
+<a href=#1133 id=1133 data-nosnippet>1133</a>        <span class="kw">_ </span>=&gt; <span class="prelude-val">None</span>,
+<a href=#1134 id=1134 data-nosnippet>1134</a>    };
+<a href=#1135 id=1135 data-nosnippet>1135</a>    <span class="kw">let </span>code = <span class="kw">match </span>transport_error {
+<a href=#1136 id=1136 data-nosnippet>1136</a>        <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Some</span>(code.into()),
+<a href=#1137 id=1137 data-nosnippet>1137</a>        <span class="prelude-val">Some</span>(<span class="kw">_</span>) =&gt; <span class="prelude-val">None</span>,
+<a href=#1138 id=1138 data-nosnippet>1138</a>    };
+<a href=#1139 id=1139 data-nosnippet>1139</a>    (transport_error, code)
 <a href=#1140 id=1140 data-nosnippet>1140</a>}
 <a href=#1141 id=1141 data-nosnippet>1141</a>
 <a href=#1142 id=1142 data-nosnippet>1142</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#1143 id=1143 data-nosnippet>1143</a></span><span class="kw">impl </span>TransportParameters {
-<a href=#1144 id=1144 data-nosnippet>1144</a>    <span class="kw">fn </span>to_qlog(<span class="self">self</span>, initiator: TransportInitiator) -&gt; ParametersSet {
-<a href=#1145 id=1145 data-nosnippet>1145</a>        ParametersSet {
-<a href=#1146 id=1146 data-nosnippet>1146</a>            initiator: <span class="prelude-val">Some</span>(initiator),
-<a href=#1147 id=1147 data-nosnippet>1147</a>            resumption_allowed: <span class="prelude-val">None</span>,
-<a href=#1148 id=1148 data-nosnippet>1148</a>            early_data_enabled: <span class="prelude-val">None</span>,
-<a href=#1149 id=1149 data-nosnippet>1149</a>            tls_cipher: <span class="prelude-val">None</span>,
-<a href=#1150 id=1150 data-nosnippet>1150</a>            original_destination_connection_id: <span class="self">self
-<a href=#1151 id=1151 data-nosnippet>1151</a>                </span>.original_dst_cid
-<a href=#1152 id=1152 data-nosnippet>1152</a>                .as_ref()
-<a href=#1153 id=1153 data-nosnippet>1153</a>                .map(ToString::to_string),
-<a href=#1154 id=1154 data-nosnippet>1154</a>            initial_source_connection_id: <span class="self">self</span>.initial_src_cid.as_ref().map(ToString::to_string),
-<a href=#1155 id=1155 data-nosnippet>1155</a>            retry_source_connection_id: <span class="self">self</span>.retry_src_cid.as_ref().map(ToString::to_string),
-<a href=#1156 id=1156 data-nosnippet>1156</a>            stateless_reset_token: <span class="self">self</span>.stateless_reset_token.as_ref().map(ToString::to_string),
-<a href=#1157 id=1157 data-nosnippet>1157</a>            disable_active_migration: <span class="prelude-val">Some</span>(<span class="self">self</span>.disable_active_migration),
-<a href=#1158 id=1158 data-nosnippet>1158</a>            max_idle_timeout: <span class="prelude-val">Some</span>(<span class="self">self</span>.max_idle_timeout.into()),
-<a href=#1159 id=1159 data-nosnippet>1159</a>            max_udp_payload_size: <span class="prelude-val">Some</span>(<span class="self">self</span>.max_udp_payload_size.into()),
-<a href=#1160 id=1160 data-nosnippet>1160</a>            ack_delay_exponent: <span class="prelude-val">Some</span>(<span class="self">self</span>.ack_delay_exponent.into()),
-<a href=#1161 id=1161 data-nosnippet>1161</a>            max_ack_delay: <span class="prelude-val">Some</span>(<span class="self">self</span>.max_ack_delay.into()),
-<a href=#1162 id=1162 data-nosnippet>1162</a>            active_connection_id_limit: <span class="prelude-val">Some</span>(<span class="self">self</span>.active_connection_id_limit.into()),
-<a href=#1163 id=1163 data-nosnippet>1163</a>            initial_max_data: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_data.into()),
-<a href=#1164 id=1164 data-nosnippet>1164</a>            initial_max_stream_data_bidi_local: <span class="prelude-val">Some</span>(
-<a href=#1165 id=1165 data-nosnippet>1165</a>                <span class="self">self</span>.initial_max_stream_data_bidi_local.into(),
-<a href=#1166 id=1166 data-nosnippet>1166</a>            ),
-<a href=#1167 id=1167 data-nosnippet>1167</a>            initial_max_stream_data_bidi_remote: <span class="prelude-val">Some</span>(
-<a href=#1168 id=1168 data-nosnippet>1168</a>                <span class="self">self</span>.initial_max_stream_data_bidi_remote.into(),
-<a href=#1169 id=1169 data-nosnippet>1169</a>            ),
-<a href=#1170 id=1170 data-nosnippet>1170</a>            initial_max_stream_data_uni: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_stream_data_uni.into()),
-<a href=#1171 id=1171 data-nosnippet>1171</a>            initial_max_streams_bidi: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_streams_bidi.into()),
-<a href=#1172 id=1172 data-nosnippet>1172</a>            initial_max_streams_uni: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_streams_uni.into()),
-<a href=#1173 id=1173 data-nosnippet>1173</a>            preferred_address: <span class="self">self</span>.preferred_address.as_ref().map(Into::into),
-<a href=#1174 id=1174 data-nosnippet>1174</a>            min_ack_delay: <span class="self">self</span>.min_ack_delay.map(Into::into),
-<a href=#1175 id=1175 data-nosnippet>1175</a>            address_discovery: <span class="self">self</span>.address_discovery_role.to_qlog(),
-<a href=#1176 id=1176 data-nosnippet>1176</a>            initial_max_path_id: <span class="self">self</span>.initial_max_path_id.map(|p| p.as_u32() <span class="kw">as </span>u64),
-<a href=#1177 id=1177 data-nosnippet>1177</a>            max_remote_nat_traversal_addresses: <span class="self">self
-<a href=#1178 id=1178 data-nosnippet>1178</a>                </span>.max_remote_nat_traversal_addresses
-<a href=#1179 id=1179 data-nosnippet>1179</a>                .map(|v| u64::from(v.get())),
-<a href=#1180 id=1180 data-nosnippet>1180</a>            max_datagram_frame_size: <span class="self">self</span>.max_datagram_frame_size.map(Into::into),
-<a href=#1181 id=1181 data-nosnippet>1181</a>            grease_quic_bit: <span class="prelude-val">Some</span>(<span class="self">self</span>.grease_quic_bit),
-<a href=#1182 id=1182 data-nosnippet>1182</a>            unknown_parameters: Default::default(),
-<a href=#1183 id=1183 data-nosnippet>1183</a>        }
-<a href=#1184 id=1184 data-nosnippet>1184</a>    }
-<a href=#1185 id=1185 data-nosnippet>1185</a>
-<a href=#1186 id=1186 data-nosnippet>1186</a>    <span class="kw">fn </span>to_qlog_restored(<span class="self">self</span>) -&gt; ParametersRestored {
-<a href=#1187 id=1187 data-nosnippet>1187</a>        ParametersRestored {
-<a href=#1188 id=1188 data-nosnippet>1188</a>            disable_active_migration: <span class="prelude-val">Some</span>(<span class="self">self</span>.disable_active_migration),
-<a href=#1189 id=1189 data-nosnippet>1189</a>            max_idle_timeout: <span class="prelude-val">Some</span>(<span class="self">self</span>.max_idle_timeout.into()),
-<a href=#1190 id=1190 data-nosnippet>1190</a>            max_udp_payload_size: <span class="prelude-val">Some</span>(<span class="self">self</span>.max_udp_payload_size.into()),
-<a href=#1191 id=1191 data-nosnippet>1191</a>            active_connection_id_limit: <span class="prelude-val">Some</span>(<span class="self">self</span>.active_connection_id_limit.into()),
-<a href=#1192 id=1192 data-nosnippet>1192</a>            initial_max_data: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_data.into()),
-<a href=#1193 id=1193 data-nosnippet>1193</a>            initial_max_stream_data_bidi_local: <span class="prelude-val">Some</span>(
-<a href=#1194 id=1194 data-nosnippet>1194</a>                <span class="self">self</span>.initial_max_stream_data_bidi_local.into(),
-<a href=#1195 id=1195 data-nosnippet>1195</a>            ),
-<a href=#1196 id=1196 data-nosnippet>1196</a>            initial_max_stream_data_bidi_remote: <span class="prelude-val">Some</span>(
-<a href=#1197 id=1197 data-nosnippet>1197</a>                <span class="self">self</span>.initial_max_stream_data_bidi_remote.into(),
-<a href=#1198 id=1198 data-nosnippet>1198</a>            ),
-<a href=#1199 id=1199 data-nosnippet>1199</a>            initial_max_stream_data_uni: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_stream_data_uni.into()),
-<a href=#1200 id=1200 data-nosnippet>1200</a>            initial_max_streams_bidi: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_streams_bidi.into()),
-<a href=#1201 id=1201 data-nosnippet>1201</a>            initial_max_streams_uni: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_streams_uni.into()),
-<a href=#1202 id=1202 data-nosnippet>1202</a>            max_datagram_frame_size: <span class="self">self</span>.max_datagram_frame_size.map(Into::into),
-<a href=#1203 id=1203 data-nosnippet>1203</a>            grease_quic_bit: <span class="prelude-val">Some</span>(<span class="self">self</span>.grease_quic_bit),
-<a href=#1204 id=1204 data-nosnippet>1204</a>        }
-<a href=#1205 id=1205 data-nosnippet>1205</a>    }
-<a href=#1206 id=1206 data-nosnippet>1206</a>}
-<a href=#1207 id=1207 data-nosnippet>1207</a>
-<a href=#1208 id=1208 data-nosnippet>1208</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#1209 id=1209 data-nosnippet>1209</a></span><span class="kw">impl </span>From&lt;<span class="kw-2">&amp;</span><span class="kw">crate</span>::transport_parameters::PreferredAddress&gt; <span class="kw">for </span>PreferredAddress {
-<a href=#1210 id=1210 data-nosnippet>1210</a>    <span class="kw">fn </span>from(value: <span class="kw-2">&amp;</span><span class="kw">crate</span>::transport_parameters::PreferredAddress) -&gt; <span class="self">Self </span>{
-<a href=#1211 id=1211 data-nosnippet>1211</a>        <span class="kw">let </span>port_v4 = value.address_v4.map(|addr| addr.port()).unwrap_or_default();
-<a href=#1212 id=1212 data-nosnippet>1212</a>        <span class="kw">let </span>port_v6 = value.address_v6.map(|addr| addr.port()).unwrap_or_default();
-<a href=#1213 id=1213 data-nosnippet>1213</a>        <span class="kw">let </span>ip_v4 = value
-<a href=#1214 id=1214 data-nosnippet>1214</a>            .address_v4
-<a href=#1215 id=1215 data-nosnippet>1215</a>            .map(|addr| addr.ip().to_string())
-<a href=#1216 id=1216 data-nosnippet>1216</a>            .unwrap_or_default();
-<a href=#1217 id=1217 data-nosnippet>1217</a>        <span class="kw">let </span>ip_v6 = value
-<a href=#1218 id=1218 data-nosnippet>1218</a>            .address_v6
-<a href=#1219 id=1219 data-nosnippet>1219</a>            .map(|addr| addr.ip().to_string())
-<a href=#1220 id=1220 data-nosnippet>1220</a>            .unwrap_or_default();
-<a href=#1221 id=1221 data-nosnippet>1221</a>        <span class="kw">let </span>connection_id = value.connection_id.to_string();
-<a href=#1222 id=1222 data-nosnippet>1222</a>        <span class="kw">let </span>stateless_reset_token = value.stateless_reset_token.to_string();
-<a href=#1223 id=1223 data-nosnippet>1223</a>
-<a href=#1224 id=1224 data-nosnippet>1224</a>        <span class="self">Self </span>{
-<a href=#1225 id=1225 data-nosnippet>1225</a>            ip_v4,
-<a href=#1226 id=1226 data-nosnippet>1226</a>            ip_v6,
-<a href=#1227 id=1227 data-nosnippet>1227</a>            port_v4,
-<a href=#1228 id=1228 data-nosnippet>1228</a>            port_v6,
-<a href=#1229 id=1229 data-nosnippet>1229</a>            connection_id,
-<a href=#1230 id=1230 data-nosnippet>1230</a>            stateless_reset_token,
-<a href=#1231 id=1231 data-nosnippet>1231</a>        }
-<a href=#1232 id=1232 data-nosnippet>1232</a>    }
-<a href=#1233 id=1233 data-nosnippet>1233</a>}
-<a href=#1234 id=1234 data-nosnippet>1234</a>
-<a href=#1235 id=1235 data-nosnippet>1235</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#1236 id=1236 data-nosnippet>1236</a></span><span class="kw">impl </span><span class="kw">crate</span>::address_discovery::Role {
-<a href=#1237 id=1237 data-nosnippet>1237</a>    <span class="kw">fn </span>to_qlog(<span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;AddressDiscoveryRole&gt; {
-<a href=#1238 id=1238 data-nosnippet>1238</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#1239 id=1239 data-nosnippet>1239</a>            <span class="self">Self</span>::SendOnly =&gt; <span class="prelude-val">Some</span>(AddressDiscoveryRole::SendOnly),
-<a href=#1240 id=1240 data-nosnippet>1240</a>            <span class="self">Self</span>::ReceiveOnly =&gt; <span class="prelude-val">Some</span>(AddressDiscoveryRole::ReceiveOnly),
-<a href=#1241 id=1241 data-nosnippet>1241</a>            <span class="self">Self</span>::Both =&gt; <span class="prelude-val">Some</span>(AddressDiscoveryRole::Both),
-<a href=#1242 id=1242 data-nosnippet>1242</a>            <span class="self">Self</span>::Disabled =&gt; <span class="prelude-val">None</span>,
-<a href=#1243 id=1243 data-nosnippet>1243</a>        }
-<a href=#1244 id=1244 data-nosnippet>1244</a>    }
-<a href=#1245 id=1245 data-nosnippet>1245</a>}</code></pre></div></section></main></body></html>
+<a href=#1143 id=1143 data-nosnippet>1143</a></span><span class="kw">fn </span>fmt_tuple_id(path_id: u64) -&gt; String {
+<a href=#1144 id=1144 data-nosnippet>1144</a>    <span class="macro">format!</span>(<span class="string">"p{path_id}"</span>)
+<a href=#1145 id=1145 data-nosnippet>1145</a>}
+<a href=#1146 id=1146 data-nosnippet>1146</a>
+<a href=#1147 id=1147 data-nosnippet>1147</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#1148 id=1148 data-nosnippet>1148</a></span><span class="kw">impl </span>TransportParameters {
+<a href=#1149 id=1149 data-nosnippet>1149</a>    <span class="kw">fn </span>to_qlog(<span class="self">self</span>, initiator: TransportInitiator) -&gt; ParametersSet {
+<a href=#1150 id=1150 data-nosnippet>1150</a>        ParametersSet {
+<a href=#1151 id=1151 data-nosnippet>1151</a>            initiator: <span class="prelude-val">Some</span>(initiator),
+<a href=#1152 id=1152 data-nosnippet>1152</a>            resumption_allowed: <span class="prelude-val">None</span>,
+<a href=#1153 id=1153 data-nosnippet>1153</a>            early_data_enabled: <span class="prelude-val">None</span>,
+<a href=#1154 id=1154 data-nosnippet>1154</a>            tls_cipher: <span class="prelude-val">None</span>,
+<a href=#1155 id=1155 data-nosnippet>1155</a>            original_destination_connection_id: <span class="self">self
+<a href=#1156 id=1156 data-nosnippet>1156</a>                </span>.original_dst_cid
+<a href=#1157 id=1157 data-nosnippet>1157</a>                .as_ref()
+<a href=#1158 id=1158 data-nosnippet>1158</a>                .map(ToString::to_string),
+<a href=#1159 id=1159 data-nosnippet>1159</a>            initial_source_connection_id: <span class="self">self</span>.initial_src_cid.as_ref().map(ToString::to_string),
+<a href=#1160 id=1160 data-nosnippet>1160</a>            retry_source_connection_id: <span class="self">self</span>.retry_src_cid.as_ref().map(ToString::to_string),
+<a href=#1161 id=1161 data-nosnippet>1161</a>            stateless_reset_token: <span class="self">self</span>.stateless_reset_token.as_ref().map(ToString::to_string),
+<a href=#1162 id=1162 data-nosnippet>1162</a>            disable_active_migration: <span class="prelude-val">Some</span>(<span class="self">self</span>.disable_active_migration),
+<a href=#1163 id=1163 data-nosnippet>1163</a>            max_idle_timeout: <span class="prelude-val">Some</span>(<span class="self">self</span>.max_idle_timeout.into()),
+<a href=#1164 id=1164 data-nosnippet>1164</a>            max_udp_payload_size: <span class="prelude-val">Some</span>(<span class="self">self</span>.max_udp_payload_size.into()),
+<a href=#1165 id=1165 data-nosnippet>1165</a>            ack_delay_exponent: <span class="prelude-val">Some</span>(<span class="self">self</span>.ack_delay_exponent.into()),
+<a href=#1166 id=1166 data-nosnippet>1166</a>            max_ack_delay: <span class="prelude-val">Some</span>(<span class="self">self</span>.max_ack_delay.into()),
+<a href=#1167 id=1167 data-nosnippet>1167</a>            active_connection_id_limit: <span class="prelude-val">Some</span>(<span class="self">self</span>.active_connection_id_limit.into()),
+<a href=#1168 id=1168 data-nosnippet>1168</a>            initial_max_data: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_data.into()),
+<a href=#1169 id=1169 data-nosnippet>1169</a>            initial_max_stream_data_bidi_local: <span class="prelude-val">Some</span>(
+<a href=#1170 id=1170 data-nosnippet>1170</a>                <span class="self">self</span>.initial_max_stream_data_bidi_local.into(),
+<a href=#1171 id=1171 data-nosnippet>1171</a>            ),
+<a href=#1172 id=1172 data-nosnippet>1172</a>            initial_max_stream_data_bidi_remote: <span class="prelude-val">Some</span>(
+<a href=#1173 id=1173 data-nosnippet>1173</a>                <span class="self">self</span>.initial_max_stream_data_bidi_remote.into(),
+<a href=#1174 id=1174 data-nosnippet>1174</a>            ),
+<a href=#1175 id=1175 data-nosnippet>1175</a>            initial_max_stream_data_uni: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_stream_data_uni.into()),
+<a href=#1176 id=1176 data-nosnippet>1176</a>            initial_max_streams_bidi: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_streams_bidi.into()),
+<a href=#1177 id=1177 data-nosnippet>1177</a>            initial_max_streams_uni: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_streams_uni.into()),
+<a href=#1178 id=1178 data-nosnippet>1178</a>            preferred_address: <span class="self">self</span>.preferred_address.as_ref().map(Into::into),
+<a href=#1179 id=1179 data-nosnippet>1179</a>            min_ack_delay: <span class="self">self</span>.min_ack_delay.map(Into::into),
+<a href=#1180 id=1180 data-nosnippet>1180</a>            address_discovery: <span class="self">self</span>.address_discovery_role.to_qlog(),
+<a href=#1181 id=1181 data-nosnippet>1181</a>            initial_max_path_id: <span class="self">self</span>.initial_max_path_id.map(|p| p.as_u32() <span class="kw">as </span>u64),
+<a href=#1182 id=1182 data-nosnippet>1182</a>            max_remote_nat_traversal_addresses: <span class="self">self
+<a href=#1183 id=1183 data-nosnippet>1183</a>                </span>.max_remote_nat_traversal_addresses
+<a href=#1184 id=1184 data-nosnippet>1184</a>                .map(|v| u64::from(v.get())),
+<a href=#1185 id=1185 data-nosnippet>1185</a>            max_datagram_frame_size: <span class="self">self</span>.max_datagram_frame_size.map(Into::into),
+<a href=#1186 id=1186 data-nosnippet>1186</a>            grease_quic_bit: <span class="prelude-val">Some</span>(<span class="self">self</span>.grease_quic_bit),
+<a href=#1187 id=1187 data-nosnippet>1187</a>            unknown_parameters: Default::default(),
+<a href=#1188 id=1188 data-nosnippet>1188</a>        }
+<a href=#1189 id=1189 data-nosnippet>1189</a>    }
+<a href=#1190 id=1190 data-nosnippet>1190</a>
+<a href=#1191 id=1191 data-nosnippet>1191</a>    <span class="kw">fn </span>to_qlog_restored(<span class="self">self</span>) -&gt; ParametersRestored {
+<a href=#1192 id=1192 data-nosnippet>1192</a>        ParametersRestored {
+<a href=#1193 id=1193 data-nosnippet>1193</a>            disable_active_migration: <span class="prelude-val">Some</span>(<span class="self">self</span>.disable_active_migration),
+<a href=#1194 id=1194 data-nosnippet>1194</a>            max_idle_timeout: <span class="prelude-val">Some</span>(<span class="self">self</span>.max_idle_timeout.into()),
+<a href=#1195 id=1195 data-nosnippet>1195</a>            max_udp_payload_size: <span class="prelude-val">Some</span>(<span class="self">self</span>.max_udp_payload_size.into()),
+<a href=#1196 id=1196 data-nosnippet>1196</a>            active_connection_id_limit: <span class="prelude-val">Some</span>(<span class="self">self</span>.active_connection_id_limit.into()),
+<a href=#1197 id=1197 data-nosnippet>1197</a>            initial_max_data: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_data.into()),
+<a href=#1198 id=1198 data-nosnippet>1198</a>            initial_max_stream_data_bidi_local: <span class="prelude-val">Some</span>(
+<a href=#1199 id=1199 data-nosnippet>1199</a>                <span class="self">self</span>.initial_max_stream_data_bidi_local.into(),
+<a href=#1200 id=1200 data-nosnippet>1200</a>            ),
+<a href=#1201 id=1201 data-nosnippet>1201</a>            initial_max_stream_data_bidi_remote: <span class="prelude-val">Some</span>(
+<a href=#1202 id=1202 data-nosnippet>1202</a>                <span class="self">self</span>.initial_max_stream_data_bidi_remote.into(),
+<a href=#1203 id=1203 data-nosnippet>1203</a>            ),
+<a href=#1204 id=1204 data-nosnippet>1204</a>            initial_max_stream_data_uni: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_stream_data_uni.into()),
+<a href=#1205 id=1205 data-nosnippet>1205</a>            initial_max_streams_bidi: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_streams_bidi.into()),
+<a href=#1206 id=1206 data-nosnippet>1206</a>            initial_max_streams_uni: <span class="prelude-val">Some</span>(<span class="self">self</span>.initial_max_streams_uni.into()),
+<a href=#1207 id=1207 data-nosnippet>1207</a>            max_datagram_frame_size: <span class="self">self</span>.max_datagram_frame_size.map(Into::into),
+<a href=#1208 id=1208 data-nosnippet>1208</a>            grease_quic_bit: <span class="prelude-val">Some</span>(<span class="self">self</span>.grease_quic_bit),
+<a href=#1209 id=1209 data-nosnippet>1209</a>        }
+<a href=#1210 id=1210 data-nosnippet>1210</a>    }
+<a href=#1211 id=1211 data-nosnippet>1211</a>}
+<a href=#1212 id=1212 data-nosnippet>1212</a>
+<a href=#1213 id=1213 data-nosnippet>1213</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#1214 id=1214 data-nosnippet>1214</a></span><span class="kw">impl </span>From&lt;<span class="kw-2">&amp;</span><span class="kw">crate</span>::transport_parameters::PreferredAddress&gt; <span class="kw">for </span>PreferredAddress {
+<a href=#1215 id=1215 data-nosnippet>1215</a>    <span class="kw">fn </span>from(value: <span class="kw-2">&amp;</span><span class="kw">crate</span>::transport_parameters::PreferredAddress) -&gt; <span class="self">Self </span>{
+<a href=#1216 id=1216 data-nosnippet>1216</a>        <span class="kw">let </span>port_v4 = value.address_v4.map(|addr| addr.port()).unwrap_or_default();
+<a href=#1217 id=1217 data-nosnippet>1217</a>        <span class="kw">let </span>port_v6 = value.address_v6.map(|addr| addr.port()).unwrap_or_default();
+<a href=#1218 id=1218 data-nosnippet>1218</a>        <span class="kw">let </span>ip_v4 = value
+<a href=#1219 id=1219 data-nosnippet>1219</a>            .address_v4
+<a href=#1220 id=1220 data-nosnippet>1220</a>            .map(|addr| addr.ip().to_string())
+<a href=#1221 id=1221 data-nosnippet>1221</a>            .unwrap_or_default();
+<a href=#1222 id=1222 data-nosnippet>1222</a>        <span class="kw">let </span>ip_v6 = value
+<a href=#1223 id=1223 data-nosnippet>1223</a>            .address_v6
+<a href=#1224 id=1224 data-nosnippet>1224</a>            .map(|addr| addr.ip().to_string())
+<a href=#1225 id=1225 data-nosnippet>1225</a>            .unwrap_or_default();
+<a href=#1226 id=1226 data-nosnippet>1226</a>        <span class="kw">let </span>connection_id = value.connection_id.to_string();
+<a href=#1227 id=1227 data-nosnippet>1227</a>        <span class="kw">let </span>stateless_reset_token = value.stateless_reset_token.to_string();
+<a href=#1228 id=1228 data-nosnippet>1228</a>
+<a href=#1229 id=1229 data-nosnippet>1229</a>        <span class="self">Self </span>{
+<a href=#1230 id=1230 data-nosnippet>1230</a>            ip_v4,
+<a href=#1231 id=1231 data-nosnippet>1231</a>            ip_v6,
+<a href=#1232 id=1232 data-nosnippet>1232</a>            port_v4,
+<a href=#1233 id=1233 data-nosnippet>1233</a>            port_v6,
+<a href=#1234 id=1234 data-nosnippet>1234</a>            connection_id,
+<a href=#1235 id=1235 data-nosnippet>1235</a>            stateless_reset_token,
+<a href=#1236 id=1236 data-nosnippet>1236</a>        }
+<a href=#1237 id=1237 data-nosnippet>1237</a>    }
+<a href=#1238 id=1238 data-nosnippet>1238</a>}
+<a href=#1239 id=1239 data-nosnippet>1239</a>
+<a href=#1240 id=1240 data-nosnippet>1240</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#1241 id=1241 data-nosnippet>1241</a></span><span class="kw">impl </span><span class="kw">crate</span>::address_discovery::Role {
+<a href=#1242 id=1242 data-nosnippet>1242</a>    <span class="kw">fn </span>to_qlog(<span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;AddressDiscoveryRole&gt; {
+<a href=#1243 id=1243 data-nosnippet>1243</a>        <span class="kw">match </span><span class="self">self </span>{
+<a href=#1244 id=1244 data-nosnippet>1244</a>            <span class="self">Self</span>::SendOnly =&gt; <span class="prelude-val">Some</span>(AddressDiscoveryRole::SendOnly),
+<a href=#1245 id=1245 data-nosnippet>1245</a>            <span class="self">Self</span>::ReceiveOnly =&gt; <span class="prelude-val">Some</span>(AddressDiscoveryRole::ReceiveOnly),
+<a href=#1246 id=1246 data-nosnippet>1246</a>            <span class="self">Self</span>::Both =&gt; <span class="prelude-val">Some</span>(AddressDiscoveryRole::Both),
+<a href=#1247 id=1247 data-nosnippet>1247</a>            <span class="self">Self</span>::Disabled =&gt; <span class="prelude-val">None</span>,
+<a href=#1248 id=1248 data-nosnippet>1248</a>        }
+<a href=#1249 id=1249 data-nosnippet>1249</a>    }
+<a href=#1250 id=1250 data-nosnippet>1250</a>}</code></pre></div></section></main></body></html>
