@@ -22,7 +22,6 @@ use crate::{
 use qlog::events::quic::RecoveryMetricsUpdated;
 
 /// Id representing different paths when using multipath extension
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct PathId(pub(crate) u32);
@@ -874,7 +873,6 @@ impl PathStatusState {
 ///
 /// See section "3.3 Path Status Management":
 /// <https://quicwg.org/multipath/draft-ietf-quic-multipath.html#name-path-status-management>
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub enum PathStatus {

@@ -1147,7 +1147,8 @@ impl Encodable for EcnCounts {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "proptest", derive(PartialEq, Eq))]
 pub(crate) struct Stream {
     pub(crate) id: StreamId,
     pub(crate) offset: u64,
