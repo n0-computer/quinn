@@ -273,9 +273,9 @@
 <a href=#273 id=273 data-nosnippet>273</a>    <span class="kw">pub fn </span>as_rustls(<span class="self">self</span>) -&gt; rustls::SupportedCipherSuite {
 <a href=#274 id=274 data-nosnippet>274</a>        <span class="kw">use </span>rustls::crypto::ring::cipher_suite;
 <a href=#275 id=275 data-nosnippet>275</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#276 id=276 data-nosnippet>276</a>            CipherSuite::Aes128 =&gt; cipher_suite::TLS13_AES_128_GCM_SHA256,
-<a href=#277 id=277 data-nosnippet>277</a>            CipherSuite::Aes256 =&gt; cipher_suite::TLS13_AES_256_GCM_SHA384,
-<a href=#278 id=278 data-nosnippet>278</a>            CipherSuite::Chacha20 =&gt; cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
+<a href=#276 id=276 data-nosnippet>276</a>            <span class="self">Self</span>::Aes128 =&gt; cipher_suite::TLS13_AES_128_GCM_SHA256,
+<a href=#277 id=277 data-nosnippet>277</a>            <span class="self">Self</span>::Aes256 =&gt; cipher_suite::TLS13_AES_256_GCM_SHA384,
+<a href=#278 id=278 data-nosnippet>278</a>            <span class="self">Self</span>::Chacha20 =&gt; cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
 <a href=#279 id=279 data-nosnippet>279</a>        }
 <a href=#280 id=280 data-nosnippet>280</a>    }
 <a href=#281 id=281 data-nosnippet>281</a>}
@@ -285,9 +285,9 @@
 <a href=#285 id=285 data-nosnippet>285</a>
 <a href=#286 id=286 data-nosnippet>286</a>    <span class="kw">fn </span>from_str(s: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, <span class="self">Self</span>::Err&gt; {
 <a href=#287 id=287 data-nosnippet>287</a>        <span class="kw">match </span>s.to_lowercase().as_str() {
-<a href=#288 id=288 data-nosnippet>288</a>            <span class="string">"aes128" </span>=&gt; <span class="prelude-val">Ok</span>(CipherSuite::Aes128),
-<a href=#289 id=289 data-nosnippet>289</a>            <span class="string">"aes256" </span>=&gt; <span class="prelude-val">Ok</span>(CipherSuite::Aes256),
-<a href=#290 id=290 data-nosnippet>290</a>            <span class="string">"chacha20" </span>=&gt; <span class="prelude-val">Ok</span>(CipherSuite::Chacha20),
+<a href=#288 id=288 data-nosnippet>288</a>            <span class="string">"aes128" </span>=&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::Aes128),
+<a href=#289 id=289 data-nosnippet>289</a>            <span class="string">"aes256" </span>=&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::Aes256),
+<a href=#290 id=290 data-nosnippet>290</a>            <span class="string">"chacha20" </span>=&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::Chacha20),
 <a href=#291 id=291 data-nosnippet>291</a>            <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(<span class="string">"Unknown cipher suite {}"</span>, s)),
 <a href=#292 id=292 data-nosnippet>292</a>        }
 <a href=#293 id=293 data-nosnippet>293</a>    }
