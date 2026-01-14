@@ -21,6 +21,7 @@ jobs:
   test-freebsd:
     # see https://github.com/actions/runner/issues/385
     # use https://github.com/vmactions/freebsd-vm for now
+    timeout-minutes: 45
     name: test on freebsd
     runs-on: ubuntu-latest
     steps:
@@ -44,6 +45,7 @@ jobs:
             cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p iroh-quinn-udp --benches
 
   test-solaris:
+    timeout-minutes: 45
     name: test on solaris
     runs-on: ubuntu-latest
     steps:
@@ -69,6 +71,7 @@ jobs:
             cargo build --locked --all-targets && cargo test --locked && cargo test --locked -p iroh-quinn-udp --benches
 
   test-illumos:
+    timeout-minutes: 45
     name: test on illumos
     runs-on: ubuntu-latest
     steps:
@@ -92,12 +95,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+        include:
+          - os: linux
+            runs-on: [self-hosted, linux, X64]
+          - os: macos
+            runs-on: [self-hosted, macOS, ARM64]
+    runs-on: ${{ matrix.runs-on }}
     env:
       RUSTFLAGS: -Dwarnings
       # skip FIPS features outside of Linux
-      SKIP_FEATURES: ${{ matrix.os != 'ubuntu-latest' && 'rustls-aws-lc-rs-fips,aws-lc-rs-fips,aws-lc-fips-sys,__rustls-post-quantum-test' || '' }}
+      SKIP_FEATURES: ${{ matrix.os != 'linux' && 'rustls-aws-lc-rs-fips,aws-lc-rs-fips,aws-lc-fips-sys,__rustls-post-quantum-test' || '' }}
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -106,6 +113,7 @@ jobs:
       - run: cargo hack check --feature-powerset --depth 3 --optional-deps --no-dev-deps --ignore-private --skip "${{env.SKIP_FEATURES}}"
 
   notify:
+    timeout-minutes: 45
     needs: [test-freebsd, test-solaris, test-illumos, features]
     if: ${{ always() }}
     runs-on: ubuntu-latest
