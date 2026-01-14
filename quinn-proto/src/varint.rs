@@ -142,6 +142,17 @@ impl<'arbitrary> Arbitrary<'arbitrary> for VarInt {
     }
 }
 
+#[cfg(feature = "arbitrary")]
+impl proptest::arbitrary::Arbitrary for VarInt {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        use proptest::strategy::Strategy;
+        (0..=Self::MAX.0).prop_map(Self).boxed()
+    }
+}
+
 /// Error returned when constructing a `VarInt` from a value >= 2^62
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Error)]
 #[error("value too large for varint encoding")]

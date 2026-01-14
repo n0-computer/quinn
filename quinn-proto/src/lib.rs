@@ -244,7 +244,6 @@ impl fmt::Display for Dir {
 }
 
 /// Identifier for a stream within a particular connection
-#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct StreamId(u64);
 
@@ -317,6 +316,24 @@ impl Decodable for StreamId {
 impl Encodable for StreamId {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) {
         VarInt::from_u64(self.0).unwrap().encode(buf);
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'arbitrary> Arbitrary<'arbitrary> for StreamId {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'arbitrary>) -> arbitrary::Result<Self> {
+        Ok(VarInt::arbitrary(u)?.into())
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl proptest::arbitrary::Arbitrary for StreamId {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        use proptest::strategy::Strategy;
+        proptest::arbitrary::any::<VarInt>().prop_map(Into::into).boxed()
     }
 }
 
