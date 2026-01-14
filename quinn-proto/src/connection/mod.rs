@@ -164,10 +164,17 @@ pub struct Connection {
     /// deterministically select the next PathId to send on.
     // TODO(flub): well does it really? But deterministic is nice for now.
     paths: BTreeMap<PathId, PathState>,
-    /// Incremented every time we see a new path
+    /// Counter to uniquely identify every [`PathData`] created in this connection.
     ///
-    /// Stored separately from `path.generation` to account for aborted migrations
-    path_counter: u64,
+    /// Each [`PathData`] gets a [`PathData::generation`] that is unique among all
+    /// [`PathData`]s created in the lifetime of this connection. This helps identify the
+    /// correct path when RFC9000-style migrations happen, even when they are
+    /// aborted.
+    ///
+    /// Multipath does not change this, each path can also undergo RFC9000-style
+    /// migrations. So a single multipath path ID could see several [`PathData`]s each with
+    /// their unique [`PathData::generation].
+    path_generation_counter: u64,
     /// Whether MTU detection is supported in this environment
     allow_mtud: bool,
     state: State,
@@ -382,7 +389,7 @@ impl Connection {
                     prev: None,
                 },
             )]),
-            path_counter: 0,
+            path_generation_counter: 0,
             allow_mtud,
             state,
             side: connection_side,
@@ -609,7 +616,7 @@ impl Connection {
             self.spaces[SpaceId::Data]
                 .pending
                 .path_cids_blocked
-                .push(path_id);
+                .insert(path_id);
             return Err(PathError::RemoteCidsExhausted);
         }
 
@@ -865,12 +872,12 @@ impl Connection {
         debug!(%validated, %path_id, %network_path, "path added");
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
-        self.path_counter = self.path_counter.wrapping_add(1);
+        self.path_generation_counter = self.path_generation_counter.wrapping_add(1);
         let mut data = PathData::new(
             network_path,
             self.allow_mtud,
             Some(peer_max_udp_payload_size),
-            self.path_counter,
+            self.path_generation_counter,
             now,
             &self.config,
         );
@@ -1056,7 +1063,7 @@ impl Connection {
                     self.spaces[SpaceId::Data]
                         .pending
                         .path_cids_blocked
-                        .push(path_id);
+                        .insert(path_id);
                 } else {
                     trace!(%path_id, "remote CIDs retired for abandoned path");
                 }
@@ -2218,13 +2225,6 @@ impl Connection {
         self.update_keys(None, false);
     }
 
-    // Compatibility wrapper for quinn < 0.11.7. Remove for 0.12.
-    #[doc(hidden)]
-    #[deprecated]
-    pub fn initiate_key_update(&mut self) {
-        self.force_key_update();
-    }
-
     /// Get a session reference
     pub fn crypto_session(&self) -> &dyn crypto::Session {
         &*self.crypto
@@ -2971,7 +2971,12 @@ impl Connection {
             if path.mtud.black_hole_detected(now) {
                 path.congestion.on_mtu_update(path.mtud.current_mtu());
                 if let Some(max_datagram_size) = self.datagrams().max_size() {
-                    self.datagrams.drop_oversized(max_datagram_size);
+                    if self.datagrams.drop_oversized(max_datagram_size)
+                        && self.datagrams.send_blocked
+                    {
+                        self.datagrams.send_blocked = false;
+                        self.events.push_back(Event::DatagramsUnblocked);
+                    }
                 }
                 self.path_stats
                     .entry(path_id)
@@ -4965,7 +4970,7 @@ impl Connection {
         observed_addr: Option<ObservedAddr>,
     ) {
         trace!(%network_path, %path_id, "migration initiated");
-        self.path_counter = self.path_counter.wrapping_add(1);
+        self.path_generation_counter = self.path_generation_counter.wrapping_add(1);
         // TODO(@divma): conditions for path migration in multipath are very specific, check them
         // again to prevent path migrations that should actually create a new path
 
@@ -4978,7 +4983,7 @@ impl Connection {
         let mut new_path = if network_path.remote.is_ipv4()
             && network_path.remote.ip() == path.network_path.remote.ip()
         {
-            PathData::from_previous(network_path, path, self.path_counter, now)
+            PathData::from_previous(network_path, path, self.path_generation_counter, now)
         } else {
             let peer_max_udp_payload_size =
                 u16::try_from(self.peer_params.max_udp_payload_size.into_inner())
@@ -4987,7 +4992,7 @@ impl Connection {
                 network_path,
                 self.allow_mtud,
                 Some(peer_max_udp_payload_size),
-                self.path_counter,
+                self.path_generation_counter,
                 now,
                 &self.config,
             )
@@ -5524,7 +5529,7 @@ impl Connection {
         // PATH_CIDS_BLOCKED
         while space_id == SpaceId::Data && frame::PathCidsBlocked::SIZE_BOUND <= buf.remaining_mut()
         {
-            let Some(path_id) = space.pending.path_cids_blocked.pop() else {
+            let Some(path_id) = space.pending.path_cids_blocked.pop_first() else {
                 break;
             };
             let next_seq = match self.rem_cids.get(&path_id) {
@@ -5540,7 +5545,7 @@ impl Connection {
             sent.retransmits
                 .get_or_create()
                 .path_cids_blocked
-                .push(path_id);
+                .insert(path_id);
             trace!(%path_id, next_seq, "PATH_CIDS_BLOCKED");
             self.stats.frame_tx.path_cids_blocked += 1;
         }
@@ -6524,7 +6529,7 @@ impl Connection {
 }
 
 impl fmt::Debug for Connection {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Connection")
             .field("handshake_cid", &self.handshake_cid)
             .finish()
@@ -6733,6 +6738,7 @@ pub enum ClosePathError {
     LastOpenPath,
 }
 
+/// Error when the multipath extension was not negotiated, but attempted to be used.
 #[derive(Debug, Error, Clone, Copy)]
 #[error("Multipath extension not negotiated")]
 pub struct MultipathNotNegotiated {

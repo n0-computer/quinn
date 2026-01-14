@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   clean_docs_branch:
+    timeout-minutes: 45
     permissions:
       issues: write
       contents: write

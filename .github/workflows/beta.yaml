@@ -19,6 +19,7 @@ jobs:
       rust-version: beta
 
   notify:
+    timeout-minutes: 45
     needs: tests
     if: ${{ always() }}
     runs-on: ubuntu-latest
