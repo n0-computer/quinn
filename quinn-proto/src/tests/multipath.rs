@@ -8,6 +8,7 @@ use std::time::Duration;
 use assert_matches::assert_matches;
 use tracing::info;
 
+use crate::tests::RoutingTable;
 use crate::tests::util::{CLIENT_PORTS, SERVER_PORTS};
 use crate::{
     ClientConfig, ClosePathError, ConnectionHandle, ConnectionId, ConnectionIdGenerator, Endpoint,
@@ -571,6 +572,91 @@ fn open_path_validation_fails_client_side() {
     let server_conn = pair.server_conn_mut(client_ch);
     assert_matches!(server_conn.poll().unwrap(),
         Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  }) if id == path_id
+    );
+}
+
+/// Client opens a path, then abandons, then calls open_path_ensure.
+///
+/// In the end there should be an open path.
+#[test]
+fn open_path_ensure_after_abandon() {
+    let _guard = subscribe();
+    let (mut pair, client_ch, _server_ch) = multipath_pair();
+    let mut second_client_addr = pair.client.addr;
+    let mut second_server_addr = pair.server.addr;
+    second_client_addr.set_port(second_client_addr.port() + 1);
+    second_server_addr.set_port(second_server_addr.port() + 1);
+    pair.routes = Some(RoutingTable::simple_symmetric(
+        [pair.client.addr, second_client_addr],
+        [pair.server.addr, second_server_addr],
+    ));
+
+    let second_path = FourTuple {
+        local_ip: Some(second_client_addr.ip()),
+        remote: second_server_addr,
+    };
+
+    info!("opening path 1");
+    let now = pair.time;
+    let path_id = pair
+        .client_conn_mut(client_ch)
+        .open_path(second_path, PathStatus::Available, now)
+        .unwrap();
+    pair.drive();
+
+    let client_conn = pair.client_conn_mut(client_ch);
+    assert_matches!(
+        client_conn.poll().unwrap(),
+        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+    );
+
+    let server_conn = pair.server_conn_mut(client_ch);
+    assert_matches!(
+        server_conn.poll().unwrap(),
+        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+    );
+
+    info!("closing path {path_id}");
+    let now = pair.time;
+    pair.client_conn_mut(client_ch)
+        .close_path(now, path_id, 0u8.into())
+        .unwrap();
+    pair.drive();
+
+    // The path should be closed:
+    let client_conn = pair.client_conn_mut(client_ch);
+    assert_matches!(
+        client_conn.poll().unwrap(),
+        Event::Path(crate::PathEvent::Abandoned { id, .. }) if id == path_id
+    );
+
+    let server_conn = pair.server_conn_mut(client_ch);
+    assert_matches!(
+        server_conn.poll().unwrap(),
+        Event::Path(crate::PathEvent::Abandoned { id, .. }) if id == path_id
+    );
+
+    info!("opening path 2");
+    let now = pair.time;
+    let (path_id, existed) = pair
+        .client_conn_mut(client_ch)
+        .open_path_ensure(second_path, PathStatus::Available, now)
+        .unwrap();
+    pair.drive();
+
+    assert!(!existed);
+
+    // The path should have been opened:
+    let client_conn = pair.client_conn_mut(client_ch);
+    assert_matches!(
+        client_conn.poll().unwrap(),
+        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+    );
+
+    let server_conn = pair.server_conn_mut(client_ch);
+    assert_matches!(
+        server_conn.poll().unwrap(),
+        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 }
 

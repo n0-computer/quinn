@@ -569,16 +569,14 @@ impl Connection {
         initial_status: PathStatus,
         now: Instant,
     ) -> Result<(PathId, bool), PathError> {
-        Ok(
-            match self
-                .paths
-                .iter()
-                .find(|(_id, path)| network_path.is_probably_same_path(&path.data.network_path))
-            {
-                Some((path_id, _state)) => (*path_id, true),
-                None => (self.open_path(network_path, initial_status, now)?, false),
-            },
-        )
+        let existing_open_path = self.paths.iter().find(|(id, path)| {
+            network_path.is_probably_same_path(&path.data.network_path)
+                && !self.abandoned_paths.contains(*id)
+        });
+        match existing_open_path {
+            Some((path_id, _state)) => Ok((*path_id, true)),
+            None => Ok((self.open_path(network_path, initial_status, now)?, false)),
+        }
     }
 
     /// Opens a new path
