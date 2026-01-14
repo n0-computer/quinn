@@ -3113,10 +3113,10 @@ impl Connection {
                 warn!("received data on path which we abandoned more than 3 * PTO ago");
                 // The peer failed to respond with a PATH_ABANDON in time.
                 if !self.state.is_closed() {
-                    // TODO(flub): What should the error code be?
-                    self.state.move_to_closed(TransportError::NO_ERROR(
-                        "peer failed to respond with PATH_ABANDON in time",
-                    ));
+                    self.state
+                        .move_to_closed(TransportError::PROTOCOL_VIOLATION(
+                            "peer failed to respond with PATH_ABANDON in time",
+                        ));
                     self.close_common();
                     self.set_close_timer(now);
                     self.close = true;
@@ -4632,8 +4632,9 @@ impl Connection {
                         }
                         Err(ClosePathError::LastOpenPath) => {
                             trace!("peer abandoned last path, closing connection");
-                            // TODO(flub): which error code?
-                            return Err(TransportError::NO_ERROR("last path abandoned by peer"));
+                            return Err(TransportError::NO_VIABLE_PATH(
+                                "last path abandoned by peer",
+                            ));
                         }
                         Err(ClosePathError::ClosedPath) => {
                             trace!("peer abandoned already closed path");
@@ -5305,8 +5306,8 @@ impl Connection {
                     // The peer MUST respond with a corresponding PATH_ABANDON frame.
                     // The other peer has 3 * PTO to do that.
                     // This uses the PTO of the path we send on!
-                    // Once the PATH_ABANDON comes in, we set the path_abandon_deadline far
-                    // into the future, so that receiving data on that path doesn't cause errors.
+                    // Once the PATH_ABANDON comes in, we set the deadline in `AbandonState::ExpectingPathAbandon`
+                    // far into the future, so that receiving data on that path doesn't cause errors.
                     abandoned_path.data.abandon_state = AbandonState::ExpectingPathAbandon {
                         deadline: now + 3 * send_pto,
                     };
