@@ -5306,8 +5306,12 @@ impl Connection {
                     // The peer MUST respond with a corresponding PATH_ABANDON frame.
                     // The other peer has 3 * PTO to do that.
                     // This uses the PTO of the path we send on!
-                    // Once the PATH_ABANDON comes in, we set the deadline in `AbandonState::ExpectingPathAbandon`
-                    // far into the future, so that receiving data on that path doesn't cause errors.
+                    // If the PATH_ABANDON comes in within the deadline we're giving here, then this
+                    // state will be set to `AbandonState::ReceivedPathAbandon`, essentially clearing
+                    // the deadline. If we receive a frame after the deadline, we error out with a
+                    // protocol violation.
+                    // Receiving other frames before the deadline is fine, as those might be packets
+                    // that were still in-flight.
                     abandoned_path.data.abandon_state = AbandonState::ExpectingPathAbandon {
                         deadline: now + 3 * send_pto,
                     };
