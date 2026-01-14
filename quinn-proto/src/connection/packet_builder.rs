@@ -230,7 +230,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         self.write_frame_with_log_msg(frame, stats, None);
     }
 
-    pub fn write_frame_with_log_msg<'c>(
+    pub(super) fn write_frame_with_log_msg<'c>(
         &mut self,
         frame: impl Into<EncodableFrame<'c>>,
         stats: &mut FrameStats,
