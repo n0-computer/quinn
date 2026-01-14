@@ -525,6 +525,7 @@ impl Frame {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, derive_more::Display)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[display("PATH_CHALLENGE({_0:08x})")]
 pub(crate) struct PathChallenge(pub(crate) u64);
 
@@ -550,6 +551,7 @@ impl Encodable for PathChallenge {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, derive_more::Display)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[display("PATH_RESPONSE({_0:08x})")]
 pub(crate) struct PathResponse(pub(crate) u64);
 
@@ -1282,6 +1284,7 @@ impl NewToken {
 }
 
 #[derive(Debug, Clone, derive_more::Display)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary, PartialEq, Eq))]
 #[display("MAX_PATH_ID path_id: {_0}")]
 pub(crate) struct MaxPathId(pub(crate) PathId);
 
@@ -1308,6 +1311,7 @@ impl Encodable for MaxPathId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Display)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[display("PATHS_BLOCKED remote_max_path_id: {_0}")]
 pub(crate) struct PathsBlocked(pub(crate) PathId);
 
@@ -1335,6 +1339,7 @@ impl Decodable for PathsBlocked {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Display)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[display("PATH_CIDS_BLOCKED path_id: {path_id} next_seq: {next_seq}")]
 pub(crate) struct PathCidsBlocked {
     pub(crate) path_id: PathId,
@@ -1994,6 +1999,7 @@ impl Encodable for ObservedAddr {
 /* Multipath <https://datatracker.ietf.org/doc/draft-ietf-quic-multipath/> */
 
 #[derive(Debug, PartialEq, Eq, derive_more::Display)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[display("PATH_ABANDON path_id: {path_id}")]
 pub(crate) struct PathAbandon {
     pub(crate) path_id: PathId,
@@ -2026,6 +2032,7 @@ impl Decodable for PathAbandon {
 }
 
 #[derive(Debug, PartialEq, Eq, derive_more::Display)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[display("PATH_STATUS_AVAILABLE path_id: {path_id} seq_no: {status_seq_no}")]
 pub(crate) struct PathStatusAvailable {
     pub(crate) path_id: PathId,
@@ -2059,6 +2066,7 @@ impl Decodable for PathStatusAvailable {
 }
 
 #[derive(Debug, PartialEq, Eq, derive_more::Display)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
 #[display("PATH_STATUS_BACKUP path_id: {path_id} seq_no: {status_seq_no}")]
 pub(crate) struct PathStatusBackup {
     pub(crate) path_id: PathId,

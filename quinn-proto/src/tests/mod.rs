@@ -4056,7 +4056,7 @@ mod encode_decode_tests {
     use bytes::{BufMut, Bytes, BytesMut};
     use proptest::{prelude::*};
     use ring::hmac;
-    use crate::{ApplicationClose, ConnectionId, Datagram, FrameType, MAX_CID_SIZE, PathId, StreamId, TransportErrorCode, VarInt, coding::Encodable, frame::{Close, MaybeFrame, NewConnectionId, ResetStream, StopSending, Stream}, token::ResetToken};
+    use crate::{ApplicationClose, ConnectionId, Datagram, FrameType, MAX_CID_SIZE, PathId, StreamId, TransportErrorCode, VarInt, coding::Encodable, frame::{Close, MaybeFrame, NewConnectionId, ResetStream, StopSending, Stream, PathChallenge, PathResponse, MaxPathId, PathsBlocked, PathCidsBlocked, PathAbandon, PathStatusAvailable, PathStatusBackup}, token::ResetToken};
 
     use super::frame::{Frame, ConnectionClose};
 
@@ -4157,6 +4157,14 @@ mod encode_decode_tests {
         StopSending(StopSending),
         NewConnectionId(#[strategy(new_connection_id())] NewConnectionId),
         Datagram(#[strategy(datagram())] Datagram),
+        PathChallenge(PathChallenge),
+        PathResponse(PathResponse),
+        MaxPathId(MaxPathId),
+        PathsBlocked(PathsBlocked),
+        PathCidsBlocked(PathCidsBlocked),
+        PathAbandon(PathAbandon),
+        PathStatusAvailable(PathStatusAvailable),
+        PathStatusBackup(PathStatusBackup),
     }
 
     impl TryFrom<Frame> for TestFrame {
@@ -4169,6 +4177,14 @@ mod encode_decode_tests {
                 Frame::StopSending(ss) => Ok(Self::StopSending(ss)),
                 Frame::NewConnectionId(nc) => Ok(Self::NewConnectionId(nc)),
                 Frame::Datagram(dg) => Ok(Self::Datagram(dg)),
+                Frame::PathChallenge(pc) => Ok(Self::PathChallenge(pc)),
+                Frame::PathResponse(pr) => Ok(Self::PathResponse(pr)),
+                Frame::MaxPathId(mpi) => Ok(Self::MaxPathId(mpi)),
+                Frame::PathsBlocked(pb) => Ok(Self::PathsBlocked(pb)),
+                Frame::PathCidsBlocked(pcb) => Ok(Self::PathCidsBlocked(pcb)),
+                Frame::PathAbandon(pa) => Ok(Self::PathAbandon(pa)),
+                Frame::PathStatusAvailable(psa) => Ok(Self::PathStatusAvailable(psa)),
+                Frame::PathStatusBackup(psb) => Ok(Self::PathStatusBackup(psb)),
                 _ => Err("unsupported frame type"),
             }
         }
@@ -4204,6 +4220,30 @@ mod encode_decode_tests {
                 }
                 TestFrame::Datagram(dg) => {
                     dg.encode(buf)
+                }
+                TestFrame::PathChallenge(pc) => {
+                    pc.encode(buf)
+                }
+                TestFrame::PathResponse(pr) => {
+                    pr.encode(buf)
+                }
+                TestFrame::MaxPathId(mpi) => {
+                    mpi.encode(buf)
+                }
+                TestFrame::PathsBlocked(pb) => {
+                    pb.encode(buf)
+                }
+                TestFrame::PathCidsBlocked(pcb) => {
+                    pcb.encode(buf)
+                }
+                TestFrame::PathAbandon(pa) => {
+                    pa.encode(buf)
+                }
+                TestFrame::PathStatusAvailable(psa) => {
+                    psa.encode(buf)
+                }
+                TestFrame::PathStatusBackup(psb) => {
+                    psb.encode(buf)
                 }
             }
         }
