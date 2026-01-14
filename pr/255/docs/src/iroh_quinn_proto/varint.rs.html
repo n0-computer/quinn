@@ -184,35 +184,36 @@
 <a href=#184 id=184 data-nosnippet>184</a>        <span class="prelude-val">Ok</span>(<span class="self">Self</span>(x))
 <a href=#185 id=185 data-nosnippet>185</a>    }
 <a href=#186 id=186 data-nosnippet>186</a>}
-<a href=#187 id=187 data-nosnippet>187</a><span class="kw">impl </span>Encodable <span class="kw">for </span>VarInt {
-<a href=#188 id=188 data-nosnippet>188</a>    <span class="kw">fn </span>encode&lt;B: BufMut&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, w: <span class="kw-2">&amp;mut </span>B) {
-<a href=#189 id=189 data-nosnippet>189</a>        <span class="kw">let </span>x = <span class="self">self</span>.<span class="number">0</span>;
-<a href=#190 id=190 data-nosnippet>190</a>        <span class="kw">if </span>x &lt; <span class="number">2u64</span>.pow(<span class="number">6</span>) {
-<a href=#191 id=191 data-nosnippet>191</a>            w.put_u8(x <span class="kw">as </span>u8);
-<a href=#192 id=192 data-nosnippet>192</a>        } <span class="kw">else if </span>x &lt; <span class="number">2u64</span>.pow(<span class="number">14</span>) {
-<a href=#193 id=193 data-nosnippet>193</a>            w.put_u16((<span class="number">0b01 </span>&lt;&lt; <span class="number">14</span>) | x <span class="kw">as </span>u16);
-<a href=#194 id=194 data-nosnippet>194</a>        } <span class="kw">else if </span>x &lt; <span class="number">2u64</span>.pow(<span class="number">30</span>) {
-<a href=#195 id=195 data-nosnippet>195</a>            w.put_u32((<span class="number">0b10 </span>&lt;&lt; <span class="number">30</span>) | x <span class="kw">as </span>u32);
-<a href=#196 id=196 data-nosnippet>196</a>        } <span class="kw">else if </span>x &lt; <span class="number">2u64</span>.pow(<span class="number">62</span>) {
-<a href=#197 id=197 data-nosnippet>197</a>            w.put_u64((<span class="number">0b11 </span>&lt;&lt; <span class="number">62</span>) | x);
-<a href=#198 id=198 data-nosnippet>198</a>        } <span class="kw">else </span>{
-<a href=#199 id=199 data-nosnippet>199</a>            <span class="macro">unreachable!</span>(<span class="string">"malformed VarInt"</span>)
-<a href=#200 id=200 data-nosnippet>200</a>        }
-<a href=#201 id=201 data-nosnippet>201</a>    }
-<a href=#202 id=202 data-nosnippet>202</a>}
-<a href=#203 id=203 data-nosnippet>203</a>
-<a href=#204 id=204 data-nosnippet>204</a><span class="attr">#[cfg(test)]
-<a href=#205 id=205 data-nosnippet>205</a></span><span class="kw">mod </span>tests {
-<a href=#206 id=206 data-nosnippet>206</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#207 id=207 data-nosnippet>207</a>
-<a href=#208 id=208 data-nosnippet>208</a>    <span class="attr">#[test]
-<a href=#209 id=209 data-nosnippet>209</a>    </span><span class="kw">fn </span>test_saturating_add() {
-<a href=#210 id=210 data-nosnippet>210</a>        <span class="comment">// add within range behaves normally
-<a href=#211 id=211 data-nosnippet>211</a>        </span><span class="kw">let </span>large: VarInt = u32::MAX.into();
-<a href=#212 id=212 data-nosnippet>212</a>        <span class="kw">let </span>next = u64::from(u32::MAX) + <span class="number">1</span>;
-<a href=#213 id=213 data-nosnippet>213</a>        <span class="macro">assert_eq!</span>(large.saturating_add(<span class="number">1u8</span>), VarInt::from_u64(next).unwrap());
-<a href=#214 id=214 data-nosnippet>214</a>
-<a href=#215 id=215 data-nosnippet>215</a>        <span class="comment">// outside range saturates
-<a href=#216 id=216 data-nosnippet>216</a>        </span><span class="macro">assert_eq!</span>(VarInt::MAX.saturating_add(<span class="number">1u8</span>), VarInt::MAX)
-<a href=#217 id=217 data-nosnippet>217</a>    }
-<a href=#218 id=218 data-nosnippet>218</a>}</code></pre></div></section></main></body></html>
+<a href=#187 id=187 data-nosnippet>187</a>
+<a href=#188 id=188 data-nosnippet>188</a><span class="kw">impl </span>Encodable <span class="kw">for </span>VarInt {
+<a href=#189 id=189 data-nosnippet>189</a>    <span class="kw">fn </span>encode&lt;B: BufMut&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, w: <span class="kw-2">&amp;mut </span>B) {
+<a href=#190 id=190 data-nosnippet>190</a>        <span class="kw">let </span>x = <span class="self">self</span>.<span class="number">0</span>;
+<a href=#191 id=191 data-nosnippet>191</a>        <span class="kw">if </span>x &lt; <span class="number">2u64</span>.pow(<span class="number">6</span>) {
+<a href=#192 id=192 data-nosnippet>192</a>            w.put_u8(x <span class="kw">as </span>u8);
+<a href=#193 id=193 data-nosnippet>193</a>        } <span class="kw">else if </span>x &lt; <span class="number">2u64</span>.pow(<span class="number">14</span>) {
+<a href=#194 id=194 data-nosnippet>194</a>            w.put_u16((<span class="number">0b01 </span>&lt;&lt; <span class="number">14</span>) | x <span class="kw">as </span>u16);
+<a href=#195 id=195 data-nosnippet>195</a>        } <span class="kw">else if </span>x &lt; <span class="number">2u64</span>.pow(<span class="number">30</span>) {
+<a href=#196 id=196 data-nosnippet>196</a>            w.put_u32((<span class="number">0b10 </span>&lt;&lt; <span class="number">30</span>) | x <span class="kw">as </span>u32);
+<a href=#197 id=197 data-nosnippet>197</a>        } <span class="kw">else if </span>x &lt; <span class="number">2u64</span>.pow(<span class="number">62</span>) {
+<a href=#198 id=198 data-nosnippet>198</a>            w.put_u64((<span class="number">0b11 </span>&lt;&lt; <span class="number">62</span>) | x);
+<a href=#199 id=199 data-nosnippet>199</a>        } <span class="kw">else </span>{
+<a href=#200 id=200 data-nosnippet>200</a>            <span class="macro">unreachable!</span>(<span class="string">"malformed VarInt"</span>)
+<a href=#201 id=201 data-nosnippet>201</a>        }
+<a href=#202 id=202 data-nosnippet>202</a>    }
+<a href=#203 id=203 data-nosnippet>203</a>}
+<a href=#204 id=204 data-nosnippet>204</a>
+<a href=#205 id=205 data-nosnippet>205</a><span class="attr">#[cfg(test)]
+<a href=#206 id=206 data-nosnippet>206</a></span><span class="kw">mod </span>tests {
+<a href=#207 id=207 data-nosnippet>207</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#208 id=208 data-nosnippet>208</a>
+<a href=#209 id=209 data-nosnippet>209</a>    <span class="attr">#[test]
+<a href=#210 id=210 data-nosnippet>210</a>    </span><span class="kw">fn </span>test_saturating_add() {
+<a href=#211 id=211 data-nosnippet>211</a>        <span class="comment">// add within range behaves normally
+<a href=#212 id=212 data-nosnippet>212</a>        </span><span class="kw">let </span>large: VarInt = u32::MAX.into();
+<a href=#213 id=213 data-nosnippet>213</a>        <span class="kw">let </span>next = u64::from(u32::MAX) + <span class="number">1</span>;
+<a href=#214 id=214 data-nosnippet>214</a>        <span class="macro">assert_eq!</span>(large.saturating_add(<span class="number">1u8</span>), VarInt::from_u64(next).unwrap());
+<a href=#215 id=215 data-nosnippet>215</a>
+<a href=#216 id=216 data-nosnippet>216</a>        <span class="comment">// outside range saturates
+<a href=#217 id=217 data-nosnippet>217</a>        </span><span class="macro">assert_eq!</span>(VarInt::MAX.saturating_add(<span class="number">1u8</span>), VarInt::MAX)
+<a href=#218 id=218 data-nosnippet>218</a>    }
+<a href=#219 id=219 data-nosnippet>219</a>}</code></pre></div></section></main></body></html>
