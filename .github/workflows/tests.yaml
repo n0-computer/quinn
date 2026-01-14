@@ -47,11 +47,11 @@ jobs:
             os: macOS-latest
             release-os: darwin
             release-arch: aarch64
-            runner: [self-hosted, macOS, ARM64]
-    # env:
+            runner: [self-hosted, macOS, ARM64, debug]
+    env:
       # Using self-hosted runners so use local cache for sccache and
       # not SCCACHE_GHA_ENABLED.
-      # RUSTC_WRAPPER: "sccache"
+      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -68,9 +68,8 @@ jobs:
         with:
           tool: nextest@${{ env.NEXTEST_VERSION }}
 
-      # bugging out on macos cause it thinks its x86_64
-      # - name: Install sccache
-      #   uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       # Go is required for FIPS builds (aws-lc-rs-fips feature)
       - name: Setup Go
