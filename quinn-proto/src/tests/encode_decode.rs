@@ -24,9 +24,9 @@ fn valid_varint_u64() -> impl Strategy<Value = u64> {
 
 fn connection_close() -> impl Strategy<Value = ConnectionClose> {
     (
-        any::<u8>().prop_map(|x| TransportErrorCode::crypto(x)),
+        any::<u8>().prop_map(TransportErrorCode::crypto),
         any::<MaybeFrame>(),
-        ".*".prop_map(|s| Bytes::from(s)),
+        ".*".prop_map(Bytes::from),
     )
         .prop_map(|(error_code, frame_type, reason)| ConnectionClose {
             error_code,
@@ -36,7 +36,7 @@ fn connection_close() -> impl Strategy<Value = ConnectionClose> {
 }
 
 fn application_close() -> impl Strategy<Value = ApplicationClose> {
-    (any::<VarInt>(), ".*".prop_map(|s| Bytes::from(s)))
+    (any::<VarInt>(), ".*".prop_map(Bytes::from))
         .prop_map(|(error_code, reason)| ApplicationClose { error_code, reason })
 }
 
@@ -73,8 +73,8 @@ fn new_connection_id() -> impl Strategy<Value = NewConnectionId> {
 
 fn ip_addr() -> impl Strategy<Value = IpAddr> {
     prop_oneof![
-        any::<[u8; 4]>().prop_map(|octets| IpAddr::from(octets)),
-        any::<[u16; 8]>().prop_map(|segments| IpAddr::from(segments)),
+        any::<[u8; 4]>().prop_map(IpAddr::from),
+        any::<[u16; 8]>().prop_map(IpAddr::from),
     ]
 }
 
@@ -192,38 +192,38 @@ impl PartialEq for TestFrame {
 impl Encodable for TestFrame {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         match self {
-            TestFrame::ConnectionClose(cc) => cc.encode(buf, usize::MAX),
-            TestFrame::ApplicationClose(ac) => ac.encode(buf, usize::MAX),
-            TestFrame::ResetStream(rs) => rs.encode(buf),
-            TestFrame::StopSending(ss) => ss.encode(buf),
-            TestFrame::NewConnectionId(nc) => nc.encode(buf),
-            TestFrame::Datagram(dg) => dg.encode(buf),
-            TestFrame::MaxData(md) => md.encode(buf),
-            TestFrame::MaxStreamData(msd) => msd.encode(buf),
-            TestFrame::MaxStreams(ms) => ms.encode(buf),
-            TestFrame::RetireConnectionId(rci) => rci.encode(buf),
-            TestFrame::PathChallenge(pc) => pc.encode(buf),
-            TestFrame::PathResponse(pr) => pr.encode(buf),
-            TestFrame::MaxPathId(mpi) => mpi.encode(buf),
-            TestFrame::PathsBlocked(pb) => pb.encode(buf),
-            TestFrame::PathCidsBlocked(pcb) => pcb.encode(buf),
-            TestFrame::PathAbandon(pa) => pa.encode(buf),
-            TestFrame::PathStatusAvailable(psa) => psa.encode(buf),
-            TestFrame::PathStatusBackup(psb) => psb.encode(buf),
-            TestFrame::Ping(p) => p.encode(buf),
-            TestFrame::ImmediateAck(ia) => ia.encode(buf),
-            TestFrame::HandshakeDone(hd) => hd.encode(buf),
-            TestFrame::Crypto(c) => c.encode(buf),
-            TestFrame::NewToken(nt) => nt.encode(buf),
-            TestFrame::AckFrequency(af) => af.encode(buf),
-            TestFrame::ObservedAddr(oa) => oa.encode(buf),
-            TestFrame::AddAddress(aa) => aa.encode(buf),
-            TestFrame::ReachOut(ro) => ro.encode(buf),
-            TestFrame::RemoveAddress(ra) => ra.encode(buf),
-            TestFrame::DataBlocked(db) => db.encode(buf),
-            TestFrame::StreamDataBlocked(sdb) => sdb.encode(buf),
-            TestFrame::StreamsBlocked(sb) => sb.encode(buf),
-            TestFrame::Stream(s) => {
+            Self::ConnectionClose(cc) => cc.encode(buf, usize::MAX),
+            Self::ApplicationClose(ac) => ac.encode(buf, usize::MAX),
+            Self::ResetStream(rs) => rs.encode(buf),
+            Self::StopSending(ss) => ss.encode(buf),
+            Self::NewConnectionId(nc) => nc.encode(buf),
+            Self::Datagram(dg) => dg.encode(buf),
+            Self::MaxData(md) => md.encode(buf),
+            Self::MaxStreamData(msd) => msd.encode(buf),
+            Self::MaxStreams(ms) => ms.encode(buf),
+            Self::RetireConnectionId(rci) => rci.encode(buf),
+            Self::PathChallenge(pc) => pc.encode(buf),
+            Self::PathResponse(pr) => pr.encode(buf),
+            Self::MaxPathId(mpi) => mpi.encode(buf),
+            Self::PathsBlocked(pb) => pb.encode(buf),
+            Self::PathCidsBlocked(pcb) => pcb.encode(buf),
+            Self::PathAbandon(pa) => pa.encode(buf),
+            Self::PathStatusAvailable(psa) => psa.encode(buf),
+            Self::PathStatusBackup(psb) => psb.encode(buf),
+            Self::Ping(p) => p.encode(buf),
+            Self::ImmediateAck(ia) => ia.encode(buf),
+            Self::HandshakeDone(hd) => hd.encode(buf),
+            Self::Crypto(c) => c.encode(buf),
+            Self::NewToken(nt) => nt.encode(buf),
+            Self::AckFrequency(af) => af.encode(buf),
+            Self::ObservedAddr(oa) => oa.encode(buf),
+            Self::AddAddress(aa) => aa.encode(buf),
+            Self::ReachOut(ro) => ro.encode(buf),
+            Self::RemoveAddress(ra) => ra.encode(buf),
+            Self::DataBlocked(db) => db.encode(buf),
+            Self::StreamDataBlocked(sdb) => sdb.encode(buf),
+            Self::StreamsBlocked(sb) => sb.encode(buf),
+            Self::Stream(s) => {
                 // Encode STREAM frame manually
                 let mut ty = 0x08u8;
                 if s.fin {
@@ -246,7 +246,7 @@ impl Encodable for TestFrame {
 }
 
 fn frame() -> impl Strategy<Value = TestFrame> {
-    prop_oneof![connection_close().prop_map(|cc| TestFrame::ConnectionClose(cc)),]
+    prop_oneof![connection_close().prop_map(TestFrame::ConnectionClose),]
 }
 
 #[test_strategy::proptest]

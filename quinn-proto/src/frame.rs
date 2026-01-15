@@ -278,8 +278,8 @@ impl proptest::arbitrary::Arbitrary for MaybeFrame {
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         use proptest::prelude::*;
         prop_oneof![
-            Just(MaybeFrame::None),
-            any::<VarInt>().prop_map(|v| MaybeFrame::Unknown(v.0)),
+            Just(Self::None),
+            any::<VarInt>().prop_map(|v| Self::Unknown(v.0)),
             // do not generate padding frames here, since they are not allowed in MaybeFrame::Known
             any::<FrameType>()
                 .prop_filter("not Padding", |ft| *ft != FrameType::Padding)
