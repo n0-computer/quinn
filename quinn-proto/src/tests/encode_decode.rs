@@ -1,5 +1,6 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use proptest::{prelude::*};
+use test_strategy::proptest;
 use ring::hmac;
 use std::net::IpAddr;
 use crate::{
@@ -249,7 +250,7 @@ fn frame() -> impl Strategy<Value = TestFrame> {
     prop_oneof![connection_close().prop_map(TestFrame::ConnectionClose),]
 }
 
-#[test_strategy::proptest]
+#[proptest]
 fn encode_decode_roundtrip(frame: TestFrame) {
     let mut encoded = BytesMut::new();
     frame.encode(&mut encoded);
@@ -258,7 +259,7 @@ fn encode_decode_roundtrip(frame: TestFrame) {
     assert_eq!(TestFrame::try_from(decoded), Ok(frame));
 }
 
-#[test_strategy::proptest]
+#[proptest]
 fn maybe_frame_known_never_padding(frame: MaybeFrame) {
     // MaybeFrame::Known should never contain FrameType::Padding
     if let MaybeFrame::Known(ft) = frame {
