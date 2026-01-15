@@ -1,6 +1,6 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use proptest::{prelude::*};
-use test_strategy::proptest;
+use test_strategy::{proptest, Arbitrary};
 use std::net::IpAddr;
 use crate::{
     ApplicationClose, ConnectionId, Datagram, FrameType, MAX_CID_SIZE, PathId, TransportErrorCode,
@@ -106,7 +106,7 @@ fn reach_out() -> impl Strategy<Value = ReachOut> {
     })
 }
 
-#[derive(Debug, test_strategy::Arbitrary)]
+#[derive(Debug, Arbitrary)]
 enum TestFrame {
     ConnectionClose(#[strategy(connection_close())] ConnectionClose),
     ApplicationClose(#[strategy(application_close())] ApplicationClose),

@@ -49,6 +49,8 @@ pub use crate::connection::{
     SendDatagramError, SendStream, SetPathStatusError, ShouldTransmit, StreamEvent, Streams,
     UdpStats, WriteError, Written,
 };
+#[cfg(test)]
+use test_strategy::Arbitrary;
 
 #[cfg(feature = "rustls")]
 pub use rustls;
@@ -182,7 +184,7 @@ pub const DEFAULT_SUPPORTED_VERSIONS: &[u32] = &[
 
 /// Whether an endpoint was the initiator of a connection
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[cfg_attr(test, derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Side {
     /// The initiator of a connection
@@ -217,7 +219,7 @@ impl ops::Not for Side {
 
 /// Whether a stream communicates data in both directions or only from the initiator
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[cfg_attr(test, derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Dir {
     /// Data flows in both directions
@@ -244,7 +246,7 @@ impl fmt::Display for Dir {
 
 /// Identifier for a stream within a particular connection
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(test, derive(test_strategy::Arbitrary))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct StreamId(#[cfg_attr(test, strategy(0u64..(1u64 << 62)))] u64);
 
 impl fmt::Display for StreamId {
