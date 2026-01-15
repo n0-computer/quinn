@@ -1,7 +1,6 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use proptest::{prelude::*};
 use test_strategy::proptest;
-use ring::hmac;
 use std::net::IpAddr;
 use crate::{
     ApplicationClose, ConnectionId, Datagram, FrameType, MAX_CID_SIZE, PathId, TransportErrorCode,
@@ -47,6 +46,10 @@ fn connection_id() -> impl Strategy<Value = ConnectionId> {
 
 fn connection_id_and_reset_token() -> impl Strategy<Value = (ConnectionId, ResetToken)> {
     (connection_id(), any::<[u8; 64]>()).prop_map(|(id, reset_key)| {
+        #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
+        use aws_lc_rs::hmac;
+        #[cfg(feature = "ring")]
+        use ring::hmac;
         let key = hmac::Key::new(hmac::HMAC_SHA256, &reset_key);
         (id, ResetToken::new(&key, id))
     })
