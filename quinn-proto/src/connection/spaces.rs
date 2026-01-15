@@ -330,35 +330,34 @@ impl PacketNumberSpace {
         self.sent_with_keys += 1;
 
         // Skip this number if the filter says so, only enabled in the data space
-        if let Some(ref mut filter) = self.pn_filter {
-            if filter.skip_pn(pn, rng) {
-                pn = self.next_packet_number;
-                self.next_packet_number += 1;
-                self.sent_with_keys += 1;
-            }
+        if let Some(ref mut filter) = self.pn_filter
+            && filter.skip_pn(pn, rng)
+        {
+            pn = self.next_packet_number;
+            self.next_packet_number += 1;
+            self.sent_with_keys += 1;
         }
         pn
     }
 
     pub(super) fn peek_tx_number(&mut self) -> u64 {
         let pn = self.next_packet_number;
-        if let Some(ref filter) = self.pn_filter {
-            if pn == filter.next_skipped_packet_number {
-                return pn + 1;
-            }
+        if let Some(ref filter) = self.pn_filter
+            && pn == filter.next_skipped_packet_number
+        {
+            return pn + 1;
         }
         pn
     }
 
     /// Checks whether a skipped packet number was ACKed.
     pub(super) fn check_ack(&self, range: std::ops::Range<u64>) -> Result<(), TransportError> {
-        if let Some(ref filter) = self.pn_filter {
-            if filter
+        if let Some(ref filter) = self.pn_filter
+            && filter
                 .prev_skipped_packet_number
                 .is_some_and(|pn| range.contains(&pn))
-            {
-                return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
-            }
+        {
+            return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
         }
         Ok(())
     }
