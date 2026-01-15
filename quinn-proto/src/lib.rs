@@ -110,9 +110,6 @@ pub use token_memory_cache::TokenMemoryCache;
 
 pub mod iroh_hp;
 
-#[cfg(feature = "arbitrary")]
-use arbitrary::Arbitrary;
-
 // Deal with time
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -324,7 +321,7 @@ impl Encodable for StreamId {
 }
 
 #[cfg(feature = "arbitrary")]
-impl<'arbitrary> Arbitrary<'arbitrary> for StreamId {
+impl<'arbitrary> arbitrary::Arbitrary<'arbitrary> for StreamId {
     fn arbitrary(u: &mut arbitrary::Unstructured<'arbitrary>) -> arbitrary::Result<Self> {
         Ok(VarInt::arbitrary(u)?.into())
     }

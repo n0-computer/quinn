@@ -17,9 +17,6 @@ use crate::{
     shared::{ConnectionId, EcnCodepoint},
 };
 
-#[cfg(feature = "arbitrary")]
-use arbitrary::Arbitrary;
-
 #[cfg(feature = "qlog")]
 use super::connection::qlog::ToQlog;
 
@@ -1714,7 +1711,7 @@ impl From<UnexpectedEnd> for IterErr {
 }
 
 #[allow(unreachable_pub)] // fuzzing only
-#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[derive(Debug, Copy, Clone, derive_more::Display)]
 #[display("RESET_STREAM id: {id}")]
