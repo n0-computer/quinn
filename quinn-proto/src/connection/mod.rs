@@ -4184,13 +4184,13 @@ impl Connection {
             // the log with payload data
             match &frame {
                 Frame::Crypto(f) => {
-                    trace!(offset = f.offset, len = f.data.len(), "got crypto frame");
+                    trace!(offset = f.offset, len = f.data.len(), "got frame CRYPTO");
                 }
                 Frame::Stream(f) => {
-                    trace!(id = %f.id, offset = f.offset, len = f.data.len(), fin = f.fin, "got stream frame");
+                    trace!(id = %f.id, offset = f.offset, len = f.data.len(), fin = f.fin, "got frame STREAM");
                 }
                 Frame::Datagram(f) => {
-                    trace!(len = f.data.len(), "got datagram frame");
+                    trace!(len = f.data.len(), "got frame DATAGRAM");
                 }
                 f => {
                     trace!("got frame {f}");
