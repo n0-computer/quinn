@@ -1106,15 +1106,15 @@
 <a href=#1106 id=1106 data-nosnippet>1106</a>
 <a href=#1107 id=1107 data-nosnippet>1107</a>    <span class="doccomment">/// Find the existing connection that `datagram` should be routed to, if any
 <a href=#1108 id=1108 data-nosnippet>1108</a>    </span><span class="kw">fn </span>get(<span class="kw-2">&amp;</span><span class="self">self</span>, network_path: <span class="kw-2">&amp;</span>FourTuple, datagram: <span class="kw-2">&amp;</span>PartialDecode) -&gt; <span class="prelude-ty">Option</span>&lt;RouteDatagramTo&gt; {
-<a href=#1109 id=1109 data-nosnippet>1109</a>        <span class="kw">if </span>!datagram.dst_cid().is_empty() {
-<a href=#1110 id=1110 data-nosnippet>1110</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>(ch, path_id)) = <span class="self">self</span>.connection_ids.get(<span class="kw-2">&amp;</span>datagram.dst_cid()) {
-<a href=#1111 id=1111 data-nosnippet>1111</a>                <span class="kw">return </span><span class="prelude-val">Some</span>(RouteDatagramTo::Connection(ch, path_id));
-<a href=#1112 id=1112 data-nosnippet>1112</a>            }
+<a href=#1109 id=1109 data-nosnippet>1109</a>        <span class="kw">if </span>!datagram.dst_cid().is_empty()
+<a href=#1110 id=1110 data-nosnippet>1110</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>(ch, path_id)) = <span class="self">self</span>.connection_ids.get(<span class="kw-2">&amp;</span>datagram.dst_cid())
+<a href=#1111 id=1111 data-nosnippet>1111</a>        {
+<a href=#1112 id=1112 data-nosnippet>1112</a>            <span class="kw">return </span><span class="prelude-val">Some</span>(RouteDatagramTo::Connection(ch, path_id));
 <a href=#1113 id=1113 data-nosnippet>1113</a>        }
-<a href=#1114 id=1114 data-nosnippet>1114</a>        <span class="kw">if </span>datagram.is_initial() || datagram.is_0rtt() {
-<a href=#1115 id=1115 data-nosnippet>1115</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ch) = <span class="self">self</span>.connection_ids_initial.get(<span class="kw-2">&amp;</span>datagram.dst_cid()) {
-<a href=#1116 id=1116 data-nosnippet>1116</a>                <span class="kw">return </span><span class="prelude-val">Some</span>(ch);
-<a href=#1117 id=1117 data-nosnippet>1117</a>            }
+<a href=#1114 id=1114 data-nosnippet>1114</a>        <span class="kw">if </span>(datagram.is_initial() || datagram.is_0rtt())
+<a href=#1115 id=1115 data-nosnippet>1115</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ch) = <span class="self">self</span>.connection_ids_initial.get(<span class="kw-2">&amp;</span>datagram.dst_cid())
+<a href=#1116 id=1116 data-nosnippet>1116</a>        {
+<a href=#1117 id=1117 data-nosnippet>1117</a>            <span class="kw">return </span><span class="prelude-val">Some</span>(ch);
 <a href=#1118 id=1118 data-nosnippet>1118</a>        }
 <a href=#1119 id=1119 data-nosnippet>1119</a>        <span class="kw">if </span>datagram.dst_cid().is_empty() {
 <a href=#1120 id=1120 data-nosnippet>1120</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ch) = <span class="self">self</span>.incoming_connection_remotes.get(network_path) {
