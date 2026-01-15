@@ -586,12 +586,6 @@ impl Encodable for PathResponse {
 #[display("DATA_BLOCKED offset: {_0}")]
 pub(crate) struct DataBlocked(#[cfg_attr(test, strategy(0u64..(1u64 << 62)))] pub(crate) u64);
 
-impl DataBlocked {
-    const fn get_type(&self) -> FrameType {
-        FrameType::DataBlocked
-    }
-}
-
 impl Encodable for DataBlocked {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         buf.write(FrameType::DataBlocked);
