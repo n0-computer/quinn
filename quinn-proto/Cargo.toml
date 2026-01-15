@@ -76,12 +76,12 @@ web-time = { workspace = true }
 [dev-dependencies]
 assert_matches = { workspace = true }
 hex-literal = { workspace = true  }
+proptest = { workspace = true }
 rand_pcg = "0.9"
 rcgen = { workspace = true }
+test-strategy = { workspace = true }
 tracing-subscriber = { workspace = true }
 wasm-bindgen-test = { workspace = true }
-proptest = { workspace = true }
-test-strategy = { workspace = true }
 
 [[bench]]
 name = "send_buffer"
