@@ -35,12 +35,12 @@ use crate::{
 mod util;
 pub(crate) use util::*;
 
-#[cfg(feature = "proptest")]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod encode_decode;
 mod multipath;
-#[cfg(feature = "proptest")]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod proptest;
-#[cfg(feature = "proptest")]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod random_interaction;
 mod token;
 

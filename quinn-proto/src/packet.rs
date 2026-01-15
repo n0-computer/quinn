@@ -21,7 +21,8 @@ use crate::{
 /// across QUIC versions), which gives us the destination CID and allows us
 /// to inspect the version and packet type (which depends on the version).
 /// This information allows us to fully decode and decrypt the packet.
-#[derive(Clone, Debug)]
+#[cfg_attr(test, derive(Clone))]
+#[derive(Debug)]
 pub struct PartialDecode {
     plain_header: ProtectedHeader,
     buf: io::Cursor<BytesMut>,
@@ -267,7 +268,8 @@ impl From<InitialPacket> for Packet {
     }
 }
 
-#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Clone))]
+#[derive(Debug)]
 pub(crate) enum Header {
     Initial(InitialHeader),
     Long {

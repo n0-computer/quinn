@@ -673,7 +673,7 @@ mod test {
     }
 }
 
-#[cfg(all(test, feature = "proptest"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod proptests {
     use proptest::prelude::*;
     use test_strategy::{Arbitrary, proptest};

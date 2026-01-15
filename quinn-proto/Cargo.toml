@@ -41,9 +41,6 @@ bench = ["dep:criterion"]
 # Internal (PRIVATE!) features used to aid testing.
 # Don't rely on these whatsoever. They may disappear at any time.
 
-# Enable proptest support for property-based testing (not available on wasm)
-proptest = ["dep:proptest", "dep:test-strategy"]
-
 __rustls-post-quantum-test =  []
 
 [dependencies]
@@ -67,8 +64,6 @@ tinyvec = { workspace = true, features = ["alloc"] }
 tracing = { workspace = true }
 derive_more = { version = "2.1.0", features = ["debug", "display", "from"] }
 enum-assoc = "1.3.0"
-proptest = { workspace = true, optional = true }
-test-strategy = { workspace = true, optional = true }
 
 # Feature flags & dependencies for wasm
 # wasm-bindgen is assumed for a wasm*-*-unknown target
@@ -85,6 +80,8 @@ rand_pcg = "0.9"
 rcgen = { workspace = true }
 tracing-subscriber = { workspace = true }
 wasm-bindgen-test = { workspace = true }
+proptest = { workspace = true }
+test-strategy = { workspace = true }
 
 [[bench]]
 name = "send_buffer"
