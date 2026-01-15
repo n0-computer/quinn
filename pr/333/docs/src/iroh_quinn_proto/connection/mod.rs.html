@@ -1713,7 +1713,7 @@
 <a href=#1713 id=1713 data-nosnippet>1713</a>        close: bool,
 <a href=#1714 id=1714 data-nosnippet>1714</a>    ) -&gt; SendableFrames {
 <a href=#1715 id=1715 data-nosnippet>1715</a>        <span class="kw">let </span>space = <span class="kw-2">&amp;mut </span><span class="self">self</span>.spaces[space_id];
-<a href=#1716 id=1716 data-nosnippet>1716</a>        <span class="kw">let </span>space_has_crypto = space.crypto.is_none();
+<a href=#1716 id=1716 data-nosnippet>1716</a>        <span class="kw">let </span>space_has_crypto = space.crypto.is_some();
 <a href=#1717 id=1717 data-nosnippet>1717</a>
 <a href=#1718 id=1718 data-nosnippet>1718</a>        <span class="kw">if </span>!space_has_crypto
 <a href=#1719 id=1719 data-nosnippet>1719</a>            &amp;&amp; (space_id != SpaceId::Data
