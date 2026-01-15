@@ -5040,13 +5040,17 @@ impl Connection {
             .maybe_ack_non_eliciting();
 
         // HANDSHAKE_DONE
-        if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
+        if !is_0rtt
+            && !path_exclusive_only
+            && mem::replace(&mut space.pending.handshake_done, false)
+        {
             builder.write_frame(frame::HandshakeDone, stats);
         }
 
         // REACH_OUT
-        // TODO(@divma): path explusive considerations
-        if let Some((round, addresses)) = space.pending.reach_out.as_mut() {
+        if let Some((round, addresses)) = space.pending.reach_out.as_mut()
+            && !path_exclusive_only
+        {
             while let Some(local_addr) = addresses.pop() {
                 let reach_out = frame::ReachOut::new(*round, local_addr);
                 if builder.frame_space_remaining() > reach_out.size() {
@@ -5369,6 +5373,7 @@ impl Connection {
 
         // MAX_PATH_ID
         if space_id == SpaceId::Data
+            && !path_exclusive_only
             && space.pending.max_path_id
             && frame::MaxPathId::SIZE_BOUND <= builder.frame_space_remaining()
         {
@@ -5379,6 +5384,7 @@ impl Connection {
 
         // PATHS_BLOCKED
         if space_id == SpaceId::Data
+            && !path_exclusive_only
             && space.pending.paths_blocked
             && frame::PathsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
@@ -5389,6 +5395,7 @@ impl Connection {
 
         // PATH_CIDS_BLOCKED
         while space_id == SpaceId::Data
+            && !path_exclusive_only
             && frame::PathCidsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let Some(path_id) = space.pending.path_cids_blocked.pop_first() else {
@@ -5403,7 +5410,7 @@ impl Connection {
         }
 
         // RESET_STREAM, STOP_SENDING, MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS
-        if space_id == SpaceId::Data {
+        if space_id == SpaceId::Data && !path_exclusive_only {
             self.streams
                 .write_control_frames(builder, &mut space.pending, stats);
         }
@@ -5521,8 +5528,8 @@ impl Connection {
         }
 
         // ADD_ADDRESS
-        // TODO(@divma): check if we need to do path exclusive filters
         while space_id == SpaceId::Data
+            && !path_exclusive_only
             && frame::AddAddress::SIZE_BOUND <= builder.frame_space_remaining()
         {
             if let Some(added_address) = space.pending.add_address.pop_last() {
@@ -5534,6 +5541,7 @@ impl Connection {
 
         // REMOVE_ADDRESS
         while space_id == SpaceId::Data
+            && !path_exclusive_only
             && frame::RemoveAddress::SIZE_BOUND <= builder.frame_space_remaining()
         {
             if let Some(removed_address) = space.pending.remove_address.pop_last() {
