@@ -428,7 +428,7 @@ impl Frame {
             RetireConnectionId(retire_frame) => retire_frame.get_type(),
             Ack(ack) => ack.get_type(),
             PathAck(path_ack) => path_ack.get_type(),
-            Stream(ref x) => {
+            Stream(x) => {
                 let mut ty = *StreamInfo::VALUES.start() as u8;
                 if x.fin {
                     ty |= 0x01;
@@ -448,15 +448,15 @@ impl Frame {
             AckFrequency(_) => FrameType::AckFrequency,
             ImmediateAck => FrameType::ImmediateAck,
             HandshakeDone => FrameType::HandshakeDone,
-            ObservedAddr(ref observed) => observed.get_type(),
+            ObservedAddr(observed) => observed.get_type(),
             PathAbandon(_) => FrameType::PathAbandon,
             PathStatusAvailable(_) => FrameType::PathStatusAvailable,
             PathStatusBackup(_) => FrameType::PathStatusBackup,
             MaxPathId(_) => FrameType::MaxPathId,
             PathsBlocked(_) => FrameType::PathsBlocked,
             PathCidsBlocked(_) => FrameType::PathCidsBlocked,
-            AddAddress(ref frame) => frame.get_type(),
-            ReachOut(ref frame) => frame.get_type(),
+            AddAddress(frame) => frame.get_type(),
+            ReachOut(frame) => frame.get_type(),
             RemoveAddress(_) => self::RemoveAddress::TYPE,
         }
     }
