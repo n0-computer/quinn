@@ -971,9 +971,7 @@ impl Frame {
             Self::Ack(f) => QuicFrame::Ack {
                 ack_delay: Some(f.delay as f32),
                 acked_ranges: Some(AckedRanges::Double(
-                    f.iter()
-                        .map(|range| (*range.start(), *range.end()))
-                        .collect(),
+                    f.iter().map(|range| (range.start, range.end)).collect(),
                 )),
                 ect1: f.ecn.as_ref().map(|e| e.ect1),
                 ect0: f.ecn.as_ref().map(|e| e.ect0),
@@ -1027,8 +1025,9 @@ impl Frame {
                 ce: ack.ecn.as_ref().map(|e| e.ce),
                 raw: None,
                 acked_ranges: Some(AckedRanges::Double(
-                    ack.into_iter()
-                        .map(|range| (*range.start(), *range.end()))
+                    ack.ranges
+                        .iter()
+                        .map(|range| (range.start, range.end))
                         .collect(),
                 )),
             },

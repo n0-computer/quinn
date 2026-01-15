@@ -249,7 +249,9 @@ impl PathTimerTable {
 }
 
 impl TimerTable {
-    /// Sets the timer unconditionally
+    /// Sets the timer unconditionally.
+    ///
+    /// If the timer is already set, this will change the timer's value.
     pub(super) fn set(&mut self, timer: Timer, time: Instant, qlog: QlogSinkWithTime<'_>) {
         match timer {
             Timer::Conn(timer) => {

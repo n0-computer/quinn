@@ -198,7 +198,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             buf,
             space: SpaceId::Data,
             path: PathId::ZERO,
-            partial_encode: PartialEncode::dummy(),
+            partial_encode: PartialEncode::no_header(),
             ack_eliciting: true,
             exact_number: 0,
             short_header: false,
@@ -222,6 +222,14 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         );
     }
 
+    /// Writes a frame into the underlying buffer.
+    ///
+    /// It will also:
+    /// - Track the frame so that it's registered with the path once [`Self::finish_and_track`] is
+    ///   called.
+    /// - Register the sent frame with the given [`FrameStats`].
+    /// - If the qlog feature is enabled, register the frame.
+    /// - Log the frame.
     pub(super) fn write_frame<'c>(
         &mut self,
         frame: impl Into<EncodableFrame<'c>>,
@@ -230,6 +238,14 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         self.write_frame_with_log_msg(frame, stats, None);
     }
 
+    /// Writes a frame into the underlying buffer.
+    ///
+    /// It will also:
+    /// - Track the frame so that it's registered with the path once [`Self::finish_and_track`] is
+    ///   called.
+    /// - Register the sent frame with the given [`FrameStats`].
+    /// - If the qlog feature is enabled, register the frame.
+    /// - Log the frame. If a `msg` is given, this will be added to the log.
     pub(super) fn write_frame_with_log_msg<'c>(
         &mut self,
         frame: impl Into<EncodableFrame<'c>>,

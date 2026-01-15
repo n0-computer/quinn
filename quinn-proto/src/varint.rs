@@ -195,6 +195,7 @@ impl Decodable for VarInt {
         Ok(Self(x))
     }
 }
+
 impl Encodable for VarInt {
     fn encode<B: BufMut>(&self, w: &mut B) {
         let x = self.0;
