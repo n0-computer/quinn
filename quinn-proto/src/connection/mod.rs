@@ -343,8 +343,6 @@ enum PollPathStatus {
 /// Return value for `poll_transmit_path_space`.
 #[derive(Debug)]
 enum PollPathSpaceStatus {
-    /// Nothing to send on this space, continue to the next one.
-    NextSpace,
     /// We have something to send, and data has been accumulated
     /// on the passed in `transmit`.
     Send { last_packet_number: Option<u64> },
@@ -353,7 +351,7 @@ enum PollPathSpaceStatus {
         /// The transmit to send.
         transmit: Transmit,
     },
-    /// Nothing to send currently.
+    /// Nothing to send currently on this space/path.
     NothingToSend {
         /// Set to `true` if we consider the current inability to send something because of congestion control
         congestion_blocked: bool,
@@ -1154,9 +1152,6 @@ impl Connection {
             };
         };
 
-        // Whether this packet can be coalesced with another one in the same datagram.
-        let mut coalesce = true;
-
         // Whether the last packet in the datagram must be padded so the datagram takes up
         // to at least MIN_INITIAL_SIZE, or to the maximum segment size if this is smaller.
         let mut pad_datagram = PadDatagram::No;
@@ -1164,12 +1159,38 @@ impl Connection {
         // The packet number of the last built packet.
         let mut last_packet_number = None;
 
+        // Whether this packet can be coalesced with another one in the same datagram.
+        let mut coalesce = true;
+
+        let mut congestion_blocked = false;
+
         // Iterate over the available spaces
         for space_id in SpaceId::iter() {
             // Only Path0 uses non Data space ids
             if path_id != PathId::ZERO && space_id != SpaceId::Data {
                 continue;
             }
+            // We only send up to the highest space
+            if space_id >= self.highest_space {
+                break;
+            }
+
+            // Check if we can send in this space for lower spaces.
+            let sendable_frames = if space_id < SpaceId::Data {
+                let sendable_frames = self.space_can_send_non_data(space_id, path_id, close);
+                let path_should_send =
+                    self.path_should_send(path_id, space_id, have_available_path, &sendable_frames);
+
+                if !path_should_send {
+                    if self.spaces[space_id].crypto.is_some() {
+                        trace!(?space_id, %path_id, "nothing to send in space");
+                    }
+                    continue;
+                }
+                Some(sendable_frames)
+            } else {
+                None
+            };
 
             let res = self.poll_transmit_path_space(
                 now,
@@ -1179,6 +1200,7 @@ impl Connection {
                 remote_cid,
                 have_available_path,
                 close,
+                sendable_frames,
                 &mut coalesce,
                 &mut pad_datagram,
             );
@@ -1192,11 +1214,11 @@ impl Connection {
                 PollPathSpaceStatus::SendTransmit { transmit } => {
                     return PollPathStatus::SendTransmit { transmit };
                 }
-                PollPathSpaceStatus::NothingToSend { congestion_blocked } => {
-                    return PollPathStatus::NothingToSend { congestion_blocked };
-                }
-                PollPathSpaceStatus::NextSpace => {
-                    // moving onto the next space
+                PollPathSpaceStatus::NothingToSend {
+                    congestion_blocked: cb,
+                } => {
+                    congestion_blocked |= cb;
+                    continue;
                 }
             }
         }
@@ -1218,14 +1240,13 @@ impl Connection {
         );
 
         if transmit.is_empty() {
-            PollPathStatus::NothingToSend {
-                congestion_blocked: false,
-            }
+            PollPathStatus::NothingToSend { congestion_blocked }
         } else {
             PollPathStatus::Send
         }
     }
 
+    /// Determine if anything can be sent in this packet number space (SpaceId + PathId).
     /// poll_transmit logic for a path_id - space_id combination
     #[must_use]
     fn poll_transmit_path_space(
@@ -1237,53 +1258,37 @@ impl Connection {
         remote_cid: ConnectionId,
         have_available_path: bool,
         close: bool,
+        sendable_frames: Option<SendableFrames>,
         coalesce: &mut bool,
         pad_datagram: &mut PadDatagram,
     ) -> PollPathSpaceStatus {
         let mut last_packet_number = None;
 
-        loop {
-            // Determine if anything can be sent in this packet number space (SpaceId + PathId).
+        // Build datagrams until the transmit is full.
+        while transmit.num_datagrams() < transmit.max_datagrams().get() {
             let max_packet_size = if transmit.datagram_remaining_mut() > 0 {
                 // We are trying to coalesce another packet into this datagram.
+                debug_assert!(*coalesce, "coalescing must be set");
                 transmit.datagram_remaining_mut()
             } else {
                 // A new datagram needs to be started.
                 transmit.segment_size()
             };
 
-            let can_send = self.space_can_send(space_id, path_id, max_packet_size, close);
-
-            let path_should_send = {
-                let path_exclusive_only = space_id == SpaceId::Data
-                    && have_available_path
-                    && self.path_data(path_id).local_status() == PathStatus::Backup;
-                let path_should_send = if path_exclusive_only {
-                    can_send.path_exclusive
-                } else {
-                    !can_send.is_empty()
-                };
-                let needs_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
-                path_should_send || needs_loss_probe
-            };
-
-            if !path_should_send && space_id < SpaceId::Data {
-                if self.spaces[space_id].crypto.is_some() {
-                    trace!(?space_id, %path_id, "nothing to send in space");
-                }
-                return PollPathSpaceStatus::NextSpace;
-            }
+            let sendable_frames = sendable_frames
+                .unwrap_or_else(|| self.space_can_send(space_id, path_id, max_packet_size, close));
+            let path_should_send =
+                self.path_should_send(path_id, space_id, have_available_path, &sendable_frames);
 
             let send_blocked = if path_should_send && transmit.datagram_remaining_mut() == 0 {
                 // Only check congestion control if a new datagram is needed.
-                self.path_congestion_check(space_id, path_id, transmit, &can_send, now)
+                self.path_congestion_check(space_id, path_id, transmit, &sendable_frames, now)
             } else {
                 PathBlocked::No
             };
 
             // Whether congestion control stopped the next packet from being sent. Further
-            // packets could still be built, as e.g. tail-loss probes are not congestion
-            // limited.
+            // packets could still be built, as e.g. tail-loss probes are not congestion limited.
             let congestion_blocked = if send_blocked != PathBlocked::No {
                 trace!(?space_id, %path_id, ?send_blocked, "congestion blocked");
                 true
@@ -1293,7 +1298,7 @@ impl Connection {
             if send_blocked != PathBlocked::No && space_id < SpaceId::Data {
                 // Higher spaces might still have tail-loss probes to send, which are not
                 // congestion blocked.
-                return PollPathSpaceStatus::NextSpace;
+                return PollPathSpaceStatus::NothingToSend { congestion_blocked };
             }
             if !path_should_send || send_blocked != PathBlocked::No {
                 // Nothing more to send on this path, check the next path if possible.
@@ -1307,12 +1312,15 @@ impl Connection {
                 return PollPathSpaceStatus::NothingToSend { congestion_blocked };
             }
 
-            if transmit.datagram_remaining_mut() == 0 {
-                if transmit.num_datagrams() >= transmit.max_datagrams().get() {
-                    // No more datagrams allowed
-                    return PollPathSpaceStatus::Send { last_packet_number };
-                }
+            // If coalescing another packet into the existing datagram, there should
+            // still be enough space for a whole packet.
+            if *coalesce && transmit.datagram_start_offset() < transmit.len() {
+                debug_assert!(transmit.datagram_remaining_mut() >= MIN_PACKET_SPACE);
+            }
 
+            if transmit.datagram_remaining_mut() == 0 {
+                // If the datagram is full, start a new datagram.
+                // Only needed if we are building a new datagram
                 match self.spaces[space_id].for_path(path_id).loss_probes {
                     0 => transmit.start_new_datagram(),
                     _ => {
@@ -1341,232 +1349,327 @@ impl Connection {
                 *pad_datagram = PadDatagram::No;
             }
 
-            // If coalescing another packet into the existing datagram, there should
-            // still be enough space for a whole packet.
-            if transmit.datagram_start_offset() < transmit.len() {
-                debug_assert!(transmit.datagram_remaining_mut() >= MIN_PACKET_SPACE);
-            }
-
-            //
-            // From here on, we've determined that a packet will definitely be sent.
-            //
-
-            if self.spaces[SpaceId::Initial].crypto.is_some()
-                && space_id == SpaceId::Handshake
-                && self.side.is_client()
-            {
-                // A client stops both sending and processing Initial packets when it
-                // sends its first Handshake packet.
-                self.discard_space(now, SpaceId::Initial);
-            }
-            if let Some(ref mut prev) = self.prev_crypto {
-                prev.update_unacked = false;
-            }
-
-            let Some(mut builder) = PacketBuilder::new(
-                now,
-                space_id,
-                path_id,
-                remote_cid,
-                transmit,
-                can_send.other,
-                self,
-            ) else {
-                return PollPathSpaceStatus::NothingToSend { congestion_blocked };
-            };
-            last_packet_number = Some(builder.exact_number);
-            *coalesce = *coalesce && !builder.short_header;
-
-            if space_id == SpaceId::Initial && (self.side.is_client() || can_send.other) {
-                // https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1
-                *pad_datagram |= PadDatagram::ToMinMtu;
-            }
-            if space_id == SpaceId::Data && self.config.pad_to_mtu {
-                *pad_datagram |= PadDatagram::ToSegmentSize;
-            }
-
-            if can_send.close {
-                trace!("sending CONNECTION_CLOSE");
-                // Encode ACKs before the ConnectionClose message, to give the receiver
-                // a better approximate on what data has been processed. This is
-                // especially important with ack delay, since the peer might not
-                // have gotten any other ACK for the data earlier on.
-                let is_multipath_negotiated = self.is_multipath_negotiated();
-                for path_id in self.spaces[space_id]
-                    .number_spaces
-                    .iter()
-                    .filter(|(_, pns)| !pns.pending_acks.ranges().is_empty())
-                    .map(|(&path_id, _)| path_id)
-                    .collect::<Vec<_>>()
-                {
-                    Self::populate_acks(
-                        now,
-                        self.receiving_ecn,
-                        path_id,
-                        space_id,
-                        &mut self.spaces[space_id],
-                        is_multipath_negotiated,
-                        &mut builder,
-                        &mut self.stats.frame_tx,
-                    );
-                }
-
-                // Since there only 64 ACK frames there will always be enough space
-                // to encode the ConnectionClose frame too. However we still have the
-                // check here to prevent crashes if something changes.
-                debug_assert!(
-                    builder.frame_space_remaining() > frame::ConnectionClose::SIZE_BOUND,
-                    "ACKs should leave space for ConnectionClose"
-                );
-                let stats = &mut self.stats.frame_tx;
-                if frame::ConnectionClose::SIZE_BOUND < builder.frame_space_remaining() {
-                    let max_frame_size = builder.frame_space_remaining();
-                    let close: Close = match self.state.as_type() {
-                        StateType::Closed => {
-                            let reason: Close =
-                                self.state.as_closed().expect("checked").clone().into();
-                            if space_id == SpaceId::Data || reason.is_transport_layer() {
-                                reason
-                            } else {
-                                TransportError::APPLICATION_ERROR("").into()
-                            }
-                        }
-                        StateType::Draining => TransportError::NO_ERROR("").into(),
-                        _ => unreachable!(
-                            "tried to make a close packet when the connection wasn't closed"
-                        ),
-                    };
-                    builder.write_frame(close.encoder(max_frame_size), stats);
-                }
-                builder.finish_and_track(now, self, path_id, *pad_datagram);
-                if space_id == self.highest_space {
-                    // Don't send another close packet. Even with multipath we only send
-                    // CONNECTION_CLOSE on a single path since we expect our paths to work.
-                    self.close = false;
-                    // `CONNECTION_CLOSE` is the final packet
-                    return PollPathSpaceStatus::Send { last_packet_number };
-                } else {
-                    // Send a close frame in every possible space for robustness, per
-                    // RFC9000 "Immediate Close during the Handshake". Don't bother trying
-                    // to send anything else.
-                    return PollPathSpaceStatus::NextSpace;
-                }
-            }
+            let is_close = sendable_frames.close;
 
             // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
             // path validation can occur while the link is saturated.
-            if space_id == SpaceId::Data && builder.buf.num_datagrams() == 1 {
-                let path = self.path_data_mut(path_id);
-                if let Some((token, network_path)) =
-                    path.path_responses.pop_off_path(path.network_path)
-                {
-                    // TODO(flub): We need to use the right CID!  We shouldn't use the same
-                    //    CID as the current active one for the path.  Though see also
-                    //    https://github.com/quinn-rs/quinn/issues/2184
-                    //
-                    let stats = &mut self.stats.frame_tx;
-                    let frame = frame::PathResponse(token);
-                    builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
-                    builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
-                    self.stats.udp_tx.on_sent(1, transmit.len());
-                    return PollPathSpaceStatus::SendTransmit {
-                        transmit: Transmit {
-                            destination: network_path.remote,
-                            size: transmit.len(),
-                            ecn: None,
-                            segment_size: None,
-                            src_ip: network_path.local_ip,
-                        },
-                    };
+            if !is_close && space_id == SpaceId::Data {
+                if let Some(transmit) = self.build_off_path_challenge(
+                    now,
+                    path_id,
+                    space_id,
+                    remote_cid,
+                    sendable_frames.other,
+                    transmit,
+                ) {
+                    return PollPathSpaceStatus::SendTransmit { transmit };
                 }
             }
 
-            let path_exclusive_only =
-                have_available_path && self.path_data(path_id).local_status() == PathStatus::Backup;
-            self.populate_packet(now, space_id, path_id, path_exclusive_only, &mut builder);
-
-            // ACK-only packets should only be sent when explicitly allowed. If we write them due to
-            // any other reason, there is a bug which leads to one component announcing write
-            // readiness while not writing any data. This degrades performance. The condition is
-            // only checked if the full MTU is available and when potentially large fixed-size
-            // frames aren't queued, so that lack of space in the datagram isn't the reason for just
-            // writing ACKs.
-            debug_assert!(
-                !(builder.sent_frames().is_ack_only(&self.streams)
-                    && !can_send.acks
-                    && can_send.other
-                    && builder.buf.segment_size()
-                        == self.path_data(path_id).current_mtu() as usize
-                    && self.datagrams.outgoing.is_empty()),
-                "SendableFrames was {can_send:?}, but only ACKs have been written"
+            let n = self.poll_transmit_path_space_datagram(
+                now,
+                transmit,
+                path_id,
+                space_id,
+                remote_cid,
+                have_available_path,
+                close,
+                sendable_frames,
+                coalesce,
+                pad_datagram,
             );
-            if builder.sent_frames().requires_padding {
-                *pad_datagram |= PadDatagram::ToMinMtu;
+            if let Some(n) = n {
+                last_packet_number.replace(n);
+            } else {
+                // error, unable to send
+                return PollPathSpaceStatus::NothingToSend { congestion_blocked };
             }
 
-            for (path_id, _pn) in builder.sent_frames().largest_acked.iter() {
-                self.spaces[space_id]
-                    .for_path(*path_id)
-                    .pending_acks
-                    .acks_sent();
-                self.timers.stop(
-                    Timer::PerPath(*path_id, PathTimer::MaxAckDelay),
-                    self.qlog.with_time(now),
+            if is_close {
+                if space_id < self.highest_space {
+                    // Send a close frame in every possible space for robustness, per
+                    // RFC9000 "Immediate Close during the Handshake". Don't bother trying
+                    // to send anything else.
+                    continue;
+                } else {
+                    // Don't send another close packet, we are in the highest space
+
+                    // Even with multipath we only send
+                    // CONNECTION_CLOSE on a single path since we expect our paths to work.
+                    self.close = false;
+                    // `CONNECTION_CLOSE` is the final packet
+                    break;
+                }
+            }
+
+            // Clip the first datagram
+            if transmit.num_datagrams() == 1 {
+                transmit.clip_datagram_size();
+            }
+        }
+
+        if last_packet_number.is_some() {
+            // No more datagrams allowed
+            PollPathSpaceStatus::Send { last_packet_number }
+        } else {
+            PollPathSpaceStatus::NothingToSend {
+                congestion_blocked: false,
+            }
+        }
+    }
+
+    /// Tries to build a single datagram
+    fn poll_transmit_path_space_datagram(
+        &mut self,
+        now: Instant,
+        transmit: &mut TransmitBuf<'_>,
+        path_id: PathId,
+        space_id: SpaceId,
+        remote_cid: ConnectionId,
+        have_available_path: bool,
+        close: bool,
+        sendable_frames: SendableFrames,
+        coalesce: &mut bool,
+        pad_datagram: &mut PadDatagram,
+    ) -> Option<u64> {
+        if self.spaces[SpaceId::Initial].crypto.is_some()
+            && space_id == SpaceId::Handshake
+            && self.side.is_client()
+        {
+            // A client stops both sending and processing Initial packets when it
+            // sends its first Handshake packet.
+            self.discard_space(now, SpaceId::Initial);
+        }
+        if let Some(ref mut prev) = self.prev_crypto {
+            prev.update_unacked = false;
+        }
+
+        let mut builder = PacketBuilder::new(
+            now,
+            space_id,
+            path_id,
+            remote_cid,
+            transmit,
+            sendable_frames.other,
+            self,
+        )?;
+        *coalesce = *coalesce && !builder.short_header;
+
+        if space_id == SpaceId::Initial && (self.side.is_client() || sendable_frames.other) {
+            // https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1
+            *pad_datagram |= PadDatagram::ToMinMtu;
+        }
+        if space_id == SpaceId::Data && self.config.pad_to_mtu {
+            *pad_datagram |= PadDatagram::ToSegmentSize;
+        }
+
+        if sendable_frames.close {
+            trace!("sending CONNECTION_CLOSE");
+            // Encode ACKs before the ConnectionClose message, to give the receiver
+            // a better approximate on what data has been processed. This is
+            // especially important with ack delay, since the peer might not
+            // have gotten any other ACK for the data earlier on.
+            let is_multipath_negotiated = self.is_multipath_negotiated();
+            for path_id in self.spaces[space_id]
+                .number_spaces
+                .iter()
+                .filter(|(_, pns)| !pns.pending_acks.ranges().is_empty())
+                .map(|(&path_id, _)| path_id)
+                .collect::<Vec<_>>()
+            {
+                Self::populate_acks(
+                    now,
+                    self.receiving_ecn,
+                    path_id,
+                    space_id,
+                    &mut self.spaces[space_id],
+                    is_multipath_negotiated,
+                    &mut builder,
+                    &mut self.stats.frame_tx,
                 );
             }
 
-            // Now we need to finish the packet.  Before we do so we need to know if we will
-            // be coalescing the next packet into this one, or will be ending the datagram
-            // as well.  Because if this is the last packet in the datagram more padding
-            // might be needed because of the packet type, or to fill the GSO segment size.
-
-            // Are we allowed to coalesce AND is there enough space for another *packet* in
-            // this datagram AND is there another packet to send in this or the next space?
-            if *coalesce
-                && builder
-                    .buf
-                    .datagram_remaining_mut()
-                    .saturating_sub(builder.predict_packet_end())
-                    > MIN_PACKET_SPACE
-                && self.has_next_send_space(space_id, path_id, builder.buf, close)
-            {
-                // We can append/coalesce the next packet into the current
-                // datagram. Finish the current packet without adding extra padding.
-                builder.finish_and_track(now, self, path_id, PadDatagram::No);
-            } else {
-                // We need a new datagram for the next packet.  Finish the current
-                // packet with padding.
-                if builder.buf.num_datagrams() > 1 && matches!(pad_datagram, PadDatagram::No) {
-                    // If too many padding bytes would be required to continue the
-                    // GSO batch after this packet, end the GSO batch here. Ensures
-                    // that fixed-size frames with heterogeneous sizes
-                    // (e.g. application datagrams) won't inadvertently waste large
-                    // amounts of bandwidth. The exact threshold is a bit arbitrary
-                    // and might benefit from further tuning, though there's no
-                    // universally optimal value.
-                    const MAX_PADDING: usize = 32;
-                    if builder.buf.datagram_remaining_mut()
-                        > builder.predict_packet_end() + MAX_PADDING
-                    {
-                        trace!(
-                            "GSO truncated by demand for {} padding bytes",
-                            builder.buf.datagram_remaining_mut() - builder.predict_packet_end()
-                        );
-                        builder.finish_and_track(now, self, path_id, PadDatagram::No);
-                        return PollPathSpaceStatus::Send { last_packet_number };
+            // Since there only 64 ACK frames there will always be enough space
+            // to encode the ConnectionClose frame too. However we still have the
+            // check here to prevent crashes if something changes.
+            debug_assert!(
+                builder.frame_space_remaining() > frame::ConnectionClose::SIZE_BOUND,
+                "ACKs should leave space for ConnectionClose"
+            );
+            let stats = &mut self.stats.frame_tx;
+            if frame::ConnectionClose::SIZE_BOUND < builder.frame_space_remaining() {
+                let max_frame_size = builder.frame_space_remaining();
+                let close: Close = match self.state.as_type() {
+                    StateType::Closed => {
+                        let reason: Close = self.state.as_closed().expect("checked").clone().into();
+                        if space_id == SpaceId::Data || reason.is_transport_layer() {
+                            reason
+                        } else {
+                            TransportError::APPLICATION_ERROR("").into()
+                        }
                     }
+                    StateType::Draining => TransportError::NO_ERROR("").into(),
+                    _ => unreachable!(
+                        "tried to make a close packet when the connection wasn't closed"
+                    ),
+                };
+                builder.write_frame(close.encoder(max_frame_size), stats);
+            }
+            return Some(builder.finish_and_track(now, self, path_id, *pad_datagram));
+        }
 
+        let path_exclusive_only =
+            have_available_path && self.path_data(path_id).local_status() == PathStatus::Backup;
+        self.populate_packet(now, space_id, path_id, path_exclusive_only, &mut builder);
+
+        // ACK-only packets should only be sent when explicitly allowed. If we write them due to
+        // any other reason, there is a bug which leads to one component announcing write
+        // readiness while not writing any data. This degrades performance. The condition is
+        // only checked if the full MTU is available and when potentially large fixed-size
+        // frames aren't queued, so that lack of space in the datagram isn't the reason for just
+        // writing ACKs.
+        debug_assert!(
+            !(builder.sent_frames().is_ack_only(&self.streams)
+                && !sendable_frames.acks
+                && sendable_frames.other
+                && builder.buf.segment_size() == self.path_data(path_id).current_mtu() as usize
+                && self.datagrams.outgoing.is_empty()),
+            "SendableFrames was {sendable_frames:?}, but only ACKs have been written"
+        );
+        if builder.sent_frames().requires_padding {
+            *pad_datagram |= PadDatagram::ToMinMtu;
+        }
+
+        for (path_id, _pn) in builder.sent_frames().largest_acked.iter() {
+            self.spaces[space_id]
+                .for_path(*path_id)
+                .pending_acks
+                .acks_sent();
+            self.timers.stop(
+                Timer::PerPath(*path_id, PathTimer::MaxAckDelay),
+                self.qlog.with_time(now),
+            );
+        }
+
+        // Now we need to finish the packet.  Before we do so we need to know if we will
+        // be coalescing the next packet into this one, or will be ending the datagram
+        // as well.  Because if this is the last packet in the datagram more padding
+        // might be needed because of the packet type, or to fill the GSO segment size.
+        let padding =
+            self.calculate_padding(path_id, space_id, *coalesce, close, *pad_datagram, &builder);
+
+        Some(builder.finish_and_track(now, self, path_id, padding))
+    }
+
+    fn build_off_path_challenge(
+        &mut self,
+        now: Instant,
+        path_id: PathId,
+        space_id: SpaceId,
+        remote_cid: ConnectionId,
+        ack_eliciting: bool,
+        transmit: &mut TransmitBuf<'_>,
+    ) -> Option<Transmit> {
+        let mut builder = PacketBuilder::new(
+            now,
+            space_id,
+            path_id,
+            remote_cid,
+            transmit,
+            ack_eliciting,
+            self,
+        )?;
+        let path = self.path_data_mut(path_id);
+        if let Some((token, network_path)) = path.path_responses.pop_off_path(path.network_path) {
+            // TODO(flub): We need to use the right CID!  We shouldn't use the same
+            //    CID as the current active one for the path.  Though see also
+            //    https://github.com/quinn-rs/quinn/issues/2184
+            //
+            let stats = &mut self.stats.frame_tx;
+            let frame = frame::PathResponse(token);
+            builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
+            builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
+            self.stats.udp_tx.on_sent(1, transmit.len());
+            return Some(Transmit {
+                destination: network_path.remote,
+                size: transmit.len(),
+                ecn: None,
+                segment_size: None,
+                src_ip: network_path.local_ip,
+            });
+        }
+        None
+    }
+
+    fn calculate_padding(
+        &mut self,
+        path_id: PathId,
+        space_id: SpaceId,
+        coalesce: bool,
+        close: bool,
+        pad_datagram: PadDatagram,
+        builder: &PacketBuilder<'_, '_>,
+    ) -> PadDatagram {
+        // Are we allowed to coalesce AND is there enough space for another *packet* in
+        // this datagram AND is there another packet to send in this or the next space?
+        if coalesce
+            && builder
+                .buf
+                .datagram_remaining_mut()
+                .saturating_sub(builder.predict_packet_end())
+                > MIN_PACKET_SPACE
+            && self.has_next_send_space(space_id, path_id, builder.buf, close)
+        {
+            // We can append/coalesce the next packet into the current
+            // datagram. Finish the current packet without adding extra padding.
+            PadDatagram::No
+        } else {
+            // We need a new datagram for the next packet.  Finish the current
+            // packet with padding.
+            if builder.buf.num_datagrams() > 1 && matches!(pad_datagram, PadDatagram::No) {
+                // If too many padding bytes would be required to continue the
+                // GSO batch after this packet, end the GSO batch here. Ensures
+                // that fixed-size frames with heterogeneous sizes
+                // (e.g. application datagrams) won't inadvertently waste large
+                // amounts of bandwidth. The exact threshold is a bit arbitrary
+                // and might benefit from further tuning, though there's no
+                // universally optimal value.
+                const MAX_PADDING: usize = 32;
+                if builder.buf.datagram_remaining_mut() > builder.predict_packet_end() + MAX_PADDING
+                {
+                    trace!(
+                        "GSO truncated by demand for {} padding bytes",
+                        builder.buf.datagram_remaining_mut() - builder.predict_packet_end()
+                    );
+                    PadDatagram::No
+                } else {
                     // Pad the current datagram to GSO segment size so it can be
                     // included in the GSO batch.
-                    builder.finish_and_track(now, self, path_id, PadDatagram::ToSegmentSize);
-                } else {
-                    builder.finish_and_track(now, self, path_id, *pad_datagram);
+                    PadDatagram::ToSegmentSize
                 }
-                if transmit.num_datagrams() == 1 {
-                    transmit.clip_datagram_size();
-                }
+            } else {
+                pad_datagram
             }
         }
+    }
+
+    fn path_should_send(
+        &mut self,
+        path_id: PathId,
+        space_id: SpaceId,
+        have_available_path: bool,
+        sendable_frames: &SendableFrames,
+    ) -> bool {
+        let path_exclusive_only = space_id == SpaceId::Data
+            && have_available_path
+            && self.path_data(path_id).local_status() == PathStatus::Backup;
+        let path_should_send = if path_exclusive_only {
+            sendable_frames.path_exclusive
+        } else {
+            !sendable_frames.is_empty()
+        };
+        let needs_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
+        path_should_send || needs_loss_probe
     }
 
     fn on_remote_cids_exhausted(&mut self, now: Instant, path_id: PathId) {
@@ -1808,8 +1911,8 @@ impl Connection {
 
     /// Indicate what types of frames are ready to send for the given space
     ///
-    /// *packet_size* is the number of bytes available to build the next packet.  *close*
-    /// *indicates whether a CONNECTION_CLOSE frame needs to be sent.
+    /// *packet_size* is the number of bytes available to build the next packet.
+    /// *close* indicates whether a CONNECTION_CLOSE frame needs to be sent.
     fn space_can_send(
         &mut self,
         space_id: SpaceId,
@@ -1817,25 +1920,50 @@ impl Connection {
         packet_size: usize,
         close: bool,
     ) -> SendableFrames {
-        let pn = self.spaces[SpaceId::Data]
-            .for_path(path_id)
-            .peek_tx_number();
-        let frame_space_1rtt = packet_size.saturating_sub(self.predict_1rtt_overhead(pn, path_id));
-        if self.spaces[space_id].crypto.is_none()
+        let space = &mut self.spaces[space_id];
+        let space_has_crypto = space.crypto.is_none();
+
+        if !space_has_crypto
             && (space_id != SpaceId::Data
                 || self.zero_rtt_crypto.is_none()
                 || self.side.is_server())
         {
-            // No keys available for this space
+            // Nothing send in this space
             return SendableFrames::empty();
         }
-        let mut can_send = self.spaces[space_id].can_send(path_id, &self.streams);
+
+        let mut can_send = space.can_send(path_id, &self.streams);
+
         if space_id == SpaceId::Data {
+            // Check for 1RTT space.
+            let pn = space.for_path(path_id).peek_tx_number();
+            let frame_space_1rtt =
+                packet_size.saturating_sub(self.predict_1rtt_overhead(pn, path_id));
             can_send |= self.can_send_1rtt(path_id, frame_space_1rtt);
         }
 
-        can_send.close = close && self.spaces[space_id].crypto.is_some();
+        can_send.close = close && space_has_crypto;
 
+        can_send
+    }
+
+    fn space_can_send_non_data(
+        &mut self,
+        space_id: SpaceId,
+        path_id: PathId,
+        close: bool,
+    ) -> SendableFrames {
+        debug_assert!(space_id != SpaceId::Data);
+        let space = &mut self.spaces[space_id];
+        let space_has_crypto = space.crypto.is_none();
+
+        if !space_has_crypto && (self.zero_rtt_crypto.is_none() || self.side.is_server()) {
+            // Nothing send in this space
+            return SendableFrames::empty();
+        }
+
+        let mut can_send = space.can_send(path_id, &self.streams);
+        can_send.close = close && space_has_crypto;
         can_send
     }
 

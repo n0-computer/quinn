@@ -282,7 +282,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         conn: &mut Connection,
         path_id: PathId,
         pad_datagram: PadDatagram,
-    ) {
+    ) -> u64 {
         match pad_datagram {
             PadDatagram::No => (),
             PadDatagram::ToSize(size) => self.pad_to(size),
@@ -329,6 +329,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             conn.set_loss_detection_timer(now, path_id);
             conn.path_data_mut(path_id).pacing.on_transmit(size);
         }
+
+        exact_number
     }
 
     /// Encrypt packet, returning the length of the packet and whether padding was added
