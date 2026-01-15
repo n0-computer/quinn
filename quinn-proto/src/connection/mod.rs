@@ -1713,7 +1713,7 @@ impl Connection {
         close: bool,
     ) -> SendableFrames {
         let space = &mut self.spaces[space_id];
-        let space_has_crypto = space.crypto.is_none();
+        let space_has_crypto = space.crypto.is_some();
 
         if !space_has_crypto
             && (space_id != SpaceId::Data
