@@ -673,7 +673,7 @@
 <a href=#673 id=673 data-nosnippet>673</a>    }
 <a href=#674 id=674 data-nosnippet>674</a>}
 <a href=#675 id=675 data-nosnippet>675</a>
-<a href=#676 id=676 data-nosnippet>676</a><span class="attr">#[cfg(all(test, feature = <span class="string">"proptest"</span>))]
+<a href=#676 id=676 data-nosnippet>676</a><span class="attr">#[cfg(all(test, not(target_family = <span class="string">"wasm"</span>)))]
 <a href=#677 id=677 data-nosnippet>677</a></span><span class="kw">mod </span>proptests {
 <a href=#678 id=678 data-nosnippet>678</a>    <span class="kw">use </span>proptest::prelude::<span class="kw-2">*</span>;
 <a href=#679 id=679 data-nosnippet>679</a>    <span class="kw">use </span>test_strategy::{Arbitrary, proptest};
