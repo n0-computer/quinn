@@ -6,7 +6,7 @@ use crate::FrameType;
 /// Statistics about UDP datagrams transmitted or received on a connection
 ///
 /// All QUIC packets are carried by UDP datagrams. Hence, these statistics cover all traffic on a connection.
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct UdpStats {
     /// The amount of UDP datagrams observed
@@ -167,6 +167,10 @@ impl std::fmt::Debug for FrameStats {
 pub struct PathStats {
     /// Current best estimate of this connection's latency (round-trip-time)
     pub rtt: Duration,
+    /// Statistics about datagrams and bytes sent on this path
+    pub udp_tx: UdpStats,
+    /// Statistics about datagrams and bytes received on this path
+    pub udp_rx: UdpStats,
     /// Current congestion window of the connection
     pub cwnd: u64,
     /// Congestion events on the connection
@@ -175,9 +179,7 @@ pub struct PathStats {
     pub lost_packets: u64,
     /// The amount of bytes lost on this path
     pub lost_bytes: u64,
-    /// The amount of packets sent on this path
-    pub sent_packets: u64,
-    /// The amount of PLPMTUD probe packets sent on this path (also counted by `sent_packets`)
+    /// The amount of PLPMTUD probe packets sent on this path (also counted by `udp_tx.datagrams`)
     pub sent_plpmtud_probes: u64,
     /// The amount of PLPMTUD probe packets lost on this path (ignored by `lost_packets` and
     /// `lost_bytes`)

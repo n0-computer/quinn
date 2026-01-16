@@ -1332,6 +1332,11 @@ impl Connection {
                     builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
                     builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
                     self.stats.udp_tx.on_sent(1, transmit.len());
+                    self.path_stats
+                        .entry(path_id)
+                        .or_default()
+                        .udp_tx
+                        .on_sent(1, transmit.len());
                     return Some(Transmit {
                         destination: network_path.remote,
                         size: transmit.len(),
@@ -1539,6 +1544,11 @@ impl Connection {
         self.stats
             .udp_tx
             .on_sent(transmit.num_datagrams() as u64, transmit.len());
+        self.path_stats
+            .entry(path_id)
+            .or_default()
+            .udp_tx
+            .on_sent(transmit.num_datagrams() as u64, transmit.len());
 
         Some(Transmit {
             destination: network_path.remote,
@@ -1691,6 +1701,11 @@ impl Connection {
 
         builder.finish(self, now);
         self.stats.udp_tx.on_sent(1, buf.len());
+        self.path_stats
+            .entry(path_id)
+            .or_default()
+            .udp_tx
+            .on_sent(1, buf.len());
 
         Some(Transmit {
             destination: network_path.remote,
@@ -1771,6 +1786,9 @@ impl Connection {
 
                 self.stats.udp_rx.datagrams += 1;
                 self.stats.udp_rx.bytes += first_decode.len() as u64;
+                let rx = &mut self.path_stats.entry(path_id).or_default().udp_rx;
+                rx.datagrams += 1;
+                rx.bytes += first_decode.len() as u64;
                 let data_len = first_decode.len();
 
                 self.handle_decode(now, network_path, path_id, ecn, first_decode);
@@ -1784,6 +1802,7 @@ impl Connection {
 
                 if let Some(data) = remaining {
                     self.stats.udp_rx.bytes += data.len() as u64;
+                    self.path_stats.entry(path_id).or_default().udp_rx.bytes += data.len() as u64;
                     self.handle_coalesced(now, network_path, path_id, ecn, data);
                 }
 
@@ -3573,6 +3592,8 @@ impl Connection {
         mut qlog: QlogRecvPacket,
     ) {
         self.stats.udp_rx.ios += 1;
+        self.path_stats.entry(path_id).or_default().udp_rx.ios += 1;
+
         if let Some(ref packet) = packet {
             trace!(
                 "got {:?} packet ({} bytes) from {} using id {}",
