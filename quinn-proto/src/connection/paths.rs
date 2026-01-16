@@ -760,7 +760,11 @@ impl PathResponses {
         }
     }
 
-    pub(crate) fn pop_off_path(&mut self, network_path: FourTuple) -> Option<(u64, FourTuple)> {
+    // packet number, token, network_path
+    pub(crate) fn pop_off_path(
+        &mut self,
+        network_path: FourTuple,
+    ) -> Option<(u64, u64, FourTuple)> {
         let response = *self.pending.last()?;
         // We use an exact comparison here, because once we've received for the first time,
         // we really should either already have a local_ip, or we will never get one
@@ -771,7 +775,7 @@ impl PathResponses {
             return None;
         }
         self.pending.pop();
-        Some((response.token, response.network_path))
+        Some((response.packet, response.token, response.network_path))
     }
 
     pub(crate) fn pop_on_path(&mut self, network_path: FourTuple) -> Option<u64> {
