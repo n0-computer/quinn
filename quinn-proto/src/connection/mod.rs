@@ -1703,8 +1703,8 @@ impl Connection {
 
     /// Indicate what types of frames are ready to send for the given space
     ///
-    /// *packet_size* is the number of bytes available to build the next packet.  *close*
-    /// *indicates whether a CONNECTION_CLOSE frame needs to be sent.
+    /// *packet_size* is the number of bytes available to build the next packet.
+    /// *close* indicates whether a CONNECTION_CLOSE frame needs to be sent.
     fn space_can_send(
         &mut self,
         space_id: SpaceId,
@@ -1712,24 +1712,29 @@ impl Connection {
         packet_size: usize,
         close: bool,
     ) -> SendableFrames {
-        let pn = self.spaces[SpaceId::Data]
-            .for_path(path_id)
-            .peek_tx_number();
-        let frame_space_1rtt = packet_size.saturating_sub(self.predict_1rtt_overhead(pn, path_id));
-        if self.spaces[space_id].crypto.is_none()
+        let space = &mut self.spaces[space_id];
+        let space_has_crypto = space.crypto.is_some();
+
+        if !space_has_crypto
             && (space_id != SpaceId::Data
                 || self.zero_rtt_crypto.is_none()
                 || self.side.is_server())
         {
-            // No keys available for this space
+            // Nothing to send in this space
             return SendableFrames::empty();
         }
-        let mut can_send = self.spaces[space_id].can_send(path_id, &self.streams);
+
+        let mut can_send = space.can_send(path_id, &self.streams);
+
         if space_id == SpaceId::Data {
+            // Check for 1RTT space.
+            let pn = space.for_path(path_id).peek_tx_number();
+            let frame_space_1rtt =
+                packet_size.saturating_sub(self.predict_1rtt_overhead(pn, path_id));
             can_send |= self.can_send_1rtt(path_id, frame_space_1rtt);
         }
 
-        can_send.close = close && self.spaces[space_id].crypto.is_some();
+        can_send.close = close && space_has_crypto;
 
         can_send
     }
