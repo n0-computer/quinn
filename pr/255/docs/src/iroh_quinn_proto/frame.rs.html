@@ -428,7 +428,7 @@
 <a href=#428 id=428 data-nosnippet>428</a>            RetireConnectionId(retire_frame) =&gt; retire_frame.get_type(),
 <a href=#429 id=429 data-nosnippet>429</a>            Ack(ack) =&gt; ack.get_type(),
 <a href=#430 id=430 data-nosnippet>430</a>            PathAck(path_ack) =&gt; path_ack.get_type(),
-<a href=#431 id=431 data-nosnippet>431</a>            Stream(<span class="kw-2">ref </span>x) =&gt; {
+<a href=#431 id=431 data-nosnippet>431</a>            Stream(x) =&gt; {
 <a href=#432 id=432 data-nosnippet>432</a>                <span class="kw">let </span><span class="kw-2">mut </span>ty = <span class="kw-2">*</span>StreamInfo::VALUES.start() <span class="kw">as </span>u8;
 <a href=#433 id=433 data-nosnippet>433</a>                <span class="kw">if </span>x.fin {
 <a href=#434 id=434 data-nosnippet>434</a>                    ty |= <span class="number">0x01</span>;
@@ -448,15 +448,15 @@
 <a href=#448 id=448 data-nosnippet>448</a>            AckFrequency(<span class="kw">_</span>) =&gt; FrameType::AckFrequency,
 <a href=#449 id=449 data-nosnippet>449</a>            ImmediateAck =&gt; FrameType::ImmediateAck,
 <a href=#450 id=450 data-nosnippet>450</a>            HandshakeDone =&gt; FrameType::HandshakeDone,
-<a href=#451 id=451 data-nosnippet>451</a>            ObservedAddr(<span class="kw-2">ref </span>observed) =&gt; observed.get_type(),
+<a href=#451 id=451 data-nosnippet>451</a>            ObservedAddr(observed) =&gt; observed.get_type(),
 <a href=#452 id=452 data-nosnippet>452</a>            PathAbandon(<span class="kw">_</span>) =&gt; FrameType::PathAbandon,
 <a href=#453 id=453 data-nosnippet>453</a>            PathStatusAvailable(<span class="kw">_</span>) =&gt; FrameType::PathStatusAvailable,
 <a href=#454 id=454 data-nosnippet>454</a>            PathStatusBackup(<span class="kw">_</span>) =&gt; FrameType::PathStatusBackup,
 <a href=#455 id=455 data-nosnippet>455</a>            MaxPathId(<span class="kw">_</span>) =&gt; FrameType::MaxPathId,
 <a href=#456 id=456 data-nosnippet>456</a>            PathsBlocked(<span class="kw">_</span>) =&gt; FrameType::PathsBlocked,
 <a href=#457 id=457 data-nosnippet>457</a>            PathCidsBlocked(<span class="kw">_</span>) =&gt; FrameType::PathCidsBlocked,
-<a href=#458 id=458 data-nosnippet>458</a>            AddAddress(<span class="kw-2">ref </span>frame) =&gt; frame.get_type(),
-<a href=#459 id=459 data-nosnippet>459</a>            ReachOut(<span class="kw-2">ref </span>frame) =&gt; frame.get_type(),
+<a href=#458 id=458 data-nosnippet>458</a>            AddAddress(frame) =&gt; frame.get_type(),
+<a href=#459 id=459 data-nosnippet>459</a>            ReachOut(frame) =&gt; frame.get_type(),
 <a href=#460 id=460 data-nosnippet>460</a>            RemoveAddress(<span class="kw">_</span>) =&gt; <span class="self">self</span>::RemoveAddress::TYPE,
 <a href=#461 id=461 data-nosnippet>461</a>        }
 <a href=#462 id=462 data-nosnippet>462</a>    }

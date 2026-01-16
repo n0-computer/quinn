@@ -402,20 +402,21 @@
 <a href=#402 id=402 data-nosnippet>402</a>
 <a href=#403 id=403 data-nosnippet>403</a><span class="kw">impl </span>fmt::Display <span class="kw">for </span>FourTuple {
 <a href=#404 id=404 data-nosnippet>404</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
-<a href=#405 id=405 data-nosnippet>405</a>        f.write_str(<span class="string">"("</span>)<span class="question-mark">?</span>;
+<a href=#405 id=405 data-nosnippet>405</a>        f.write_str(<span class="string">"(src: "</span>)<span class="question-mark">?</span>;
 <a href=#406 id=406 data-nosnippet>406</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(local_ip) = <span class="kw-2">&amp;</span><span class="self">self</span>.local_ip {
 <a href=#407 id=407 data-nosnippet>407</a>            local_ip.fmt(f)<span class="question-mark">?</span>;
 <a href=#408 id=408 data-nosnippet>408</a>            f.write_str(<span class="string">", "</span>)<span class="question-mark">?</span>;
 <a href=#409 id=409 data-nosnippet>409</a>        } <span class="kw">else </span>{
-<a href=#410 id=410 data-nosnippet>410</a>            f.write_str(<span class="string">"&lt;unknown&gt;, "</span>)<span class="question-mark">?</span>;
+<a href=#410 id=410 data-nosnippet>410</a>            f.write_str(<span class="string">"&lt;unspecified&gt;, "</span>)<span class="question-mark">?</span>;
 <a href=#411 id=411 data-nosnippet>411</a>        }
-<a href=#412 id=412 data-nosnippet>412</a>        <span class="self">self</span>.remote.fmt(f)<span class="question-mark">?</span>;
-<a href=#413 id=413 data-nosnippet>413</a>        f.write_str(<span class="string">")"</span>)
-<a href=#414 id=414 data-nosnippet>414</a>    }
-<a href=#415 id=415 data-nosnippet>415</a>}
-<a href=#416 id=416 data-nosnippet>416</a>
-<a href=#417 id=417 data-nosnippet>417</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>FourTuple {
-<a href=#418 id=418 data-nosnippet>418</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
-<a href=#419 id=419 data-nosnippet>419</a>        fmt::Display::fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f)
-<a href=#420 id=420 data-nosnippet>420</a>    }
-<a href=#421 id=421 data-nosnippet>421</a>}</code></pre></div></section></main></body></html>
+<a href=#412 id=412 data-nosnippet>412</a>        f.write_str(<span class="string">"dst: "</span>)<span class="question-mark">?</span>;
+<a href=#413 id=413 data-nosnippet>413</a>        <span class="self">self</span>.remote.fmt(f)<span class="question-mark">?</span>;
+<a href=#414 id=414 data-nosnippet>414</a>        f.write_str(<span class="string">")"</span>)
+<a href=#415 id=415 data-nosnippet>415</a>    }
+<a href=#416 id=416 data-nosnippet>416</a>}
+<a href=#417 id=417 data-nosnippet>417</a>
+<a href=#418 id=418 data-nosnippet>418</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>FourTuple {
+<a href=#419 id=419 data-nosnippet>419</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
+<a href=#420 id=420 data-nosnippet>420</a>        fmt::Display::fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f)
+<a href=#421 id=421 data-nosnippet>421</a>    }
+<a href=#422 id=422 data-nosnippet>422</a>}</code></pre></div></section></main></body></html>
