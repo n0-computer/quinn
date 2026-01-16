@@ -975,20 +975,7 @@ impl Connection {
 
         // Each call to poll_transmit can only send datagrams to one destination, because
         // all datagrams in a GSO batch are for the same destination.  Therefore only
-        // datagrams for one Path ID are produced for each poll_transmit call.
-
-        // TODO(flub): this is wishful thinking and not actually implemented, but perhaps it
-        //   should be:
-
-        // First, if we have to send a close, select a path for that.
-        // Next, all paths that have a PATH_CHALLENGE or PATH_RESPONSE pending.
-
-        // For all, open, validated and AVAILABLE paths:
-        // - Is the path congestion blocked or pacing blocked?
-        // - call maybe_queue_ to ensure a tail-loss probe would be sent?
-        // - do we need to send a close message?
-        // - call can_send
-        // Once there's nothing more to send on the AVAILABLE paths, do the same for BACKUP paths
+        // datagrams for one destination address are produced for each poll_transmit call.
 
         // Check whether we need to send a close message
         let close = match self.state.as_type() {
@@ -1008,7 +995,7 @@ impl Connection {
             _ => false,
         };
 
-        // Check whether we need to send an ACK_FREQUENCY frame
+        // Schedule an ACK_FREQUENCY frame if a new one needs to be sent.
         if let Some(config) = &self.config.ack_frequency_config {
             let rtt = self
                 .paths
@@ -1023,8 +1010,23 @@ impl Connection {
                 && self.peer_supports_ack_frequency();
         }
 
-        // If there is any open, validated and available path we only want to send frames to
-        // any backup path that must be sent on that backup path exclusively.
+        // Path scheduling logic is currently as such:
+        //
+        // - For any un-validated paths we only send frames that *must* be sent on that
+        //   path. E.g. PATH_CHALLENGE, PATH_RESPONSE.
+        //
+        // - If there are any paths with PathStatus::Available we only send any frames that
+        //   can be sent on any path, e.g. STREAM, DATAGRAM, on these available paths.
+        //
+        // - If there are any paths with PathStatus::Available we only send frames that
+        //   *must* be sent on a specific path to any other paths, e.g. a tail-loss probe for
+        //   that path, PMTU probe, a keep-alive PING.
+        //
+        // For all this we use the *path_exclusive_only* boolean: If set to true, only
+        // frames that must be sent on the path will be built into the packet.
+
+        // Is there any open, validated and status available path with dst CIDs? If so we'll
+        // want to set path_exclusive_only for any other paths.
         let have_available_path = self.paths.iter().any(|(id, path)| {
             path.data.validated
                 && path.data.local_status() == PathStatus::Available
@@ -1040,10 +1042,12 @@ impl Connection {
             self.path_data(path_ids[0]).current_mtu().into(),
         );
 
+        // If we end up not sending anything, we need to know if that was because there was
+        // nothing to send or because we were congestion blocked.
         let mut congestion_blocked = false;
 
         for &path_id in &path_ids {
-            // Update per path state
+            // Set the segment size to this path's MTU.
             transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
 
             if let Some(challenge) = self.send_prev_path_challenge(now, &mut transmit, path_id) {
@@ -1061,13 +1065,7 @@ impl Connection {
                 PollPathStatus::NothingToSend {
                     congestion_blocked: cb,
                 } => {
-                    // TODO: congestion blocked should be per path? how to deal with this better
-
-                    // move to next path
-                    if cb {
-                        // note congestion block
-                        congestion_blocked = true;
-                    }
+                    congestion_blocked |= cb;
                 }
             }
             // Nothing more to send.
@@ -1079,6 +1077,7 @@ impl Connection {
             transmit.is_empty(),
             "there was data in the transmit, but it was not sent"
         );
+
         self.app_limited = !congestion_blocked;
 
         if self.state.is_established() {
@@ -1118,6 +1117,7 @@ impl Connection {
         self.stats
             .udp_tx
             .on_sent(transmit.num_datagrams() as u64, transmit.len());
+        // TODO(flub): check https://github.com/n0-computer/quinn/pull/332 changes
 
         Transmit {
             destination: network_path.remote,
@@ -1135,7 +1135,13 @@ impl Connection {
         }
     }
 
-    /// poll_transmit logic for a specific path
+    /// poll_transmit logic for a specific [`PathState::data`].
+    ///
+    /// This is not quite the same as for a multipath packet space, since [`PathId::ZERO`]
+    /// has 3 packet spaces, which this handles.
+    ///
+    /// This does not handle sending for [`PathState::prev`] which is handled by
+    /// [`Self::send_prev_path_challenge`] called directly from [`Self::poll_transmit`].
     #[must_use]
     fn poll_transmit_path(
         &mut self,
@@ -1149,6 +1155,8 @@ impl Connection {
         let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
             self.on_remote_cids_exhausted(now, path_id);
 
+            // TODO(flub): on_remote_cids_exhausted might have scheduled a PATH_CIDS_BLOCKED
+            //    frame which could have been sent on an earlier path again.
             return PollPathStatus::NothingToSend {
                 congestion_blocked: false,
             };
