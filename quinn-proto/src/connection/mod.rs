@@ -345,7 +345,7 @@ enum PollPathStatus {
 enum PollPathSpaceStatus {
     /// We have something to send, and data has been accumulated
     /// on the passed in `transmit`.
-    Send { last_packet_number: Option<u64> },
+    Send,
     /// A transmit is ready to be sent out.
     SendTransmit {
         /// The transmit to send.
@@ -1167,25 +1167,31 @@ impl Connection {
             };
         };
 
-        // The packet number of the last built packet.
-        let mut last_packet_number = None;
+        // The packet numbers of the packets we have built
+        // TODO: avoid allocation
+        let mut packet_numbers = Vec::new();
 
         // Whether this packet can be coalesced with another one in the same datagram.
         let mut coalesce = true;
 
         let mut congestion_blocked = false;
 
-        // Iterate over the available spaces
-        for space_id in SpaceId::iter() {
+        // Determine the spaces to iterate over
+        // TODO: avoid allocation
+        let spaces = if path_id == PathId::ZERO {
             // Only Path0 uses non Data space ids
-            if path_id != PathId::ZERO && space_id != SpaceId::Data {
-                continue;
-            }
-            // We only send up to the highest space
-            if space_id >= self.highest_space {
-                break;
-            }
+            SpaceId::iter()
+                .filter(|s| {
+                    // We only send up to the highest space
+                    s <= &self.highest_space
+                })
+                .collect()
+        } else {
+            vec![SpaceId::Data]
+        };
 
+        // Iterate over the available spaces
+        for space_id in spaces {
             // Check if we can send in this space for lower spaces.
             let sendable_frames = if space_id < SpaceId::Data {
                 let sendable_frames = self.space_can_send_non_data(space_id, path_id, close);
@@ -1213,12 +1219,10 @@ impl Connection {
                 close,
                 sendable_frames,
                 &mut coalesce,
+                &mut packet_numbers,
             );
             match res {
-                PollPathSpaceStatus::Send {
-                    last_packet_number: lp,
-                } => {
-                    last_packet_number = lp;
+                PollPathSpaceStatus::Send { .. } => {
                     break;
                 }
                 PollPathSpaceStatus::SendTransmit { transmit } => {
@@ -1233,13 +1237,13 @@ impl Connection {
             }
         }
 
-        if let Some(last_packet_number) = last_packet_number {
+        if let Some(last_packet_number) = packet_numbers.last() {
             // Note that when sending in multiple packet spaces the last packet number will
             // be the one from the highest packet space.
             self.path_data_mut(path_id).congestion.on_sent(
                 now,
                 transmit.len() as u64,
-                last_packet_number,
+                *last_packet_number,
             );
         }
 
@@ -1270,11 +1274,11 @@ impl Connection {
         close: bool,
         sendable_frames: Option<SendableFrames>,
         coalesce: &mut bool,
+        packet_numbers: &mut Vec<u64>,
     ) -> PollPathSpaceStatus {
         // Whether the last packet in the datagram must be padded so the datagram takes up
         // to at least MIN_INITIAL_SIZE, or to the maximum segment size if this is smaller.
         let mut pad_datagram = PadDatagram::No;
-        let mut last_packet_number = None;
 
         // Build datagrams until the transmit is full.
         while transmit.num_datagrams() < transmit.max_datagrams().get() {
@@ -1318,7 +1322,7 @@ impl Connection {
                 // If there are any datagrams in the transmit, packets for another path can
                 // not be built.
                 if transmit.num_datagrams() > 0 {
-                    return PollPathSpaceStatus::Send { last_packet_number };
+                    return PollPathSpaceStatus::Send;
                 }
 
                 return PollPathSpaceStatus::NothingToSend { congestion_blocked };
@@ -1390,7 +1394,7 @@ impl Connection {
                 pad_datagram,
             );
             if let Some(n) = n {
-                last_packet_number.replace(n);
+                packet_numbers.push(n);
             } else {
                 // error, unable to send
                 return PollPathSpaceStatus::NothingToSend { congestion_blocked };
@@ -1419,14 +1423,7 @@ impl Connection {
             }
         }
 
-        if last_packet_number.is_some() {
-            // No more datagrams allowed
-            PollPathSpaceStatus::Send { last_packet_number }
-        } else {
-            PollPathSpaceStatus::NothingToSend {
-                congestion_blocked: false,
-            }
-        }
+        PollPathSpaceStatus::Send
     }
 
     /// Tries to build a single packet
