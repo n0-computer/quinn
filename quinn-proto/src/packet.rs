@@ -464,6 +464,20 @@ impl Header {
         }
     }
 
+    /// Is this packet allowed to be coalesced with others?
+    ///
+    /// Ref <https://www.rfc-editor.org/rfc/rfc9000.html#name-coalescing-packets>
+    pub(crate) fn can_coalesce(&self) -> bool {
+        use Header::*;
+        match *self {
+            Initial(_) => true,
+            Long { .. } => true,
+            Retry { .. } => false,
+            Short { .. } => false,
+            VersionNegotiate { .. } => false,
+        }
+    }
+
     /// Whether the payload of this packet contains QUIC frames
     pub(crate) fn has_frames(&self) -> bool {
         use Header::*;

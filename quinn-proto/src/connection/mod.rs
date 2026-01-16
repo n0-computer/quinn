@@ -1237,7 +1237,7 @@ impl Connection {
                 self,
             )?;
             last_packet_number = Some(builder.exact_number);
-            coalesce = coalesce && !builder.short_header;
+            coalesce = coalesce && builder.can_coalesce;
 
             if space_id == SpaceId::Initial && (self.side.is_client() || can_send.other) {
                 // https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1
