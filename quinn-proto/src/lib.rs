@@ -72,6 +72,7 @@ pub use crate::frame::{
 };
 use crate::{
     coding::{Decodable, Encodable},
+    connection::{FirstSegment, TransmitBuf},
     frame::Frame,
 };
 
@@ -321,21 +322,63 @@ impl Encodable for StreamId {
     }
 }
 
-/// An outgoing packet
+/// An outgoing packet GSO Batch.
 #[derive(Debug)]
 #[must_use]
 pub struct Transmit {
-    /// The socket this datagram should be sent to
-    pub destination: SocketAddr,
-    /// Explicit congestion notification bits to set on the packet
-    pub ecn: Option<EcnCodepoint>,
+    info: TransmitInfo,
     /// Amount of data written to the caller-supplied buffer
-    pub size: usize,
+    size: usize,
     /// The segment size if this transmission contains multiple datagrams.
     /// This is `None` if the transmit only contains a single datagram
-    pub segment_size: Option<usize>,
+    segment_size: Option<usize>,
+}
+
+#[derive(Debug)]
+pub(crate) struct TransmitInfo {
+    /// The socket this datagram should be sent to
+    destination: SocketAddr,
+    /// Explicit congestion notification bits to set on the GSO Batch.
+    ecn: Option<EcnCodepoint>,
     /// Optional source IP address for the datagram
-    pub src_ip: Option<IpAddr>,
+    src_ip: Option<IpAddr>,
+}
+
+pub(crate) struct TransmitBuilder<'a> {
+    info: TransmitInfo,
+    buffer: TransmitBuf<'a>,
+}
+
+impl Transmit {
+    /// Create a GSO Batch builder without ECN or set source Ip address.
+    pub(crate) fn builder<'a>(
+        destination: SocketAddr,
+        first_segment: FirstSegment<'a>,
+    ) -> TransmitBuilder<'a> {
+        let info = TransmitInfo {
+            destination,
+            ecn: None,
+            src_ip: None,
+        };
+        TransmitBuilder {
+            info,
+            buffer: TransmitBuf::FirstSegment(first_segment),
+        }
+    }
+
+    pub(crate) fn new(info: TransmitInfo, size: usize, segment_size: Option<usize>) -> Transmit {
+        Transmit {
+            info,
+            size,
+            segment_size,
+        }
+    }
+}
+
+impl<'a> TransmitBuilder<'a> {
+    pub(crate) fn finish(self) -> Transmit {
+        self.buffer.finish(self.info)
+    }
 }
 
 //

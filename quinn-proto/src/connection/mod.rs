@@ -100,7 +100,7 @@ mod timer;
 use timer::{Timer, TimerTable};
 
 mod transmit_buf;
-use transmit_buf::TransmitBuf;
+pub(crate) use transmit_buf::{FirstSegment, GsoBatch, TransmitBuf};
 
 mod state;
 
@@ -1011,18 +1011,15 @@ impl Connection {
         });
 
         // Setup for the first path_id
-        let mut transmit = TransmitBuf::new(
-            buf,
-            max_datagrams,
-            self.path_data(path_id).current_mtu().into(),
-        );
-        if let Some(challenge) = self.send_prev_path_challenge(now, &mut transmit, path_id) {
+        if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
             return Some(challenge);
         }
         let mut space_id = match path_id {
             PathId::ZERO => SpaceId::Initial,
             _ => SpaceId::Data,
         };
+
+        let mut transmit = Transmit::builder(destination, max_segments, buf, pmtu)
 
         loop {
             // check if there is at least one active CID to use for sending
@@ -1647,7 +1644,7 @@ impl Connection {
     fn send_prev_path_challenge(
         &mut self,
         now: Instant,
-        buf: &mut TransmitBuf<'_>,
+        buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
         let (prev_cid, prev_path) = self.paths.get_mut(&path_id)?.prev.as_mut()?;
@@ -1669,16 +1666,15 @@ impl Connection {
             SpaceId::Data,
             "PATH_CHALLENGE queued without 1-RTT keys"
         );
-        buf.start_new_datagram_with_size(MIN_INITIAL_SIZE as usize);
+        let mut transmit = Transmit::builder(buf, network_path.remote, NonZeroUsize::MIN, MIN_INITIAL_SIZE as usize);
 
         // Use the previous CID to avoid linking the new path with the previous path. We
         // don't bother accounting for possible retirement of that prev_cid because this is
         // sent once, immediately after migration, when the CID is known to be valid. Even
         // if a post-migration packet caused the CID to be retired, it's fair to pretend
         // this is sent first.
-        debug_assert_eq!(buf.datagram_start_offset(), 0);
         let mut builder =
-            PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
+            PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, transmit, false, self)?;
         let challenge = frame::PathChallenge(token);
         let stats = &mut self.stats.frame_tx;
         builder.write_frame_with_log_msg(challenge, stats, Some("validating previous path"));
@@ -1692,13 +1688,7 @@ impl Connection {
         builder.finish(self, now);
         self.stats.udp_tx.on_sent(1, buf.len());
 
-        Some(Transmit {
-            destination: network_path.remote,
-            size: buf.len(),
-            ecn: None,
-            segment_size: None,
-            src_ip: network_path.local_ip,
-        })
+        Some(transmit.build_batch())
     }
 
     /// Indicate what types of frames are ready to send for the given space

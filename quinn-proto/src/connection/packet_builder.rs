@@ -49,10 +49,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         buffer: &'a mut TransmitBuf<'b>,
         ack_eliciting: bool,
         conn: &mut Connection,
-    ) -> Option<Self>
-    where
-        'b: 'a,
-    {
+    ) -> Option<Self> {
         let mut qlog = QlogSentPacket::default();
 
         let version = conn.version;
