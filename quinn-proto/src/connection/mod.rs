@@ -1143,6 +1143,21 @@ impl Connection {
         have_available_path: bool,
         close: bool,
     ) -> PollPathStatus {
+        // Transmit:     1 or more: UDP Datagrams
+        // UDP Datagram: 1 or more Quic Packets
+        // Quic Packet:  1 or more Quic Frame
+        // Quic Frame:   Smallest logical structure sent
+
+        // Coalescing
+        // - Packing multiple Quic Packets into a single Datagram
+        // - Only possible on Long Header packets
+        //   this means the following packet types can not be coalesced
+        //   - Retry Packets
+        //   - Version Negotiation Packets
+        //   - 1RTT packets
+
+        //
+
         // Check if there is at least one active CID to use for sending
         let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
             self.on_remote_cids_exhausted(now, path_id);
@@ -1151,10 +1166,6 @@ impl Connection {
                 congestion_blocked: false,
             };
         };
-
-        // Whether the last packet in the datagram must be padded so the datagram takes up
-        // to at least MIN_INITIAL_SIZE, or to the maximum segment size if this is smaller.
-        let mut pad_datagram = PadDatagram::No;
 
         // The packet number of the last built packet.
         let mut last_packet_number = None;
@@ -1202,7 +1213,6 @@ impl Connection {
                 close,
                 sendable_frames,
                 &mut coalesce,
-                &mut pad_datagram,
             );
             match res {
                 PollPathSpaceStatus::Send {
@@ -1260,8 +1270,10 @@ impl Connection {
         close: bool,
         sendable_frames: Option<SendableFrames>,
         coalesce: &mut bool,
-        pad_datagram: &mut PadDatagram,
     ) -> PollPathSpaceStatus {
+        // Whether the last packet in the datagram must be padded so the datagram takes up
+        // to at least MIN_INITIAL_SIZE, or to the maximum segment size if this is smaller.
+        let mut pad_datagram = PadDatagram::No;
         let mut last_packet_number = None;
 
         // Build datagrams until the transmit is full.
@@ -1320,7 +1332,6 @@ impl Connection {
 
             if transmit.datagram_remaining_mut() == 0 {
                 // If the datagram is full, start a new datagram.
-                // Only needed if we are building a new datagram
                 match self.spaces[space_id].for_path(path_id).loss_probes {
                     0 => transmit.start_new_datagram(),
                     _ => {
@@ -1346,7 +1357,7 @@ impl Connection {
                 }
                 trace!(count = transmit.num_datagrams(), "new datagram started");
                 *coalesce = true;
-                *pad_datagram = PadDatagram::No;
+                pad_datagram = PadDatagram::No;
             }
 
             let is_close = sendable_frames.close;
@@ -1366,7 +1377,7 @@ impl Connection {
                 }
             }
 
-            let n = self.poll_transmit_path_space_datagram(
+            let n = self.build_packet(
                 now,
                 transmit,
                 path_id,
@@ -1418,8 +1429,8 @@ impl Connection {
         }
     }
 
-    /// Tries to build a single datagram
-    fn poll_transmit_path_space_datagram(
+    /// Tries to build a single packet
+    fn build_packet(
         &mut self,
         now: Instant,
         transmit: &mut TransmitBuf<'_>,
@@ -1430,7 +1441,7 @@ impl Connection {
         close: bool,
         sendable_frames: SendableFrames,
         coalesce: &mut bool,
-        pad_datagram: &mut PadDatagram,
+        mut pad_datagram: PadDatagram,
     ) -> Option<u64> {
         if self.spaces[SpaceId::Initial].crypto.is_some()
             && space_id == SpaceId::Handshake
@@ -1457,10 +1468,10 @@ impl Connection {
 
         if space_id == SpaceId::Initial && (self.side.is_client() || sendable_frames.other) {
             // https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1
-            *pad_datagram |= PadDatagram::ToMinMtu;
+            pad_datagram |= PadDatagram::ToMinMtu;
         }
         if space_id == SpaceId::Data && self.config.pad_to_mtu {
-            *pad_datagram |= PadDatagram::ToSegmentSize;
+            pad_datagram |= PadDatagram::ToSegmentSize;
         }
 
         if sendable_frames.close {
@@ -1515,7 +1526,7 @@ impl Connection {
                 };
                 builder.write_frame(close.encoder(max_frame_size), stats);
             }
-            return Some(builder.finish_and_track(now, self, path_id, *pad_datagram));
+            return Some(builder.finish_and_track(now, self, path_id, pad_datagram));
         }
 
         let path_exclusive_only =
@@ -1537,7 +1548,7 @@ impl Connection {
             "SendableFrames was {sendable_frames:?}, but only ACKs have been written"
         );
         if builder.sent_frames().requires_padding {
-            *pad_datagram |= PadDatagram::ToMinMtu;
+            pad_datagram |= PadDatagram::ToMinMtu;
         }
 
         for (path_id, _pn) in builder.sent_frames().largest_acked.iter() {
@@ -1556,7 +1567,7 @@ impl Connection {
         // as well.  Because if this is the last packet in the datagram more padding
         // might be needed because of the packet type, or to fill the GSO segment size.
         let padding =
-            self.calculate_padding(path_id, space_id, *coalesce, close, *pad_datagram, &builder);
+            self.calculate_padding(path_id, space_id, *coalesce, close, pad_datagram, &builder);
 
         Some(builder.finish_and_track(now, self, path_id, padding))
     }
@@ -1921,7 +1932,7 @@ impl Connection {
         close: bool,
     ) -> SendableFrames {
         let space = &mut self.spaces[space_id];
-        let space_has_crypto = space.crypto.is_none();
+        let space_has_crypto = space.crypto.is_some();
 
         if !space_has_crypto
             && (space_id != SpaceId::Data
