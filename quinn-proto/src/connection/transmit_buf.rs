@@ -36,60 +36,43 @@ pub(super) struct TransmitBuf<'a> {
     /// Note that when coalescing packets this might be before the start of the current
     /// packet.
     datagram_start: usize,
-    /// The maximum offset allowed to be used for the current datagram in the buffer
-    ///
-    /// The first and last datagram in a batch are allowed to be smaller then the maximum
-    /// size. All datagrams in between need to be exactly this size.
-    buf_capacity: usize,
     /// The maximum number of datagrams allowed to write into [`TransmitBuf::buf`]
     max_datagrams: NonZeroUsize,
-    /// The number of datagrams already (partially) written into the buffer
-    ///
-    /// Incremented by a call to [`TransmitBuf::start_new_datagram`].
-    pub(super) num_datagrams: usize,
-    /// The segment size of this GSO batch
-    ///
-    /// The segment size is the size of each datagram in the GSO batch, only the last
-    /// datagram in the batch may be smaller.
-    ///
-    /// For the first datagram this is set to the maximum size a datagram is allowed to be:
-    /// the current path MTU. After the first datagram is finished this is reduced to the
-    /// size of the first datagram and can no longer change.
-    segment_size: usize,
+    state: State,
+}
+
+#[derive(Debug)]
+enum State {
+    FirstSegment {
+        pmtu: usize,
+    },
+    Batch {
+        finalized_segments: NonZeroUsize,
+        segment_size: usize,
+        max_size: Option<usize>,
+    },
 }
 
 impl<'a> TransmitBuf<'a> {
-    pub(super) fn new(buf: &'a mut Vec<u8>, max_datagrams: NonZeroUsize, mtu: usize) -> Self {
+    pub(super) fn new(buf: &'a mut Vec<u8>, max_datagrams: NonZeroUsize, pmtu: usize) -> Self {
         Self {
             buf,
             datagram_start: 0,
-            buf_capacity: 0,
             max_datagrams,
-            num_datagrams: 0,
-            segment_size: mtu,
+            state: State::FirstSegment { pmtu },
         }
     }
 
-    pub(super) fn set_segment_size(&mut self, mtu: usize) {
-        debug_assert!(
-            self.datagram_start == 0 && self.buf_capacity == 0 && self.num_datagrams == 0,
-            "can only change the segment size if nothing has been written yet"
-        );
-
-        self.segment_size = mtu;
-    }
-
-    /// Starts a datagram with a custom datagram size
+    /// Returns the number of datagrams written into the buffer
     ///
-    /// This is a specialized version of [`TransmitBuf::start_new_datagram`] which sets the
-    /// datagram size. Useful for e.g. PATH_CHALLENGE, tail-loss probes or MTU probes.
-    ///
-    /// After the first datagram you can never increase the segment size. If you decrease
-    /// the size of a datagram in a batch, it must be the last datagram of the batch.
-    pub(super) fn start_new_datagram_with_size(&mut self, datagram_size: usize) {
-        // Only reserve space for this datagram, usually it is the last one in the batch.
-        let max_capacity_hint = datagram_size;
-        self.new_datagram_inner(datagram_size, max_capacity_hint)
+    /// The last datagram is not necessarily finished yet.
+    pub(super) fn num_datagrams(&self) -> NonZeroUsize {
+        match self.state {
+            State::FirstSegment { .. } => NonZeroUsize::MIN,
+            State::Batch {
+                finalized_segments, ..
+            } => finalized_segments.saturating_add(1),
+        }
     }
 
     /// Starts a new datagram in the transmit buffer
@@ -101,6 +84,14 @@ impl<'a> TransmitBuf<'a> {
     /// capacity for all the datagrams allowed in a single batch. Use
     /// [`TransmitBuf::start_new_datagram_with_size`] if you know you will need less.
     pub(super) fn start_new_datagram(&mut self) {
+        self.start_new_datagram_inner(None);
+    }
+
+    pub(super) fn start_new_datagram_with_size(&mut self, max_size: usize) {
+        self.start_new_datagram_inner(Some(max_size));
+    }
+
+    pub(super) fn start_new_datagram_inner(&mut self, max_size: Option<usize>) {
         // We reserve the maximum space for sending `max_datagrams` upfront to avoid any
         // reallocations if more datagrams have to be appended later on.  Benchmarks have
         // shown a 5-10% throughput improvement compared to continuously resizing the
@@ -108,83 +99,78 @@ impl<'a> TransmitBuf<'a> {
         // (e.g. purely containing ACKs), modern memory allocators (e.g. mimalloc and
         // jemalloc) will pool certain allocation sizes and therefore this is still rather
         // efficient.
-        let max_capacity_hint = self.max_datagrams.get() * self.segment_size;
-        self.new_datagram_inner(self.segment_size, max_capacity_hint)
-    }
+        debug_assert!(self.num_datagrams() < self.max_datagrams);
+        match self.state {
+            State::FirstSegment { pmtu } => {
+                let segment_size = self.buf.len();
+                debug_assert!(segment_size <= pmtu, "first segment exceeds pmtu");
+                self.datagram_start = segment_size;
+                self.state = State::Batch {
+                    finalized_segments: NonZeroUsize::MIN,
+                    segment_size,
+                    max_size,
+                };
+            }
+            State::Batch {
+                finalized_segments,
+                segment_size,
+                max_size: _, // NOTE: even if Some we ignore it as long as the segments align
+            } => {
+                let current_size = self.buf.len();
+                debug_assert_eq!(current_size % segment_size, 0, "missaligned segments");
 
-    fn new_datagram_inner(&mut self, datagram_size: usize, max_capacity_hint: usize) {
-        debug_assert!(self.num_datagrams < self.max_datagrams.into());
-        if self.num_datagrams == 1 {
-            // Set the segment size to the size of the first datagram.
-            self.segment_size = self.buf.len();
-        }
-        if self.num_datagrams >= 1 {
-            debug_assert!(datagram_size <= self.segment_size);
-            if datagram_size < self.segment_size {
-                // If this is a GSO batch and this datagram is smaller than the segment
-                // size, this must be the last datagram in the batch.
-                self.max_datagrams = NonZeroUsize::MIN.saturating_add(self.num_datagrams);
+                self.datagram_start += current_size;
+
+                debug_assert!(finalized_segments < self.max_datagrams);
+                let finalized_segments = finalized_segments.saturating_add(1);
+                let mut max_size = None;
+
+                if let Some(max) = max_size
+                    && max < segment_size
+                {
+                    max_size = Some(max);
+                };
+
+                self.state = State::Batch {
+                    finalized_segments,
+                    segment_size,
+                    max_size,
+                }
             }
         }
-        self.datagram_start = self.buf.len();
-        debug_assert_eq!(
-            self.datagram_start % self.segment_size,
-            0,
-            "datagrams in a GSO batch must be aligned to the segment size"
-        );
-        self.buf_capacity = self.datagram_start + datagram_size;
-        if self.buf_capacity > self.buf.capacity() {
-            self.buf
-                .reserve_exact(max_capacity_hint.saturating_sub(self.buf.capacity()));
-        }
-        self.num_datagrams += 1;
     }
 
-    /// Clips the datagram size to the current size
+    /// Returns the GSO segment size.
     ///
-    /// Only valid for the first datagram, when the datagram might be smaller than the
-    /// segment size. Needed before estimating the available space in the next datagram
-    /// based on [`TransmitBuf::segment_size`].
-    ///
-    /// Use [`TransmitBuf::start_new_datagram_with_size`] if you need to reduce the size of
-    /// the last datagram in a batch.
-    pub(super) fn clip_datagram_size(&mut self) {
-        debug_assert_eq!(self.num_datagrams, 1);
-        if self.buf.len() < self.segment_size {
-            trace!(
-                segment_size = self.buf.len(),
-                prev_segment_size = self.segment_size,
-                "clipped datagram size"
-            );
-        }
-        self.segment_size = self.buf.len();
-        self.buf_capacity = self.buf.len();
-    }
-
-    /// Returns the GSO segment size
-    ///
-    /// This is also the maximum size datagrams are allowed to be. The first and last
-    /// datagram in a batch are allowed to be smaller however. After the first datagram the
-    /// segment size is clipped to the size of the first datagram.
+    /// This is also the maximum size datagrams are allowed to be. If this is the first datagram,
+    /// this will be the provided pmtu.
     ///
     /// If the last datagram was created using [`TransmitBuf::start_new_datagram_with_size`]
     /// the the segment size will be greater than the current datagram is allowed to be.
     /// Thus [`TransmitBuf::datagram_remaining_mut`] should be used if you need to know the
     /// amount of data that can be written into the datagram.
     pub(super) fn segment_size(&self) -> usize {
-        self.segment_size
-    }
-
-    /// Returns the number of datagrams written into the buffer
-    ///
-    /// The last datagram is not necessarily finished yet.
-    pub(super) fn num_datagrams(&self) -> usize {
-        self.num_datagrams
+        match self.state {
+            State::FirstSegment { pmtu } => pmtu,
+            State::Batch { segment_size, .. } => segment_size,
+        }
     }
 
     /// Returns the maximum number of datagrams allowed to be written into the buffer
     pub(super) fn max_datagrams(&self) -> NonZeroUsize {
         self.max_datagrams
+    }
+
+    /// Max size for the current datagram.
+    fn max_datagram_size(&self) -> usize {
+        match self.state {
+            State::FirstSegment { pmtu } => pmtu,
+            State::Batch {
+                segment_size,
+                max_size,
+                ..
+            } => max_size.unwrap_or(segment_size),
+        }
     }
 
     /// Returns the start offset of the current datagram in the buffer
@@ -199,12 +185,13 @@ impl<'a> TransmitBuf<'a> {
     /// The first and last datagram in a batch are allowed to be smaller then the maximum
     /// size. All datagrams in between need to be exactly this size.
     pub(super) fn datagram_max_offset(&self) -> usize {
-        self.buf_capacity
+        let max_datagram_size = self.max_datagram_size();
+        self.datagram_start + max_datagram_size
     }
 
     /// Returns the number of bytes that may still be written into this datagram
     pub(super) fn datagram_remaining_mut(&self) -> usize {
-        self.buf_capacity.saturating_sub(self.buf.len())
+        self.datagram_max_offset().saturating_sub(self.buf.len())
     }
 
     /// Returns `true` if the buffer did not have anything written into it
