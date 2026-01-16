@@ -1010,19 +1010,17 @@ impl Connection {
                 && self.rem_cids.contains_key(id)
         });
 
-        // Setup for the first path_id
-        let mut transmit = TransmitBuf::new(
-            buf,
-            max_datagrams,
-            self.path_data(path_id).current_mtu().into(),
-        );
-        if let Some(challenge) = self.send_prev_path_challenge(now, &mut transmit, path_id) {
+        if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
             return Some(challenge);
         }
         let mut space_id = match path_id {
             PathId::ZERO => SpaceId::Initial,
             _ => SpaceId::Data,
         };
+
+        // Setup for the first path_id
+        let first_mtu = self.path_data(path_id).current_mtu().into();
+        let mut transmit = TransmitBuf::new(buf, max_datagrams, first_mtu);
 
         loop {
             // check if there is at least one active CID to use for sending
@@ -1057,14 +1055,16 @@ impl Connection {
                         path_id = *next_path_id;
                         space_id = SpaceId::Data;
 
-                        // update per path state
-                        transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
                         if let Some(challenge) =
-                            self.send_prev_path_challenge(now, &mut transmit, path_id)
+                            self.send_prev_path_challenge(now, transmit.buf_mut(), path_id)
                         {
                             return Some(challenge);
                         }
 
+                        // update per path state
+                        // new path -> new transmit
+                        let pmtu = self.path_data(path_id).current_mtu().into();
+                        transmit.reset(max_datagrams, pmtu);
                         continue;
                     }
                     None => {
@@ -1129,9 +1129,8 @@ impl Connection {
             if !path_should_send || send_blocked != PathBlocked::No {
                 // Nothing more to send on this path, check the next path if possible.
 
-                // If there are any datagrams in the transmit, packets for another path can
-                // not be built.
-                if transmit.num_datagrams() > 0 {
+                // If there is any data in the transmit, packets for another path can not be built.
+                if !transmit.is_empty() {
                     break;
                 }
 
@@ -1147,14 +1146,16 @@ impl Connection {
                         path_id = *next_path_id;
                         space_id = SpaceId::Data;
 
-                        // update per path state
-                        transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
                         if let Some(challenge) =
-                            self.send_prev_path_challenge(now, &mut transmit, path_id)
+                            self.send_prev_path_challenge(now, transmit.buf_mut(), path_id)
                         {
                             return Some(challenge);
                         }
 
+                        // update per path state
+                        // new path -> new transmit
+                        let pmtu = self.path_data(path_id).current_mtu().into();
+                        transmit.reset(max_datagrams, pmtu);
                         continue;
                     }
                     None => {
@@ -1172,7 +1173,7 @@ impl Connection {
 
             // If the datagram is full, we need to start a new one.
             if transmit.datagram_remaining_mut() == 0 {
-                if transmit.num_datagrams() >= transmit.max_datagrams().get() {
+                if transmit.num_datagrams() >= transmit.max_datagrams() {
                     // No more datagrams allowed
                     break;
                 }
@@ -1318,7 +1319,7 @@ impl Connection {
 
             // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
             // path validation can occur while the link is saturated.
-            if space_id == SpaceId::Data && builder.buf.num_datagrams() == 1 {
+            if space_id == SpaceId::Data && builder.buf.is_empty() {
                 let path = self.path_data_mut(path_id);
                 if let Some((token, network_path)) =
                     path.path_responses.pop_off_path(path.network_path)
@@ -1404,7 +1405,8 @@ impl Connection {
             } else {
                 // We need a new datagram for the next packet.  Finish the current
                 // packet with padding.
-                if builder.buf.num_datagrams() > 1 && matches!(pad_datagram, PadDatagram::No) {
+                if builder.buf.num_datagrams().get() > 2 && matches!(pad_datagram, PadDatagram::No)
+                {
                     // If too many padding bytes would be required to continue the
                     // GSO batch after this packet, end the GSO batch here. Ensures
                     // that fixed-size frames with heterogeneous sizes
@@ -1429,9 +1431,6 @@ impl Connection {
                     builder.finish_and_track(now, self, path_id, PadDatagram::ToSegmentSize);
                 } else {
                     builder.finish_and_track(now, self, path_id, pad_datagram);
-                }
-                if transmit.num_datagrams() == 1 {
-                    transmit.clip_datagram_size();
                 }
             }
         }
@@ -1494,7 +1493,7 @@ impl Connection {
             };
             if let Some((active_cid, probe_size)) = probe_data {
                 // We are definitely sending a DPLPMTUD probe.
-                debug_assert_eq!(transmit.num_datagrams(), 0);
+                debug_assert!(transmit.is_empty());
                 transmit.start_new_datagram_with_size(probe_size as usize);
 
                 let mut builder = PacketBuilder::new(
@@ -1541,14 +1540,13 @@ impl Connection {
         self.path_data_mut(path_id)
             .inc_total_sent(transmit.len() as u64);
 
-        self.stats
-            .udp_tx
-            .on_sent(transmit.num_datagrams() as u64, transmit.len());
+        let datagrams = transmit.num_datagrams().get() as u64;
+        self.stats.udp_tx.on_sent(datagrams, transmit.len());
         self.path_stats
             .entry(path_id)
             .or_default()
             .udp_tx
-            .on_sent(transmit.num_datagrams() as u64, transmit.len());
+            .on_sent(datagrams, transmit.len());
 
         Some(Transmit {
             destination: network_path.remote,
@@ -1558,9 +1556,9 @@ impl Connection {
             } else {
                 None
             },
-            segment_size: match transmit.num_datagrams() {
-                1 => None,
-                _ => Some(transmit.segment_size()),
+            segment_size: match transmit.num_datagrams() > NonZeroUsize::MIN {
+                false => None,
+                true => Some(transmit.segment_size()),
             },
             src_ip: network_path.local_ip,
         })
@@ -1657,7 +1655,7 @@ impl Connection {
     fn send_prev_path_challenge(
         &mut self,
         now: Instant,
-        buf: &mut TransmitBuf<'_>,
+        buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
         let (prev_cid, prev_path) = self.paths.get_mut(&path_id)?.prev.as_mut()?;
@@ -1666,6 +1664,7 @@ impl Connection {
         if !prev_path.send_new_challenge {
             return None;
         };
+
         prev_path.send_new_challenge = false;
         let network_path = prev_path.network_path;
         let token = self.rng.random();
@@ -1679,16 +1678,16 @@ impl Connection {
             SpaceId::Data,
             "PATH_CHALLENGE queued without 1-RTT keys"
         );
-        buf.start_new_datagram_with_size(MIN_INITIAL_SIZE as usize);
+
+        let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
+        let mut builder =
+            PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
 
         // Use the previous CID to avoid linking the new path with the previous path. We
         // don't bother accounting for possible retirement of that prev_cid because this is
         // sent once, immediately after migration, when the CID is known to be valid. Even
         // if a post-migration packet caused the CID to be retired, it's fair to pretend
         // this is sent first.
-        debug_assert_eq!(buf.datagram_start_offset(), 0);
-        let mut builder =
-            PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
         let challenge = frame::PathChallenge(token);
         let stats = &mut self.stats.frame_tx;
         builder.write_frame_with_log_msg(challenge, stats, Some("validating previous path"));

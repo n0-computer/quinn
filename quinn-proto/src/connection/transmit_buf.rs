@@ -1,7 +1,6 @@
 use std::num::NonZeroUsize;
 
 use bytes::BufMut;
-use tracing::trace;
 
 use crate::packet::BufLen;
 
@@ -55,12 +54,23 @@ enum State {
 
 impl<'a> TransmitBuf<'a> {
     pub(super) fn new(buf: &'a mut Vec<u8>, max_datagrams: NonZeroUsize, pmtu: usize) -> Self {
+        buf.clear();
+        buf.reserve_exact(max_datagrams.get() * pmtu);
         Self {
             buf,
             datagram_start: 0,
             max_datagrams,
             state: State::FirstSegment { pmtu },
         }
+    }
+
+    /// Same as [`Self::new`], but reusing the existing reference.
+    pub(super) fn reset(&mut self, max_datagrams: NonZeroUsize, pmtu: usize) {
+        self.buf.clear();
+        self.buf.reserve_exact(max_datagrams.get() * pmtu);
+        self.datagram_start = 0;
+        self.max_datagrams = max_datagrams;
+        self.state = State::FirstSegment { pmtu };
     }
 
     /// Returns the number of datagrams written into the buffer
@@ -207,6 +217,10 @@ impl<'a> TransmitBuf<'a> {
     /// Returns the already written bytes in the buffer
     pub(super) fn as_mut_slice(&mut self) -> &mut [u8] {
         self.buf.as_mut_slice()
+    }
+
+    pub(crate) fn buf_mut(&mut self) -> &mut Vec<u8> {
+        self.buf
     }
 }
 
