@@ -135,10 +135,10 @@ where
     #[cfg(test)]
     fn remove(&mut self, key: &K) -> Option<V> {
         for el in self.stack.iter_mut() {
-            if let Some((k, _)) = el {
-                if key == k {
-                    return el.take().map(|(_, v)| v);
-                }
+            if let Some((k, _)) = el
+                && key == k
+            {
+                return el.take().map(|(_, v)| v);
             }
         }
 

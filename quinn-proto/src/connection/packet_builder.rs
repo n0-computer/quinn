@@ -26,7 +26,8 @@ pub(super) struct PacketBuilder<'a, 'b> {
     pub(super) partial_encode: PartialEncode,
     pub(super) ack_eliciting: bool,
     pub(super) exact_number: u64,
-    pub(super) short_header: bool,
+    /// Is this packet allowed to be coalesced?
+    pub(super) can_coalesce: bool,
     /// Smallest absolute position in the associated buffer that must be occupied by this packet's
     /// frames
     pub(super) min_size: usize,
@@ -182,7 +183,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             path: path_id,
             partial_encode,
             exact_number,
-            short_header: header.is_short(),
+            can_coalesce: header.can_coalesce(),
             min_size,
             tag_len,
             ack_eliciting,
@@ -201,7 +202,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             partial_encode: PartialEncode::no_header(),
             ack_eliciting: true,
             exact_number: 0,
-            short_header: false,
+            can_coalesce: true,
             min_size: 0,
             tag_len: 0,
             _span: trace_span!("test").entered(),
@@ -314,7 +315,6 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             packet,
             conn.spaces[space_id].for_path(path_id),
         );
-        conn.path_stats.entry(path_id).or_default().sent_packets += 1;
         conn.reset_keep_alive(path_id, now);
         if size != 0 {
             if ack_eliciting {
@@ -378,7 +378,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         );
 
         let packet_len = self.buf.len() - encode_start;
-        trace!(size = %packet_len, short_header = %self.short_header, "wrote packet");
+        trace!(size = %packet_len, "wrote packet");
         self.qlog.finalize(packet_len);
         conn.qlog.emit_packet_sent(self.qlog, now);
         (packet_len, pad, self.sent_frames)

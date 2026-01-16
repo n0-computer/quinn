@@ -1106,15 +1106,15 @@ impl ConnectionIndex {
 
     /// Find the existing connection that `datagram` should be routed to, if any
     fn get(&self, network_path: &FourTuple, datagram: &PartialDecode) -> Option<RouteDatagramTo> {
-        if !datagram.dst_cid().is_empty() {
-            if let Some(&(ch, path_id)) = self.connection_ids.get(&datagram.dst_cid()) {
-                return Some(RouteDatagramTo::Connection(ch, path_id));
-            }
+        if !datagram.dst_cid().is_empty()
+            && let Some(&(ch, path_id)) = self.connection_ids.get(&datagram.dst_cid())
+        {
+            return Some(RouteDatagramTo::Connection(ch, path_id));
         }
-        if datagram.is_initial() || datagram.is_0rtt() {
-            if let Some(&ch) = self.connection_ids_initial.get(&datagram.dst_cid()) {
-                return Some(ch);
-            }
+        if (datagram.is_initial() || datagram.is_0rtt())
+            && let Some(&ch) = self.connection_ids_initial.get(&datagram.dst_cid())
+        {
+            return Some(ch);
         }
         if datagram.dst_cid().is_empty() {
             if let Some(&ch) = self.incoming_connection_remotes.get(network_path) {
