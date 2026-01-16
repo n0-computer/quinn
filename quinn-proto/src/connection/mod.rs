@@ -1040,7 +1040,27 @@ impl Connection {
 
         let mut congestion_blocked = false;
 
-        for &path_id in &path_ids {
+        // Scan paths for availability and active CIDs
+        let inactive_paths: Vec<_> = self
+            .paths
+            .keys()
+            .filter(|path_id| !self.rem_cids.contains_key(path_id))
+            .copied()
+            .collect();
+
+        for path_id in inactive_paths {
+            self.on_remote_cids_exhausted(now, path_id);
+        }
+
+        let active_paths: Vec<_> = self
+            .paths
+            .keys()
+            .filter(|path_id| self.rem_cids.contains_key(path_id))
+            .copied()
+            .collect();
+
+        // Only iterate over paths that we consider active
+        for path_id in active_paths {
             // Update per path state
             transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
 
@@ -1156,16 +1176,8 @@ impl Connection {
         //   - Version Negotiation Packets
         //   - 1RTT packets
 
-        //
-
-        // Check if there is at least one active CID to use for sending
-        let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
-            self.on_remote_cids_exhausted(now, path_id);
-
-            return PollPathStatus::NothingToSend {
-                congestion_blocked: false,
-            };
-        };
+        let rem_cids = self.rem_cids.get(&path_id).expect("checked earlier");
+        let remote_cid = rem_cids.active();
 
         // The packet numbers of the packets we have built
         // TODO: avoid allocation
