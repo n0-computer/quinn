@@ -1,12 +1,8 @@
-use std::{
-    net::{IpAddr, SocketAddr},
-    num::NonZeroUsize,
-};
+use std::num::NonZeroUsize;
 
 use bytes::BufMut;
-use tracing::trace;
 
-use crate::{EcnCodepoint, Transmit, TransmitInfo, packet::BufLen};
+use crate::{Transmit, TransmitInfo, packet::BufLen};
 
 /// The buffer in which to write datagrams for [`Connection::poll_transmit`]
 ///
@@ -41,6 +37,8 @@ pub(crate) enum TransmitBuf<'a> {
 
 #[derive(Debug)]
 pub(crate) struct FirstSegment<'a> {
+    #[allow(unused)]
+    // TODO(@divma): ideally this should be used to pad the datagram if another one is created
     pmtu: usize,
     max_segments: NonZeroUsize,
     buf: &'a mut Vec<u8>,
@@ -81,7 +79,7 @@ pub(crate) struct GsoBatch<'a> {
 impl<'a> GsoBatch<'a> {
     fn new(first: FirstSegment<'a>) -> Self {
         let FirstSegment {
-            pmtu,
+            pmtu: _,
             max_segments,
             buf,
         } = first;
@@ -128,6 +126,10 @@ impl<'a> GsoBatch<'a> {
 }
 
 impl<'a> TransmitBuf<'a> {
+    pub(crate) fn new(buf: &'a mut Vec<u8>, max_segments: NonZeroUsize, pmtu: usize) -> Self {
+        TransmitBuf::FirstSegment(FirstSegment::new(buf, max_segments, pmtu))
+    }
+
     fn buf(&self) -> &Vec<u8> {
         match self {
             TransmitBuf::FirstSegment(first_segment) => first_segment.buf,

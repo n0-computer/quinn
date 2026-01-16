@@ -22,6 +22,7 @@
 use std::{
     fmt,
     net::{IpAddr, SocketAddr},
+    num::NonZeroUsize,
     ops,
 };
 
@@ -337,23 +338,25 @@ pub struct Transmit {
 #[derive(Debug)]
 pub(crate) struct TransmitInfo {
     /// The socket this datagram should be sent to
-    destination: SocketAddr,
+    pub(crate) destination: SocketAddr,
     /// Explicit congestion notification bits to set on the GSO Batch.
-    ecn: Option<EcnCodepoint>,
+    pub(crate) ecn: Option<EcnCodepoint>,
     /// Optional source IP address for the datagram
-    src_ip: Option<IpAddr>,
+    pub(crate) src_ip: Option<IpAddr>,
 }
 
 pub(crate) struct TransmitBuilder<'a> {
     info: TransmitInfo,
-    buffer: TransmitBuf<'a>,
+    pub(crate) buffer: TransmitBuf<'a>,
 }
 
 impl Transmit {
     /// Create a GSO Batch builder without ECN or set source Ip address.
     pub(crate) fn builder<'a>(
+        buf: &'a mut Vec<u8>,
         destination: SocketAddr,
-        first_segment: FirstSegment<'a>,
+        max_segments: NonZeroUsize,
+        pmtu: usize,
     ) -> TransmitBuilder<'a> {
         let info = TransmitInfo {
             destination,
@@ -362,7 +365,7 @@ impl Transmit {
         };
         TransmitBuilder {
             info,
-            buffer: TransmitBuf::FirstSegment(first_segment),
+            buffer: TransmitBuf::new(buf, max_segments, pmtu),
         }
     }
 
@@ -378,6 +381,10 @@ impl Transmit {
 impl<'a> TransmitBuilder<'a> {
     pub(crate) fn finish(self) -> Transmit {
         self.buffer.finish(self.info)
+    }
+
+    pub(crate) fn set_src_ip(&self, local_ip: Option<IpAddr>) -> _ {
+        self.info.src_ip = local_ip;
     }
 }
 
