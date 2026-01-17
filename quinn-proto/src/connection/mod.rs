@@ -1013,6 +1013,14 @@ impl Connection {
         if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
             return Some(challenge);
         }
+
+        // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
+        // path validation can occur while the link is saturated.
+        // TODO(@divma): I have no idea what this comment is supposed to mean
+        if let Some(response) = self.send_off_path_path_response(now, buf, path_id) {
+            return Some(response);
+        }
+
         let mut space_id = match path_id {
             PathId::ZERO => SpaceId::Initial,
             _ => SpaceId::Data,
@@ -1064,7 +1072,12 @@ impl Connection {
                                 self.send_prev_path_challenge(now, buf, path_id)
                             {
                                 return Some(challenge);
-                            } else {
+                            } else if let Some(response) =
+                                self.send_off_path_path_response(now, buf, path_id)
+                            {
+                                return Some(response);
+                            }
+                            {
                                 let pmtu = self.path_data(path_id).current_mtu().into();
                                 TransmitBuf::new(buf, max_datagrams, pmtu)
                             }
@@ -1323,37 +1336,6 @@ impl Connection {
                     // to send anything else.
                     space_id = space_id.next();
                     continue;
-                }
-            }
-
-            // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
-            // path validation can occur while the link is saturated.
-            if space_id == SpaceId::Data && builder.buf.num_datagrams() == 1 {
-                let path = self.path_data_mut(path_id);
-                if let Some((token, network_path)) =
-                    path.path_responses.pop_off_path(path.network_path)
-                {
-                    // TODO(flub): We need to use the right CID!  We shouldn't use the same
-                    //    CID as the current active one for the path.  Though see also
-                    //    https://github.com/quinn-rs/quinn/issues/2184
-                    //
-                    let stats = &mut self.stats.frame_tx;
-                    let frame = frame::PathResponse(token);
-                    builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
-                    builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
-                    self.stats.udp_tx.on_sent(1, transmit.len());
-                    self.path_stats
-                        .entry(path_id)
-                        .or_default()
-                        .udp_tx
-                        .on_sent(1, transmit.len());
-                    return Some(Transmit {
-                        destination: network_path.remote,
-                        size: transmit.len(),
-                        ecn: None,
-                        segment_size: None,
-                        src_ip: network_path.local_ip,
-                    });
                 }
             }
 
@@ -1724,6 +1706,49 @@ impl Connection {
             segment_size: None,
             src_ip: network_path.local_ip,
         })
+    }
+
+    fn send_off_path_path_response(
+        &mut self,
+        now: Instant,
+        buf: &mut Vec<u8>,
+        path_id: PathId,
+    ) -> Option<Transmit> {
+        let path = self.paths.get_mut(&path_id).map(|state| &mut state.data)?;
+        let cid_queue = self.rem_cids.get_mut(&path_id)?;
+        let (token, network_path) = path.path_responses.pop_off_path(path.network_path)?;
+
+        let cid = cid_queue
+            .next_reserved()
+            .unwrap_or_else(|| cid_queue.active());
+        // TODO(@divma): we should take a different approach when there is no fresh CID to use.
+        // https://github.com/quinn-rs/quinn/issues/2184
+
+        let frame = frame::PathResponse(token);
+
+        let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
+        buf.start_new_datagram();
+
+        let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, buf, false, self)?;
+        let stats = &mut self.stats.frame_tx;
+        builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
+        builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
+
+        let size = buf.len();
+
+        self.stats.udp_tx.on_sent(1, size);
+        self.path_stats
+            .entry(path_id)
+            .or_default()
+            .udp_tx
+            .on_sent(1, size);
+        return Some(Transmit {
+            destination: network_path.remote,
+            size,
+            ecn: None,
+            segment_size: None,
+            src_ip: network_path.local_ip,
+        });
     }
 
     /// Indicate what types of frames are ready to send for the given space
