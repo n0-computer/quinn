@@ -46,15 +46,42 @@ enum State {
         pmtu: usize,
     },
     Batch {
-        finalized_segments: NonZeroUsize,
-        segment_size: usize,
-        max_size: Option<usize>,
+        segment_size: NonZeroUsize,
+        /// Max size for the current segment.
+        ///
+        /// Allways less than the segment_size.
+        /// Should only be set by callers for the last segment.
+        max_size: Option<NonZeroUsize>,
     },
+}
+
+impl State {
+    fn batch(segment_size: NonZeroUsize, max_segment_size: Option<usize>) -> Self {
+        let mut max_size = None;
+        if let Some(max) = max_segment_size.and_then(NonZeroUsize::new)
+            && max < segment_size
+        {
+            // Only apply the max segment size if it's positive and less than the segment_size
+            max_size = Some(max)
+        };
+
+        Self::Batch {
+            segment_size,
+            max_size,
+        }
+    }
 }
 
 impl<'a> TransmitBuf<'a> {
     pub(super) fn new(buf: &'a mut Vec<u8>, max_datagrams: NonZeroUsize, pmtu: usize) -> Self {
         buf.clear();
+        // We reserve the maximum space for sending `max_datagrams` upfront to avoid any
+        // reallocations if more datagrams have to be appended later on.  Benchmarks have
+        // shown a 5-10% throughput improvement compared to continuously resizing the
+        // datagram buffer. While this will lead to over-allocation for small transmits
+        // (e.g. purely containing ACKs), modern memory allocators (e.g. mimalloc and
+        // jemalloc) will pool certain allocation sizes and therefore this is still rather
+        // efficient.
         buf.reserve_exact(max_datagrams.get() * pmtu);
         Self {
             buf,
@@ -76,12 +103,23 @@ impl<'a> TransmitBuf<'a> {
     /// Returns the number of datagrams written into the buffer
     ///
     /// The last datagram is not necessarily finished yet.
-    pub(super) fn num_datagrams(&self) -> NonZeroUsize {
+    pub(super) fn num_datagrams(&self) -> usize {
         match self.state {
-            State::FirstSegment { .. } => NonZeroUsize::MIN,
-            State::Batch {
-                finalized_segments, ..
-            } => finalized_segments.saturating_add(1),
+            State::FirstSegment { .. } => {
+                if self.buf.is_empty() {
+                    0
+                } else {
+                    1
+                }
+            }
+            State::Batch { segment_size, .. } => {
+                let finalized_segments = self.buf.len() / segment_size.get();
+                if self.buf.len() % segment_size.get() > 0 {
+                    finalized_segments + 1
+                } else {
+                    finalized_segments
+                }
+            }
         }
     }
 
@@ -102,67 +140,50 @@ impl<'a> TransmitBuf<'a> {
     }
 
     pub(super) fn start_new_datagram_inner(&mut self, max_size: Option<usize>) {
-        // We reserve the maximum space for sending `max_datagrams` upfront to avoid any
-        // reallocations if more datagrams have to be appended later on.  Benchmarks have
-        // shown a 5-10% throughput improvement compared to continuously resizing the
-        // datagram buffer. While this will lead to over-allocation for small transmits
-        // (e.g. purely containing ACKs), modern memory allocators (e.g. mimalloc and
-        // jemalloc) will pool certain allocation sizes and therefore this is still rather
-        // efficient.
-        debug_assert!(self.num_datagrams() < self.max_datagrams);
         match self.state {
             State::FirstSegment { pmtu } => {
+                // Only start a new datagram is something was writen to the buffer.
+                // Otherwise, this is still the first segment.
                 let segment_size = self.buf.len();
                 debug_assert!(segment_size <= pmtu, "first segment exceeds pmtu");
-                self.datagram_start = segment_size;
-                self.state = State::Batch {
-                    finalized_segments: NonZeroUsize::MIN,
-                    segment_size,
-                    max_size,
-                };
+
+                if let Some(segment_size) = NonZeroUsize::new(segment_size) {
+                    self.datagram_start = segment_size.get();
+                    self.state = State::batch(segment_size, max_size);
+                } else if let Some(max) = max_size {
+                    // buffer is still empty, use the new pmtu when defined
+                    self.state = State::FirstSegment { pmtu: max };
+                }
             }
             State::Batch {
-                finalized_segments,
                 segment_size,
                 max_size: _, // NOTE: even if Some we ignore it as long as the segments align
             } => {
                 let current_size = self.buf.len();
                 debug_assert_eq!(current_size % segment_size, 0, "missaligned segments");
+                let finalized_segments = current_size / segment_size.get();
+                debug_assert!(finalized_segments < self.max_datagrams.get());
 
-                self.datagram_start = current_size;
+                self.datagram_start += segment_size.get();
 
-                debug_assert!(finalized_segments < self.max_datagrams);
-                let finalized_segments = finalized_segments.saturating_add(1);
-                let mut max_size = None;
-
-                if let Some(max) = max_size
-                    && max < segment_size
-                {
-                    max_size = Some(max);
-                };
-
-                self.state = State::Batch {
-                    finalized_segments,
-                    segment_size,
-                    max_size,
-                }
+                self.state = State::batch(segment_size, max_size);
             }
         }
     }
 
-    /// Returns the GSO segment size.
+    /// Max allowed datagram size.
     ///
-    /// This is also the maximum size datagrams are allowed to be. If this is the first datagram,
-    /// this will be the provided pmtu.
+    /// If this is the first datagram, this will be the provided pmtu. If this is a GSO Batch, this
+    /// will be the segment size.
     ///
     /// If the last datagram was created using [`TransmitBuf::start_new_datagram_with_size`]
     /// the the segment size will be greater than the current datagram is allowed to be.
     /// Thus [`TransmitBuf::datagram_remaining_mut`] should be used if you need to know the
     /// amount of data that can be written into the datagram.
-    pub(super) fn segment_size(&self) -> usize {
+    pub(super) fn max_datagram_size(&self) -> usize {
         match self.state {
             State::FirstSegment { pmtu } => pmtu,
-            State::Batch { segment_size, .. } => segment_size,
+            State::Batch { segment_size, .. } => segment_size.get(),
         }
     }
 
@@ -172,14 +193,14 @@ impl<'a> TransmitBuf<'a> {
     }
 
     /// Max size for the current datagram.
-    fn max_datagram_size(&self) -> usize {
+    fn max_current_segment_size(&self) -> usize {
         match self.state {
             State::FirstSegment { pmtu } => pmtu,
             State::Batch {
                 segment_size,
                 max_size,
                 ..
-            } => max_size.unwrap_or(segment_size),
+            } => max_size.unwrap_or(segment_size).get(),
         }
     }
 
@@ -195,7 +216,7 @@ impl<'a> TransmitBuf<'a> {
     /// The first and last datagram in a batch are allowed to be smaller then the maximum
     /// size. All datagrams in between need to be exactly this size.
     pub(super) fn datagram_max_offset(&self) -> usize {
-        let max_datagram_size = self.max_datagram_size();
+        let max_datagram_size = self.max_current_segment_size();
         self.datagram_start + max_datagram_size
     }
 
@@ -221,6 +242,19 @@ impl<'a> TransmitBuf<'a> {
 
     pub(crate) fn buf_mut(&mut self) -> &mut Vec<u8> {
         self.buf
+    }
+
+    /// Returns the buffer length and gso segment size.
+    pub(crate) fn finish(self) -> (usize, Option<usize>) {
+        let len = self.len();
+        let num_datagrams = self.num_datagrams();
+        debug_assert!(num_datagrams <= self.max_datagrams.get());
+        let gso_segment_size = if num_datagrams < 2 {
+            None
+        } else {
+            Some(self.max_datagram_size())
+        };
+        (len, gso_segment_size)
     }
 }
 

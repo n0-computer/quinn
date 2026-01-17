@@ -1086,7 +1086,7 @@ impl Connection {
                 transmit.datagram_remaining_mut()
             } else {
                 // A new datagram needs to be started.
-                transmit.segment_size()
+                transmit.max_datagram_size()
             };
             let can_send = self.space_can_send(space_id, path_id, max_packet_size, close);
             let path_should_send = {
@@ -1129,8 +1129,9 @@ impl Connection {
             if !path_should_send || send_blocked != PathBlocked::No {
                 // Nothing more to send on this path, check the next path if possible.
 
-                // If there is any data in the transmit, packets for another path can not be built.
-                if !transmit.is_empty() {
+                // If there are any datagrams in the transmit, packets for another path can
+                // not be built.
+                if transmit.num_datagrams() > 0 {
                     break;
                 }
 
@@ -1173,7 +1174,7 @@ impl Connection {
 
             // If the datagram is full, we need to start a new one.
             if transmit.datagram_remaining_mut() == 0 {
-                if transmit.num_datagrams() >= transmit.max_datagrams() {
+                if transmit.num_datagrams() >= transmit.max_datagrams().get() {
                     // No more datagrams allowed
                     break;
                 }
@@ -1197,7 +1198,7 @@ impl Connection {
                         // has shrank unexpectedly.
                         transmit.start_new_datagram_with_size(std::cmp::min(
                             usize::from(INITIAL_MTU),
-                            transmit.segment_size(),
+                            transmit.max_datagram_size(),
                         ));
                     }
                 }
@@ -1319,7 +1320,7 @@ impl Connection {
 
             // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
             // path validation can occur while the link is saturated.
-            if space_id == SpaceId::Data && builder.buf.is_empty() {
+            if space_id == SpaceId::Data && builder.buf.num_datagrams() == 1 {
                 let path = self.path_data_mut(path_id);
                 if let Some((token, network_path)) =
                     path.path_responses.pop_off_path(path.network_path)
@@ -1362,7 +1363,7 @@ impl Connection {
                 !(builder.sent_frames().is_ack_only(&self.streams)
                     && !can_send.acks
                     && can_send.other
-                    && builder.buf.segment_size()
+                    && builder.buf.max_datagram_size()
                         == self.path_data(path_id).current_mtu() as usize
                     && self.datagrams.outgoing.is_empty()),
                 "SendableFrames was {can_send:?}, but only ACKs have been written"
@@ -1405,8 +1406,7 @@ impl Connection {
             } else {
                 // We need a new datagram for the next packet.  Finish the current
                 // packet with padding.
-                if builder.buf.num_datagrams().get() > 2 && matches!(pad_datagram, PadDatagram::No)
-                {
+                if builder.buf.num_datagrams() > 1 && matches!(pad_datagram, PadDatagram::No) {
                     // If too many padding bytes would be required to continue the
                     // GSO batch after this packet, end the GSO batch here. Ensures
                     // that fixed-size frames with heterogeneous sizes
@@ -1530,8 +1530,8 @@ impl Connection {
 
         let network_path = self.path_data(path_id).network_path;
         trace!(
-            segment_size = transmit.segment_size(),
-            last_datagram_len = transmit.len() % transmit.segment_size(),
+            segment_size = transmit.max_datagram_size(),
+            last_datagram_len = transmit.len() % transmit.max_datagram_size(),
             %network_path,
             "sending {} bytes in {} datagrams",
             transmit.len(),
@@ -1540,7 +1540,7 @@ impl Connection {
         self.path_data_mut(path_id)
             .inc_total_sent(transmit.len() as u64);
 
-        let datagrams = transmit.num_datagrams().get() as u64;
+        let datagrams = transmit.num_datagrams() as u64;
         self.stats.udp_tx.on_sent(datagrams, transmit.len());
         self.path_stats
             .entry(path_id)
@@ -1548,18 +1548,16 @@ impl Connection {
             .udp_tx
             .on_sent(datagrams, transmit.len());
 
+        let (size, segment_size) = transmit.finish();
         Some(Transmit {
             destination: network_path.remote,
-            size: transmit.len(),
+            size,
             ecn: if self.path_data(path_id).sending_ecn {
                 Some(EcnCodepoint::Ect0)
             } else {
                 None
             },
-            segment_size: match transmit.num_datagrams() > NonZeroUsize::MIN {
-                false => None,
-                true => Some(transmit.segment_size()),
-            },
+            segment_size,
             src_ip: network_path.local_ip,
         })
     }
@@ -1583,7 +1581,7 @@ impl Connection {
         // because frames can always spill into the next datagram.
         let mut space_id = current_space_id;
         loop {
-            let can_send = self.space_can_send(space_id, path_id, buf.segment_size(), close);
+            let can_send = self.space_can_send(space_id, path_id, buf.max_datagram_size(), close);
             if !can_send.is_empty() || (close && self.spaces[space_id].crypto.is_some()) {
                 return Some(space_id);
             }
@@ -1621,7 +1619,7 @@ impl Connection {
 
         // Congestion control check.
         // Tail loss probes must not be blocked by congestion, or a deadlock could arise.
-        let bytes_to_send = transmit.segment_size() as u64;
+        let bytes_to_send = transmit.max_datagram_size() as u64;
         let need_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
 
         if can_send.other && !need_loss_probe && !can_send.close {

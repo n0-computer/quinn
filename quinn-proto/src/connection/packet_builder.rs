@@ -287,7 +287,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         match pad_datagram {
             PadDatagram::No => (),
             PadDatagram::ToSize(size) => self.pad_to(size),
-            PadDatagram::ToSegmentSize => self.pad_to(self.buf.segment_size() as u16),
+            PadDatagram::ToSegmentSize => self.pad_to(self.buf.max_datagram_size() as u16),
             PadDatagram::ToMinMtu => self.pad_to(MIN_INITIAL_SIZE),
         }
         let ack_eliciting = self.ack_eliciting;
