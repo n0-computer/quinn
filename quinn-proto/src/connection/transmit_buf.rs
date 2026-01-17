@@ -70,15 +70,6 @@ impl<'a> TransmitBuf<'a> {
         }
     }
 
-    pub(super) fn set_segment_size(&mut self, mtu: usize) {
-        debug_assert!(
-            self.datagram_start == 0 && self.buf_capacity == 0 && self.num_datagrams == 0,
-            "can only change the segment size if nothing has been written yet"
-        );
-
-        self.segment_size = mtu;
-    }
-
     /// Starts a datagram with a custom datagram size
     ///
     /// This is a specialized version of [`TransmitBuf::start_new_datagram`] which sets the
@@ -220,6 +211,18 @@ impl<'a> TransmitBuf<'a> {
     /// Returns the already written bytes in the buffer
     pub(super) fn as_mut_slice(&mut self) -> &mut [u8] {
         self.buf.as_mut_slice()
+    }
+
+    /// Returns the underlying buffer and the GSO segment size, if any.
+    ///
+    /// Note that the GSO segment size is only defined if there is more than one segment.
+    pub(super) fn finish(self) -> (&'a mut Vec<u8>, Option<usize>) {
+        let gso_segment_size = if self.num_datagrams() > 1 {
+            Some(self.segment_size)
+        } else {
+            None
+        };
+        (self.buf, gso_segment_size)
     }
 }
 
