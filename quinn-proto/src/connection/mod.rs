@@ -1723,13 +1723,13 @@ impl Connection {
             .or_default()
             .udp_tx
             .on_sent(1, size);
-        return Some(Transmit {
+        Some(Transmit {
             destination: network_path.remote,
             size,
             ecn: None,
             segment_size: None,
             src_ip: network_path.local_ip,
-        });
+        })
     }
 
     /// Indicate what types of frames are ready to send for the given space
