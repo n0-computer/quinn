@@ -1060,41 +1060,31 @@ impl Connection {
                     trace!(%path_id, "remote CIDs retired for abandoned path");
                 }
 
-                match self.paths.keys().find(|&&next| next > path_id) {
-                    Some(next_path_id) => {
-                        // See if this next path can send anything.
-                        path_id = *next_path_id;
-                        space_id = SpaceId::Data;
+                let Some(next_path_id) = self.paths.keys().find(|&&next| next > path_id) else {
+                    // Nothing more to send.
+                    trace!(?space_id, %path_id, "no CIDs to send on path, no more paths");
+                    break;
+                };
+                // See if this next path can send anything.
+                path_id = *next_path_id;
+                space_id = SpaceId::Data;
 
-                        transmit = {
-                            let (buf, _) = transmit.finish();
-                            if let Some(challenge) =
-                                self.send_prev_path_challenge(now, buf, path_id)
-                            {
-                                return Some(challenge);
-                            } else if let Some(response) =
-                                self.send_off_path_path_response(now, buf, path_id)
-                            {
-                                return Some(response);
-                            }
-                            {
-                                let pmtu = self.path_data(path_id).current_mtu().into();
-                                TransmitBuf::new(buf, max_datagrams, pmtu)
-                            }
-                        };
+                transmit = {
+                    let (buf, _) = transmit.finish();
+                    if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
+                        return Some(challenge);
+                    } else if let Some(response) =
+                        self.send_off_path_path_response(now, buf, path_id)
+                    {
+                        return Some(response);
+                    }
+                    {
+                        let pmtu = self.path_data(path_id).current_mtu().into();
+                        TransmitBuf::new(buf, max_datagrams, pmtu)
+                    }
+                };
 
-                        continue;
-                    }
-                    None => {
-                        // Nothing more to send.
-                        trace!(
-                            ?space_id,
-                            %path_id,
-                            "no CIDs to send on path, no more paths"
-                        );
-                        break;
-                    }
-                }
+                continue;
             };
 
             // Determine if anything can be sent in this packet number space (SpaceId +
@@ -1153,44 +1143,35 @@ impl Connection {
                     break;
                 }
 
-                match self.paths.keys().find(|&&next| next > path_id) {
-                    Some(next_path_id) => {
-                        // See if this next path can send anything.
-                        trace!(
-                            ?space_id,
-                            %path_id,
-                            %next_path_id,
-                            "nothing to send on path"
-                        );
-                        path_id = *next_path_id;
-                        space_id = SpaceId::Data;
+                let Some(next_path_id) = self.paths.keys().find(|&&next| next > path_id) else {
+                    // Nothing more to send and no more paths to check
+                    trace!(?space_id, %path_id, next_path_id=?None::<PathId>, "nothing to send on path");
+                    break;
+                };
 
-                        transmit = {
-                            let (buf, _) = transmit.finish();
-                            if let Some(challenge) =
-                                self.send_prev_path_challenge(now, buf, path_id)
-                            {
-                                return Some(challenge);
-                            } else {
-                                // update per path state
-                                let pmtu = self.path_data(path_id).current_mtu().into();
-                                TransmitBuf::new(buf, max_datagrams, pmtu)
-                            }
-                        };
+                // See if this next path can send anything.
+                trace!(?space_id, %path_id, %next_path_id, "nothing to send on path");
+                path_id = *next_path_id;
+                space_id = SpaceId::Data;
 
-                        continue;
+                transmit = {
+                    let (buf, _) = transmit.finish();
+                    // Check off path data for the new path_id
+                    if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
+                        return Some(challenge);
+                    } else if let Some(response) =
+                        self.send_off_path_path_response(now, buf, path_id)
+                    {
+                        return Some(response);
+                    } else {
+                        // Continue with on path data
+                        // New path_id => fresh transmit
+                        let pmtu = self.path_data(path_id).current_mtu().into();
+                        TransmitBuf::new(buf, max_datagrams, pmtu)
                     }
-                    None => {
-                        // Nothing more to send.
-                        trace!(
-                            ?space_id,
-                            %path_id,
-                            next_path_id=?None::<PathId>,
-                            "nothing to send on path"
-                        );
-                        break;
-                    }
-                }
+                };
+
+                continue;
             }
 
             // If the datagram is full, we need to start a new one.

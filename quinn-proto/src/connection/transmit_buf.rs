@@ -60,6 +60,7 @@ pub(super) struct TransmitBuf<'a> {
 
 impl<'a> TransmitBuf<'a> {
     pub(super) fn new(buf: &'a mut Vec<u8>, max_datagrams: NonZeroUsize, mtu: usize) -> Self {
+        buf.clear();
         Self {
             buf,
             datagram_start: 0,
