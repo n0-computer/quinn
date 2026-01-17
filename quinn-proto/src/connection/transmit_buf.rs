@@ -140,7 +140,7 @@ impl<'a> TransmitBuf<'a> {
         self.num_datagrams += 1;
     }
 
-    /// Clips the datagram size to the current size
+    /// Clips the segment size to the current size
     ///
     /// Only valid for the first datagram, when the datagram might be smaller than the
     /// segment size. Needed before estimating the available space in the next datagram
@@ -148,7 +148,7 @@ impl<'a> TransmitBuf<'a> {
     ///
     /// Use [`TransmitBuf::start_new_datagram_with_size`] if you need to reduce the size of
     /// the last datagram in a batch.
-    pub(super) fn clip_datagram_size(&mut self) {
+    pub(super) fn clip_segment_size(&mut self) {
         debug_assert_eq!(self.num_datagrams, 1);
         if self.buf.len() < self.segment_size {
             trace!(

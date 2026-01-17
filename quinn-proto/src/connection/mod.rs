@@ -340,22 +340,28 @@ enum PollPathStatus {
     },
 }
 
-/// Return value for `poll_transmit_path_space`.
 #[derive(Debug)]
-enum PollPathSpaceStatus {
-    /// Nothing to send on this space, continue to the next one.
-    NextSpace,
-    /// We have something to send, and data has been accumulated
-    /// on the passed in `transmit`.
-    Send { last_packet_number: Option<u64> },
-    /// A transmit is ready to be sent out.
-    SendTransmit {
-        /// The transmit to send.
-        transmit: Transmit,
+enum PollPathSpaceOutcome {
+    /// One or more datagrams have been written into the [`TransmitBuf`].
+    Send {
+        /// The highest packet number.
+        last_packet_number: u64,
+        /// Whether a next packet may be coalesced into the current datagram.
+        ///
+        /// If `Some` this signals that there is still enough space in the current datagram
+        /// of the [`TransmitBuf`] for another packet and the packets written so far allow
+        /// coalescing.
+        ///
+        /// The [`PadDatagram`] value indicates whether the final datagram containing the
+        /// coalesced packets must have an exact size.
+        may_coalesce: Option<PadDatagram>,
     },
-    /// Nothing to send currently.
+    /// Send a transmit directly, usually a hack to send off-path datagrams.
+    SendTransmit { transmit: Transmit },
+    /// Nothing to send, nothing was written into the [`TransmitBuf`].
+    // TODO: consider splitting this: NothingToSend, CongestionBlocked, TransmitFull
     NothingToSend {
-        /// Set to `true` if we consider the current inability to send something because of congestion control
+        /// If true there was data to send but congestion control did not allow so.
         congestion_blocked: bool,
     },
 }
@@ -1033,7 +1039,8 @@ impl Connection {
                 && self.rem_cids.contains_key(id)
         });
 
-        // TODO: how to avoid the allocation? Cannot use a for loop because of borrowing
+        // TODO: how to avoid the allocation? Cannot use a for loop because of
+        // borrowing. Maybe SmallVec or similar.
         let path_ids: Vec<_> = self.paths.keys().copied().collect();
 
         let mut transmit = TransmitBuf::new(
@@ -1050,10 +1057,12 @@ impl Connection {
             // Set the segment size to this path's MTU.
             transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
 
+            // Poll (some) off-path transmits first.
             if let Some(challenge) = self.send_prev_path_challenge(now, &mut transmit, path_id) {
                 return Some(challenge);
             }
 
+            // Poll for (mostly) on-path transmits.
             match self.poll_transmit_path(now, &mut transmit, path_id, have_available_path, close) {
                 PollPathStatus::SendTransmit { transmit } => {
                     return Some(transmit);
@@ -1066,10 +1075,14 @@ impl Connection {
                     congestion_blocked: cb,
                 } => {
                     congestion_blocked |= cb;
+                    // Continue checking other paths, tail-loss probes may need to be sent
+                    // in all spaces.
+                    debug_assert!(
+                        transmit.is_empty(),
+                        "nothing to send on path but transmit not empty"
+                    );
                 }
             }
-            // Nothing more to send.
-            trace!(%path_id, "nothing to send on path");
         }
 
         // We didn't produce any application data packet
@@ -1153,24 +1166,29 @@ impl Connection {
     ) -> PollPathStatus {
         // Check if there is at least one active CID to use for sending
         let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
-            self.on_remote_cids_exhausted(now, path_id);
-
-            // TODO(flub): on_remote_cids_exhausted might have scheduled a PATH_CIDS_BLOCKED
-            //    frame which could have been sent on an earlier path again.
+            if self.abandoned_paths.contains(&path_id) {
+                trace!(%path_id, "remote CIDs retired for abandoned path");
+            } else {
+                debug!(%path_id, "no remote CIDs for path");
+            }
             return PollPathStatus::NothingToSend {
                 congestion_blocked: false,
             };
         };
 
-        // Whether this packet can be coalesced with another one in the same datagram.
-        let mut coalesce = true;
-
         // Whether the last packet in the datagram must be padded so the datagram takes up
-        // to at least MIN_INITIAL_SIZE, or to the maximum segment size if this is smaller.
+        // an exact size.
         let mut pad_datagram = PadDatagram::No;
 
-        // The packet number of the last built packet.
+        // The packet number of the last built packet. This is kept kept across spaces. This
+        // is only relevant for the Initial and Handshake spaces as only those can coalesce
+        // packets with the next space. QUIC is supposed to have a single congestion
+        // controller for the Initial, Handshake and Data(PathId::ZERO) spaces.
         let mut last_packet_number = None;
+
+        // If we end up not sending anything, we need to know if that was because there was
+        // nothing to send or because we were congestion blocked.
+        let mut congestion_blocked = false;
 
         // Iterate over the available spaces
         for space_id in SpaceId::iter() {
@@ -1178,6 +1196,7 @@ impl Connection {
             if path_id != PathId::ZERO && space_id != SpaceId::Data {
                 continue;
             }
+            tracing::warn!(?space_id, %path_id, "A SPACE");
 
             let res = self.poll_transmit_path_space(
                 now,
@@ -1187,54 +1206,64 @@ impl Connection {
                 remote_cid,
                 have_available_path,
                 close,
-                &mut coalesce,
-                &mut pad_datagram,
+                pad_datagram,
             );
+            trace!(%path_id, ?space_id, ?res, "poll_transmit_space");
             match res {
-                PollPathSpaceStatus::Send {
+                PollPathSpaceOutcome::Send {
                     last_packet_number: lp,
+                    may_coalesce,
                 } => {
-                    last_packet_number = lp;
-                    break;
+                    debug_assert!(!transmit.is_empty(), "transmit must contain packets");
+                    last_packet_number = Some(lp);
+                    match may_coalesce {
+                        Some(should_pad) => {
+                            tracing::warn!("LETS MOVE ON");
+                            pad_datagram = should_pad;
+                            continue;
+                        }
+                        None => break,
+                    }
                 }
-                PollPathSpaceStatus::SendTransmit { transmit } => {
+                PollPathSpaceOutcome::SendTransmit { transmit } => {
                     return PollPathStatus::SendTransmit { transmit };
                 }
-                PollPathSpaceStatus::NothingToSend { congestion_blocked } => {
-                    return PollPathStatus::NothingToSend { congestion_blocked };
-                }
-                PollPathSpaceStatus::NextSpace => {
-                    // moving onto the next space
+                PollPathSpaceOutcome::NothingToSend {
+                    congestion_blocked: cb,
+                } => {
+                    congestion_blocked = cb;
+                    // Continue checking other spaces, tail-loss probes may need to be sent
+                    // in all spaces.
                 }
             }
         }
 
-        if let Some(last_packet_number) = last_packet_number {
-            // Note that when sending in multiple packet spaces the last packet number will
-            // be the one from the highest packet space.
-            self.path_data_mut(path_id).congestion.on_sent(
+        if last_packet_number.is_some() || congestion_blocked {
+            self.qlog.emit_recovery_metrics(
+                path_id,
+                &mut self.paths.get_mut(&path_id).unwrap().data,
                 now,
-                transmit.len() as u64,
-                last_packet_number,
             );
         }
 
-        self.qlog.emit_recovery_metrics(
-            path_id,
-            &mut self.paths.get_mut(&path_id).unwrap().data,
-            now,
-        );
+        match last_packet_number {
+            Some(last_packet_number) => {
+                debug_assert!(!transmit.is_empty(), "packet number but transmit is empty");
+                // Note that when sending in multiple packet spaces the last packet number will
+                // be the one from the highest packet space.
+                self.path_data_mut(path_id).congestion.on_sent(
+                    now,
+                    transmit.len() as u64,
+                    last_packet_number,
+                );
 
-        if transmit.is_empty() {
-            PollPathStatus::NothingToSend {
-                congestion_blocked: false,
+                PollPathStatus::Send
             }
-        } else {
-            PollPathStatus::Send
+            None => PollPathStatus::NothingToSend { congestion_blocked },
         }
     }
 
-    /// poll_transmit logic for a path_id - space_id combination
+    /// poll_transmit logic for a QUIC-MULTIPATH packet number space (PathID + SpaceId).
     #[must_use]
     fn poll_transmit_path_space(
         &mut self,
@@ -1243,17 +1272,29 @@ impl Connection {
         path_id: PathId,
         space_id: SpaceId,
         remote_cid: ConnectionId,
+        // If any other packet space has a usable path with PathStatus::Available.
         have_available_path: bool,
+        // If we need to send a CONNECTION_CLOSE frame.
         close: bool,
-        coalesce: &mut bool,
-        pad_datagram: &mut PadDatagram,
-    ) -> PollPathSpaceStatus {
+        // Whether the current datagram needs to be padded if no more packets can be
+        // coalesced into it.
+        mut pad_datagram: PadDatagram,
+    ) -> PollPathSpaceOutcome {
         let mut last_packet_number = None;
+        let mut coalesce = true;
+        tracing::warn!("HELLO");
 
+        // Each loop of this may build one packet. If the packet allows coalescing and there
+        // is still enough space in the current datagram the function will return and the
+        // caller will call us again for the next space to fill up the remainder of the
+        // datagram. Otherwise the loop will restart and if there is still more data to send
+        // and more space in the GSO batch new datagrams will be started and new packets
+        // will be written.
         loop {
             // Determine if anything can be sent in this packet number space (SpaceId + PathId).
             let max_packet_size = if transmit.datagram_remaining_mut() > 0 {
-                // We are trying to coalesce another packet into this datagram.
+                // A datagram is started already, we are trying to coalesce another packet
+                // into this datagram.
                 transmit.datagram_remaining_mut()
             } else {
                 // A new datagram needs to be started.
@@ -1262,7 +1303,9 @@ impl Connection {
 
             let can_send = self.space_can_send(space_id, path_id, max_packet_size, close);
 
-            let path_should_send = {
+            // Whether we would like to send any frames on this packet space. See the packet
+            // scheduling described in poll_transmit.
+            let space_should_send = {
                 let path_exclusive_only = space_id == SpaceId::Data
                     && have_available_path
                     && self.path_data(path_id).local_status() == PathStatus::Backup;
@@ -1275,50 +1318,70 @@ impl Connection {
                 path_should_send || needs_loss_probe
             };
 
-            if !path_should_send && space_id < SpaceId::Data {
-                if self.spaces[space_id].crypto.is_some() {
-                    trace!(?space_id, %path_id, "nothing to send in space");
+            if !space_should_send {
+                // Nothing more to send. Previous iterations of this loop may have built
+                // packets already.
+                return match last_packet_number {
+                    Some(pn) => PollPathSpaceOutcome::Send {
+                        last_packet_number: pn,
+                        may_coalesce: if coalesce { Some(pad_datagram) } else { None },
+                    },
+                    None => {
+                        // If the crypto for the Initial and Handshake spaces is None then those
+                        // spaces are done with forever, no need to log them.
+                        if space_id == SpaceId::Data || self.spaces[space_id].crypto.is_some() {
+                            trace!(?space_id, %path_id, "nothing to send in space");
+                        }
+                        return PollPathSpaceOutcome::NothingToSend {
+                            congestion_blocked: false,
+                        };
+                    }
+                };
+            }
+
+            // We want to send on this space, check congestion control if we can. But only
+            // if we will need to start a new datagram. If we are coalescing into an already
+            // started datagram we do not need to check congestion control again.
+            if transmit.datagram_remaining_mut() == 0 {
+                let congestion_blocked =
+                    self.path_congestion_check(space_id, path_id, transmit, &can_send, now);
+                if congestion_blocked != PathBlocked::No {
+                    trace!(?space_id, %path_id, ?congestion_blocked, "congestion blocked");
+                    // Previous iterations of this loop may have built packets already.
+                    return match last_packet_number {
+                        Some(pn) => PollPathSpaceOutcome::Send {
+                            last_packet_number: pn,
+                            may_coalesce: if coalesce { Some(pad_datagram) } else { None },
+                        },
+                        None => {
+                            // If the crypto for the Initial and Handshake spaces is None then those
+                            // spaces are done with forever, no need to log them.
+                            if space_id == SpaceId::Data || self.spaces[space_id].crypto.is_some() {
+                                trace!(?space_id, %path_id, "nothing to send in space");
+                            }
+                            return PollPathSpaceOutcome::NothingToSend {
+                                congestion_blocked: true,
+                            };
+                        }
+                    };
                 }
-                return PollPathSpaceStatus::NextSpace;
             }
 
-            let send_blocked = if path_should_send && transmit.datagram_remaining_mut() == 0 {
-                // Only check congestion control if a new datagram is needed.
-                self.path_congestion_check(space_id, path_id, transmit, &can_send, now)
-            } else {
-                PathBlocked::No
-            };
-
-            // Whether congestion control stopped the next packet from being sent. Further
-            // packets could still be built, as e.g. tail-loss probes are not congestion
-            // limited.
-            let congestion_blocked = if send_blocked != PathBlocked::No {
-                trace!(?space_id, %path_id, ?send_blocked, "congestion blocked");
-                true
-            } else {
-                false
-            };
-            if send_blocked != PathBlocked::No && space_id < SpaceId::Data {
-                // Higher spaces might still have tail-loss probes to send, which are not
-                // congestion blocked.
-                return PollPathSpaceStatus::NextSpace;
-            }
-            if !path_should_send || send_blocked != PathBlocked::No {
-                // Nothing more to send on this path, check the next path if possible.
-
-                // If there are any datagrams in the transmit, packets for another path can
-                // not be built.
-                if transmit.num_datagrams() > 0 {
-                    return PollPathSpaceStatus::Send { last_packet_number };
-                }
-
-                return PollPathSpaceStatus::NothingToSend { congestion_blocked };
-            }
-
+            // If the datagram is full (or there never was one started), we need to start a
+            // new one.
             if transmit.datagram_remaining_mut() == 0 {
                 if transmit.num_datagrams() >= transmit.max_datagrams().get() {
-                    // No more datagrams allowed
-                    return PollPathSpaceStatus::Send { last_packet_number };
+                    // No more datagrams allowed.
+                    return match last_packet_number {
+                        Some(pn) => PollPathSpaceOutcome::Send {
+                            last_packet_number: pn,
+                            may_coalesce: None,
+                        },
+                        // TODO: Could consider a new return value here?
+                        None => PollPathSpaceOutcome::NothingToSend {
+                            congestion_blocked: false,
+                        },
+                    };
                 }
 
                 match self.spaces[space_id].for_path(path_id).loss_probes {
@@ -1345,8 +1408,11 @@ impl Connection {
                     }
                 }
                 trace!(count = transmit.num_datagrams(), "new datagram started");
-                *coalesce = true;
-                *pad_datagram = PadDatagram::No;
+
+                // We started a new datagram, initialise as allowing coalescing packets and
+                // no need for padding the datagram.
+                coalesce = true;
+                pad_datagram = PadDatagram::No;
             }
 
             // If coalescing another packet into the existing datagram, there should
@@ -1380,17 +1446,27 @@ impl Connection {
                 can_send.other,
                 self,
             ) else {
-                return PollPathSpaceStatus::NothingToSend { congestion_blocked };
+                // Confidentiality limit is exceeded and the connection has been killed. We
+                // should not send any other packets. This works in a roundabout way: We
+                // have started a datagram but not written anything into it. So even if we
+                // get called again for another space we will see an already started
+                // datagram and try and start another packet here. Then be stopped by the
+                // same confidentiality limit.
+                return PollPathSpaceOutcome::NothingToSend {
+                    congestion_blocked: false,
+                };
             };
             last_packet_number = Some(builder.exact_number);
-            *coalesce = *coalesce && !builder.short_header;
+            let last_pn = builder.exact_number;
+            // TODO(flub): Use builder.can_coalesce after merging main.
+            coalesce = coalesce && !builder.short_header;
 
             if space_id == SpaceId::Initial && (self.side.is_client() || can_send.other) {
                 // https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1
-                *pad_datagram |= PadDatagram::ToMinMtu;
+                pad_datagram |= PadDatagram::ToMinMtu;
             }
             if space_id == SpaceId::Data && self.config.pad_to_mtu {
-                *pad_datagram |= PadDatagram::ToSegmentSize;
+                pad_datagram |= PadDatagram::ToSegmentSize;
             }
 
             if can_send.close {
@@ -1446,23 +1522,29 @@ impl Connection {
                     };
                     builder.write_frame(close.encoder(max_frame_size), stats);
                 }
-                builder.finish_and_track(now, self, path_id, *pad_datagram);
+                builder.finish_and_track(now, self, path_id, pad_datagram);
                 if space_id == self.highest_space {
                     // Don't send another close packet. Even with multipath we only send
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
                     self.close = false;
-                    // `CONNECTION_CLOSE` is the final packet
-                    return PollPathSpaceStatus::Send { last_packet_number };
-                } else {
-                    // Send a close frame in every possible space for robustness, per
-                    // RFC9000 "Immediate Close during the Handshake". Don't bother trying
-                    // to send anything else.
-                    return PollPathSpaceStatus::NextSpace;
                 }
+                // Send a close frame in every possible space for robustness, per
+                // RFC9000 "Immediate Close during the Handshake". Don't bother trying
+                // to send anything else.
+                // TODO(flub): This breaks during the handshake if we can not coalesce
+                //    packets due to space reasons: the next space would either fail a
+                //    debug_assert checking for enough packet space or produce an invalid
+                //    packet. That is an existing bug however.
+                return PollPathSpaceOutcome::Send {
+                    last_packet_number: last_pn,
+                    may_coalesce: Some(pad_datagram),
+                };
             }
 
             // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
             // path validation can occur while the link is saturated.
+            // TODO(flub): This needs to be done outside of this function, e.g. together
+            //    with the off-path path challenges of Self::send_prev_path_challenge.
             if space_id == SpaceId::Data && builder.buf.num_datagrams() == 1 {
                 let path = self.path_data_mut(path_id);
                 if let Some((token, network_path)) =
@@ -1477,7 +1559,7 @@ impl Connection {
                     builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
                     builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
                     self.stats.udp_tx.on_sent(1, transmit.len());
-                    return PollPathSpaceStatus::SendTransmit {
+                    return PollPathSpaceOutcome::SendTransmit {
                         transmit: Transmit {
                             destination: network_path.remote,
                             size: transmit.len(),
@@ -1489,8 +1571,11 @@ impl Connection {
                 }
             }
 
+            // If this boolean is true we only want to send frames which can not be sent on
+            // any other path. See the path scheduling notes in Self::poll_transmit.
             let path_exclusive_only =
                 have_available_path && self.path_data(path_id).local_status() == PathStatus::Backup;
+
             self.populate_packet(now, space_id, path_id, path_exclusive_only, &mut builder);
 
             // ACK-only packets should only be sent when explicitly allowed. If we write them due to
@@ -1509,7 +1594,7 @@ impl Connection {
                 "SendableFrames was {can_send:?}, but only ACKs have been written"
             );
             if builder.sent_frames().requires_padding {
-                *pad_datagram |= PadDatagram::ToMinMtu;
+                pad_datagram |= PadDatagram::ToMinMtu;
             }
 
             for (path_id, _pn) in builder.sent_frames().largest_acked.iter() {
@@ -1529,8 +1614,10 @@ impl Connection {
             // might be needed because of the packet type, or to fill the GSO segment size.
 
             // Are we allowed to coalesce AND is there enough space for another *packet* in
-            // this datagram AND is there another packet to send in this or the next space?
-            if *coalesce
+            // this datagram AND is there another packet to send in the next space?
+            // TODO(flub): We should only check this for the Initial and Handshake space. In
+            //    the Data spaces we never coalesce.
+            if coalesce
                 && builder
                     .buf
                     .datagram_remaining_mut()
@@ -1540,10 +1627,14 @@ impl Connection {
             {
                 // We can append/coalesce the next packet into the current
                 // datagram. Finish the current packet without adding extra padding.
+                tracing::warn!("we think we can coalesce");
                 builder.finish_and_track(now, self, path_id, PadDatagram::No);
             } else {
                 // We need a new datagram for the next packet.  Finish the current
                 // packet with padding.
+                // TODO(flub): if there isn't any more data to be sent, this will still pad
+                //    to the segment size and only discover there is nothing to send before
+                //    starting the next packet. That is wasting up to 32 bytes.
                 if builder.buf.num_datagrams() > 1 && matches!(pad_datagram, PadDatagram::No) {
                     // If too many padding bytes would be required to continue the
                     // GSO batch after this packet, end the GSO batch here. Ensures
@@ -1561,45 +1652,26 @@ impl Connection {
                             builder.buf.datagram_remaining_mut() - builder.predict_packet_end()
                         );
                         builder.finish_and_track(now, self, path_id, PadDatagram::No);
-                        return PollPathSpaceStatus::Send { last_packet_number };
+                        return PollPathSpaceOutcome::Send {
+                            last_packet_number: last_pn,
+                            may_coalesce: None,
+                        };
                     }
 
                     // Pad the current datagram to GSO segment size so it can be
                     // included in the GSO batch.
                     builder.finish_and_track(now, self, path_id, PadDatagram::ToSegmentSize);
                 } else {
-                    builder.finish_and_track(now, self, path_id, *pad_datagram);
+                    builder.finish_and_track(now, self, path_id, pad_datagram);
                 }
+
+                // If this is the first datagram we set the segment size to the size of the
+                // first datagram.
                 if transmit.num_datagrams() == 1 {
-                    transmit.clip_datagram_size();
+                    transmit.clip_segment_size();
                 }
             }
         }
-    }
-
-    fn on_remote_cids_exhausted(&mut self, now: Instant, path_id: PathId) {
-        if self.abandoned_paths.contains(&path_id) {
-            trace!(%path_id, "remote CIDs retired for abandoned path");
-            return;
-        }
-
-        let error = PathError::RemoteCidsExhausted;
-        debug!(?error, %path_id, "no active CID for path");
-        self.events
-            .push_back(Event::Path(PathEvent::LocallyClosed { id: path_id, error }));
-        // Locally we should have refused to open this path, the remote should
-        // have given us CIDs for this path before opening it.  So we can always
-        // abandon this here.
-        self.close_path(
-            now,
-            path_id,
-            TransportErrorCode::NO_CID_AVAILABLE_FOR_PATH.into(),
-        )
-        .ok();
-        self.spaces[SpaceId::Data]
-            .pending
-            .path_cids_blocked
-            .insert(path_id);
     }
 
     fn poll_transmit_mtu_probe(
@@ -1670,13 +1742,13 @@ impl Connection {
         Some((active_cid, probe_size))
     }
 
-    /// Returns if there is anext packet space which has data to send
+    /// Returns if there is a next packet space on the same path, which has data to send.
     ///
     /// This takes into account the space available to frames in the next datagram.
     // TODO(flub): This duplication is not nice.
     fn has_next_send_space(
         &mut self,
-        current_space_id: SpaceId,
+        mut current_space_id: SpaceId,
         path_id: PathId,
         buf: &TransmitBuf<'_>,
         close: bool,
@@ -1687,16 +1759,12 @@ impl Connection {
         // handle large fixed-size frames, which only exist in 1-RTT (application
         // datagrams). We don't account for coalesced packets potentially occupying space
         // because frames can always spill into the next datagram.
-        let mut space_id = current_space_id;
-        loop {
+        while let Some(space_id) = current_space_id.next() {
             let can_send = self.space_can_send(space_id, path_id, buf.segment_size(), close);
             if !can_send.is_empty() || (close && self.spaces[space_id].crypto.is_some()) {
                 return true;
             }
-            let Some(next_space) = space_id.next() else {
-                break;
-            };
-            space_id = next_space;
+            current_space_id = space_id;
         }
         false
     }
