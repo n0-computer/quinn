@@ -565,8 +565,8 @@ impl StreamsState {
     #[cfg(test)]
     fn write_frames_for_test(&mut self, capacity: usize, fair: bool) -> frame::StreamMetaVec {
         let buf = &mut Vec::with_capacity(capacity);
-        let mut tbuf = crate::connection::TransmitBuf::new(buf, std::num::NonZeroUsize::MIN, 1_200);
-        tbuf.start_new_datagram_with_size(capacity);
+        let mut tbuf =
+            crate::connection::TransmitBuf::new(buf, std::num::NonZeroUsize::MIN, capacity);
         let builder = &mut PacketBuilder::simple_data_buf(&mut tbuf);
         let stats = &mut FrameStats::default();
         self.write_stream_frames(builder, fair, stats);

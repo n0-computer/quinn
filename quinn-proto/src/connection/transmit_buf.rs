@@ -129,7 +129,7 @@ impl<'a> TransmitBuf<'a> {
                 let current_size = self.buf.len();
                 debug_assert_eq!(current_size % segment_size, 0, "missaligned segments");
 
-                self.datagram_start += current_size;
+                self.datagram_start = current_size;
 
                 debug_assert!(finalized_segments < self.max_datagrams);
                 let finalized_segments = finalized_segments.saturating_add(1);

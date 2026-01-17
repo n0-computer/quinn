@@ -1494,7 +1494,7 @@ impl Connection {
             if let Some((active_cid, probe_size)) = probe_data {
                 // We are definitely sending a DPLPMTUD probe.
                 debug_assert!(transmit.is_empty());
-                transmit.start_new_datagram_with_size(probe_size as usize);
+                transmit.reset(NonZeroUsize::MIN, probe_size as usize);
 
                 let mut builder = PacketBuilder::new(
                     now,
