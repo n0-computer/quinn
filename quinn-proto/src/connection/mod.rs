@@ -322,24 +322,23 @@ pub struct Connection {
     qlog: QlogSink,
 }
 
-/// Return value for `poll_transmit_path`.
+/// Return value for [`Connection::poll_transmit_path`].
 #[derive(Debug)]
 enum PollPathStatus {
-    /// We have something to send, and data has been accumulated
-    /// on the passed in `transmit`.
-    Send,
-    /// A transmit is ready to be sent out.
-    SendTransmit {
-        /// The transmit to send.
-        transmit: Transmit,
-    },
-    /// Nothing to send currently.
+    /// Nothing to send on the path, nothing was written into the [`TransmitBuf`].
     NothingToSend {
-        /// Set to `true` if we consider the current inability to send something because of congestion control
+        /// If true there was data to send but congestion control did not allow so.
         congestion_blocked: bool,
     },
+    /// One or more packets have been written into the [`TransmitBuf`] and should be sent.
+    Send,
+    /// Send the contents of the transmit without using the [`TransmitBuf`].
+    ///
+    /// Indicates off-path data being sent.
+    SendTransmit { transmit: Transmit },
 }
 
+/// Return value for [`Connection::poll_transmit_path_space`].
 #[derive(Debug)]
 enum PollPathSpaceOutcome {
     /// Nothing to send in the space, nothing was written into the [`TransmitBuf`].
@@ -1214,7 +1213,7 @@ impl Connection {
             if path_id != PathId::ZERO && space_id != SpaceId::Data {
                 continue;
             }
-            let res = self.poll_transmit_path_space(
+            match self.poll_transmit_path_space(
                 now,
                 transmit,
                 path_id,
@@ -1223,9 +1222,7 @@ impl Connection {
                 have_available_path,
                 close,
                 pad_datagram,
-            );
-            trace!(%path_id, ?space_id, ?res, "poll_transmit_space");
-            match res {
+            ) {
                 PollPathSpaceOutcome::NothingToSend {
                     congestion_blocked: cb,
                 } => {
@@ -1354,9 +1351,10 @@ impl Connection {
                         pad_datagram,
                     },
                     None => {
-                        // If the crypto for the Initial and Handshake spaces is None then those
-                        // spaces are done with forever, no need to log them.
-                        if space_id == SpaceId::Data || self.spaces[space_id].crypto.is_some() {
+                        // Only log for spaces which have crypto.
+                        if self.spaces[space_id].crypto.is_some()
+                            || (space_id == SpaceId::Data && self.zero_rtt_crypto.is_some())
+                        {
                             trace!(?space_id, %path_id, "nothing to send in space");
                         }
                         return PollPathSpaceOutcome::NothingToSend {
