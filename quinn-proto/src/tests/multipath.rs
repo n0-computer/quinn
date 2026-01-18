@@ -246,10 +246,10 @@ fn multipath_cid_rotation() {
         stop += CID_TIMEOUT;
         // Run a while until PushNewCID timer fires
         while pair.time < stop {
-            if !pair.step() {
-                if let Some(time) = min_opt(pair.client.next_wakeup(), pair.server.next_wakeup()) {
-                    pair.time = time;
-                }
+            if !pair.step()
+                && let Some(time) = min_opt(pair.client.next_wakeup(), pair.server.next_wakeup())
+            {
+                pair.time = time;
             }
         }
         info!(

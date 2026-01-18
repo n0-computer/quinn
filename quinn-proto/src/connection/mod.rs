@@ -1458,8 +1458,7 @@ impl Connection {
             };
             last_packet_number = Some(builder.exact_number);
             let last_pn = builder.exact_number;
-            // TODO(flub): Use builder.can_coalesce after merging main.
-            coalesce = coalesce && !builder.short_header;
+            coalesce = coalesce && builder.can_coalesce;
 
             if space_id == SpaceId::Initial && (self.side.is_client() || can_send.other) {
                 // https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1
@@ -1559,6 +1558,11 @@ impl Connection {
                     builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
                     builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
                     self.stats.udp_tx.on_sent(1, transmit.len());
+                    self.path_stats
+                        .entry(path_id)
+                        .or_default()
+                        .udp_tx
+                        .on_sent(1, transmit.len());
                     return PollPathSpaceOutcome::SendTransmit {
                         transmit: Transmit {
                             destination: network_path.remote,
@@ -1872,6 +1876,11 @@ impl Connection {
 
         builder.finish(self, now);
         self.stats.udp_tx.on_sent(1, buf.len());
+        self.path_stats
+            .entry(path_id)
+            .or_default()
+            .udp_tx
+            .on_sent(1, buf.len());
 
         Some(Transmit {
             destination: network_path.remote,
@@ -1884,8 +1893,8 @@ impl Connection {
 
     /// Indicate what types of frames are ready to send for the given space
     ///
-    /// *packet_size* is the number of bytes available to build the next packet.  *close*
-    /// *indicates whether a CONNECTION_CLOSE frame needs to be sent.
+    /// *packet_size* is the number of bytes available to build the next packet.
+    /// *close* indicates whether a CONNECTION_CLOSE frame needs to be sent.
     fn space_can_send(
         &mut self,
         space_id: SpaceId,
@@ -1893,24 +1902,29 @@ impl Connection {
         packet_size: usize,
         close: bool,
     ) -> SendableFrames {
-        let pn = self.spaces[SpaceId::Data]
-            .for_path(path_id)
-            .peek_tx_number();
-        let frame_space_1rtt = packet_size.saturating_sub(self.predict_1rtt_overhead(pn, path_id));
-        if self.spaces[space_id].crypto.is_none()
+        let space = &mut self.spaces[space_id];
+        let space_has_crypto = space.crypto.is_some();
+
+        if !space_has_crypto
             && (space_id != SpaceId::Data
                 || self.zero_rtt_crypto.is_none()
                 || self.side.is_server())
         {
-            // No keys available for this space
+            // Nothing to send in this space
             return SendableFrames::empty();
         }
-        let mut can_send = self.spaces[space_id].can_send(path_id, &self.streams);
+
+        let mut can_send = space.can_send(path_id, &self.streams);
+
         if space_id == SpaceId::Data {
+            // Check for 1RTT space.
+            let pn = space.for_path(path_id).peek_tx_number();
+            let frame_space_1rtt =
+                packet_size.saturating_sub(self.predict_1rtt_overhead(pn, path_id));
             can_send |= self.can_send_1rtt(path_id, frame_space_1rtt);
         }
 
-        can_send.close = close && self.spaces[space_id].crypto.is_some();
+        can_send.close = close && space_has_crypto;
 
         can_send
     }
@@ -1947,6 +1961,9 @@ impl Connection {
 
                 self.stats.udp_rx.datagrams += 1;
                 self.stats.udp_rx.bytes += first_decode.len() as u64;
+                let rx = &mut self.path_stats.entry(path_id).or_default().udp_rx;
+                rx.datagrams += 1;
+                rx.bytes += first_decode.len() as u64;
                 let data_len = first_decode.len();
 
                 self.handle_decode(now, network_path, path_id, ecn, first_decode);
@@ -1960,6 +1977,7 @@ impl Connection {
 
                 if let Some(data) = remaining {
                     self.stats.udp_rx.bytes += data.len() as u64;
+                    self.path_stats.entry(path_id).or_default().udp_rx.bytes += data.len() as u64;
                     self.handle_coalesced(now, network_path, path_id, ecn, data);
                 }
 
@@ -3046,13 +3064,12 @@ impl Connection {
             let path = self.path_data_mut(path_id);
             if path.mtud.black_hole_detected(now) {
                 path.congestion.on_mtu_update(path.mtud.current_mtu());
-                if let Some(max_datagram_size) = self.datagrams().max_size() {
-                    if self.datagrams.drop_oversized(max_datagram_size)
-                        && self.datagrams.send_blocked
-                    {
-                        self.datagrams.send_blocked = false;
-                        self.events.push_back(Event::DatagramsUnblocked);
-                    }
+                if let Some(max_datagram_size) = self.datagrams().max_size()
+                    && self.datagrams.drop_oversized(max_datagram_size)
+                    && self.datagrams.send_blocked
+                {
+                    self.datagrams.send_blocked = false;
+                    self.events.push_back(Event::DatagramsUnblocked);
                 }
                 self.path_stats
                     .entry(path_id)
@@ -3287,21 +3304,20 @@ impl Connection {
             .paths
             .get(&path_id)
             .map(|path| &path.data.abandon_state)
+            && now > *deadline
         {
-            if now > *deadline {
-                warn!("received data on path which we abandoned more than 3 * PTO ago");
-                // The peer failed to respond with a PATH_ABANDON in time.
-                if !self.state.is_closed() {
-                    self.state
-                        .move_to_closed(TransportError::PROTOCOL_VIOLATION(
-                            "peer failed to respond with PATH_ABANDON in time",
-                        ));
-                    self.close_common();
-                    self.set_close_timer(now);
-                    self.close = true;
-                }
-                return;
+            warn!("received data on path which we abandoned more than 3 * PTO ago");
+            // The peer failed to respond with a PATH_ABANDON in time.
+            if !self.state.is_closed() {
+                self.state
+                    .move_to_closed(TransportError::PROTOCOL_VIOLATION(
+                        "peer failed to respond with PATH_ABANDON in time",
+                    ));
+                self.close_common();
+                self.set_close_timer(now);
+                self.close = true;
             }
+            return;
         }
 
         self.reset_keep_alive(path_id, now);
@@ -3329,10 +3345,10 @@ impl Connection {
                 // If we received a handshake packet that authenticated, then we're talking to
                 // the real server.  From now on we should no longer allow the server to migrate
                 // its address.
-                if space_id == SpaceId::Handshake {
-                    if let Some(hs) = self.state.as_handshake_mut() {
-                        hs.allow_server_migration = false;
-                    }
+                if space_id == SpaceId::Handshake
+                    && let Some(hs) = self.state.as_handshake_mut()
+                {
+                    hs.allow_server_migration = false;
                 }
             }
             ConnectionSide::Server { .. } => {
@@ -3612,10 +3628,12 @@ impl Connection {
             }
             let offset = self.spaces[space].crypto_offset;
             let outgoing = Bytes::from(outgoing);
-            if let Some(hs) = self.state.as_handshake_mut() {
-                if space == SpaceId::Initial && offset == 0 && self.side.is_client() {
-                    hs.client_hello = Some(outgoing.clone());
-                }
+            if let Some(hs) = self.state.as_handshake_mut()
+                && space == SpaceId::Initial
+                && offset == 0
+                && self.side.is_client()
+            {
+                hs.client_hello = Some(outgoing.clone());
             }
             self.spaces[space].crypto_offset += outgoing.len() as u64;
             trace!("wrote {} {:?} CRYPTO bytes", outgoing.len(), space);
@@ -3749,6 +3767,8 @@ impl Connection {
         mut qlog: QlogRecvPacket,
     ) {
         self.stats.udp_rx.ios += 1;
+        self.path_stats.entry(path_id).or_default().udp_rx.ios += 1;
+
         if let Some(ref packet) = packet {
             trace!(
                 "got {:?} packet ({} bytes) from {} using id {}",
@@ -3836,17 +3856,17 @@ impl Connection {
                     self.qlog.emit_packet_received(qlog, now);
                     return;
                 } else {
-                    if let Header::Initial(InitialHeader { ref token, .. }) = packet.header {
-                        if let Some(hs) = self.state.as_handshake() {
-                            if self.side.is_server() && token != &hs.expected_token {
-                                // Clients must send the same retry token in every Initial. Initial
-                                // packets can be spoofed, so we discard rather than killing the
-                                // connection.
-                                warn!("discarding Initial with invalid retry token");
-                                self.qlog.emit_packet_received(qlog, now);
-                                return;
-                            }
-                        }
+                    if let Header::Initial(InitialHeader { ref token, .. }) = packet.header
+                        && let Some(hs) = self.state.as_handshake()
+                        && self.side.is_server()
+                        && token != &hs.expected_token
+                    {
+                        // Clients must send the same retry token in every Initial. Initial
+                        // packets can be spoofed, so we discard rather than killing the
+                        // connection.
+                        warn!("discarding Initial with invalid retry token");
+                        self.qlog.emit_packet_received(qlog, now);
+                        return;
                     }
 
                     if !self.state.is_closed() {
@@ -4365,13 +4385,13 @@ impl Connection {
             // the log with payload data
             match &frame {
                 Frame::Crypto(f) => {
-                    trace!(offset = f.offset, len = f.data.len(), "got crypto frame");
+                    trace!(offset = f.offset, len = f.data.len(), "got frame CRYPTO");
                 }
                 Frame::Stream(f) => {
-                    trace!(id = %f.id, offset = f.offset, len = f.data.len(), fin = f.fin, "got stream frame");
+                    trace!(id = %f.id, offset = f.offset, len = f.data.len(), fin = f.fin, "got frame STREAM");
                 }
                 Frame::Datagram(f) => {
-                    trace!(len = f.data.len(), "got datagram frame");
+                    trace!(len = f.data.len(), "got frame DATAGRAM");
                 }
                 f => {
                     trace!("got frame {f}");
@@ -4785,13 +4805,13 @@ impl Connection {
 
                     let path = self.path_data_mut(path_id);
                     if network_path == path.network_path {
-                        if let Some(updated) = path.update_observed_addr_report(observed) {
-                            if path.open {
-                                self.events.push_back(Event::Path(PathEvent::ObservedAddr {
-                                    id: path_id,
-                                    addr: updated,
-                                }));
-                            }
+                        if let Some(updated) = path.update_observed_addr_report(observed)
+                            && path.open
+                        {
+                            self.events.push_back(Event::Path(PathEvent::ObservedAddr {
+                                id: path_id,
+                                addr: updated,
+                            }));
                             // otherwise the event is reported when the path is deemed open
                         }
                     } else {
@@ -4823,18 +4843,18 @@ impl Connection {
                     // abandoned this path locally.  In that case the DiscardPath timer
                     // may already have fired and we no longer have any state for this path.
                     // Only set this timer if we still have path state.
-                    if let Some(path) = self.paths.get_mut(&path_id) {
-                        if !matches!(path.data.abandon_state, AbandonState::ReceivedPathAbandon) {
-                            let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
-                            let pto = path.data.rtt.pto_base() + ack_delay;
-                            self.timers.set(
-                                Timer::PerPath(path_id, PathTimer::DiscardPath),
-                                now + 3 * pto,
-                                self.qlog.with_time(now),
-                            );
-                            // We received a PATH_ABANDON, we don't expect another one by a certain time.
-                            path.data.abandon_state = AbandonState::ReceivedPathAbandon;
-                        }
+                    if let Some(path) = self.paths.get_mut(&path_id)
+                        && !matches!(path.data.abandon_state, AbandonState::ReceivedPathAbandon)
+                    {
+                        let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
+                        let pto = path.data.rtt.pto_base() + ack_delay;
+                        self.timers.set(
+                            Timer::PerPath(path_id, PathTimer::DiscardPath),
+                            now + 3 * pto,
+                            self.qlog.with_time(now),
+                        );
+                        // We received a PATH_ABANDON, we don't expect another one by a certain time.
+                        path.data.abandon_state = AbandonState::ReceivedPathAbandon;
                     }
                 }
                 Frame::PathStatusAvailable(info) => {
@@ -5074,14 +5094,14 @@ impl Connection {
             )
         };
         new_path.last_observed_addr_report = path.last_observed_addr_report.clone();
-        if let Some(report) = observed_addr {
-            if let Some(updated) = new_path.update_observed_addr_report(report) {
-                tracing::info!("adding observed addr event from migration");
-                self.events.push_back(Event::Path(PathEvent::ObservedAddr {
-                    id: path_id,
-                    addr: updated,
-                }));
-            }
+        if let Some(report) = observed_addr
+            && let Some(updated) = new_path.update_observed_addr_report(report)
+        {
+            tracing::info!("adding observed addr event from migration");
+            self.events.push_back(Event::Path(PathEvent::ObservedAddr {
+                id: path_id,
+                addr: updated,
+            }));
         }
         new_path.send_new_challenge = true;
 
@@ -5165,11 +5185,11 @@ impl Connection {
 
         // Subtract 1 to account for the CID we supplied while handshaking
         let mut n = self.peer_params.issue_cids_limit() - 1;
-        if let ConnectionSide::Server { server_config } = &self.side {
-            if server_config.has_preferred_address() {
-                // We also sent a CID in the transport parameters
-                n -= 1;
-            }
+        if let ConnectionSide::Server { server_config } = &self.side
+            && server_config.has_preferred_address()
+        {
+            // We also sent a CID in the transport parameters
+            n -= 1;
         }
         self.endpoint_events
             .push_back(EndpointEventInner::NeedIdentifiers(PathId::ZERO, now, n));
@@ -5221,13 +5241,17 @@ impl Connection {
             .maybe_ack_non_eliciting();
 
         // HANDSHAKE_DONE
-        if !is_0rtt && mem::replace(&mut space.pending.handshake_done, false) {
+        if !is_0rtt
+            && !path_exclusive_only
+            && mem::replace(&mut space.pending.handshake_done, false)
+        {
             builder.write_frame(frame::HandshakeDone, stats);
         }
 
         // REACH_OUT
-        // TODO(@divma): path explusive considerations
-        if let Some((round, addresses)) = space.pending.reach_out.as_mut() {
+        if let Some((round, addresses)) = space.pending.reach_out.as_mut()
+            && !path_exclusive_only
+        {
             while let Some(local_addr) = addresses.pop() {
                 let reach_out = frame::ReachOut::new(*round, local_addr);
                 if builder.frame_space_remaining() > reach_out.size() {
@@ -5387,35 +5411,34 @@ impl Connection {
         // PATH_RESPONSE
         if builder.frame_space_remaining() > frame::PathResponse::SIZE_BOUND
             && space_id == SpaceId::Data
+            && let Some(token) = path.path_responses.pop_on_path(path.network_path)
         {
-            if let Some(token) = path.path_responses.pop_on_path(path.network_path) {
-                let response = frame::PathResponse(token);
-                trace!(frame = %response);
-                builder.write_frame(response, stats);
-                builder.require_padding();
+            let response = frame::PathResponse(token);
+            trace!(frame = %response);
+            builder.write_frame(response, stats);
+            builder.require_padding();
 
-                // NOTE: this is technically not required but might be useful to ride the
-                // request/response nature of path challenges to refresh an observation
-                // Since PATH_RESPONSE is a probing frame, this is allowed by the spec.
-                if space_id == SpaceId::Data
-                    && self
-                        .config
-                        .address_discovery_role
-                        .should_report(&self.peer_params.address_discovery_role)
-                {
-                    let frame = frame::ObservedAddr::new(
-                        path.network_path.remote,
-                        self.next_observed_addr_seq_no,
-                    );
-                    if builder.frame_space_remaining() > frame.size() {
-                        builder.write_frame(frame, stats);
+            // NOTE: this is technically not required but might be useful to ride the
+            // request/response nature of path challenges to refresh an observation
+            // Since PATH_RESPONSE is a probing frame, this is allowed by the spec.
+            if space_id == SpaceId::Data
+                && self
+                    .config
+                    .address_discovery_role
+                    .should_report(&self.peer_params.address_discovery_role)
+            {
+                let frame = frame::ObservedAddr::new(
+                    path.network_path.remote,
+                    self.next_observed_addr_seq_no,
+                );
+                if builder.frame_space_remaining() > frame.size() {
+                    builder.write_frame(frame, stats);
 
-                        self.next_observed_addr_seq_no =
-                            self.next_observed_addr_seq_no.saturating_add(1u8);
-                        path.observed_addr_sent = true;
+                    self.next_observed_addr_seq_no =
+                        self.next_observed_addr_seq_no.saturating_add(1u8);
+                    path.observed_addr_sent = true;
 
-                        space.pending.observed_addr = false;
-                    }
+                    space.pending.observed_addr = false;
                 }
             }
         }
@@ -5551,6 +5574,7 @@ impl Connection {
 
         // MAX_PATH_ID
         if space_id == SpaceId::Data
+            && !path_exclusive_only
             && space.pending.max_path_id
             && frame::MaxPathId::SIZE_BOUND <= builder.frame_space_remaining()
         {
@@ -5561,6 +5585,7 @@ impl Connection {
 
         // PATHS_BLOCKED
         if space_id == SpaceId::Data
+            && !path_exclusive_only
             && space.pending.paths_blocked
             && frame::PathsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
@@ -5571,6 +5596,7 @@ impl Connection {
 
         // PATH_CIDS_BLOCKED
         while space_id == SpaceId::Data
+            && !path_exclusive_only
             && frame::PathCidsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let Some(path_id) = space.pending.path_cids_blocked.pop_first() else {
@@ -5585,7 +5611,7 @@ impl Connection {
         }
 
         // RESET_STREAM, STOP_SENDING, MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS
-        if space_id == SpaceId::Data {
+        if space_id == SpaceId::Data && !path_exclusive_only {
             self.streams
                 .write_control_frames(builder, &mut space.pending, stats);
         }
@@ -5703,8 +5729,8 @@ impl Connection {
         }
 
         // ADD_ADDRESS
-        // TODO(@divma): check if we need to do path exclusive filters
         while space_id == SpaceId::Data
+            && !path_exclusive_only
             && frame::AddAddress::SIZE_BOUND <= builder.frame_space_remaining()
         {
             if let Some(added_address) = space.pending.add_address.pop_last() {
@@ -5716,6 +5742,7 @@ impl Connection {
 
         // REMOVE_ADDRESS
         while space_id == SpaceId::Data
+            && !path_exclusive_only
             && frame::RemoveAddress::SIZE_BOUND <= builder.frame_space_remaining()
         {
             if let Some(removed_address) = space.pending.remove_address.pop_last() {
@@ -5932,11 +5959,11 @@ impl Connection {
             None => return Ok(None),
         };
 
-        if result.outgoing_key_update_acked {
-            if let Some(prev) = self.prev_crypto.as_mut() {
-                prev.end_packet = Some((result.number, now));
-                self.set_key_discard_timer(now, packet.header.space());
-            }
+        if result.outgoing_key_update_acked
+            && let Some(prev) = self.prev_crypto.as_mut()
+        {
+            prev.end_packet = Some((result.number, now));
+            self.set_key_discard_timer(now, packet.header.space());
         }
 
         if result.incoming_key_update {

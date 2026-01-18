@@ -402,13 +402,14 @@ impl FourTuple {
 
 impl fmt::Display for FourTuple {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("(")?;
+        f.write_str("(src: ")?;
         if let Some(local_ip) = &self.local_ip {
             local_ip.fmt(f)?;
             f.write_str(", ")?;
         } else {
-            f.write_str("<unknown>, ")?;
+            f.write_str("<unspecified>, ")?;
         }
+        f.write_str("dst: ")?;
         self.remote.fmt(f)?;
         f.write_str(")")
     }
