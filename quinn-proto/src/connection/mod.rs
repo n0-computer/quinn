@@ -352,7 +352,7 @@ enum PollPathSpaceOutcome {
         last_packet_number: u64,
         /// Whether to pad an already started datagram in the next packet.
         ///
-        /// When packets in Initial, 0-RTT or Handhake packet do not fill the entire
+        /// When packets in Initial, 0-RTT or Handshake packet do not fill the entire
         /// datagram they may decide to coalesce with the next packet from a higher
         /// encryption level on the same path. But the earlier packet may require specific
         /// size requirements for the datagram they are sent in.
@@ -1246,8 +1246,8 @@ impl Connection {
                     pad_datagram = pad;
                     // Always check higher spaces. If the transmit is full or they have
                     // nothing to send they will not write packets. But if they can, they
-                    // should always be allowed to add to this transmit because it is all
-                    // sent to the same remote.
+                    // must always be allowed to add to this transmit because coalescing may
+                    // be required.
                     continue;
                 }
                 PollPathSpaceOutcome::Send {
@@ -1750,12 +1750,14 @@ impl Connection {
             .sent_plpmtud_probes += 1;
     }
 
+    /// Returns the CID and probe size if a DPLPMTUD probe is needed.
+    ///
+    /// We MTU probe all paths for which all of the following is true:
+    /// - We have an active destination CID for the path.
+    /// - The remote address *and* path are validated.
+    /// - The path is not abandoned.
+    /// - The MTU Discovery subsystem wants to probe the path.
     fn get_mtu_probe_data(&mut self, now: Instant, path_id: PathId) -> Option<(ConnectionId, u16)> {
-        // We MTU probe all paths for which all of the following is true:
-        // - We have an active destination CID for the path.
-        // - The remote address *and* path are validated.
-        // - The path is not abandoned.
-        // - The MTU Discovery subsystem wants to probe the path.
         let active_cid = self.rem_cids.get(&path_id).map(CidQueue::active)?;
         let is_eligible = self.path_data(path_id).validated
             && !self.path_data(path_id).is_validating_path()
