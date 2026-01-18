@@ -1109,8 +1109,6 @@ impl Connection {
         if self.state.is_established() {
             // Try MTU probing now
             for path_id in path_ids {
-                // Update per path state
-                transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
                 self.poll_transmit_mtu_probe(now, &mut transmit, path_id);
                 if !transmit.is_empty() {
                     let transmit = self.build_transmit(path_id, transmit);
