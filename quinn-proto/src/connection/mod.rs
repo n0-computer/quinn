@@ -1146,7 +1146,11 @@ impl Connection {
         self.stats
             .udp_tx
             .on_sent(transmit.num_datagrams() as u64, transmit.len());
-        // TODO(flub): check https://github.com/n0-computer/quinn/pull/332 changes
+        self.path_stats
+            .entry(path_id)
+            .or_default()
+            .udp_tx
+            .on_sent(transmit.num_datagrams() as u64, transmit.len());
 
         Transmit {
             destination: network_path.remote,
