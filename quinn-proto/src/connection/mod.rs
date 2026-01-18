@@ -1029,17 +1029,22 @@ impl Connection {
                 && self.peer_supports_ack_frequency();
         }
 
+        // TODO(flub): path scheduling logic might be buggy if there are only un-validated
+        //    paths and PATH_STATUS_BACKUP paths.
+
         // Path scheduling logic is currently as such:
         //
         // - For any un-validated paths we only send frames that *must* be sent on that
         //   path. E.g. PATH_CHALLENGE, PATH_RESPONSE.
         //
-        // - If there are any paths with PathStatus::Available we only send any frames that
-        //   can be sent on any path, e.g. STREAM, DATAGRAM, on these available paths.
+        // - If there are any validated paths with CIDs and PathStatus::Available:
+        //   - Frames that can be sent on any path, e.g. STREAM, DATAGRAM, are only sent on
+        //     these available paths.
+        //   - All other paths only send frames that *must* be sent on those paths,
+        //     e.g. PATH_CHALLENGE, PATH_RESPONSE, tail-loss probes, keep alive PING.
         //
-        // - If there are any paths with PathStatus::Available we only send frames that
-        //   *must* be sent on a specific path to any other paths, e.g. a tail-loss probe for
-        //   that path, PMTU probe, a keep-alive PING.
+        // - If there are no validated paths with CIDs and PathStatus::Available all frames
+        //   are sent on the earlierst possible path.
         //
         // For all this we use the *path_exclusive_only* boolean: If set to true, only
         // frames that must be sent on the path will be built into the packet.
