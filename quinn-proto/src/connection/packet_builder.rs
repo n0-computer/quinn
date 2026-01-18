@@ -25,7 +25,7 @@ pub(super) struct PacketBuilder<'a, 'b> {
     path: PathId,
     pub(super) partial_encode: PartialEncode,
     pub(super) ack_eliciting: bool,
-    pub(super) exact_number: u64,
+    pub(super) packet_number: u64,
     /// Is this packet allowed to be coalesced?
     pub(super) can_coalesce: bool,
     /// Smallest absolute position in the associated buffer that must be occupied by this packet's
@@ -93,11 +93,11 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         }
 
         let space = &mut conn.spaces[space_id];
-        let exact_number = space.for_path(path_id).get_tx_number(&mut conn.rng);
-        let span = trace_span!("send", space = ?space_id, pn = exact_number, %path_id).entered();
+        let packet_number = space.for_path(path_id).get_tx_number(&mut conn.rng);
+        let span = trace_span!("send", space = ?space_id, pn = packet_number, %path_id).entered();
 
         let number = PacketNumber::new(
-            exact_number,
+            packet_number,
             space.for_path(path_id).largest_acked_packet.unwrap_or(0),
         );
         let header = match space_id {
@@ -171,7 +171,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
 
         qlog.header(
             &header,
-            Some(exact_number),
+            Some(packet_number),
             space_id,
             space_id == SpaceId::Data && conn.spaces[SpaceId::Data].crypto.is_none(),
             path_id,
@@ -182,7 +182,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             space: space_id,
             path: path_id,
             partial_encode,
-            exact_number,
+            packet_number,
             can_coalesce: header.can_coalesce(),
             min_size,
             tag_len,
@@ -201,7 +201,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             path: PathId::ZERO,
             partial_encode: PartialEncode::no_header(),
             ack_eliciting: true,
-            exact_number: 0,
+            packet_number: 0,
             can_coalesce: true,
             min_size: 0,
             tag_len: 0,
@@ -291,7 +291,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             PadDatagram::ToMinMtu => self.pad_to(MIN_INITIAL_SIZE),
         }
         let ack_eliciting = self.ack_eliciting;
-        let exact_number = self.exact_number;
+        let exact_number = self.packet_number;
         let space_id = self.space;
         let (size, padded, sent) = self.finish(conn, now);
 
@@ -372,7 +372,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         self.partial_encode.finish(
             packet_buf,
             header_crypto,
-            Some((self.exact_number, self.path, packet_crypto)),
+            Some((self.packet_number, self.path, packet_crypto)),
         );
 
         let packet_len = self.buf.len() - encode_start;
