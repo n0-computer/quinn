@@ -1001,9 +1001,12 @@ impl proptest::arbitrary::Arbitrary for PathAck {
             any::<ArrayRangeSet>(),
             any::<Option<EcnCounts>>(),
         )
+            .prop_filter("ranges must be non empty", |(_, _, ranges, _)| {
+                !ranges.is_empty()
+            })
             .prop_map(|(path_id, delay, ranges, ecn)| Self {
                 path_id,
-                largest: ranges.max().unwrap(),
+                largest: ranges.max().expect("ranges must be non empty"),
                 delay,
                 ranges,
                 ecn,
@@ -1128,8 +1131,11 @@ impl proptest::arbitrary::Arbitrary for Ack {
             any::<ArrayRangeSet>(),
             any::<Option<EcnCounts>>(),
         )
+            .prop_filter("ranges must be non empty", |(_, ranges, _)| {
+                !ranges.is_empty()
+            })
             .prop_map(|(delay, ranges, ecn)| Self {
-                largest: ranges.max().unwrap(),
+                largest: ranges.max().expect("ranges must be non empty"),
                 delay,
                 ranges,
                 ecn,

@@ -236,7 +236,7 @@ impl proptest::arbitrary::Arbitrary for ArrayRangeSet {
         use proptest::prelude::*;
         // Generate 1-8 ranges. Each range is defined by a gap from the previous and a size.
         // We use small values to keep encoding reasonable.
-        prop::collection::vec((1u64..100, 1u64..50), 1..=8)
+        prop::collection::vec((1u64..100, 1u64..50), 0..8)
             .prop_map(|gaps_and_sizes| {
                 let mut ranges = Self::new();
                 let mut pos = 0u64;
