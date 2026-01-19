@@ -1013,19 +1013,28 @@ impl Connection {
                 && self.rem_cids.contains_key(id)
         });
 
+        if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
+            return Some(challenge);
+        }
+
+        // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
+        // path validation can occur while the link is saturated.
+        // TODO(@divma): I have no idea what this comment is supposed to mean
+        if let Some(response) = self.send_off_path_path_response(now, buf, path_id) {
+            return Some(response);
+        }
+
+        let mut space_id = match path_id {
+            PathId::ZERO => SpaceId::Initial,
+            _ => SpaceId::Data,
+        };
+
         // Setup for the first path_id
         let mut transmit = TransmitBuf::new(
             buf,
             max_datagrams,
             self.path_data(path_id).current_mtu().into(),
         );
-        if let Some(challenge) = self.send_prev_path_challenge(now, &mut transmit, path_id) {
-            return Some(challenge);
-        }
-        let mut space_id = match path_id {
-            PathId::ZERO => SpaceId::Initial,
-            _ => SpaceId::Data,
-        };
 
         loop {
             // check if there is at least one active CID to use for sending
@@ -1054,32 +1063,31 @@ impl Connection {
                     trace!(%path_id, "remote CIDs retired for abandoned path");
                 }
 
-                match self.paths.keys().find(|&&next| next > path_id) {
-                    Some(next_path_id) => {
-                        // See if this next path can send anything.
-                        path_id = *next_path_id;
-                        space_id = SpaceId::Data;
+                let Some(next_path_id) = self.paths.keys().find(|&&next| next > path_id) else {
+                    // Nothing more to send.
+                    trace!(?space_id, %path_id, "no CIDs to send on path, no more paths");
+                    break;
+                };
+                // See if this next path can send anything.
+                path_id = *next_path_id;
+                space_id = SpaceId::Data;
 
-                        // update per path state
-                        transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
-                        if let Some(challenge) =
-                            self.send_prev_path_challenge(now, &mut transmit, path_id)
-                        {
-                            return Some(challenge);
-                        }
+                transmit = {
+                    let (buf, _) = transmit.finish();
+                    if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
+                        return Some(challenge);
+                    } else if let Some(response) =
+                        self.send_off_path_path_response(now, buf, path_id)
+                    {
+                        return Some(response);
+                    }
+                    {
+                        let pmtu = self.path_data(path_id).current_mtu().into();
+                        TransmitBuf::new(buf, max_datagrams, pmtu)
+                    }
+                };
 
-                        continue;
-                    }
-                    None => {
-                        // Nothing more to send.
-                        trace!(
-                            ?space_id,
-                            %path_id,
-                            "no CIDs to send on path, no more paths"
-                        );
-                        break;
-                    }
-                }
+                continue;
             };
 
             // Determine if anything can be sent in this packet number space (SpaceId +
@@ -1138,39 +1146,35 @@ impl Connection {
                     break;
                 }
 
-                match self.paths.keys().find(|&&next| next > path_id) {
-                    Some(next_path_id) => {
-                        // See if this next path can send anything.
-                        trace!(
-                            ?space_id,
-                            %path_id,
-                            %next_path_id,
-                            "nothing to send on path"
-                        );
-                        path_id = *next_path_id;
-                        space_id = SpaceId::Data;
+                let Some(next_path_id) = self.paths.keys().find(|&&next| next > path_id) else {
+                    // Nothing more to send and no more paths to check
+                    trace!(?space_id, %path_id, next_path_id=?None::<PathId>, "nothing to send on path");
+                    break;
+                };
 
-                        // update per path state
-                        transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
-                        if let Some(challenge) =
-                            self.send_prev_path_challenge(now, &mut transmit, path_id)
-                        {
-                            return Some(challenge);
-                        }
+                // See if this next path can send anything.
+                trace!(?space_id, %path_id, %next_path_id, "nothing to send on path");
+                path_id = *next_path_id;
+                space_id = SpaceId::Data;
 
-                        continue;
+                transmit = {
+                    let (buf, _) = transmit.finish();
+                    // Check off path data for the new path_id
+                    if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
+                        return Some(challenge);
+                    } else if let Some(response) =
+                        self.send_off_path_path_response(now, buf, path_id)
+                    {
+                        return Some(response);
+                    } else {
+                        // Continue with on path data
+                        // New path_id => fresh transmit
+                        let pmtu = self.path_data(path_id).current_mtu().into();
+                        TransmitBuf::new(buf, max_datagrams, pmtu)
                     }
-                    None => {
-                        // Nothing more to send.
-                        trace!(
-                            ?space_id,
-                            %path_id,
-                            next_path_id=?None::<PathId>,
-                            "nothing to send on path"
-                        );
-                        break;
-                    }
-                }
+                };
+
+                continue;
             }
 
             // If the datagram is full, we need to start a new one.
@@ -1316,37 +1320,6 @@ impl Connection {
                     // to send anything else.
                     space_id = space_id.next();
                     continue;
-                }
-            }
-
-            // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
-            // path validation can occur while the link is saturated.
-            if space_id == SpaceId::Data && builder.buf.num_datagrams() == 1 {
-                let path = self.path_data_mut(path_id);
-                if let Some((token, network_path)) =
-                    path.path_responses.pop_off_path(path.network_path)
-                {
-                    // TODO(flub): We need to use the right CID!  We shouldn't use the same
-                    //    CID as the current active one for the path.  Though see also
-                    //    https://github.com/quinn-rs/quinn/issues/2184
-                    //
-                    let stats = &mut self.stats.frame_tx;
-                    let frame = frame::PathResponse(token);
-                    builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
-                    builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
-                    self.stats.udp_tx.on_sent(1, transmit.len());
-                    self.path_stats
-                        .entry(path_id)
-                        .or_default()
-                        .udp_tx
-                        .on_sent(1, transmit.len());
-                    return Some(Transmit {
-                        destination: network_path.remote,
-                        size: transmit.len(),
-                        ecn: None,
-                        segment_size: None,
-                        src_ip: network_path.local_ip,
-                    });
                 }
             }
 
@@ -1660,7 +1633,7 @@ impl Connection {
     fn send_prev_path_challenge(
         &mut self,
         now: Instant,
-        buf: &mut TransmitBuf<'_>,
+        buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
         let (prev_cid, prev_path) = self.paths.get_mut(&path_id)?.prev.as_mut()?;
@@ -1682,14 +1655,14 @@ impl Connection {
             SpaceId::Data,
             "PATH_CHALLENGE queued without 1-RTT keys"
         );
-        buf.start_new_datagram_with_size(MIN_INITIAL_SIZE as usize);
+        let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
+        buf.start_new_datagram();
 
         // Use the previous CID to avoid linking the new path with the previous path. We
         // don't bother accounting for possible retirement of that prev_cid because this is
         // sent once, immediately after migration, when the CID is known to be valid. Even
         // if a post-migration packet caused the CID to be retired, it's fair to pretend
         // this is sent first.
-        debug_assert_eq!(buf.datagram_start_offset(), 0);
         let mut builder =
             PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
         let challenge = frame::PathChallenge(token);
@@ -1713,6 +1686,49 @@ impl Connection {
         Some(Transmit {
             destination: network_path.remote,
             size: buf.len(),
+            ecn: None,
+            segment_size: None,
+            src_ip: network_path.local_ip,
+        })
+    }
+
+    fn send_off_path_path_response(
+        &mut self,
+        now: Instant,
+        buf: &mut Vec<u8>,
+        path_id: PathId,
+    ) -> Option<Transmit> {
+        let path = self.paths.get_mut(&path_id).map(|state| &mut state.data)?;
+        let cid_queue = self.rem_cids.get_mut(&path_id)?;
+        let (token, network_path) = path.path_responses.pop_off_path(path.network_path)?;
+
+        let cid = cid_queue
+            .next_reserved()
+            .unwrap_or_else(|| cid_queue.active());
+        // TODO(@divma): we should take a different approach when there is no fresh CID to use.
+        // https://github.com/quinn-rs/quinn/issues/2184
+
+        let frame = frame::PathResponse(token);
+
+        let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
+        buf.start_new_datagram();
+
+        let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, buf, false, self)?;
+        let stats = &mut self.stats.frame_tx;
+        builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
+        builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
+
+        let size = buf.len();
+
+        self.stats.udp_tx.on_sent(1, size);
+        self.path_stats
+            .entry(path_id)
+            .or_default()
+            .udp_tx
+            .on_sent(1, size);
+        Some(Transmit {
+            destination: network_path.remote,
+            size,
             ecn: None,
             segment_size: None,
             src_ip: network_path.local_ip,
