@@ -1079,7 +1079,7 @@
 <a href=#1079 id=1079 data-nosnippet>1079</a>    <span class="kw">fn </span>arbitrary_with(<span class="kw">_</span>: <span class="self">Self</span>::Parameters) -&gt; <span class="self">Self</span>::Strategy {
 <a href=#1080 id=1080 data-nosnippet>1080</a>        <span class="kw">use </span>proptest::prelude::<span class="kw-2">*</span>;
 <a href=#1081 id=1081 data-nosnippet>1081</a>        (any::&lt;PathId&gt;(), varint_u64(), any::&lt;ArrayRangeSet&gt;(), any::&lt;<span class="prelude-ty">Option</span>&lt;EcnCounts&gt;&gt;())
-<a href=#1082 id=1082 data-nosnippet>1082</a>            .prop_map(|(path_id, delay, ranges, ecn)| PathAck {
+<a href=#1082 id=1082 data-nosnippet>1082</a>            .prop_map(|(path_id, delay, ranges, ecn)| <span class="self">Self </span>{
 <a href=#1083 id=1083 data-nosnippet>1083</a>                path_id,
 <a href=#1084 id=1084 data-nosnippet>1084</a>                largest: ranges.max().unwrap(),
 <a href=#1085 id=1085 data-nosnippet>1085</a>                delay,
@@ -1202,7 +1202,7 @@
 <a href=#1202 id=1202 data-nosnippet>1202</a>    <span class="kw">fn </span>arbitrary_with(<span class="kw">_</span>: <span class="self">Self</span>::Parameters) -&gt; <span class="self">Self</span>::Strategy {
 <a href=#1203 id=1203 data-nosnippet>1203</a>        <span class="kw">use </span>proptest::prelude::<span class="kw-2">*</span>;
 <a href=#1204 id=1204 data-nosnippet>1204</a>        (varint_u64(), any::&lt;ArrayRangeSet&gt;(), any::&lt;<span class="prelude-ty">Option</span>&lt;EcnCounts&gt;&gt;())
-<a href=#1205 id=1205 data-nosnippet>1205</a>            .prop_map(|(delay, ranges, ecn)| Ack {
+<a href=#1205 id=1205 data-nosnippet>1205</a>            .prop_map(|(delay, ranges, ecn)| <span class="self">Self </span>{
 <a href=#1206 id=1206 data-nosnippet>1206</a>                largest: ranges.max().unwrap(),
 <a href=#1207 id=1207 data-nosnippet>1207</a>                delay,
 <a href=#1208 id=1208 data-nosnippet>1208</a>                ranges,
@@ -1960,7 +1960,7 @@
 <a href=#1960 id=1960 data-nosnippet>1960</a>            .prop_map(|(path_id, a, b, (id, reset_token))| {
 <a href=#1961 id=1961 data-nosnippet>1961</a>                <span class="kw">let </span>sequence = std::cmp::max(a, b);
 <a href=#1962 id=1962 data-nosnippet>1962</a>                <span class="kw">let </span>retire_prior_to = std::cmp::min(a, b);
-<a href=#1963 id=1963 data-nosnippet>1963</a>                NewConnectionId {
+<a href=#1963 id=1963 data-nosnippet>1963</a>                <span class="self">Self </span>{
 <a href=#1964 id=1964 data-nosnippet>1964</a>                    path_id,
 <a href=#1965 id=1965 data-nosnippet>1965</a>                    sequence,
 <a href=#1966 id=1966 data-nosnippet>1966</a>                    retire_prior_to,
@@ -2171,7 +2171,7 @@
 <a href=#2171 id=2171 data-nosnippet>2171</a>    <span class="kw">fn </span>arbitrary_with(<span class="kw">_</span>: <span class="self">Self</span>::Parameters) -&gt; <span class="self">Self</span>::Strategy {
 <a href=#2172 id=2172 data-nosnippet>2172</a>        <span class="kw">use </span>proptest::prelude::<span class="kw-2">*</span>;
 <a href=#2173 id=2173 data-nosnippet>2173</a>        (any::&lt;VarInt&gt;(), ip_addr(), any::&lt;u16&gt;())
-<a href=#2174 id=2174 data-nosnippet>2174</a>            .prop_map(|(seq_no, ip, port)| ObservedAddr { seq_no, ip, port })
+<a href=#2174 id=2174 data-nosnippet>2174</a>            .prop_map(|(seq_no, ip, port)| <span class="self">Self </span>{ seq_no, ip, port })
 <a href=#2175 id=2175 data-nosnippet>2175</a>            .boxed()
 <a href=#2176 id=2176 data-nosnippet>2176</a>    }
 <a href=#2177 id=2177 data-nosnippet>2177</a>}
@@ -2366,7 +2366,7 @@
 <a href=#2366 id=2366 data-nosnippet>2366</a>    <span class="kw">fn </span>arbitrary_with(<span class="kw">_</span>: <span class="self">Self</span>::Parameters) -&gt; <span class="self">Self</span>::Strategy {
 <a href=#2367 id=2367 data-nosnippet>2367</a>        <span class="kw">use </span>proptest::prelude::<span class="kw-2">*</span>;
 <a href=#2368 id=2368 data-nosnippet>2368</a>        (any::&lt;VarInt&gt;(), ip_addr(), any::&lt;u16&gt;())
-<a href=#2369 id=2369 data-nosnippet>2369</a>            .prop_map(|(seq_no, ip, port)| AddAddress { seq_no, ip, port })
+<a href=#2369 id=2369 data-nosnippet>2369</a>            .prop_map(|(seq_no, ip, port)| <span class="self">Self </span>{ seq_no, ip, port })
 <a href=#2370 id=2370 data-nosnippet>2370</a>            .boxed()
 <a href=#2371 id=2371 data-nosnippet>2371</a>    }
 <a href=#2372 id=2372 data-nosnippet>2372</a>}
@@ -2466,7 +2466,7 @@
 <a href=#2466 id=2466 data-nosnippet>2466</a>    <span class="kw">fn </span>arbitrary_with(<span class="kw">_</span>: <span class="self">Self</span>::Parameters) -&gt; <span class="self">Self</span>::Strategy {
 <a href=#2467 id=2467 data-nosnippet>2467</a>        <span class="kw">use </span>proptest::prelude::<span class="kw-2">*</span>;
 <a href=#2468 id=2468 data-nosnippet>2468</a>        (any::&lt;VarInt&gt;(), ip_addr(), any::&lt;u16&gt;())
-<a href=#2469 id=2469 data-nosnippet>2469</a>            .prop_map(|(round, ip, port)| ReachOut { round, ip, port })
+<a href=#2469 id=2469 data-nosnippet>2469</a>            .prop_map(|(round, ip, port)| <span class="self">Self </span>{ round, ip, port })
 <a href=#2470 id=2470 data-nosnippet>2470</a>            .boxed()
 <a href=#2471 id=2471 data-nosnippet>2471</a>    }
 <a href=#2472 id=2472 data-nosnippet>2472</a>}
