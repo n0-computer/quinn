@@ -238,7 +238,7 @@ impl proptest::arbitrary::Arbitrary for ArrayRangeSet {
         // We use small values to keep encoding reasonable.
         prop::collection::vec((1u64..100, 1u64..50), 1..=8)
             .prop_map(|gaps_and_sizes| {
-                let mut ranges = ArrayRangeSet::new();
+                let mut ranges = Self::new();
                 let mut pos = 0u64;
                 for (gap, size) in gaps_and_sizes {
                     let start = pos + gap;

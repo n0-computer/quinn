@@ -1079,7 +1079,7 @@ impl proptest::arbitrary::Arbitrary for PathAck {
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         use proptest::prelude::*;
         (any::<PathId>(), varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>())
-            .prop_map(|(path_id, delay, ranges, ecn)| PathAck {
+            .prop_map(|(path_id, delay, ranges, ecn)| Self {
                 path_id,
                 largest: ranges.max().unwrap(),
                 delay,
@@ -1202,7 +1202,7 @@ impl proptest::arbitrary::Arbitrary for Ack {
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         use proptest::prelude::*;
         (varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>())
-            .prop_map(|(delay, ranges, ecn)| Ack {
+            .prop_map(|(delay, ranges, ecn)| Self {
                 largest: ranges.max().unwrap(),
                 delay,
                 ranges,
@@ -1960,7 +1960,7 @@ impl proptest::arbitrary::Arbitrary for NewConnectionId {
             .prop_map(|(path_id, a, b, (id, reset_token))| {
                 let sequence = std::cmp::max(a, b);
                 let retire_prior_to = std::cmp::min(a, b);
-                NewConnectionId {
+                Self {
                     path_id,
                     sequence,
                     retire_prior_to,
@@ -2171,7 +2171,7 @@ impl proptest::arbitrary::Arbitrary for ObservedAddr {
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         use proptest::prelude::*;
         (any::<VarInt>(), ip_addr(), any::<u16>())
-            .prop_map(|(seq_no, ip, port)| ObservedAddr { seq_no, ip, port })
+            .prop_map(|(seq_no, ip, port)| Self { seq_no, ip, port })
             .boxed()
     }
 }
@@ -2366,7 +2366,7 @@ impl proptest::arbitrary::Arbitrary for AddAddress {
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         use proptest::prelude::*;
         (any::<VarInt>(), ip_addr(), any::<u16>())
-            .prop_map(|(seq_no, ip, port)| AddAddress { seq_no, ip, port })
+            .prop_map(|(seq_no, ip, port)| Self { seq_no, ip, port })
             .boxed()
     }
 }
@@ -2466,7 +2466,7 @@ impl proptest::arbitrary::Arbitrary for ReachOut {
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         use proptest::prelude::*;
         (any::<VarInt>(), ip_addr(), any::<u16>())
-            .prop_map(|(round, ip, port)| ReachOut { round, ip, port })
+            .prop_map(|(round, ip, port)| Self { round, ip, port })
             .boxed()
     }
 }
