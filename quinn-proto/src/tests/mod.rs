@@ -35,6 +35,8 @@ use crate::{
 mod util;
 pub(crate) use util::*;
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+mod encode_decode;
 mod multipath;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod proptest;

@@ -12,11 +12,11 @@ use test_strategy::proptest;
 use tracing::error;
 
 use crate::{
-    Connection, ConnectionClose, ConnectionError, Event, PathStatus, TransportConfig,
+    Connection, ConnectionClose, ConnectionError, Event, PathStatus, Side, TransportConfig,
     TransportErrorCode,
     tests::{
         Pair, RoutingTable,
-        random_interaction::{Side, TestOp, run_random_interaction},
+        random_interaction::{TestOp, run_random_interaction},
         server_config, subscribe,
     },
 };

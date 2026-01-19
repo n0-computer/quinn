@@ -31,7 +31,7 @@ identity-hash = "0.1.0"
 lru-slab = "0.1.2"
 log = "0.4"
 pin-project-lite = "0.2"
-proptest = "1.9.0"
+proptest = { version = "1.9.0", default-features = false, features = ["std"] }
 qlog = { package = "n0-qlog", version = "0.1.0" }
 rand = "0.9"
 rcgen = "0.14"

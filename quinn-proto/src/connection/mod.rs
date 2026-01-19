@@ -32,7 +32,10 @@ use crate::{
         timer::{ConnTimer, PathTimer},
     },
     crypto::{self, KeyPair, Keys, PacketKey},
-    frame::{self, Close, Datagram, FrameStruct, NewToken, ObservedAddr},
+    frame::{
+        self, Close, DataBlocked, Datagram, FrameStruct, NewToken, ObservedAddr, StreamDataBlocked,
+        StreamsBlocked,
+    },
     iroh_hp,
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
@@ -4603,10 +4606,10 @@ impl Connection {
                         self.spaces[SpaceId::Data].pending.max_data = true;
                     }
                 }
-                Frame::DataBlocked { offset } => {
+                Frame::DataBlocked(DataBlocked(offset)) => {
                     debug!(offset, "peer claims to be blocked at connection level");
                 }
-                Frame::StreamDataBlocked { id, offset } => {
+                Frame::StreamDataBlocked(StreamDataBlocked { id, offset }) => {
                     if id.initiator() == self.side.side() && id.dir() == Dir::Uni {
                         debug!("got STREAM_DATA_BLOCKED on send-only {}", id);
                         return Err(TransportError::STREAM_STATE_ERROR(
@@ -4618,7 +4621,7 @@ impl Connection {
                         offset, "peer claims to be blocked at stream level"
                     );
                 }
-                Frame::StreamsBlocked { dir, limit } => {
+                Frame::StreamsBlocked(StreamsBlocked { dir, limit }) => {
                     if limit > MAX_STREAM_COUNT {
                         return Err(TransportError::FRAME_ENCODING_ERROR(
                             "unrepresentable stream limit",

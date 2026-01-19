@@ -1,23 +1,14 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use proptest::{
-    prelude::{Just, Strategy},
-    prop_oneof,
-};
 use test_strategy::Arbitrary;
 use tracing::{debug, trace};
 
 use crate::{
-    Connection, ConnectionHandle, Dir, FourTuple, PathId, PathStatus, StreamId, TransportConfig,
+    Connection, ConnectionHandle, Dir, FourTuple, PathId, PathStatus, Side, StreamId,
+    TransportConfig,
     tests::{Pair, TestEndpoint, client_config},
 };
-
-#[derive(Debug, Clone, Copy, Arbitrary)]
-pub(super) enum Side {
-    Server,
-    Client,
-}
 
 #[derive(Debug, Clone, Copy, Arbitrary)]
 pub(super) enum TestOp {
@@ -26,32 +17,20 @@ pub(super) enum TestOp {
     DropInbound(Side),
     ReorderInbound(Side),
     ForceKeyUpdate(Side),
-    OpenPath(
-        Side,
-        #[strategy(path_status())] PathStatus,
-        #[strategy(0..3usize)] usize,
-    ),
+    OpenPath(Side, PathStatus, #[strategy(0..3usize)] usize),
     ClosePath(Side, #[strategy(0..3usize)] usize, u32),
-    PathSetStatus(
-        Side,
-        #[strategy(0..3usize)] usize,
-        #[strategy(path_status())] PathStatus,
-    ),
+    PathSetStatus(Side, #[strategy(0..3usize)] usize, PathStatus),
     StreamOp(Side, StreamOp),
     CloseConn(Side, u32),
     AddHpAddr(Side, #[strategy(0..3usize)] usize),
     InitiateHpRound(Side),
 }
 
-fn path_status() -> impl Strategy<Value = PathStatus> {
-    prop_oneof![Just(PathStatus::Available), Just(PathStatus::Backup)]
-}
-
 /// We *basically* only operate with 3 streams concurrently at the moment
 /// (even though more might be opened at a time).
 #[derive(Debug, Clone, Copy, Arbitrary)]
 pub(super) enum StreamOp {
-    Open(#[strategy(stream_dir())] Dir),
+    Open(Dir),
     Send {
         #[strategy(0..3usize)]
         stream: usize,
@@ -61,17 +40,9 @@ pub(super) enum StreamOp {
     Finish(#[strategy(0..3usize)] usize),
     Reset(#[strategy(0..3usize)] usize, u32),
 
-    Accept(#[strategy(stream_dir())] Dir),
+    Accept(Dir),
     Receive(#[strategy(0..3usize)] usize, bool),
     Stop(#[strategy(0..3usize)] usize, u32),
-}
-
-fn stream_dir() -> impl Strategy<Value = Dir> {
-    (0..=1).prop_map(|n| match n {
-        0 => Dir::Uni,
-        1 => Dir::Bi,
-        _ => unreachable!(),
-    })
 }
 
 pub(super) struct State {
