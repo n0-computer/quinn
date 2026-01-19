@@ -43,27 +43,38 @@ fn connection_close() -> impl Strategy<Value = ConnectionClose> {
 
 #[cfg(test)]
 fn application_close() -> impl Strategy<Value = crate::ApplicationClose> {
-    (any::<VarInt>(), collection::vec(any::<u8>(), 0..64).prop_map(Bytes::from))
+    (
+        any::<VarInt>(),
+        collection::vec(any::<u8>(), 0..64).prop_map(Bytes::from),
+    )
         .prop_map(|(error_code, reason)| crate::ApplicationClose { error_code, reason })
 }
 
 #[cfg(test)]
 fn ack() -> impl Strategy<Value = Ack> {
     use crate::range_set::ArrayRangeSet;
-    (varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>()).prop_map(
-        |(delay, ranges, ecn)| Ack {
+    (
+        varint_u64(),
+        any::<ArrayRangeSet>(),
+        any::<Option<EcnCounts>>(),
+    )
+        .prop_map(|(delay, ranges, ecn)| Ack {
             largest: ranges.max().unwrap(),
             delay,
             ranges,
             ecn,
-        },
-    )
+        })
 }
 
 #[cfg(test)]
 fn path_ack() -> impl Strategy<Value = PathAck> {
     use crate::range_set::ArrayRangeSet;
-    (any::<crate::PathId>(), varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>())
+    (
+        any::<crate::PathId>(),
+        varint_u64(),
+        any::<ArrayRangeSet>(),
+        any::<Option<EcnCounts>>(),
+    )
         .prop_map(|(path_id, delay, ranges, ecn)| PathAck {
             path_id,
             largest: ranges.max().unwrap(),
@@ -1078,7 +1089,12 @@ impl proptest::arbitrary::Arbitrary for PathAck {
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         use proptest::prelude::*;
-        (any::<PathId>(), varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>())
+        (
+            any::<PathId>(),
+            varint_u64(),
+            any::<ArrayRangeSet>(),
+            any::<Option<EcnCounts>>(),
+        )
             .prop_map(|(path_id, delay, ranges, ecn)| Self {
                 path_id,
                 largest: ranges.max().unwrap(),
@@ -1201,7 +1217,11 @@ impl proptest::arbitrary::Arbitrary for Ack {
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         use proptest::prelude::*;
-        (varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>())
+        (
+            varint_u64(),
+            any::<ArrayRangeSet>(),
+            any::<Option<EcnCounts>>(),
+        )
             .prop_map(|(delay, ranges, ecn)| Self {
                 largest: ranges.max().unwrap(),
                 delay,
