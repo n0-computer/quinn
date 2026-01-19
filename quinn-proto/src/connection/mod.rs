@@ -6201,14 +6201,13 @@ impl Connection {
     /// `ipv6` indicates if the path should be opened using an IPV6 remote. If the address is
     /// ignored, it will return `None`.
     ///
-    /// On success returns the [`PathId`] and remote address of the path, as well as whether the path
-    /// existed for the adjusted remote.
+    /// On success returns the [`PathId`] and remote address of the path.
     fn open_nat_traversal_path(
         &mut self,
         now: Instant,
         (ip, port): (IpAddr, u16),
         ipv6: bool,
-    ) -> Result<Option<(PathId, SocketAddr, bool)>, PathError> {
+    ) -> Result<Option<(PathId, SocketAddr)>, PathError> {
         // If this endpoint is an IPv6 endpoint we use IPv6 addresses for all remotes.
         let remote = match ip {
             IpAddr::V4(addr) if ipv6 => SocketAddr::new(addr.to_ipv6_mapped().into(), port),
@@ -6232,7 +6231,7 @@ impl Connection {
                 if path_was_known {
                     trace!(%path_id, %remote, "nat traversal: path existed for remote");
                 }
-                Ok(Some((path_id, remote, path_was_known)))
+                Ok(Some((path_id, remote)))
             }
             Err(e) => {
                 debug!(%remote, %e, "nat traversal: failed to probe remote");
@@ -6297,11 +6296,9 @@ impl Connection {
         for (id, address) in addresses_to_probe {
             match self.open_nat_traversal_path(now, address, ipv6) {
                 Ok(None) => {}
-                Ok(Some((path_id, remote, path_was_known))) => {
-                    if !path_was_known {
-                        path_ids.push(path_id);
-                        probed_addresses.push(remote);
-                    }
+                Ok(Some((path_id, remote))) => {
+                    path_ids.push(path_id);
+                    probed_addresses.push(remote);
                 }
                 Err(e) => {
                     self.iroh_hp
@@ -6343,10 +6340,8 @@ impl Connection {
         let client_state = self.iroh_hp.client_side_mut().expect("validated");
         match open_result {
             Ok(None) => Some(true),
-            Ok(Some((path_id, _remote, path_was_known))) => {
-                if !path_was_known {
-                    client_state.add_round_path_id(path_id);
-                }
+            Ok(Some((path_id, _remote))) => {
+                client_state.add_round_path_id(path_id);
                 Some(true)
             }
             Err(e) => {
