@@ -247,7 +247,7 @@ impl fmt::Display for Dir {
 /// Identifier for a stream within a particular connection
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(test, derive(Arbitrary))]
-pub struct StreamId(#[cfg_attr(test, strategy(0u64..(1u64 << 62)))] u64);
+pub struct StreamId(#[cfg_attr(test, strategy(crate::varint::varint_u64()))] u64);
 
 impl fmt::Display for StreamId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

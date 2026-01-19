@@ -7,12 +7,13 @@ use crate::{
     VarInt,
     coding::{BufMutExt, Encodable},
     frame::{
-        Close, MaybeFrame, NewConnectionId, ResetStream, StopSending, Stream, PathChallenge,
-        PathResponse, MaxPathId, PathsBlocked, PathCidsBlocked, PathAbandon, PathStatusAvailable,
-        PathStatusBackup, MaxData, MaxStreamData, Ping, ImmediateAck, HandshakeDone, MaxStreams,
-        RetireConnectionId, Crypto, NewToken, AckFrequency, ObservedAddr, AddAddress, ReachOut,
-        RemoveAddress, DataBlocked, StreamDataBlocked, StreamsBlocked,
+        Ack, Close, EcnCounts, MaybeFrame, NewConnectionId, ResetStream, StopSending, Stream,
+        PathChallenge, PathResponse, MaxPathId, PathsBlocked, PathCidsBlocked, PathAbandon,
+        PathStatusAvailable, PathStatusBackup, MaxData, MaxStreamData, Ping, ImmediateAck,
+        HandshakeDone, MaxStreams, RetireConnectionId, Crypto, NewToken, AckFrequency, ObservedAddr,
+        AddAddress, ReachOut, RemoveAddress, DataBlocked, StreamDataBlocked, StreamsBlocked,
     },
+    range_set::ArrayRangeSet,
     token::ResetToken,
 };
 
@@ -106,8 +107,20 @@ fn reach_out() -> impl Strategy<Value = ReachOut> {
     })
 }
 
+fn ack() -> impl Strategy<Value = Ack> {
+    (valid_varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>()).prop_map(
+        |(delay, ranges, ecn)| Ack {
+            largest: ranges.max().unwrap(),
+            delay,
+            ranges,
+            ecn,
+        },
+    )
+}
+
 #[derive(Debug, Arbitrary)]
 enum TestFrame {
+    Ack(#[strategy(ack())] Ack),
     ConnectionClose(#[strategy(connection_close())] ConnectionClose),
     ApplicationClose(#[strategy(application_close())] ApplicationClose),
     ResetStream(ResetStream),
@@ -146,6 +159,7 @@ impl TryFrom<Frame> for TestFrame {
     type Error = &'static str;
     fn try_from(frame: Frame) -> Result<Self, Self::Error> {
         match frame {
+            Frame::Ack(a) => Ok(Self::Ack(a)),
             Frame::Close(Close::Connection(cc)) => Ok(Self::ConnectionClose(cc)),
             Frame::Close(Close::Application(ac)) => Ok(Self::ApplicationClose(ac)),
             Frame::ResetStream(rs) => Ok(Self::ResetStream(rs)),
@@ -196,6 +210,7 @@ impl PartialEq for TestFrame {
 impl Encodable for TestFrame {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         match self {
+            Self::Ack(a) => Ack::encoder(a.delay, &a.ranges, a.ecn.as_ref()).encode(buf),
             Self::ConnectionClose(cc) => cc.encode(buf, usize::MAX),
             Self::ApplicationClose(ac) => ac.encode(buf, usize::MAX),
             Self::ResetStream(rs) => rs.encode(buf),

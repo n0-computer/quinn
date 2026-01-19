@@ -21,6 +21,8 @@ use crate::{
 use super::connection::qlog::ToQlog;
 
 #[cfg(test)]
+use crate::varint::varint_u64;
+#[cfg(test)]
 use proptest::{collection, prelude::any, strategy::Strategy};
 #[cfg(test)]
 use test_strategy::Arbitrary;
@@ -585,7 +587,7 @@ impl Encodable for PathResponse {
 #[derive(Debug, Clone, Copy, derive_more::Display)]
 #[cfg_attr(test, derive(Arbitrary, PartialEq, Eq))]
 #[display("DATA_BLOCKED offset: {_0}")]
-pub(crate) struct DataBlocked(#[cfg_attr(test, strategy(0u64..(1u64 << 62)))] pub(crate) u64);
+pub(crate) struct DataBlocked(#[cfg_attr(test, strategy(varint_u64()))] pub(crate) u64);
 
 impl Encodable for DataBlocked {
     fn encode<B: BufMut>(&self, buf: &mut B) {
@@ -599,7 +601,7 @@ impl Encodable for DataBlocked {
 #[display("STREAM_DATA_BLOCKED id: {id} offset: {offset}")]
 pub(crate) struct StreamDataBlocked {
     pub(crate) id: StreamId,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) offset: u64,
 }
 
@@ -622,7 +624,7 @@ impl Encodable for StreamDataBlocked {
 #[display("STREAMS_BLOCKED dir: {:?} limit: {limit}", dir)]
 pub(crate) struct StreamsBlocked {
     pub(crate) dir: Dir,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) limit: u64,
 }
 
@@ -671,7 +673,7 @@ impl Encodable for MaxData {
 #[display("MAX_STREAM_DATA id: {id} max: {offset}")]
 pub(crate) struct MaxStreamData {
     pub(crate) id: StreamId,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) offset: u64,
 }
 
@@ -703,7 +705,7 @@ impl Encodable for MaxStreamData {
 #[display("{} count: {count}", self.get_type())]
 pub(crate) struct MaxStreams {
     pub(crate) dir: Dir,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) count: u64,
 }
 
@@ -728,7 +730,7 @@ impl Encodable for MaxStreams {
 #[display("{} {} seq: {sequence}", self.get_type(), DisplayOption::new("path_id", path_id.as_ref()))]
 pub(crate) struct RetireConnectionId {
     pub(crate) path_id: Option<PathId>,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) sequence: u64,
 }
 
@@ -1118,10 +1120,14 @@ impl<'a> Encodable for AckEncoder<'a> {
     }
 }
 
+#[cfg_attr(test, derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(crate) struct EcnCounts {
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub ect0: u64,
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub ect1: u64,
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub ce: u64,
 }
 
@@ -1161,7 +1167,7 @@ impl Encodable for EcnCounts {
 #[cfg_attr(test, derive(Arbitrary, PartialEq, Eq))]
 pub(crate) struct Stream {
     pub(crate) id: StreamId,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) offset: u64,
     pub(crate) fin: bool,
     #[cfg_attr(test, strategy(Strategy::prop_map(collection::vec(any::<u8>(), 0..100), Bytes::from)))]
@@ -1252,7 +1258,7 @@ pub(crate) type StreamMetaVec = TinyVec<[StreamMeta; 1]>;
 #[cfg_attr(test, derive(Arbitrary, PartialEq, Eq))]
 #[display("CRYPTO off: {offset} len = {}", data.len())]
 pub(crate) struct Crypto {
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) offset: u64,
     #[cfg_attr(test, strategy(Strategy::prop_map(collection::vec(any::<u8>(), 0..1024), Bytes::from)))]
     pub(crate) data: Bytes,
