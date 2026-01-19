@@ -49,6 +49,8 @@ pub use crate::connection::{
     SendDatagramError, SendStream, SetPathStatusError, ShouldTransmit, StreamEvent, Streams,
     UdpStats, WriteError, Written,
 };
+#[cfg(test)]
+use test_strategy::Arbitrary;
 
 #[cfg(feature = "rustls")]
 pub use rustls;
@@ -109,9 +111,6 @@ mod token_memory_cache;
 pub use token_memory_cache::TokenMemoryCache;
 
 pub mod iroh_hp;
-
-#[cfg(feature = "arbitrary")]
-use arbitrary::Arbitrary;
 
 // Deal with time
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -184,7 +183,8 @@ pub const DEFAULT_SUPPORTED_VERSIONS: &[u32] = &[
 ];
 
 /// Whether an endpoint was the initiator of a connection
-#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(test, derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Side {
     /// The initiator of a connection
@@ -218,7 +218,8 @@ impl ops::Not for Side {
 }
 
 /// Whether a stream communicates data in both directions or only from the initiator
-#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(test, derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Dir {
     /// Data flows in both directions
@@ -244,9 +245,9 @@ impl fmt::Display for Dir {
 }
 
 /// Identifier for a stream within a particular connection
-#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct StreamId(u64);
+#[cfg_attr(test, derive(Arbitrary))]
+pub struct StreamId(#[cfg_attr(test, strategy(0u64..(1u64 << 62)))] u64);
 
 impl fmt::Display for StreamId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -318,6 +319,13 @@ impl Decodable for StreamId {
 impl Encodable for StreamId {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) {
         VarInt::from_u64(self.0).unwrap().encode(buf);
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'arbitrary> arbitrary::Arbitrary<'arbitrary> for StreamId {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'arbitrary>) -> arbitrary::Result<Self> {
+        Ok(VarInt::arbitrary(u)?.into())
     }
 }
 
