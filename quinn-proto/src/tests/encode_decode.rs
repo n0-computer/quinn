@@ -7,8 +7,8 @@ use crate::{
     VarInt,
     coding::{BufMutExt, Encodable},
     frame::{
-        Ack, Close, EcnCounts, MaybeFrame, NewConnectionId, ResetStream, StopSending, Stream,
-        PathChallenge, PathResponse, MaxPathId, PathsBlocked, PathCidsBlocked, PathAbandon,
+        Ack, Close, EcnCounts, MaybeFrame, NewConnectionId, PathAck, ResetStream, StopSending,
+        Stream, PathChallenge, PathResponse, MaxPathId, PathsBlocked, PathCidsBlocked, PathAbandon,
         PathStatusAvailable, PathStatusBackup, MaxData, MaxStreamData, Ping, ImmediateAck,
         HandshakeDone, MaxStreams, RetireConnectionId, Crypto, NewToken, AckFrequency, ObservedAddr,
         AddAddress, ReachOut, RemoveAddress, DataBlocked, StreamDataBlocked, StreamsBlocked,
@@ -118,9 +118,21 @@ fn ack() -> impl Strategy<Value = Ack> {
     )
 }
 
+fn path_ack() -> impl Strategy<Value = PathAck> {
+    (any::<PathId>(), valid_varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>())
+        .prop_map(|(path_id, delay, ranges, ecn)| PathAck {
+            path_id,
+            largest: ranges.max().unwrap(),
+            delay,
+            ranges,
+            ecn,
+        })
+}
+
 #[derive(Debug, Arbitrary)]
 enum TestFrame {
     Ack(#[strategy(ack())] Ack),
+    PathAck(#[strategy(path_ack())] PathAck),
     ConnectionClose(#[strategy(connection_close())] ConnectionClose),
     ApplicationClose(#[strategy(application_close())] ApplicationClose),
     ResetStream(ResetStream),
@@ -160,6 +172,7 @@ impl TryFrom<Frame> for TestFrame {
     fn try_from(frame: Frame) -> Result<Self, Self::Error> {
         match frame {
             Frame::Ack(a) => Ok(Self::Ack(a)),
+            Frame::PathAck(pa) => Ok(Self::PathAck(pa)),
             Frame::Close(Close::Connection(cc)) => Ok(Self::ConnectionClose(cc)),
             Frame::Close(Close::Application(ac)) => Ok(Self::ApplicationClose(ac)),
             Frame::ResetStream(rs) => Ok(Self::ResetStream(rs)),
@@ -211,6 +224,9 @@ impl Encodable for TestFrame {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         match self {
             Self::Ack(a) => Ack::encoder(a.delay, &a.ranges, a.ecn.as_ref()).encode(buf),
+            Self::PathAck(pa) => {
+                PathAck::encoder(pa.path_id, pa.delay, &pa.ranges, pa.ecn.as_ref()).encode(buf)
+            }
             Self::ConnectionClose(cc) => cc.encode(buf, usize::MAX),
             Self::ApplicationClose(ac) => ac.encode(buf, usize::MAX),
             Self::ResetStream(rs) => rs.encode(buf),
