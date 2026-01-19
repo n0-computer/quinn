@@ -335,10 +335,6 @@ enum PollPathStatus {
     },
     /// One or more packets have been written into the [`TransmitBuf`] and should be sent.
     Send,
-    /// Send the contents of the transmit without using the [`TransmitBuf`].
-    ///
-    /// Indicates off-path data being sent.
-    SendTransmit { transmit: Transmit },
 }
 
 /// Return value for [`Connection::poll_transmit_path_space`].
@@ -378,8 +374,6 @@ enum PollPathSpaceOutcome {
         /// The highest packet number written into the transmit.
         last_packet_number: u64,
     },
-    /// Send a transmit directly, usually a hack to send off-path datagrams.
-    SendTransmit { transmit: Transmit },
 }
 
 impl Connection {
@@ -1093,9 +1087,6 @@ impl Connection {
 
             // Poll for on-path transmits.
             match self.poll_transmit_path(now, &mut transmit, path_id, have_available_path, close) {
-                PollPathStatus::SendTransmit { transmit } => {
-                    return Some(transmit);
-                }
                 PollPathStatus::Send => {
                     let transmit = self.build_transmit(path_id, transmit);
                     return Some(transmit);
@@ -1267,9 +1258,6 @@ impl Connection {
                     debug_assert!(!transmit.is_empty(), "transmit must contain packets");
                     last_packet_number = Some(pn);
                     break;
-                }
-                PollPathSpaceOutcome::SendTransmit { transmit } => {
-                    return PollPathStatus::SendTransmit { transmit };
                 }
             }
         }
