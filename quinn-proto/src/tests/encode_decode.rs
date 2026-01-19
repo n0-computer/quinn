@@ -3,8 +3,10 @@ use test_strategy::proptest;
 
 use crate::{
     FrameType,
-    coding::{BufMutExt, Encodable},
-    frame::{Ack, Frame, MaybeFrame, PathAck, Ping, ImmediateAck, HandshakeDone, Stream},
+    coding::Encodable,
+    frame::{
+        Ack, Frame, HandshakeDone, ImmediateAck, MaybeFrame, PathAck, Ping, Stream, StreamMeta,
+    },
 };
 
 impl PartialEq for Frame {
@@ -59,20 +61,12 @@ fn encode_frame<B: BufMut>(frame: &Frame, buf: &mut B) {
 }
 
 fn encode_stream<B: BufMut>(s: &Stream, buf: &mut B) {
-    let mut ty = 0x08u8;
-    if s.fin {
-        ty |= 0x01;
-    }
-    ty |= 0x02; // LEN bit (always set for testing)
-    if s.offset != 0 {
-        ty |= 0x04; // OFF bit
-    }
-    buf.write_var(ty as u64);
-    buf.write(s.id);
-    if s.offset != 0 {
-        buf.write_var(s.offset);
-    }
-    buf.write_var(s.data.len() as u64);
+    let meta = StreamMeta {
+        id: s.id,
+        offsets: s.offset..s.offset + s.data.len() as u64,
+        fin: s.fin,
+    };
+    meta.encoder(true).encode(buf);
     buf.put_slice(&s.data);
 }
 
