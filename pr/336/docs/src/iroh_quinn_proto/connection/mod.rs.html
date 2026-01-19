@@ -900,7 +900,7 @@
 <a href=#900 id=900 data-nosnippet>900</a>        <span class="comment">// If the remote opened this path we may not have CIDs for it. For locally opened
 <a href=#901 id=901 data-nosnippet>901</a>        // paths the caller should have already made sure we have CIDs and refused to open
 <a href=#902 id=902 data-nosnippet>902</a>        // it if there were none.
-<a href=#903 id=903 data-nosnippet>903</a>        </span><span class="kw">if </span><span class="self">self</span>.rem_cids.get(<span class="kw-2">&amp;</span>path_id).map(CidQueue::active).is_none() {
+<a href=#903 id=903 data-nosnippet>903</a>        </span><span class="kw">if </span><span class="self">self</span>.rem_cids.get(<span class="kw-2">&amp;</span>path_id).is_none() {
 <a href=#904 id=904 data-nosnippet>904</a>            <span class="macro">debug!</span>(<span class="string">"Remote opened path without issuing CIDs"</span>);
 <a href=#905 id=905 data-nosnippet>905</a>            <span class="self">self</span>.spaces[SpaceId::Data]
 <a href=#906 id=906 data-nosnippet>906</a>                .pending
