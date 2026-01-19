@@ -1075,15 +1075,23 @@ impl Connection {
         let mut congestion_blocked = false;
 
         for &path_id in &path_ids {
-            // Set the segment size to this path's MTU.
-            transmit.set_segment_size(self.path_data(path_id).current_mtu().into());
+            transmit = {
+                let (buf, _) = transmit.finish();
 
-            // Poll (some) off-path transmits first.
-            if let Some(challenge) = self.send_prev_path_challenge(now, &mut transmit, path_id) {
-                return Some(challenge);
-            }
+                // Poll off-path transmits first.
+                if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
+                    return Some(challenge);
+                } else if let Some(response) = self.send_off_path_path_response(now, buf, path_id) {
+                    return Some(response);
+                }
+                {
+                    // Set the segment size to this path's MTU for on-path data.
+                    let pmtu = self.path_data(path_id).current_mtu().into();
+                    TransmitBuf::new(buf, max_datagrams, pmtu)
+                }
+            };
 
-            // Poll for (mostly) on-path transmits.
+            // Poll for on-path transmits.
             match self.poll_transmit_path(now, &mut transmit, path_id, have_available_path, close) {
                 PollPathStatus::SendTransmit { transmit } => {
                     return Some(transmit);
@@ -1574,41 +1582,6 @@ impl Connection {
                 };
             }
 
-            // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
-            // path validation can occur while the link is saturated.
-            // TODO(flub): This needs to be done outside of this function, e.g. together
-            //    with the off-path path challenges of Self::send_prev_path_challenge.
-            if space_id == SpaceId::Data && builder.buf.num_datagrams() == 1 {
-                let path = self.path_data_mut(path_id);
-                if let Some((token, network_path)) =
-                    path.path_responses.pop_off_path(path.network_path)
-                {
-                    // TODO(flub): We need to use the right CID!  We shouldn't use the same
-                    //    CID as the current active one for the path.  Though see also
-                    //    https://github.com/quinn-rs/quinn/issues/2184
-                    //
-                    let stats = &mut self.stats.frame_tx;
-                    let frame = frame::PathResponse(token);
-                    builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
-                    builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
-                    self.stats.udp_tx.on_sent(1, transmit.len());
-                    self.path_stats
-                        .entry(path_id)
-                        .or_default()
-                        .udp_tx
-                        .on_sent(1, transmit.len());
-                    return PollPathSpaceOutcome::SendTransmit {
-                        transmit: Transmit {
-                            destination: network_path.remote,
-                            size: transmit.len(),
-                            ecn: None,
-                            segment_size: None,
-                            src_ip: network_path.local_ip,
-                        },
-                    };
-                }
-            }
-
             // If this boolean is true we only want to send frames which can not be sent on
             // any other path. See the path scheduling notes in Self::poll_transmit.
             let path_exclusive_only =
@@ -1880,7 +1853,7 @@ impl Connection {
     fn send_prev_path_challenge(
         &mut self,
         now: Instant,
-        buf: &mut TransmitBuf<'_>,
+        buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
         let (prev_cid, prev_path) = self.paths.get_mut(&path_id)?.prev.as_mut()?;
@@ -1902,14 +1875,14 @@ impl Connection {
             SpaceId::Data,
             "PATH_CHALLENGE queued without 1-RTT keys"
         );
-        buf.start_new_datagram_with_size(MIN_INITIAL_SIZE as usize);
+        let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
+        buf.start_new_datagram();
 
         // Use the previous CID to avoid linking the new path with the previous path. We
         // don't bother accounting for possible retirement of that prev_cid because this is
         // sent once, immediately after migration, when the CID is known to be valid. Even
         // if a post-migration packet caused the CID to be retired, it's fair to pretend
         // this is sent first.
-        debug_assert_eq!(buf.datagram_start_offset(), 0);
         let mut builder =
             PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
         let challenge = frame::PathChallenge(token);
@@ -1933,6 +1906,49 @@ impl Connection {
         Some(Transmit {
             destination: network_path.remote,
             size: buf.len(),
+            ecn: None,
+            segment_size: None,
+            src_ip: network_path.local_ip,
+        })
+    }
+
+    fn send_off_path_path_response(
+        &mut self,
+        now: Instant,
+        buf: &mut Vec<u8>,
+        path_id: PathId,
+    ) -> Option<Transmit> {
+        let path = self.paths.get_mut(&path_id).map(|state| &mut state.data)?;
+        let cid_queue = self.rem_cids.get_mut(&path_id)?;
+        let (token, network_path) = path.path_responses.pop_off_path(path.network_path)?;
+
+        let cid = cid_queue
+            .next_reserved()
+            .unwrap_or_else(|| cid_queue.active());
+        // TODO(@divma): we should take a different approach when there is no fresh CID to use.
+        // https://github.com/quinn-rs/quinn/issues/2184
+
+        let frame = frame::PathResponse(token);
+
+        let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
+        buf.start_new_datagram();
+
+        let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, buf, false, self)?;
+        let stats = &mut self.stats.frame_tx;
+        builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
+        builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
+
+        let size = buf.len();
+
+        self.stats.udp_tx.on_sent(1, size);
+        self.path_stats
+            .entry(path_id)
+            .or_default()
+            .udp_tx
+            .on_sent(1, size);
+        Some(Transmit {
+            destination: network_path.remote,
+            size,
             ecn: None,
             segment_size: None,
             src_ip: network_path.local_ip,
