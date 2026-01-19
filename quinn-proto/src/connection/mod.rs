@@ -1078,11 +1078,10 @@ impl Connection {
                 } else if let Some(response) = self.send_off_path_path_response(now, buf, path_id) {
                     return Some(response);
                 }
-                {
-                    // Set the segment size to this path's MTU for on-path data.
-                    let pmtu = self.path_data(path_id).current_mtu().into();
-                    TransmitBuf::new(buf, max_datagrams, pmtu)
-                }
+
+                // Set the segment size to this path's MTU for on-path data.
+                let pmtu = self.path_data(path_id).current_mtu().into();
+                TransmitBuf::new(buf, max_datagrams, pmtu)
             };
 
             // Poll for on-path transmits.
