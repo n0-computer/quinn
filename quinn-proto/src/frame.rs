@@ -27,6 +27,126 @@ use proptest::{collection, prelude::any, strategy::Strategy};
 #[cfg(test)]
 use test_strategy::Arbitrary;
 
+#[cfg(test)]
+fn connection_close() -> impl Strategy<Value = ConnectionClose> {
+    (
+        any::<u8>().prop_map(crate::TransportErrorCode::crypto),
+        any::<MaybeFrame>(),
+        collection::vec(any::<u8>(), 0..64).prop_map(Bytes::from),
+    )
+        .prop_map(|(error_code, frame_type, reason)| ConnectionClose {
+            error_code,
+            frame_type,
+            reason,
+        })
+}
+
+#[cfg(test)]
+fn application_close() -> impl Strategy<Value = crate::ApplicationClose> {
+    (any::<VarInt>(), collection::vec(any::<u8>(), 0..64).prop_map(Bytes::from))
+        .prop_map(|(error_code, reason)| crate::ApplicationClose { error_code, reason })
+}
+
+#[cfg(test)]
+fn ack() -> impl Strategy<Value = Ack> {
+    use crate::range_set::ArrayRangeSet;
+    (varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>()).prop_map(
+        |(delay, ranges, ecn)| Ack {
+            largest: ranges.max().unwrap(),
+            delay,
+            ranges,
+            ecn,
+        },
+    )
+}
+
+#[cfg(test)]
+fn path_ack() -> impl Strategy<Value = PathAck> {
+    use crate::range_set::ArrayRangeSet;
+    (any::<crate::PathId>(), varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>())
+        .prop_map(|(path_id, delay, ranges, ecn)| PathAck {
+            path_id,
+            largest: ranges.max().unwrap(),
+            delay,
+            ranges,
+            ecn,
+        })
+}
+
+#[cfg(test)]
+fn connection_id() -> impl Strategy<Value = crate::ConnectionId> {
+    collection::vec(any::<u8>(), 1..=MAX_CID_SIZE)
+        .prop_map(|bytes| crate::ConnectionId::new(&bytes))
+}
+
+#[cfg(test)]
+fn connection_id_and_reset_token() -> impl Strategy<Value = (crate::ConnectionId, ResetToken)> {
+    (connection_id(), any::<[u8; 64]>()).prop_map(|(id, reset_key)| {
+        #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
+        use aws_lc_rs::hmac;
+        #[cfg(feature = "ring")]
+        use ring::hmac;
+        let key = hmac::Key::new(hmac::HMAC_SHA256, &reset_key);
+        (id, ResetToken::new(&key, id))
+    })
+}
+
+#[cfg(test)]
+fn new_connection_id() -> impl Strategy<Value = NewConnectionId> {
+    (
+        any::<Option<crate::PathId>>(),
+        varint_u64(),
+        varint_u64(),
+        connection_id_and_reset_token(),
+    )
+        .prop_map(|(path_id, a, b, (id, reset_token))| {
+            let sequence = std::cmp::max(a, b);
+            let retire_prior_to = std::cmp::min(a, b);
+            NewConnectionId {
+                path_id,
+                sequence,
+                retire_prior_to,
+                id,
+                reset_token,
+            }
+        })
+}
+
+#[cfg(test)]
+fn ip_addr() -> impl Strategy<Value = IpAddr> {
+    proptest::prop_oneof![
+        any::<[u8; 4]>().prop_map(IpAddr::from),
+        any::<[u16; 8]>().prop_map(IpAddr::from),
+    ]
+}
+
+#[cfg(test)]
+fn observed_addr() -> impl Strategy<Value = ObservedAddr> {
+    (any::<VarInt>(), ip_addr(), any::<u16>()).prop_map(|(seq_no, ip, port)| ObservedAddr {
+        seq_no,
+        ip,
+        port,
+    })
+}
+
+#[cfg(test)]
+fn add_address() -> impl Strategy<Value = AddAddress> {
+    (any::<VarInt>(), ip_addr(), any::<u16>()).prop_map(|(seq_no, ip, port)| AddAddress {
+        seq_no,
+        ip,
+        port,
+    })
+}
+
+#[cfg(test)]
+fn reach_out() -> impl Strategy<Value = ReachOut> {
+    (any::<VarInt>(), ip_addr(), any::<u16>()).prop_map(|(round, ip, port)| ReachOut {
+        round,
+        ip,
+        port,
+    })
+}
+
 #[derive(
     Copy, Clone, Eq, PartialEq, derive_more::Debug, derive_more::Display, enum_assoc::Assoc,
 )]
@@ -384,11 +504,13 @@ impl DatagramInfo {
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(Arbitrary))]
 pub(crate) enum Frame {
+    #[cfg_attr(test, weight(0))]
     Padding,
     Ping,
-    Ack(Ack),
-    PathAck(PathAck),
+    Ack(#[cfg_attr(test, strategy(ack()))] Ack),
+    PathAck(#[cfg_attr(test, strategy(path_ack()))] PathAck),
     ResetStream(ResetStream),
     StopSending(StopSending),
     Crypto(Crypto),
@@ -400,7 +522,7 @@ pub(crate) enum Frame {
     DataBlocked(DataBlocked),
     StreamDataBlocked(StreamDataBlocked),
     StreamsBlocked(StreamsBlocked),
-    NewConnectionId(NewConnectionId),
+    NewConnectionId(#[cfg_attr(test, strategy(new_connection_id()))] NewConnectionId),
     RetireConnectionId(RetireConnectionId),
     PathChallenge(PathChallenge),
     PathResponse(PathResponse),
@@ -409,15 +531,15 @@ pub(crate) enum Frame {
     AckFrequency(AckFrequency),
     ImmediateAck,
     HandshakeDone,
-    ObservedAddr(ObservedAddr),
+    ObservedAddr(#[cfg_attr(test, strategy(observed_addr()))] ObservedAddr),
     PathAbandon(PathAbandon),
     PathStatusAvailable(PathStatusAvailable),
     PathStatusBackup(PathStatusBackup),
     MaxPathId(MaxPathId),
     PathsBlocked(PathsBlocked),
     PathCidsBlocked(PathCidsBlocked),
-    AddAddress(AddAddress),
-    ReachOut(ReachOut),
+    AddAddress(#[cfg_attr(test, strategy(add_address()))] AddAddress),
+    ReachOut(#[cfg_attr(test, strategy(reach_out()))] ReachOut),
     RemoveAddress(RemoveAddress),
 }
 
@@ -790,10 +912,11 @@ impl Encodable for RetireConnectionId {
     }
 }
 
+#[cfg_attr(test, derive(Arbitrary))]
 #[derive(Clone, Debug, derive_more::Display)]
 pub(crate) enum Close {
-    Connection(ConnectionClose),
-    Application(ApplicationClose),
+    Connection(#[cfg_attr(test, strategy(connection_close()))] ConnectionClose),
+    Application(#[cfg_attr(test, strategy(application_close()))] ApplicationClose),
 }
 
 impl Close {
@@ -948,6 +1071,25 @@ pub(crate) struct PathAck {
     pub ecn: Option<EcnCounts>,
 }
 
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for PathAck {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        (any::<PathId>(), varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>())
+            .prop_map(|(path_id, delay, ranges, ecn)| PathAck {
+                path_id,
+                largest: ranges.max().unwrap(),
+                delay,
+                ranges,
+                ecn,
+            })
+            .boxed()
+    }
+}
+
 impl PathAck {
     pub(crate) fn into_ack(self) -> (Ack, PathId) {
         let ack = Ack {
@@ -1050,6 +1192,24 @@ pub(crate) struct Ack {
     pub delay: u64,
     pub ranges: ArrayRangeSet,
     pub ecn: Option<EcnCounts>,
+}
+
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for Ack {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        (varint_u64(), any::<ArrayRangeSet>(), any::<Option<EcnCounts>>())
+            .prop_map(|(delay, ranges, ecn)| Ack {
+                largest: ranges.max().unwrap(),
+                delay,
+                ranges,
+                ecn,
+            })
+            .boxed()
+    }
 }
 
 impl Ack {
@@ -1784,6 +1944,34 @@ pub(crate) struct NewConnectionId {
     pub(crate) reset_token: ResetToken,
 }
 
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for NewConnectionId {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        (
+            any::<Option<PathId>>(),
+            varint_u64(),
+            varint_u64(),
+            connection_id_and_reset_token(),
+        )
+            .prop_map(|(path_id, a, b, (id, reset_token))| {
+                let sequence = std::cmp::max(a, b);
+                let retire_prior_to = std::cmp::min(a, b);
+                NewConnectionId {
+                    path_id,
+                    sequence,
+                    retire_prior_to,
+                    id,
+                    reset_token,
+                }
+            })
+            .boxed()
+    }
+}
+
 impl NewConnectionId {
     /// Maximum size of this frame when the frame type is [`FrameType::NewConnectionId`],
     pub(crate) const SIZE_BOUND: usize = {
@@ -1975,6 +2163,19 @@ pub(crate) struct ObservedAddr {
     pub(crate) port: u16,
 }
 
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for ObservedAddr {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        (any::<VarInt>(), ip_addr(), any::<u16>())
+            .prop_map(|(seq_no, ip, port)| ObservedAddr { seq_no, ip, port })
+            .boxed()
+    }
+}
+
 impl ObservedAddr {
     pub(crate) fn new<N: Into<VarInt>>(remote: std::net::SocketAddr, seq_no: N) -> Self {
         Self {
@@ -2157,6 +2358,19 @@ pub(crate) struct AddAddress {
     pub(crate) port: u16,
 }
 
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for AddAddress {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        (any::<VarInt>(), ip_addr(), any::<u16>())
+            .prop_map(|(seq_no, ip, port)| AddAddress { seq_no, ip, port })
+            .boxed()
+    }
+}
+
 // TODO(@divma): remove
 #[allow(dead_code)]
 impl AddAddress {
@@ -2242,6 +2456,19 @@ pub(crate) struct ReachOut {
     pub(crate) ip: IpAddr,
     /// Port to use with this address
     pub(crate) port: u16,
+}
+
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for ReachOut {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        (any::<VarInt>(), ip_addr(), any::<u16>())
+            .prop_map(|(round, ip, port)| ReachOut { round, ip, port })
+            .boxed()
+    }
 }
 
 // TODO(@divma): remove
