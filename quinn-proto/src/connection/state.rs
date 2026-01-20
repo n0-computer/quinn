@@ -330,7 +330,7 @@ pub struct Handshake {
     /// Whether the remote CID has been set by the peer yet.
     ///
     /// Always set for servers.
-    pub(super) rem_cid_set: bool,
+    pub(super) remote_cid_set: bool,
     /// Stateless retry token received in the first Initial by a server.
     ///
     /// Must be present in every Initial. Always empty for clients.
