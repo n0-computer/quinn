@@ -4840,6 +4840,7 @@ impl Connection {
                     }
                 }
                 Frame::ReachOut(reach_out) => {
+                    let ipv6 = self.is_ipv6();
                     let server_state = match self.iroh_hp.server_side_mut() {
                         Ok(state) => state,
                         Err(err) => {
@@ -4849,7 +4850,7 @@ impl Connection {
                         }
                     };
 
-                    if let Err(err) = server_state.handle_reach_out(reach_out) {
+                    if let Err(err) = server_state.handle_reach_out(reach_out, ipv6) {
                         return Err(TransportError::PROTOCOL_VIOLATION(format!(
                             "Nat traversal(REACH_OUT): {err}"
                         )));
@@ -6165,9 +6166,23 @@ impl Connection {
         }
     }
 
-    /// Add addresses the local endpoint considers are reachable for nat traversal
+    /// Returns whether this connection has a socket that supports IPv6.
+    ///
+    /// TODO(matheus23): This is related to quinn endpoint state's `ipv6` bool. We should move that info
+    /// here instead of trying to hack around not knowing it exactly.
+    fn is_ipv6(&self) -> bool {
+        self.paths
+            .values()
+            .any(|p| p.data.network_path.remote.is_ipv6())
+    }
+
+    /// Add addresses the local endpoint considers are reachable for nat traversal.
+    ///
+    /// If the address is an IPv6 address, but this connection's socket doesn't support
+    /// IPv6, then this function will error out with [`iroh_hp::Error::Ipv6NotSupported`].
     pub fn add_nat_traversal_address(&mut self, address: SocketAddr) -> Result<(), iroh_hp::Error> {
-        if let Some(added) = self.iroh_hp.add_local_address(address)? {
+        let ipv6 = self.is_ipv6();
+        if let Some(added) = self.iroh_hp.add_local_address(address, ipv6)? {
             self.spaces[SpaceId::Data].pending.add_address.insert(added);
         };
         Ok(())
@@ -6176,11 +6191,14 @@ impl Connection {
     /// Removes an address the endpoing no longer considers reachable for nat traversal
     ///
     /// Addresses not present in the set will be silently ignored.
+    ///
+    /// If the address is an IPv6 address, but this connection's socket doesn't support
+    /// IPv6, then this function will error out with [`iroh_hp::Error::Ipv6NotSupported`].
     pub fn remove_nat_traversal_address(
         &mut self,
         address: SocketAddr,
     ) -> Result<(), iroh_hp::Error> {
-        if let Some(removed) = self.iroh_hp.remove_local_address(address)? {
+        if let Some(removed) = self.iroh_hp.remove_local_address(address, self.is_ipv6())? {
             self.spaces[SpaceId::Data]
                 .pending
                 .remove_address
@@ -6215,16 +6233,11 @@ impl Connection {
         (ip, port): (IpAddr, u16),
         ipv6: bool,
     ) -> Result<Option<(PathId, SocketAddr, bool)>, PathError> {
-        // If this endpoint is an IPv6 endpoint we use IPv6 addresses for all remotes.
-        let remote = match ip {
-            IpAddr::V4(addr) if ipv6 => SocketAddr::new(addr.to_ipv6_mapped().into(), port),
-            IpAddr::V4(addr) => SocketAddr::new(addr.into(), port),
-            IpAddr::V6(_) if ipv6 => SocketAddr::new(ip, port),
-            IpAddr::V6(_) => {
-                trace!("not using IPv6 nat candidate for IPv4 socket");
-                return Ok(None);
-            }
-        };
+        if ip.is_ipv6() && !ipv6 {
+            trace!("not using IPv6 nat candidate for IPv4 socket");
+            return Ok(None);
+        }
+        let remote = (ip, port).into();
         // TODO(matheus23): Probe the correct 4-tuple, instead of only a remote address?
         // By specifying None, we do two things: 1. open_path_ensure won't generate two
         // paths to the same remote and 2. we let the OS choose which interface to use for
@@ -6286,9 +6299,7 @@ impl Connection {
             // And we only close paths that we don't want to probe anyways.
             if !addresses_to_probe
                 .iter()
-                .any(|(_, (probe_ip, probe_port))| {
-                    *probe_port == port && probe_ip.to_canonical() == ip.to_canonical()
-                })
+                .any(|(_, probe_ip_port)| *probe_ip_port == (ip, port))
                 && !path.validated
                 && !self.abandoned_paths.contains(&path_id)
             {

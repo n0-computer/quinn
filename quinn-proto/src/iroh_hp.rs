@@ -34,6 +34,9 @@ pub enum Error {
     /// Nat traversal attempt failed due to a multipath error
     #[error("Failed to establish paths {0}")]
     Multipath(super::PathError),
+    /// The operation requires IPv6, but the socket installed supports only IPv4.
+    #[error("IPv6 not supported")]
+    Ipv6NotSupported,
     /// Attempted to initiate NAT traversal on a closed, or closing connection.
     #[error("The connection is already closed")]
     Closed,
@@ -318,13 +321,24 @@ impl ServerState {
     /// whether this starts a new nat traversal round.
     ///
     /// If this frame was ignored, it returns `None`.
-    pub(crate) fn handle_reach_out(&mut self, reach_out: ReachOut) -> Result<(), Error> {
+    ///
+    /// If the reach_out address is an IPv6 address, but this connection's socket doesn't support
+    /// IPv6, then this function will error out with [`iroh_hp::Error::Ipv6NotSupported`].
+    pub(crate) fn handle_reach_out(
+        &mut self,
+        reach_out: ReachOut,
+        ipv6: bool,
+    ) -> Result<(), Error> {
         let ReachOut { round, ip, port } = reach_out;
 
         if round < self.round {
             trace!(current_round=%self.round, "ignoring REACH_OUT for previous round");
             return Ok(());
         }
+        let Ok(ip_port) = canonicalize((ip, port).into(), ipv6) else {
+            trace!("Ignoring IPv6 REACH_OUT frame due to not supporting IPv6 locally");
+            return Ok(());
+        };
 
         if round > self.round {
             self.round = round;
@@ -338,7 +352,7 @@ impl ServerState {
         } else if self.pending_probes.len() >= self.max_remote_addresses {
             return Err(Error::TooManyAddresses);
         }
-        self.pending_probes.insert((ip, port));
+        self.pending_probes.insert(ip_port);
         Ok(())
     }
 
@@ -420,16 +434,16 @@ impl State {
     pub(crate) fn add_local_address(
         &mut self,
         address: SocketAddr,
+        ipv6: bool,
     ) -> Result<Option<AddAddress>, Error> {
+        let ip_port = canonicalize(address, ipv6)?;
         match self {
             Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
             Self::ClientSide(client_state) => {
-                client_state.add_local_address((address.ip(), address.port()))?;
+                client_state.add_local_address(ip_port)?;
                 Ok(None)
             }
-            Self::ServerSide(server_state) => {
-                server_state.add_local_address((address.ip(), address.port()))
-            }
+            Self::ServerSide(server_state) => server_state.add_local_address(ip_port),
         }
     }
 
@@ -442,15 +456,16 @@ impl State {
     pub(crate) fn remove_local_address(
         &mut self,
         address: SocketAddr,
+        ipv6: bool,
     ) -> Result<Option<RemoveAddress>, Error> {
-        let address = &(address.ip(), address.port());
+        let address = canonicalize(address, ipv6)?;
         match self {
             Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
             Self::ClientSide(client_state) => {
-                client_state.remove_local_address(address);
+                client_state.remove_local_address(&address);
                 Ok(None)
             }
-            Self::ServerSide(server_state) => Ok(server_state.remove_local_address(address)),
+            Self::ServerSide(server_state) => Ok(server_state.remove_local_address(&address)),
         }
     }
 
@@ -473,8 +488,31 @@ impl State {
     }
 }
 
+/// Returns the given socket address as canoncalized `IpPort`.
+///
+/// Canonicalizes the give address to always use IPv6 by
+/// using IPv6-mapped IPv4 addresses, if `ipv6` is set to true,
+/// or otherwise makes sure the given address is an IPv4 address
+/// and returns an error if not.
+fn canonicalize(address: SocketAddr, ipv6: bool) -> Result<IpPort, Error> {
+    let port = address.port();
+    let ip = match address.ip() {
+        IpAddr::V4(addr) if ipv6 => addr.to_ipv6_mapped().into(),
+        IpAddr::V4(addr) => addr.into(),
+        IpAddr::V6(_) if ipv6 => address.ip(),
+        IpAddr::V6(_) => {
+            return Err(Error::Ipv6NotSupported);
+        }
+    };
+    Ok((ip, port))
+}
+
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv6Addr;
+
+    use assert_matches::assert_matches;
+
     use super::*;
 
     #[test]
@@ -482,19 +520,25 @@ mod tests {
         let mut state = ServerState::new(2, 2);
 
         state
-            .handle_reach_out(ReachOut {
-                round: 1u32.into(),
-                ip: std::net::Ipv4Addr::LOCALHOST.into(),
-                port: 1,
-            })
+            .handle_reach_out(
+                ReachOut {
+                    round: 1u32.into(),
+                    ip: std::net::Ipv4Addr::LOCALHOST.into(),
+                    port: 1,
+                },
+                true,
+            )
             .unwrap();
 
         state
-            .handle_reach_out(ReachOut {
-                round: 1u32.into(),
-                ip: "1.1.1.1".parse().unwrap(), //std::net::Ipv4Addr::LOCALHOST.into(),
-                port: 2,
-            })
+            .handle_reach_out(
+                ReachOut {
+                    round: 1u32.into(),
+                    ip: "1.1.1.1".parse().unwrap(), //std::net::Ipv4Addr::LOCALHOST.into(),
+                    port: 2,
+                },
+                true,
+            )
             .unwrap();
 
         dbg!(&state);
@@ -509,5 +553,25 @@ mod tests {
         assert!(state.next_probe().is_none());
         assert_eq!(state.pending_probes.len(), 0);
         assert_eq!(state.active_probes.len(), 2);
+    }
+
+    #[test]
+    fn test_canonicalize() {
+        assert_matches!(
+            canonicalize("1.1.1.1:80".parse().unwrap(), false),
+            Ok((addr, 80)) if addr == IpAddr::from([1, 1, 1, 1])
+        );
+        assert_matches!(
+            canonicalize("1.1.1.1:80".parse().unwrap(), true),
+            Ok((IpAddr::V6(ipv6), 80)) if ipv6.to_canonical() == IpAddr::from([1, 1, 1, 1])
+        );
+        assert_matches!(
+            canonicalize("[::1]:80".parse().unwrap(), true),
+            Ok((IpAddr::V6(Ipv6Addr::LOCALHOST), 80))
+        );
+        assert_matches!(
+            canonicalize("[::1]:80".parse().unwrap(), false),
+            Err(Error::Ipv6NotSupported)
+        );
     }
 }
