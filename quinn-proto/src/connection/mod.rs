@@ -885,8 +885,6 @@ impl Connection {
 
         // To open a path locally we need to send a packet on the path. Sending a challenge
         // guarantees this.
-        // TODO(flub): We are challenging paths a bit too much like this, but this is not a
-        // protocol violation.
         data.send_new_challenge = true;
 
         let path = vacant_entry.insert(PathState { data, prev: None });
