@@ -351,7 +351,7 @@ pub struct Transmit {
 //
 
 /// The maximum number of CIDs we bother to issue per path
-const LOC_CID_COUNT: u64 = 12;
+const LOCAL_CID_COUNT: u64 = 12;
 const RESET_TOKEN_SIZE: usize = 16;
 const MAX_CID_SIZE: usize = 20;
 const MIN_INITIAL_SIZE: u16 = 1200;

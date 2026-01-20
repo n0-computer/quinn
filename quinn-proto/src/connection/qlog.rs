@@ -144,8 +144,8 @@ impl QlogSink {
     pub(crate) fn emit_connection_started(
         &self,
         now: Instant,
-        loc_cid: ConnectionId,
-        rem_cid: ConnectionId,
+        local_cid: ConnectionId,
+        remote_cid: ConnectionId,
         remote: SocketAddr,
         local_ip: Option<IpAddr>,
         transport_params: &TransportParameters,
@@ -157,11 +157,11 @@ impl QlogSink {
             };
             stream.emit_event(
                 EventData::ConnectionStarted(ConnectionStarted {
-                    local: tuple_endpoint_info(local_ip, None, Some(loc_cid)),
+                    local: tuple_endpoint_info(local_ip, None, Some(local_cid)),
                     remote: tuple_endpoint_info(
                         Some(remote.ip()),
                         Some(remote.port()),
-                        Some(rem_cid),
+                        Some(remote_cid),
                     ),
                 }),
                 now,
