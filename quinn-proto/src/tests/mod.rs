@@ -3485,6 +3485,7 @@ fn large_datagram_with_acks() {
         pair.drive_server();
     }
 
+    info!("sending datagrams");
     let max_size = pair.client_datagrams(client_ch).max_size().unwrap();
     let msg = Bytes::from(vec![0; max_size]);
     pair.client_datagrams(client_ch)

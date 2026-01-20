@@ -1068,9 +1068,9 @@ impl Connection {
                 return Some(transmit);
             }
 
-            // Set the segment size to this path's MTU for on-path data.
-            let pmtu = self.path_data(path_id).current_mtu().into();
-            let mut transmit = TransmitBuf::new(buf, max_datagrams, pmtu);
+            // // Set the segment size to this path's MTU for on-path data.
+            // let pmtu = self.path_data(path_id).current_mtu().into();
+            let mut transmit = TransmitBuf::new(buf, max_datagrams);
 
             // Poll for on-path transmits.
             match self.poll_transmit_on_path(
@@ -1111,7 +1111,7 @@ impl Connection {
             for path_id in path_ids {
                 // The MTU parameter here is really a dummy one, poll_transmit_mut_probe
                 // explicitly sets the size.
-                let mut transmit = TransmitBuf::new(buf, max_datagrams, MIN_INITIAL_SIZE.into());
+                let mut transmit = TransmitBuf::new(buf, max_datagrams);
                 self.poll_transmit_mtu_probe(now, &mut transmit, path_id);
                 if !transmit.is_empty() {
                     let transmit = self.build_transmit(path_id, transmit);
@@ -1130,9 +1130,13 @@ impl Connection {
         );
 
         let network_path = self.path_data(path_id).network_path;
+        let last_datagram_len = transmit
+            .segment_size()
+            .map(|segment_size| transmit.len() % segment_size)
+            .unwrap_or_else(|| transmit.len());
         trace!(
             segment_size = transmit.segment_size(),
-            last_datagram_len = transmit.len() % transmit.segment_size(),
+            last_datagram_len,
             %network_path,
             "sending {} bytes in {} datagrams",
             transmit.len(),
@@ -1158,10 +1162,7 @@ impl Connection {
             } else {
                 None
             },
-            segment_size: match transmit.num_datagrams() {
-                1 => None,
-                _ => Some(transmit.segment_size()),
-            },
+            segment_size: transmit.segment_size(),
             src_ip: network_path.local_ip,
         }
     }
@@ -1336,9 +1337,15 @@ impl Connection {
                 // A datagram is started already, we are coalescing another packet into it.
                 transmit.datagram_remaining_mut()
             } else {
-                // A new datagram needs to be started.
-                transmit.segment_size()
+                // A new datagram needs to be started. The first datagram is sized to the
+                // MTU. All other datagrams can be maximum the size of the previous
+                // datagram.
+                match transmit.num_datagrams {
+                    0 => self.path_data(path_id).current_mtu().into(),
+                    _ => transmit.max_datagram_size(),
+                }
             };
+            tracing::warn!(max_packet_size, "XXXXXXXXXXXXXX");
             let can_send =
                 self.space_can_send(space_id, path_id, max_packet_size, connection_close_pending);
 
@@ -1420,30 +1427,29 @@ impl Connection {
                     };
                 }
 
-                match self.spaces[space_id].for_path(path_id).loss_probes {
-                    0 => transmit.start_new_datagram(),
-                    _ => {
-                        // We need something to send for a tail-loss probe.
-                        let request_immediate_ack =
-                            space_id == SpaceId::Data && self.peer_supports_ack_frequency();
-                        self.spaces[space_id].maybe_queue_probe(
-                            path_id,
-                            request_immediate_ack,
-                            &self.streams,
-                        );
-
-                        self.spaces[space_id].for_path(path_id).loss_probes -= 1;
-
-                        // Clamp the datagram to at most the minimum MTU to ensure that loss
-                        // probes can get through and enable recovery even if the path MTU
-                        // has shrank unexpectedly.
-                        transmit.start_new_datagram_with_size(std::cmp::min(
-                            usize::from(INITIAL_MTU),
-                            transmit.segment_size(),
-                        ));
-                    }
+                if transmit.num_datagrams() == 0 {
+                    let mtu = match self.spaces[space_id].for_path(path_id).loss_probes {
+                        0 => self.path_data(path_id).current_mtu(),
+                        _ => INITIAL_MTU,
+                    };
+                    transmit.start_first_datagram(mtu.into());
+                } else {
+                    transmit.start_datagram();
                 }
                 trace!(count = transmit.num_datagrams(), "new datagram started");
+
+                // We need something to send for a tail-loss probe.
+                if self.spaces[space_id].for_path(path_id).loss_probes > 0 {
+                    let request_immediate_ack =
+                        space_id == SpaceId::Data && self.peer_supports_ack_frequency();
+                    self.spaces[space_id].maybe_queue_probe(
+                        path_id,
+                        request_immediate_ack,
+                        &self.streams,
+                    );
+
+                    self.spaces[space_id].for_path(path_id).loss_probes -= 1;
+                }
 
                 // We started a new datagram, we decide later if it needs padding.
                 pad_datagram = PadDatagram::No;
@@ -1497,7 +1503,7 @@ impl Connection {
                 pad_datagram |= PadDatagram::ToMinMtu;
             }
             if space_id == SpaceId::Data && self.config.pad_to_mtu {
-                pad_datagram |= PadDatagram::ToSegmentSize;
+                pad_datagram |= PadDatagram::ToMaxSize;
             }
 
             if can_send.close {
@@ -1596,7 +1602,7 @@ impl Connection {
                 !(builder.sent_frames().is_ack_only(&self.streams)
                     && !can_send.acks
                     && can_send.other
-                    && builder.buf.segment_size()
+                    && builder.buf.max_datagram_size()
                         == self.path_data(path_id).current_mtu() as usize
                     && self.datagrams.outgoing.is_empty()),
                 "SendableFrames was {can_send:?}, but only ACKs have been written"
@@ -1666,7 +1672,7 @@ impl Connection {
 
                     // Pad the current datagram to GSO segment size so it can be
                     // included in the GSO batch.
-                    builder.finish_and_track(now, self, path_id, PadDatagram::ToSegmentSize);
+                    builder.finish_and_track(now, self, path_id, PadDatagram::ToMaxSize);
                 } else {
                     builder.finish_and_track(now, self, path_id, pad_datagram);
                 }
@@ -1674,7 +1680,7 @@ impl Connection {
                 // If this is the first datagram we set the segment size to the size of the
                 // first datagram.
                 if transmit.num_datagrams() == 1 {
-                    transmit.clip_segment_size();
+                    transmit.end_first_datagram();
                 }
             }
         }
@@ -1691,8 +1697,7 @@ impl Connection {
         };
 
         // We are definitely sending a DPLPMTUD probe.
-        debug_assert_eq!(transmit.num_datagrams(), 0);
-        transmit.start_new_datagram_with_size(probe_size as usize);
+        transmit.start_first_datagram(probe_size.into());
 
         let Some(mut builder) = PacketBuilder::new(
             now,
@@ -1816,7 +1821,10 @@ impl Connection {
 
         // Congestion control check.
         // Tail loss probes must not be blocked by congestion, or a deadlock could arise.
-        let bytes_to_send = transmit.segment_size() as u64;
+        let bytes_to_send = match transmit.num_datagrams {
+            0 => self.path_data(path_id).current_mtu().into(),
+            _ => transmit.max_datagram_size(),
+        } as u64;
         let need_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
 
         if can_send.other && !need_loss_probe && !can_send.close {
@@ -1872,8 +1880,8 @@ impl Connection {
             SpaceId::Data,
             "PATH_CHALLENGE queued without 1-RTT keys"
         );
-        let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
-        buf.start_new_datagram();
+        let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN);
+        buf.start_first_datagram(MIN_INITIAL_SIZE.into());
 
         // Use the previous CID to avoid linking the new path with the previous path. We
         // don't bother accounting for possible retirement of that prev_cid because this is
@@ -1927,8 +1935,8 @@ impl Connection {
 
         let frame = frame::PathResponse(token);
 
-        let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
-        buf.start_new_datagram();
+        let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN);
+        buf.start_first_datagram(MIN_INITIAL_SIZE.into());
 
         let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, buf, false, self)?;
         let stats = &mut self.stats.frame_tx;
