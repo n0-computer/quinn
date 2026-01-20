@@ -63,7 +63,8 @@ impl std::error::Error for Error {}
 
 /// Transport-level error code
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub struct Code(u64);
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
+pub struct Code(#[cfg_attr(test, strategy(0u64..(1u64 << 62)))] u64);
 
 impl Code {
     /// Create QUIC error code from TLS alert code
