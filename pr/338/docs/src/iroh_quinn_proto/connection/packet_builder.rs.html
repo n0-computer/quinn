@@ -291,7 +291,7 @@
 <a href=#291 id=291 data-nosnippet>291</a>            PadDatagram::ToMinMtu =&gt; <span class="self">self</span>.pad_to(MIN_INITIAL_SIZE),
 <a href=#292 id=292 data-nosnippet>292</a>        }
 <a href=#293 id=293 data-nosnippet>293</a>        <span class="kw">let </span>ack_eliciting = <span class="self">self</span>.ack_eliciting;
-<a href=#294 id=294 data-nosnippet>294</a>        <span class="kw">let </span>exact_number = <span class="self">self</span>.packet_number;
+<a href=#294 id=294 data-nosnippet>294</a>        <span class="kw">let </span>packet_number = <span class="self">self</span>.packet_number;
 <a href=#295 id=295 data-nosnippet>295</a>        <span class="kw">let </span>space_id = <span class="self">self</span>.space;
 <a href=#296 id=296 data-nosnippet>296</a>        <span class="kw">let </span>(size, padded, sent) = <span class="self">self</span>.finish(conn, now);
 <a href=#297 id=297 data-nosnippet>297</a>
@@ -311,7 +311,7 @@
 <a href=#311 id=311 data-nosnippet>311</a>        };
 <a href=#312 id=312 data-nosnippet>312</a>
 <a href=#313 id=313 data-nosnippet>313</a>        conn.paths.get_mut(<span class="kw-2">&amp;</span>path_id).unwrap().data.sent(
-<a href=#314 id=314 data-nosnippet>314</a>            exact_number,
+<a href=#314 id=314 data-nosnippet>314</a>            packet_number,
 <a href=#315 id=315 data-nosnippet>315</a>            packet,
 <a href=#316 id=316 data-nosnippet>316</a>            conn.spaces[space_id].for_path(path_id),
 <a href=#317 id=317 data-nosnippet>317</a>        );

@@ -339,7 +339,7 @@
 <a href=#339 id=339 data-nosnippet>339</a>
 <a href=#340 id=340 data-nosnippet>340</a><span class="doccomment">/// Return value for [`Connection::poll_transmit_path_space`].
 <a href=#341 id=341 data-nosnippet>341</a></span><span class="attr">#[derive(Debug)]
-<a href=#342 id=342 data-nosnippet>342</a></span><span class="kw">enum </span>PollPathSpaceOutcome {
+<a href=#342 id=342 data-nosnippet>342</a></span><span class="kw">enum </span>PollPathSpaceStatus {
 <a href=#343 id=343 data-nosnippet>343</a>    <span class="doccomment">/// Nothing to send in the space, nothing was written into the [`TransmitBuf`].
 <a href=#344 id=344 data-nosnippet>344</a>    </span>NothingToSend {
 <a href=#345 id=345 data-nosnippet>345</a>        <span class="doccomment">/// If true there was data to send but congestion control did not allow so.
@@ -1241,14 +1241,14 @@
 <a href=#1241 id=1241 data-nosnippet>1241</a>                close,
 <a href=#1242 id=1242 data-nosnippet>1242</a>                pad_datagram,
 <a href=#1243 id=1243 data-nosnippet>1243</a>            ) {
-<a href=#1244 id=1244 data-nosnippet>1244</a>                PollPathSpaceOutcome::NothingToSend {
+<a href=#1244 id=1244 data-nosnippet>1244</a>                PollPathSpaceStatus::NothingToSend {
 <a href=#1245 id=1245 data-nosnippet>1245</a>                    congestion_blocked: cb,
 <a href=#1246 id=1246 data-nosnippet>1246</a>                } =&gt; {
 <a href=#1247 id=1247 data-nosnippet>1247</a>                    congestion_blocked |= cb;
 <a href=#1248 id=1248 data-nosnippet>1248</a>                    <span class="comment">// Continue checking other spaces, tail-loss probes may need to be sent
 <a href=#1249 id=1249 data-nosnippet>1249</a>                    // in all spaces.
 <a href=#1250 id=1250 data-nosnippet>1250</a>                </span>}
-<a href=#1251 id=1251 data-nosnippet>1251</a>                PollPathSpaceOutcome::WrotePacket {
+<a href=#1251 id=1251 data-nosnippet>1251</a>                PollPathSpaceStatus::WrotePacket {
 <a href=#1252 id=1252 data-nosnippet>1252</a>                    last_packet_number: pn,
 <a href=#1253 id=1253 data-nosnippet>1253</a>                    pad_datagram: pad,
 <a href=#1254 id=1254 data-nosnippet>1254</a>                } =&gt; {
@@ -1261,7 +1261,7 @@
 <a href=#1261 id=1261 data-nosnippet>1261</a>                    // be required.
 <a href=#1262 id=1262 data-nosnippet>1262</a>                    </span><span class="kw">continue</span>;
 <a href=#1263 id=1263 data-nosnippet>1263</a>                }
-<a href=#1264 id=1264 data-nosnippet>1264</a>                PollPathSpaceOutcome::Send {
+<a href=#1264 id=1264 data-nosnippet>1264</a>                PollPathSpaceStatus::Send {
 <a href=#1265 id=1265 data-nosnippet>1265</a>                    last_packet_number: pn,
 <a href=#1266 id=1266 data-nosnippet>1266</a>                } =&gt; {
 <a href=#1267 id=1267 data-nosnippet>1267</a>                    <span class="macro">debug_assert!</span>(!transmit.is_empty(), <span class="string">"transmit must contain packets"</span>);
@@ -1310,7 +1310,7 @@
 <a href=#1310 id=1310 data-nosnippet>1310</a>        </span>connection_close_pending: bool,
 <a href=#1311 id=1311 data-nosnippet>1311</a>        <span class="comment">// Whether the current datagram needs to be padded to a certain size.
 <a href=#1312 id=1312 data-nosnippet>1312</a>        </span><span class="kw-2">mut </span>pad_datagram: PadDatagram,
-<a href=#1313 id=1313 data-nosnippet>1313</a>    ) -&gt; PollPathSpaceOutcome {
+<a href=#1313 id=1313 data-nosnippet>1313</a>    ) -&gt; PollPathSpaceStatus {
 <a href=#1314 id=1314 data-nosnippet>1314</a>        <span class="comment">// Keep track of the last packet number we wrote. If None we did not write any
 <a href=#1315 id=1315 data-nosnippet>1315</a>        // packets.
 <a href=#1316 id=1316 data-nosnippet>1316</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>last_packet_number = <span class="prelude-val">None</span>;
@@ -1361,7 +1361,7 @@
 <a href=#1361 id=1361 data-nosnippet>1361</a>                <span class="comment">// Nothing more to send. Previous iterations of this loop may have built
 <a href=#1362 id=1362 data-nosnippet>1362</a>                // packets already.
 <a href=#1363 id=1363 data-nosnippet>1363</a>                </span><span class="kw">return match </span>last_packet_number {
-<a href=#1364 id=1364 data-nosnippet>1364</a>                    <span class="prelude-val">Some</span>(pn) =&gt; PollPathSpaceOutcome::WrotePacket {
+<a href=#1364 id=1364 data-nosnippet>1364</a>                    <span class="prelude-val">Some</span>(pn) =&gt; PollPathSpaceStatus::WrotePacket {
 <a href=#1365 id=1365 data-nosnippet>1365</a>                        last_packet_number: pn,
 <a href=#1366 id=1366 data-nosnippet>1366</a>                        pad_datagram,
 <a href=#1367 id=1367 data-nosnippet>1367</a>                    },
@@ -1372,7 +1372,7 @@
 <a href=#1372 id=1372 data-nosnippet>1372</a>                        {
 <a href=#1373 id=1373 data-nosnippet>1373</a>                            <span class="macro">trace!</span>(<span class="question-mark">?</span>space_id, %path_id, <span class="string">"nothing to send in space"</span>);
 <a href=#1374 id=1374 data-nosnippet>1374</a>                        }
-<a href=#1375 id=1375 data-nosnippet>1375</a>                        <span class="kw">return </span>PollPathSpaceOutcome::NothingToSend {
+<a href=#1375 id=1375 data-nosnippet>1375</a>                        <span class="kw">return </span>PollPathSpaceStatus::NothingToSend {
 <a href=#1376 id=1376 data-nosnippet>1376</a>                            congestion_blocked: <span class="bool-val">false</span>,
 <a href=#1377 id=1377 data-nosnippet>1377</a>                        };
 <a href=#1378 id=1378 data-nosnippet>1378</a>                    }
@@ -1388,12 +1388,12 @@
 <a href=#1388 id=1388 data-nosnippet>1388</a>                <span class="kw">if </span>congestion_blocked != PathBlocked::No {
 <a href=#1389 id=1389 data-nosnippet>1389</a>                    <span class="comment">// Previous iterations of this loop may have built packets already.
 <a href=#1390 id=1390 data-nosnippet>1390</a>                    </span><span class="kw">return match </span>last_packet_number {
-<a href=#1391 id=1391 data-nosnippet>1391</a>                        <span class="prelude-val">Some</span>(pn) =&gt; PollPathSpaceOutcome::WrotePacket {
+<a href=#1391 id=1391 data-nosnippet>1391</a>                        <span class="prelude-val">Some</span>(pn) =&gt; PollPathSpaceStatus::WrotePacket {
 <a href=#1392 id=1392 data-nosnippet>1392</a>                            last_packet_number: pn,
 <a href=#1393 id=1393 data-nosnippet>1393</a>                            pad_datagram,
 <a href=#1394 id=1394 data-nosnippet>1394</a>                        },
 <a href=#1395 id=1395 data-nosnippet>1395</a>                        <span class="prelude-val">None </span>=&gt; {
-<a href=#1396 id=1396 data-nosnippet>1396</a>                            <span class="kw">return </span>PollPathSpaceOutcome::NothingToSend {
+<a href=#1396 id=1396 data-nosnippet>1396</a>                            <span class="kw">return </span>PollPathSpaceStatus::NothingToSend {
 <a href=#1397 id=1397 data-nosnippet>1397</a>                                congestion_blocked: <span class="bool-val">true</span>,
 <a href=#1398 id=1398 data-nosnippet>1398</a>                            };
 <a href=#1399 id=1399 data-nosnippet>1399</a>                        }
@@ -1408,12 +1408,12 @@
 <a href=#1408 id=1408 data-nosnippet>1408</a>                    <span class="comment">// No more datagrams allowed.
 <a href=#1409 id=1409 data-nosnippet>1409</a>                    // Previous iterations of this loop may have built packets already.
 <a href=#1410 id=1410 data-nosnippet>1410</a>                    </span><span class="kw">return match </span>last_packet_number {
-<a href=#1411 id=1411 data-nosnippet>1411</a>                        <span class="prelude-val">Some</span>(pn) =&gt; PollPathSpaceOutcome::WrotePacket {
+<a href=#1411 id=1411 data-nosnippet>1411</a>                        <span class="prelude-val">Some</span>(pn) =&gt; PollPathSpaceStatus::WrotePacket {
 <a href=#1412 id=1412 data-nosnippet>1412</a>                            last_packet_number: pn,
 <a href=#1413 id=1413 data-nosnippet>1413</a>                            pad_datagram,
 <a href=#1414 id=1414 data-nosnippet>1414</a>                        },
 <a href=#1415 id=1415 data-nosnippet>1415</a>                        <span class="prelude-val">None </span>=&gt; {
-<a href=#1416 id=1416 data-nosnippet>1416</a>                            <span class="kw">return </span>PollPathSpaceOutcome::NothingToSend {
+<a href=#1416 id=1416 data-nosnippet>1416</a>                            <span class="kw">return </span>PollPathSpaceStatus::NothingToSend {
 <a href=#1417 id=1417 data-nosnippet>1417</a>                                congestion_blocked: <span class="bool-val">false</span>,
 <a href=#1418 id=1418 data-nosnippet>1418</a>                            };
 <a href=#1419 id=1419 data-nosnippet>1419</a>                        }
@@ -1486,7 +1486,7 @@
 <a href=#1486 id=1486 data-nosnippet>1486</a>                // get called again for another space we will see an already started
 <a href=#1487 id=1487 data-nosnippet>1487</a>                // datagram and try and start another packet here. Then be stopped by the
 <a href=#1488 id=1488 data-nosnippet>1488</a>                // same confidentiality limit.
-<a href=#1489 id=1489 data-nosnippet>1489</a>                </span><span class="kw">return </span>PollPathSpaceOutcome::NothingToSend {
+<a href=#1489 id=1489 data-nosnippet>1489</a>                </span><span class="kw">return </span>PollPathSpaceStatus::NothingToSend {
 <a href=#1490 id=1490 data-nosnippet>1490</a>                    congestion_blocked: <span class="bool-val">false</span>,
 <a href=#1491 id=1491 data-nosnippet>1491</a>                };
 <a href=#1492 id=1492 data-nosnippet>1492</a>            };
@@ -1573,7 +1573,7 @@
 <a href=#1573 id=1573 data-nosnippet>1573</a>                //    padded datagrams. And also add space checks for CONNECTION_CLOSE in
 <a href=#1574 id=1574 data-nosnippet>1574</a>                //    space_can_send so it would stop a GSO batch if the datagram is too
 <a href=#1575 id=1575 data-nosnippet>1575</a>                //    small for another CONNECTION_CLOSE packet.
-<a href=#1576 id=1576 data-nosnippet>1576</a>                </span><span class="kw">return </span>PollPathSpaceOutcome::WrotePacket {
+<a href=#1576 id=1576 data-nosnippet>1576</a>                </span><span class="kw">return </span>PollPathSpaceStatus::WrotePacket {
 <a href=#1577 id=1577 data-nosnippet>1577</a>                    last_packet_number: last_pn,
 <a href=#1578 id=1578 data-nosnippet>1578</a>                    pad_datagram,
 <a href=#1579 id=1579 data-nosnippet>1579</a>                };
@@ -1659,7 +1659,7 @@
 <a href=#1659 id=1659 data-nosnippet>1659</a>                        );
 <a href=#1660 id=1660 data-nosnippet>1660</a>                        <span class="kw">let </span>last_pn = builder.packet_number;
 <a href=#1661 id=1661 data-nosnippet>1661</a>                        builder.finish_and_track(now, <span class="self">self</span>, path_id, PadDatagram::No);
-<a href=#1662 id=1662 data-nosnippet>1662</a>                        <span class="kw">return </span>PollPathSpaceOutcome::Send {
+<a href=#1662 id=1662 data-nosnippet>1662</a>                        <span class="kw">return </span>PollPathSpaceStatus::Send {
 <a href=#1663 id=1663 data-nosnippet>1663</a>                            last_packet_number: last_pn,
 <a href=#1664 id=1664 data-nosnippet>1664</a>                        };
 <a href=#1665 id=1665 data-nosnippet>1665</a>                    }
