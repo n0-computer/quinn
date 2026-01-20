@@ -291,7 +291,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             PadDatagram::ToMinMtu => self.pad_to(MIN_INITIAL_SIZE),
         }
         let ack_eliciting = self.ack_eliciting;
-        let exact_number = self.packet_number;
+        let packet_number = self.packet_number;
         let space_id = self.space;
         let (size, padded, sent) = self.finish(conn, now);
 
@@ -311,7 +311,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         };
 
         conn.paths.get_mut(&path_id).unwrap().data.sent(
-            exact_number,
+            packet_number,
             packet,
             conn.spaces[space_id].for_path(path_id),
         );
