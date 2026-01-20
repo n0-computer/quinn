@@ -6290,6 +6290,7 @@ impl Connection {
                     *probe_port == port && probe_ip.to_canonical() == ip.to_canonical()
                 })
                 && !path.validated
+                && !self.abandoned_paths.contains(&path_id)
             {
                 trace!(%path_id, "closing path from previous round");
                 let _ = self.close_path(
