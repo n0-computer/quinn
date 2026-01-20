@@ -488,7 +488,7 @@ impl State {
     }
 }
 
-/// Returns the given socket address as canoncalized `IpPort`.
+/// Returns the given socket address as canonicalized `IpPort`.
 ///
 /// Canonicalizes the give address to always use IPv6 by
 /// using IPv6-mapped IPv4 addresses, if `ipv6` is set to true,
