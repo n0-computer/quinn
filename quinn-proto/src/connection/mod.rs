@@ -1801,7 +1801,7 @@ impl Connection {
                     .map(|path| path.anti_amplification_blocked(1))
                     // We never tried to send on an non-existing (new) path so have not been
                     // anti-amplification blocked for it previously.
-                    .unwrap_or_default();
+                    .unwrap_or(false);
 
                 self.stats.udp_rx.datagrams += 1;
                 self.stats.udp_rx.bytes += first_decode.len() as u64;
