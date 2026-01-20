@@ -339,7 +339,7 @@ enum PollPathStatus {
 
 /// Return value for [`Connection::poll_transmit_path_space`].
 #[derive(Debug)]
-enum PollPathSpaceOutcome {
+enum PollPathSpaceStatus {
     /// Nothing to send in the space, nothing was written into the [`TransmitBuf`].
     NothingToSend {
         /// If true there was data to send but congestion control did not allow so.
@@ -1240,14 +1240,14 @@ impl Connection {
                 close,
                 pad_datagram,
             ) {
-                PollPathSpaceOutcome::NothingToSend {
+                PollPathSpaceStatus::NothingToSend {
                     congestion_blocked: cb,
                 } => {
                     congestion_blocked |= cb;
                     // Continue checking other spaces, tail-loss probes may need to be sent
                     // in all spaces.
                 }
-                PollPathSpaceOutcome::WrotePacket {
+                PollPathSpaceStatus::WrotePacket {
                     last_packet_number: pn,
                     pad_datagram: pad,
                 } => {
@@ -1260,7 +1260,7 @@ impl Connection {
                     // be required.
                     continue;
                 }
-                PollPathSpaceOutcome::Send {
+                PollPathSpaceStatus::Send {
                     last_packet_number: pn,
                 } => {
                     debug_assert!(!transmit.is_empty(), "transmit must contain packets");
@@ -1309,7 +1309,7 @@ impl Connection {
         connection_close_pending: bool,
         // Whether the current datagram needs to be padded to a certain size.
         mut pad_datagram: PadDatagram,
-    ) -> PollPathSpaceOutcome {
+    ) -> PollPathSpaceStatus {
         // Keep track of the last packet number we wrote. If None we did not write any
         // packets.
         let mut last_packet_number = None;
@@ -1360,7 +1360,7 @@ impl Connection {
                 // Nothing more to send. Previous iterations of this loop may have built
                 // packets already.
                 return match last_packet_number {
-                    Some(pn) => PollPathSpaceOutcome::WrotePacket {
+                    Some(pn) => PollPathSpaceStatus::WrotePacket {
                         last_packet_number: pn,
                         pad_datagram,
                     },
@@ -1371,7 +1371,7 @@ impl Connection {
                         {
                             trace!(?space_id, %path_id, "nothing to send in space");
                         }
-                        return PollPathSpaceOutcome::NothingToSend {
+                        return PollPathSpaceStatus::NothingToSend {
                             congestion_blocked: false,
                         };
                     }
@@ -1387,12 +1387,12 @@ impl Connection {
                 if congestion_blocked != PathBlocked::No {
                     // Previous iterations of this loop may have built packets already.
                     return match last_packet_number {
-                        Some(pn) => PollPathSpaceOutcome::WrotePacket {
+                        Some(pn) => PollPathSpaceStatus::WrotePacket {
                             last_packet_number: pn,
                             pad_datagram,
                         },
                         None => {
-                            return PollPathSpaceOutcome::NothingToSend {
+                            return PollPathSpaceStatus::NothingToSend {
                                 congestion_blocked: true,
                             };
                         }
@@ -1407,12 +1407,12 @@ impl Connection {
                     // No more datagrams allowed.
                     // Previous iterations of this loop may have built packets already.
                     return match last_packet_number {
-                        Some(pn) => PollPathSpaceOutcome::WrotePacket {
+                        Some(pn) => PollPathSpaceStatus::WrotePacket {
                             last_packet_number: pn,
                             pad_datagram,
                         },
                         None => {
-                            return PollPathSpaceOutcome::NothingToSend {
+                            return PollPathSpaceStatus::NothingToSend {
                                 congestion_blocked: false,
                             };
                         }
@@ -1485,7 +1485,7 @@ impl Connection {
                 // get called again for another space we will see an already started
                 // datagram and try and start another packet here. Then be stopped by the
                 // same confidentiality limit.
-                return PollPathSpaceOutcome::NothingToSend {
+                return PollPathSpaceStatus::NothingToSend {
                     congestion_blocked: false,
                 };
             };
@@ -1572,7 +1572,7 @@ impl Connection {
                 //    padded datagrams. And also add space checks for CONNECTION_CLOSE in
                 //    space_can_send so it would stop a GSO batch if the datagram is too
                 //    small for another CONNECTION_CLOSE packet.
-                return PollPathSpaceOutcome::WrotePacket {
+                return PollPathSpaceStatus::WrotePacket {
                     last_packet_number: last_pn,
                     pad_datagram,
                 };
@@ -1658,7 +1658,7 @@ impl Connection {
                         );
                         let last_pn = builder.packet_number;
                         builder.finish_and_track(now, self, path_id, PadDatagram::No);
-                        return PollPathSpaceOutcome::Send {
+                        return PollPathSpaceStatus::Send {
                             last_packet_number: last_pn,
                         };
                     }
