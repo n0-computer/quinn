@@ -1801,7 +1801,7 @@
 <a href=#1801 id=1801 data-nosnippet>1801</a>                    .map(|path| path.anti_amplification_blocked(<span class="number">1</span>))
 <a href=#1802 id=1802 data-nosnippet>1802</a>                    <span class="comment">// We never tried to send on an non-existing (new) path so have not been
 <a href=#1803 id=1803 data-nosnippet>1803</a>                    // anti-amplification blocked for it previously.
-<a href=#1804 id=1804 data-nosnippet>1804</a>                    </span>.unwrap_or_default();
+<a href=#1804 id=1804 data-nosnippet>1804</a>                    </span>.unwrap_or(<span class="bool-val">false</span>);
 <a href=#1805 id=1805 data-nosnippet>1805</a>
 <a href=#1806 id=1806 data-nosnippet>1806</a>                <span class="self">self</span>.stats.udp_rx.datagrams += <span class="number">1</span>;
 <a href=#1807 id=1807 data-nosnippet>1807</a>                <span class="self">self</span>.stats.udp_rx.bytes += first_decode.len() <span class="kw">as </span>u64;
