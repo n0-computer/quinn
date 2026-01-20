@@ -27,43 +27,6 @@ use proptest::{collection, prelude::any, strategy::Strategy};
 #[cfg(test)]
 use test_strategy::Arbitrary;
 
-#[cfg(test)]
-impl proptest::arbitrary::Arbitrary for ConnectionClose {
-    type Parameters = ();
-    type Strategy = proptest::strategy::BoxedStrategy<Self>;
-
-    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        use proptest::prelude::*;
-        (
-            any::<u8>().prop_map(crate::TransportErrorCode::crypto),
-            any::<MaybeFrame>(),
-            collection::vec(any::<u8>(), 0..64).prop_map(Bytes::from),
-        )
-            .prop_map(|(error_code, frame_type, reason)| Self {
-                error_code,
-                frame_type,
-                reason,
-            })
-            .boxed()
-    }
-}
-
-#[cfg(test)]
-impl proptest::arbitrary::Arbitrary for ApplicationClose {
-    type Parameters = ();
-    type Strategy = proptest::strategy::BoxedStrategy<Self>;
-
-    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        use proptest::prelude::*;
-        (
-            any::<VarInt>(),
-            collection::vec(any::<u8>(), 0..64).prop_map(Bytes::from),
-        )
-            .prop_map(|(error_code, reason)| Self { error_code, reason })
-            .boxed()
-    }
-}
-
 #[derive(
     Copy, Clone, Eq, PartialEq, derive_more::Debug, derive_more::Display, enum_assoc::Assoc,
 )]
@@ -423,7 +386,6 @@ impl DatagramInfo {
 #[derive(Debug)]
 #[cfg_attr(test, derive(Arbitrary))]
 pub(crate) enum Frame {
-    #[cfg_attr(test, weight(0))]
     Padding,
     Ping,
     Ack(Ack),
@@ -892,12 +854,14 @@ impl From<ApplicationClose> for Close {
 
 /// Reason given by the transport for closing the connection
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct ConnectionClose {
     /// Class of error as encoded in the specification
     pub error_code: TransportErrorCode,
     /// Type of frame that caused the close
     pub frame_type: MaybeFrame,
     /// Human-readable reason for the close
+    #[cfg_attr(test, strategy(proptest::collection::vec(any::<u8>(), 0..64).prop_map(Bytes::from)))]
     pub reason: Bytes,
 }
 
@@ -943,10 +907,12 @@ impl ConnectionClose {
 
 /// Reason given by an application for closing the connection
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct ApplicationClose {
     /// Application-specific reason code
     pub error_code: VarInt,
     /// Human-readable reason for the close
+    #[cfg_attr(test, strategy(proptest::collection::vec(any::<u8>(), 0..64).prop_map(Bytes::from)))]
     pub reason: Bytes,
 }
 
@@ -998,12 +964,10 @@ impl proptest::arbitrary::Arbitrary for PathAck {
         (
             any::<PathId>(),
             varint_u64(),
-            any::<ArrayRangeSet>(),
+            any::<ArrayRangeSet>()
+                .prop_filter("ranges must be non empty", |ranges| !ranges.is_empty()),
             any::<Option<EcnCounts>>(),
         )
-            .prop_filter("ranges must be non empty", |(_, _, ranges, _)| {
-                !ranges.is_empty()
-            })
             .prop_map(|(path_id, delay, ranges, ecn)| Self {
                 path_id,
                 largest: ranges.max().expect("ranges must be non empty"),
@@ -1128,12 +1092,10 @@ impl proptest::arbitrary::Arbitrary for Ack {
         use proptest::prelude::*;
         (
             varint_u64(),
-            any::<ArrayRangeSet>(),
+            any::<ArrayRangeSet>()
+                .prop_filter("ranges must be non empty", |ranges| !ranges.is_empty()),
             any::<Option<EcnCounts>>(),
         )
-            .prop_filter("ranges must be non empty", |(_, ranges, _)| {
-                !ranges.is_empty()
-            })
             .prop_map(|(delay, ranges, ecn)| Self {
                 largest: ranges.max().expect("ranges must be non empty"),
                 delay,
@@ -1705,7 +1667,7 @@ impl Iter {
         })
     }
 
-    fn take_remaining(&mut self) -> Bytes {
+    pub(crate) fn take_remaining(&mut self) -> Bytes {
         mem::take(&mut self.bytes)
     }
 }
@@ -2098,6 +2060,7 @@ impl Encodable for AckFrequency {
 /// ([`FrameType::ObservedIpv4Addr`], [`FrameType::ObservedIpv6Addr`]).
 #[derive(Debug, PartialEq, Eq, Clone, derive_more::Display)]
 #[display("{} seq_no: {seq_no} addr: {}", self.get_type(), self.socket_addr())]
+#[cfg_attr(test, derive(Arbitrary))]
 pub(crate) struct ObservedAddr {
     /// Monotonically increasing integer within the same connection.
     pub(crate) seq_no: VarInt,
@@ -2105,19 +2068,6 @@ pub(crate) struct ObservedAddr {
     pub(crate) ip: IpAddr,
     /// Reported observed port.
     pub(crate) port: u16,
-}
-
-#[cfg(test)]
-impl proptest::arbitrary::Arbitrary for ObservedAddr {
-    type Parameters = ();
-    type Strategy = proptest::strategy::BoxedStrategy<Self>;
-
-    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        use proptest::prelude::*;
-        (any::<VarInt>(), any::<IpAddr>(), any::<u16>())
-            .prop_map(|(seq_no, ip, port)| Self { seq_no, ip, port })
-            .boxed()
-    }
 }
 
 impl ObservedAddr {
@@ -2292,6 +2242,7 @@ impl Decodable for PathStatusBackup {
 /// ([`FrameType::AddIpv4Address`], [`FrameType::AddIpv6Address`]).
 #[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord, derive_more::Display)]
 #[display("{} seq_no: {seq_no} addr: {}", self.get_type(), self.socket_addr())]
+#[cfg_attr(test, derive(Arbitrary))]
 pub(crate) struct AddAddress {
     /// Monotonically increasing integer within the same connection
     // TODO(@divma): both assumed, the draft has no mention of this but it's standard
@@ -2300,19 +2251,6 @@ pub(crate) struct AddAddress {
     pub(crate) ip: IpAddr,
     /// Port to use with this address
     pub(crate) port: u16,
-}
-
-#[cfg(test)]
-impl proptest::arbitrary::Arbitrary for AddAddress {
-    type Parameters = ();
-    type Strategy = proptest::strategy::BoxedStrategy<Self>;
-
-    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        use proptest::prelude::*;
-        (any::<VarInt>(), any::<IpAddr>(), any::<u16>())
-            .prop_map(|(seq_no, ip, port)| Self { seq_no, ip, port })
-            .boxed()
-    }
 }
 
 // TODO(@divma): remove
@@ -2393,6 +2331,7 @@ impl Encodable for AddAddress {
 /// ([`FrameType::ReachOutAtIpv4`], [`FrameType::ReachOutAtIpv6`])
 #[derive(Debug, PartialEq, Eq, Clone, derive_more::Display)]
 #[display("REACH_OUT round: {round} local_addr: {}", self.socket_addr())]
+#[cfg_attr(test, derive(Arbitrary))]
 pub(crate) struct ReachOut {
     /// The sequence number of the NAT Traversal attempts
     pub(crate) round: VarInt,
@@ -2400,19 +2339,6 @@ pub(crate) struct ReachOut {
     pub(crate) ip: IpAddr,
     /// Port to use with this address
     pub(crate) port: u16,
-}
-
-#[cfg(test)]
-impl proptest::arbitrary::Arbitrary for ReachOut {
-    type Parameters = ();
-    type Strategy = proptest::strategy::BoxedStrategy<Self>;
-
-    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        use proptest::prelude::*;
-        (any::<VarInt>(), any::<IpAddr>(), any::<u16>())
-            .prop_map(|(round, ip, port)| Self { round, ip, port })
-            .boxed()
-    }
 }
 
 // TODO(@divma): remove

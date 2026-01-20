@@ -1,5 +1,6 @@
 use bytes::{BufMut, BytesMut};
 use test_strategy::proptest;
+use proptest::{prop_assert_ne, prelude::*};
 
 use crate::{
     FrameType,
@@ -71,18 +72,22 @@ fn encode_stream<B: BufMut>(s: &Stream, buf: &mut B) {
 }
 
 #[proptest]
-fn encode_decode_roundtrip(frame: Frame) {
+fn encode_decode_roundtrip(
+    #[strategy(any::<Frame>().prop_filter("no padding", |frame| frame.ty() != FrameType::Padding))]
+    frame: Frame,
+) {
     let mut encoded = BytesMut::new();
     encode_frame(&frame, &mut encoded);
     let mut iter = crate::frame::Iter::new(encoded.freeze()).unwrap();
     let decoded = iter.next().unwrap().unwrap();
     assert_eq!(decoded, frame);
+    assert!(iter.take_remaining().is_empty());
 }
 
 #[proptest]
 fn maybe_frame_known_never_padding(frame: MaybeFrame) {
     // MaybeFrame::Known should never contain FrameType::Padding
     if let MaybeFrame::Known(ft) = frame {
-        proptest::prop_assert_ne!(ft, FrameType::Padding);
+        prop_assert_ne!(ft, FrameType::Padding);
     }
 }
