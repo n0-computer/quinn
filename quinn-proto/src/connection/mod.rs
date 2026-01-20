@@ -1058,34 +1058,27 @@ impl Connection {
         // borrowing. Maybe SmallVec or similar.
         let path_ids: Vec<_> = self.paths.keys().copied().collect();
 
-        let mut transmit = TransmitBuf::new(
-            buf,
-            max_datagrams,
-            self.path_data(path_ids[0]).current_mtu().into(),
-        );
-
         // If we end up not sending anything, we need to know if that was because there was
         // nothing to send or because we were congestion blocked.
         let mut congestion_blocked = false;
 
         for &path_id in &path_ids {
-            transmit = {
-                let (buf, _) = transmit.finish();
+            if let Some(transmit) = self.poll_transmit_off_path(now, buf, path_id) {
+                return Some(transmit);
+            }
 
-                // Poll off-path transmits first.
-                if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
-                    return Some(challenge);
-                } else if let Some(response) = self.send_off_path_path_response(now, buf, path_id) {
-                    return Some(response);
-                }
-
-                // Set the segment size to this path's MTU for on-path data.
-                let pmtu = self.path_data(path_id).current_mtu().into();
-                TransmitBuf::new(buf, max_datagrams, pmtu)
-            };
+            // Set the segment size to this path's MTU for on-path data.
+            let pmtu = self.path_data(path_id).current_mtu().into();
+            let mut transmit = TransmitBuf::new(buf, max_datagrams, pmtu);
 
             // Poll for on-path transmits.
-            match self.poll_transmit_path(now, &mut transmit, path_id, have_available_path, close) {
+            match self.poll_transmit_on_path(
+                now,
+                &mut transmit,
+                path_id,
+                have_available_path,
+                close,
+            ) {
                 PollPathStatus::Send => {
                     let transmit = self.build_transmit(path_id, transmit);
                     return Some(transmit);
@@ -1106,8 +1099,8 @@ impl Connection {
 
         // We didn't produce any application data packet
         debug_assert!(
-            transmit.is_empty(),
-            "there was data in the transmit, but it was not sent"
+            buf.is_empty(),
+            "there was data in the buffer, but it was not sent"
         );
 
         self.app_limited = !congestion_blocked;
@@ -1115,6 +1108,9 @@ impl Connection {
         if self.state.is_established() {
             // Try MTU probing now
             for path_id in path_ids {
+                // The MTU parameter here is really a dummy one, poll_transmit_mut_probe
+                // explicitly sets the size.
+                let mut transmit = TransmitBuf::new(buf, max_datagrams, MIN_INITIAL_SIZE.into());
                 self.poll_transmit_mtu_probe(now, &mut transmit, path_id);
                 if !transmit.is_empty() {
                     let transmit = self.build_transmit(path_id, transmit);
@@ -1169,17 +1165,30 @@ impl Connection {
         }
     }
 
-    /// poll_transmit logic for a specific [`PathState::data`].
+    /// poll_transmit logic for off-path data.
+    fn poll_transmit_off_path(
+        &mut self,
+        now: Instant,
+        buf: &mut Vec<u8>,
+        path_id: PathId,
+    ) -> Option<Transmit> {
+        if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
+            return Some(challenge);
+        }
+        if let Some(response) = self.send_off_path_path_response(now, buf, path_id) {
+            return Some(response);
+        }
+        None
+    }
+
+    /// poll_transmit logic for on-path data.
     ///
     /// This is not quite the same as for a multipath packet space, since [`PathId::ZERO`]
     /// has 3 packet spaces, which this handles.
     ///
-    /// This does not handle sending for [`PathState::prev`] which is handled by
-    /// [`Self::send_prev_path_challenge`] called directly from
-    /// [`Self::poll_transmit`]. Eventually we'd like this to only produce on-path
-    /// transmits.
+    /// See [`Self::poll_transmit_off_path`] for off-path data.
     #[must_use]
-    fn poll_transmit_path(
+    fn poll_transmit_on_path(
         &mut self,
         now: Instant,
         transmit: &mut TransmitBuf<'_>,
