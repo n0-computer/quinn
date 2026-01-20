@@ -688,6 +688,7 @@ impl Connection {
         self.endpoint_events
             .push_back(EndpointEventInner::RetireResetToken(path_id));
 
+        trace!(%path_id, "abandoning path");
         self.abandoned_paths.insert(path_id);
 
         self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
@@ -1982,8 +1983,13 @@ impl Connection {
                     let _guard = span.enter();
                     match timer {
                         PathTimer::PathIdle => {
-                            self.close_path(now, path_id, TransportErrorCode::NO_ERROR.into())
-                                .ok();
+                            if let Err(err) = self.close_path(
+                                now,
+                                path_id,
+                                TransportErrorCode::PATH_UNSTABLE_OR_POOR.into(),
+                            ) {
+                                warn!(?err, "failed closing path");
+                            }
                         }
 
                         PathTimer::PathKeepAlive => {
@@ -6269,14 +6275,24 @@ impl Connection {
         self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
 
         for path_id in prev_round_path_ids {
-            // TODO(@divma): this sounds reasonable but we need if this actually works for the
-            // purposes of the protocol
-            let validated = self
-                .path(path_id)
-                .map(|path| path.validated)
-                .unwrap_or(false);
+            let Some(path) = self.path(path_id) else {
+                continue;
+            };
+            let ip = path.network_path.remote.ip();
+            let port = path.network_path.remote.port();
 
-            if !validated {
+            // We only close paths that aren't validated (thus are working) that we opened
+            // in a previous round.
+            // And we only close paths that we don't want to probe anyways.
+            if !addresses_to_probe
+                .iter()
+                .any(|(_, (probe_ip, probe_port))| {
+                    *probe_port == port && probe_ip.to_canonical() == ip.to_canonical()
+                })
+                && !path.validated
+                && !self.abandoned_paths.contains(&path_id)
+            {
+                trace!(%path_id, "closing path from previous round");
                 let _ = self.close_path(
                     now,
                     path_id,
