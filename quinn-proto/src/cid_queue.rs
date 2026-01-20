@@ -125,8 +125,6 @@ impl CidQueue {
     ///
     /// If there's no more CIDs in the ready set, this will return None.
     /// CIDs marked as reserved will be skipped when the active one advances.
-    // TODO(@divma): remove
-    #[cfg(test)]
     pub(crate) fn next_reserved(&mut self) -> Option<ConnectionId> {
         let (i, cid_data) = self.iter_from_reserved().nth(1)?;
 
