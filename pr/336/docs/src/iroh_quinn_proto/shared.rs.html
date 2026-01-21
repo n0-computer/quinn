@@ -78,122 +78,124 @@
 <a href=#78 id=78 data-nosnippet>78</a>///
 <a href=#79 id=79 data-nosnippet>79</a>/// Mainly useful for identifying this connection's packets on the wire with tools like Wireshark.
 <a href=#80 id=80 data-nosnippet>80</a></span><span class="attr">#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
-<a href=#81 id=81 data-nosnippet>81</a></span><span class="kw">pub struct </span>ConnectionId {
-<a href=#82 id=82 data-nosnippet>82</a>    <span class="doccomment">/// length of CID
-<a href=#83 id=83 data-nosnippet>83</a>    </span>len: u8,
-<a href=#84 id=84 data-nosnippet>84</a>    <span class="doccomment">/// CID in byte array
-<a href=#85 id=85 data-nosnippet>85</a>    </span>bytes: [u8; MAX_CID_SIZE],
-<a href=#86 id=86 data-nosnippet>86</a>}
-<a href=#87 id=87 data-nosnippet>87</a>
-<a href=#88 id=88 data-nosnippet>88</a><span class="kw">impl </span>ConnectionId {
-<a href=#89 id=89 data-nosnippet>89</a>    <span class="doccomment">/// Construct cid from byte array
-<a href=#90 id=90 data-nosnippet>90</a>    </span><span class="kw">pub fn </span>new(bytes: <span class="kw-2">&amp;</span>[u8]) -&gt; <span class="self">Self </span>{
-<a href=#91 id=91 data-nosnippet>91</a>        <span class="macro">debug_assert!</span>(bytes.len() &lt;= MAX_CID_SIZE);
-<a href=#92 id=92 data-nosnippet>92</a>        <span class="kw">let </span><span class="kw-2">mut </span>res = <span class="self">Self </span>{
-<a href=#93 id=93 data-nosnippet>93</a>            len: bytes.len() <span class="kw">as </span>u8,
-<a href=#94 id=94 data-nosnippet>94</a>            bytes: [<span class="number">0</span>; MAX_CID_SIZE],
-<a href=#95 id=95 data-nosnippet>95</a>        };
-<a href=#96 id=96 data-nosnippet>96</a>        res.bytes[..bytes.len()].copy_from_slice(bytes);
-<a href=#97 id=97 data-nosnippet>97</a>        res
-<a href=#98 id=98 data-nosnippet>98</a>    }
-<a href=#99 id=99 data-nosnippet>99</a>
-<a href=#100 id=100 data-nosnippet>100</a>    <span class="doccomment">/// Constructs cid by reading `len` bytes from a `Buf`
-<a href=#101 id=101 data-nosnippet>101</a>    ///
-<a href=#102 id=102 data-nosnippet>102</a>    /// Callers need to assure that `buf.remaining() &gt;= len`
-<a href=#103 id=103 data-nosnippet>103</a>    </span><span class="kw">pub fn </span>from_buf(buf: <span class="kw-2">&amp;mut </span>(<span class="kw">impl </span>Buf + <span class="question-mark">?</span>Sized), len: usize) -&gt; <span class="self">Self </span>{
-<a href=#104 id=104 data-nosnippet>104</a>        <span class="macro">debug_assert!</span>(len &lt;= MAX_CID_SIZE);
-<a href=#105 id=105 data-nosnippet>105</a>        <span class="kw">let </span><span class="kw-2">mut </span>res = <span class="self">Self </span>{
-<a href=#106 id=106 data-nosnippet>106</a>            len: len <span class="kw">as </span>u8,
-<a href=#107 id=107 data-nosnippet>107</a>            bytes: [<span class="number">0</span>; MAX_CID_SIZE],
-<a href=#108 id=108 data-nosnippet>108</a>        };
-<a href=#109 id=109 data-nosnippet>109</a>        buf.copy_to_slice(<span class="kw-2">&amp;mut </span>res[..len]);
-<a href=#110 id=110 data-nosnippet>110</a>        res
-<a href=#111 id=111 data-nosnippet>111</a>    }
-<a href=#112 id=112 data-nosnippet>112</a>
-<a href=#113 id=113 data-nosnippet>113</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>len(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
-<a href=#114 id=114 data-nosnippet>114</a>        <span class="self">self</span>.len <span class="kw">as </span>usize
-<a href=#115 id=115 data-nosnippet>115</a>    }
-<a href=#116 id=116 data-nosnippet>116</a>
-<a href=#117 id=117 data-nosnippet>117</a>    <span class="doccomment">/// Decode from long header format
-<a href=#118 id=118 data-nosnippet>118</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>decode_long(buf: <span class="kw-2">&amp;mut </span><span class="kw">impl </span>Buf) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="self">Self</span>&gt; {
-<a href=#119 id=119 data-nosnippet>119</a>        <span class="kw">let </span>len = buf.get::&lt;u8&gt;().ok()<span class="question-mark">? </span><span class="kw">as </span>usize;
-<a href=#120 id=120 data-nosnippet>120</a>        <span class="kw">match </span>len &gt; MAX_CID_SIZE || buf.remaining() &lt; len {
-<a href=#121 id=121 data-nosnippet>121</a>            <span class="bool-val">false </span>=&gt; <span class="prelude-val">Some</span>(<span class="self">Self</span>::from_buf(buf, len)),
-<a href=#122 id=122 data-nosnippet>122</a>            <span class="bool-val">true </span>=&gt; <span class="prelude-val">None</span>,
-<a href=#123 id=123 data-nosnippet>123</a>        }
-<a href=#124 id=124 data-nosnippet>124</a>    }
-<a href=#125 id=125 data-nosnippet>125</a>
-<a href=#126 id=126 data-nosnippet>126</a>    <span class="doccomment">/// Encode in long header format
-<a href=#127 id=127 data-nosnippet>127</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>encode_long(<span class="kw-2">&amp;</span><span class="self">self</span>, buf: <span class="kw-2">&amp;mut </span><span class="kw">impl </span>BufMut) {
-<a href=#128 id=128 data-nosnippet>128</a>        buf.put_u8(<span class="self">self</span>.len() <span class="kw">as </span>u8);
-<a href=#129 id=129 data-nosnippet>129</a>        buf.put_slice(<span class="self">self</span>);
-<a href=#130 id=130 data-nosnippet>130</a>    }
-<a href=#131 id=131 data-nosnippet>131</a>}
-<a href=#132 id=132 data-nosnippet>132</a>
-<a href=#133 id=133 data-nosnippet>133</a><span class="kw">impl </span>::std::ops::Deref <span class="kw">for </span>ConnectionId {
-<a href=#134 id=134 data-nosnippet>134</a>    <span class="kw">type </span>Target = [u8];
-<a href=#135 id=135 data-nosnippet>135</a>    <span class="kw">fn </span>deref(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span>[u8] {
-<a href=#136 id=136 data-nosnippet>136</a>        <span class="kw-2">&amp;</span><span class="self">self</span>.bytes[<span class="number">0</span>..<span class="self">self</span>.len <span class="kw">as </span>usize]
-<a href=#137 id=137 data-nosnippet>137</a>    }
-<a href=#138 id=138 data-nosnippet>138</a>}
-<a href=#139 id=139 data-nosnippet>139</a>
-<a href=#140 id=140 data-nosnippet>140</a><span class="kw">impl </span>::std::ops::DerefMut <span class="kw">for </span>ConnectionId {
-<a href=#141 id=141 data-nosnippet>141</a>    <span class="kw">fn </span>deref_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;mut </span>[u8] {
-<a href=#142 id=142 data-nosnippet>142</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>.bytes[<span class="number">0</span>..<span class="self">self</span>.len <span class="kw">as </span>usize]
-<a href=#143 id=143 data-nosnippet>143</a>    }
-<a href=#144 id=144 data-nosnippet>144</a>}
-<a href=#145 id=145 data-nosnippet>145</a>
-<a href=#146 id=146 data-nosnippet>146</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>ConnectionId {
-<a href=#147 id=147 data-nosnippet>147</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
-<a href=#148 id=148 data-nosnippet>148</a>        <span class="self">self</span>.bytes[<span class="number">0</span>..<span class="self">self</span>.len <span class="kw">as </span>usize].fmt(f)
-<a href=#149 id=149 data-nosnippet>149</a>    }
-<a href=#150 id=150 data-nosnippet>150</a>}
-<a href=#151 id=151 data-nosnippet>151</a>
-<a href=#152 id=152 data-nosnippet>152</a><span class="kw">impl </span>fmt::Display <span class="kw">for </span>ConnectionId {
-<a href=#153 id=153 data-nosnippet>153</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
-<a href=#154 id=154 data-nosnippet>154</a>        <span class="kw">for </span>byte <span class="kw">in </span><span class="self">self</span>.iter() {
-<a href=#155 id=155 data-nosnippet>155</a>            <span class="macro">write!</span>(f, <span class="string">"{byte:02x}"</span>)<span class="question-mark">?</span>;
-<a href=#156 id=156 data-nosnippet>156</a>        }
-<a href=#157 id=157 data-nosnippet>157</a>        <span class="prelude-val">Ok</span>(())
-<a href=#158 id=158 data-nosnippet>158</a>    }
-<a href=#159 id=159 data-nosnippet>159</a>}
-<a href=#160 id=160 data-nosnippet>160</a>
-<a href=#161 id=161 data-nosnippet>161</a><span class="doccomment">/// Explicit congestion notification codepoint
-<a href=#162 id=162 data-nosnippet>162</a></span><span class="attr">#[repr(u8)]
-<a href=#163 id=163 data-nosnippet>163</a>#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-<a href=#164 id=164 data-nosnippet>164</a></span><span class="kw">pub enum </span>EcnCodepoint {
-<a href=#165 id=165 data-nosnippet>165</a>    <span class="doccomment">/// The ECT(0) codepoint, indicating that an endpoint is ECN-capable
-<a href=#166 id=166 data-nosnippet>166</a>    </span>Ect0 = <span class="number">0b10</span>,
-<a href=#167 id=167 data-nosnippet>167</a>    <span class="doccomment">/// The ECT(1) codepoint, indicating that an endpoint is ECN-capable
-<a href=#168 id=168 data-nosnippet>168</a>    </span>Ect1 = <span class="number">0b01</span>,
-<a href=#169 id=169 data-nosnippet>169</a>    <span class="doccomment">/// The CE codepoint, signalling that congestion was experienced
-<a href=#170 id=170 data-nosnippet>170</a>    </span>Ce = <span class="number">0b11</span>,
-<a href=#171 id=171 data-nosnippet>171</a>}
-<a href=#172 id=172 data-nosnippet>172</a>
-<a href=#173 id=173 data-nosnippet>173</a><span class="kw">impl </span>EcnCodepoint {
-<a href=#174 id=174 data-nosnippet>174</a>    <span class="doccomment">/// Create new object from the given bits
-<a href=#175 id=175 data-nosnippet>175</a>    </span><span class="kw">pub fn </span>from_bits(x: u8) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="self">Self</span>&gt; {
-<a href=#176 id=176 data-nosnippet>176</a>        <span class="kw">use </span>EcnCodepoint::<span class="kw-2">*</span>;
-<a href=#177 id=177 data-nosnippet>177</a>        <span class="prelude-val">Some</span>(<span class="kw">match </span>x &amp; <span class="number">0b11 </span>{
-<a href=#178 id=178 data-nosnippet>178</a>            <span class="number">0b10 </span>=&gt; Ect0,
-<a href=#179 id=179 data-nosnippet>179</a>            <span class="number">0b01 </span>=&gt; Ect1,
-<a href=#180 id=180 data-nosnippet>180</a>            <span class="number">0b11 </span>=&gt; Ce,
-<a href=#181 id=181 data-nosnippet>181</a>            <span class="kw">_ </span>=&gt; {
-<a href=#182 id=182 data-nosnippet>182</a>                <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#183 id=183 data-nosnippet>183</a>            }
-<a href=#184 id=184 data-nosnippet>184</a>        })
-<a href=#185 id=185 data-nosnippet>185</a>    }
-<a href=#186 id=186 data-nosnippet>186</a>
-<a href=#187 id=187 data-nosnippet>187</a>    <span class="doccomment">/// Returns whether the codepoint is a CE, signalling that congestion was experienced
-<a href=#188 id=188 data-nosnippet>188</a>    </span><span class="kw">pub fn </span>is_ce(<span class="self">self</span>) -&gt; bool {
-<a href=#189 id=189 data-nosnippet>189</a>        <span class="macro">matches!</span>(<span class="self">self</span>, <span class="self">Self</span>::Ce)
-<a href=#190 id=190 data-nosnippet>190</a>    }
-<a href=#191 id=191 data-nosnippet>191</a>}
-<a href=#192 id=192 data-nosnippet>192</a>
-<a href=#193 id=193 data-nosnippet>193</a><span class="attr">#[derive(Debug, Copy, Clone)]
-<a href=#194 id=194 data-nosnippet>194</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>IssuedCid {
-<a href=#195 id=195 data-nosnippet>195</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) path_id: PathId,
-<a href=#196 id=196 data-nosnippet>196</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) sequence: u64,
-<a href=#197 id=197 data-nosnippet>197</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) id: ConnectionId,
-<a href=#198 id=198 data-nosnippet>198</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) reset_token: ResetToken,
-<a href=#199 id=199 data-nosnippet>199</a>}</code></pre></div></section></main></body></html>
+<a href=#81 id=81 data-nosnippet>81</a>#[cfg_attr(test, derive(test_strategy::Arbitrary))]
+<a href=#82 id=82 data-nosnippet>82</a></span><span class="kw">pub struct </span>ConnectionId {
+<a href=#83 id=83 data-nosnippet>83</a>    <span class="doccomment">/// length of CID
+<a href=#84 id=84 data-nosnippet>84</a>    </span><span class="attr">#[cfg_attr(test, strategy(<span class="number">1u8</span>..=MAX_CID_SIZE <span class="kw">as </span>u8))]
+<a href=#85 id=85 data-nosnippet>85</a>    </span>len: u8,
+<a href=#86 id=86 data-nosnippet>86</a>    <span class="doccomment">/// CID in byte array
+<a href=#87 id=87 data-nosnippet>87</a>    </span>bytes: [u8; MAX_CID_SIZE],
+<a href=#88 id=88 data-nosnippet>88</a>}
+<a href=#89 id=89 data-nosnippet>89</a>
+<a href=#90 id=90 data-nosnippet>90</a><span class="kw">impl </span>ConnectionId {
+<a href=#91 id=91 data-nosnippet>91</a>    <span class="doccomment">/// Construct cid from byte array
+<a href=#92 id=92 data-nosnippet>92</a>    </span><span class="kw">pub fn </span>new(bytes: <span class="kw-2">&amp;</span>[u8]) -&gt; <span class="self">Self </span>{
+<a href=#93 id=93 data-nosnippet>93</a>        <span class="macro">debug_assert!</span>(bytes.len() &lt;= MAX_CID_SIZE);
+<a href=#94 id=94 data-nosnippet>94</a>        <span class="kw">let </span><span class="kw-2">mut </span>res = <span class="self">Self </span>{
+<a href=#95 id=95 data-nosnippet>95</a>            len: bytes.len() <span class="kw">as </span>u8,
+<a href=#96 id=96 data-nosnippet>96</a>            bytes: [<span class="number">0</span>; MAX_CID_SIZE],
+<a href=#97 id=97 data-nosnippet>97</a>        };
+<a href=#98 id=98 data-nosnippet>98</a>        res.bytes[..bytes.len()].copy_from_slice(bytes);
+<a href=#99 id=99 data-nosnippet>99</a>        res
+<a href=#100 id=100 data-nosnippet>100</a>    }
+<a href=#101 id=101 data-nosnippet>101</a>
+<a href=#102 id=102 data-nosnippet>102</a>    <span class="doccomment">/// Constructs cid by reading `len` bytes from a `Buf`
+<a href=#103 id=103 data-nosnippet>103</a>    ///
+<a href=#104 id=104 data-nosnippet>104</a>    /// Callers need to assure that `buf.remaining() &gt;= len`
+<a href=#105 id=105 data-nosnippet>105</a>    </span><span class="kw">pub fn </span>from_buf(buf: <span class="kw-2">&amp;mut </span>(<span class="kw">impl </span>Buf + <span class="question-mark">?</span>Sized), len: usize) -&gt; <span class="self">Self </span>{
+<a href=#106 id=106 data-nosnippet>106</a>        <span class="macro">debug_assert!</span>(len &lt;= MAX_CID_SIZE);
+<a href=#107 id=107 data-nosnippet>107</a>        <span class="kw">let </span><span class="kw-2">mut </span>res = <span class="self">Self </span>{
+<a href=#108 id=108 data-nosnippet>108</a>            len: len <span class="kw">as </span>u8,
+<a href=#109 id=109 data-nosnippet>109</a>            bytes: [<span class="number">0</span>; MAX_CID_SIZE],
+<a href=#110 id=110 data-nosnippet>110</a>        };
+<a href=#111 id=111 data-nosnippet>111</a>        buf.copy_to_slice(<span class="kw-2">&amp;mut </span>res[..len]);
+<a href=#112 id=112 data-nosnippet>112</a>        res
+<a href=#113 id=113 data-nosnippet>113</a>    }
+<a href=#114 id=114 data-nosnippet>114</a>
+<a href=#115 id=115 data-nosnippet>115</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>len(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
+<a href=#116 id=116 data-nosnippet>116</a>        <span class="self">self</span>.len <span class="kw">as </span>usize
+<a href=#117 id=117 data-nosnippet>117</a>    }
+<a href=#118 id=118 data-nosnippet>118</a>
+<a href=#119 id=119 data-nosnippet>119</a>    <span class="doccomment">/// Decode from long header format
+<a href=#120 id=120 data-nosnippet>120</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>decode_long(buf: <span class="kw-2">&amp;mut </span><span class="kw">impl </span>Buf) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="self">Self</span>&gt; {
+<a href=#121 id=121 data-nosnippet>121</a>        <span class="kw">let </span>len = buf.get::&lt;u8&gt;().ok()<span class="question-mark">? </span><span class="kw">as </span>usize;
+<a href=#122 id=122 data-nosnippet>122</a>        <span class="kw">match </span>len &gt; MAX_CID_SIZE || buf.remaining() &lt; len {
+<a href=#123 id=123 data-nosnippet>123</a>            <span class="bool-val">false </span>=&gt; <span class="prelude-val">Some</span>(<span class="self">Self</span>::from_buf(buf, len)),
+<a href=#124 id=124 data-nosnippet>124</a>            <span class="bool-val">true </span>=&gt; <span class="prelude-val">None</span>,
+<a href=#125 id=125 data-nosnippet>125</a>        }
+<a href=#126 id=126 data-nosnippet>126</a>    }
+<a href=#127 id=127 data-nosnippet>127</a>
+<a href=#128 id=128 data-nosnippet>128</a>    <span class="doccomment">/// Encode in long header format
+<a href=#129 id=129 data-nosnippet>129</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>encode_long(<span class="kw-2">&amp;</span><span class="self">self</span>, buf: <span class="kw-2">&amp;mut </span><span class="kw">impl </span>BufMut) {
+<a href=#130 id=130 data-nosnippet>130</a>        buf.put_u8(<span class="self">self</span>.len() <span class="kw">as </span>u8);
+<a href=#131 id=131 data-nosnippet>131</a>        buf.put_slice(<span class="self">self</span>);
+<a href=#132 id=132 data-nosnippet>132</a>    }
+<a href=#133 id=133 data-nosnippet>133</a>}
+<a href=#134 id=134 data-nosnippet>134</a>
+<a href=#135 id=135 data-nosnippet>135</a><span class="kw">impl </span>::std::ops::Deref <span class="kw">for </span>ConnectionId {
+<a href=#136 id=136 data-nosnippet>136</a>    <span class="kw">type </span>Target = [u8];
+<a href=#137 id=137 data-nosnippet>137</a>    <span class="kw">fn </span>deref(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span>[u8] {
+<a href=#138 id=138 data-nosnippet>138</a>        <span class="kw-2">&amp;</span><span class="self">self</span>.bytes[<span class="number">0</span>..<span class="self">self</span>.len <span class="kw">as </span>usize]
+<a href=#139 id=139 data-nosnippet>139</a>    }
+<a href=#140 id=140 data-nosnippet>140</a>}
+<a href=#141 id=141 data-nosnippet>141</a>
+<a href=#142 id=142 data-nosnippet>142</a><span class="kw">impl </span>::std::ops::DerefMut <span class="kw">for </span>ConnectionId {
+<a href=#143 id=143 data-nosnippet>143</a>    <span class="kw">fn </span>deref_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;mut </span>[u8] {
+<a href=#144 id=144 data-nosnippet>144</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>.bytes[<span class="number">0</span>..<span class="self">self</span>.len <span class="kw">as </span>usize]
+<a href=#145 id=145 data-nosnippet>145</a>    }
+<a href=#146 id=146 data-nosnippet>146</a>}
+<a href=#147 id=147 data-nosnippet>147</a>
+<a href=#148 id=148 data-nosnippet>148</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>ConnectionId {
+<a href=#149 id=149 data-nosnippet>149</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
+<a href=#150 id=150 data-nosnippet>150</a>        <span class="self">self</span>.bytes[<span class="number">0</span>..<span class="self">self</span>.len <span class="kw">as </span>usize].fmt(f)
+<a href=#151 id=151 data-nosnippet>151</a>    }
+<a href=#152 id=152 data-nosnippet>152</a>}
+<a href=#153 id=153 data-nosnippet>153</a>
+<a href=#154 id=154 data-nosnippet>154</a><span class="kw">impl </span>fmt::Display <span class="kw">for </span>ConnectionId {
+<a href=#155 id=155 data-nosnippet>155</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
+<a href=#156 id=156 data-nosnippet>156</a>        <span class="kw">for </span>byte <span class="kw">in </span><span class="self">self</span>.iter() {
+<a href=#157 id=157 data-nosnippet>157</a>            <span class="macro">write!</span>(f, <span class="string">"{byte:02x}"</span>)<span class="question-mark">?</span>;
+<a href=#158 id=158 data-nosnippet>158</a>        }
+<a href=#159 id=159 data-nosnippet>159</a>        <span class="prelude-val">Ok</span>(())
+<a href=#160 id=160 data-nosnippet>160</a>    }
+<a href=#161 id=161 data-nosnippet>161</a>}
+<a href=#162 id=162 data-nosnippet>162</a>
+<a href=#163 id=163 data-nosnippet>163</a><span class="doccomment">/// Explicit congestion notification codepoint
+<a href=#164 id=164 data-nosnippet>164</a></span><span class="attr">#[repr(u8)]
+<a href=#165 id=165 data-nosnippet>165</a>#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+<a href=#166 id=166 data-nosnippet>166</a></span><span class="kw">pub enum </span>EcnCodepoint {
+<a href=#167 id=167 data-nosnippet>167</a>    <span class="doccomment">/// The ECT(0) codepoint, indicating that an endpoint is ECN-capable
+<a href=#168 id=168 data-nosnippet>168</a>    </span>Ect0 = <span class="number">0b10</span>,
+<a href=#169 id=169 data-nosnippet>169</a>    <span class="doccomment">/// The ECT(1) codepoint, indicating that an endpoint is ECN-capable
+<a href=#170 id=170 data-nosnippet>170</a>    </span>Ect1 = <span class="number">0b01</span>,
+<a href=#171 id=171 data-nosnippet>171</a>    <span class="doccomment">/// The CE codepoint, signalling that congestion was experienced
+<a href=#172 id=172 data-nosnippet>172</a>    </span>Ce = <span class="number">0b11</span>,
+<a href=#173 id=173 data-nosnippet>173</a>}
+<a href=#174 id=174 data-nosnippet>174</a>
+<a href=#175 id=175 data-nosnippet>175</a><span class="kw">impl </span>EcnCodepoint {
+<a href=#176 id=176 data-nosnippet>176</a>    <span class="doccomment">/// Create new object from the given bits
+<a href=#177 id=177 data-nosnippet>177</a>    </span><span class="kw">pub fn </span>from_bits(x: u8) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="self">Self</span>&gt; {
+<a href=#178 id=178 data-nosnippet>178</a>        <span class="kw">use </span>EcnCodepoint::<span class="kw-2">*</span>;
+<a href=#179 id=179 data-nosnippet>179</a>        <span class="prelude-val">Some</span>(<span class="kw">match </span>x &amp; <span class="number">0b11 </span>{
+<a href=#180 id=180 data-nosnippet>180</a>            <span class="number">0b10 </span>=&gt; Ect0,
+<a href=#181 id=181 data-nosnippet>181</a>            <span class="number">0b01 </span>=&gt; Ect1,
+<a href=#182 id=182 data-nosnippet>182</a>            <span class="number">0b11 </span>=&gt; Ce,
+<a href=#183 id=183 data-nosnippet>183</a>            <span class="kw">_ </span>=&gt; {
+<a href=#184 id=184 data-nosnippet>184</a>                <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#185 id=185 data-nosnippet>185</a>            }
+<a href=#186 id=186 data-nosnippet>186</a>        })
+<a href=#187 id=187 data-nosnippet>187</a>    }
+<a href=#188 id=188 data-nosnippet>188</a>
+<a href=#189 id=189 data-nosnippet>189</a>    <span class="doccomment">/// Returns whether the codepoint is a CE, signalling that congestion was experienced
+<a href=#190 id=190 data-nosnippet>190</a>    </span><span class="kw">pub fn </span>is_ce(<span class="self">self</span>) -&gt; bool {
+<a href=#191 id=191 data-nosnippet>191</a>        <span class="macro">matches!</span>(<span class="self">self</span>, <span class="self">Self</span>::Ce)
+<a href=#192 id=192 data-nosnippet>192</a>    }
+<a href=#193 id=193 data-nosnippet>193</a>}
+<a href=#194 id=194 data-nosnippet>194</a>
+<a href=#195 id=195 data-nosnippet>195</a><span class="attr">#[derive(Debug, Copy, Clone)]
+<a href=#196 id=196 data-nosnippet>196</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>IssuedCid {
+<a href=#197 id=197 data-nosnippet>197</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) path_id: PathId,
+<a href=#198 id=198 data-nosnippet>198</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) sequence: u64,
+<a href=#199 id=199 data-nosnippet>199</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) id: ConnectionId,
+<a href=#200 id=200 data-nosnippet>200</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) reset_token: ResetToken,
+<a href=#201 id=201 data-nosnippet>201</a>}</code></pre></div></section></main></body></html>

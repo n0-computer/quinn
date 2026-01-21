@@ -118,7 +118,7 @@
 <a href=#118 id=118 data-nosnippet>118</a>            }
 <a href=#119 id=119 data-nosnippet>119</a>            RetireConnectionId(now, path_id, seq, allow_more_cids) =&gt; {
 <a href=#120 id=120 data-nosnippet>120</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(cid) = <span class="self">self</span>.connections[ch]
-<a href=#121 id=121 data-nosnippet>121</a>                    .loc_cids
+<a href=#121 id=121 data-nosnippet>121</a>                    .local_cids
 <a href=#122 id=122 data-nosnippet>122</a>                    .get_mut(<span class="kw-2">&amp;</span>path_id)
 <a href=#123 id=123 data-nosnippet>123</a>                    .and_then(|pcid| pcid.cids.remove(<span class="kw-2">&amp;</span>seq))
 <a href=#124 id=124 data-nosnippet>124</a>                {
@@ -348,12 +348,12 @@
 <a href=#348 id=348 data-nosnippet>348</a>        <span class="macro">trace!</span>(initial_dcid = %remote_id);
 <a href=#349 id=349 data-nosnippet>349</a>
 <a href=#350 id=350 data-nosnippet>350</a>        <span class="kw">let </span>ch = ConnectionHandle(<span class="self">self</span>.connections.vacant_key());
-<a href=#351 id=351 data-nosnippet>351</a>        <span class="kw">let </span>loc_cid = <span class="self">self</span>.new_cid(ch, PathId::ZERO);
+<a href=#351 id=351 data-nosnippet>351</a>        <span class="kw">let </span>local_cid = <span class="self">self</span>.new_cid(ch, PathId::ZERO);
 <a href=#352 id=352 data-nosnippet>352</a>        <span class="kw">let </span>params = TransportParameters::new(
 <a href=#353 id=353 data-nosnippet>353</a>            <span class="kw-2">&amp;</span>config.transport,
 <a href=#354 id=354 data-nosnippet>354</a>            <span class="kw-2">&amp;</span><span class="self">self</span>.config,
 <a href=#355 id=355 data-nosnippet>355</a>            <span class="self">self</span>.local_cid_generator.as_ref(),
-<a href=#356 id=356 data-nosnippet>356</a>            loc_cid,
+<a href=#356 id=356 data-nosnippet>356</a>            local_cid,
 <a href=#357 id=357 data-nosnippet>357</a>            <span class="prelude-val">None</span>,
 <a href=#358 id=358 data-nosnippet>358</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>.rng,
 <a href=#359 id=359 data-nosnippet>359</a>        );
@@ -365,7 +365,7 @@
 <a href=#365 id=365 data-nosnippet>365</a>            ch,
 <a href=#366 id=366 data-nosnippet>366</a>            config.version,
 <a href=#367 id=367 data-nosnippet>367</a>            remote_id,
-<a href=#368 id=368 data-nosnippet>368</a>            loc_cid,
+<a href=#368 id=368 data-nosnippet>368</a>            local_cid,
 <a href=#369 id=369 data-nosnippet>369</a>            remote_id,
 <a href=#370 id=370 data-nosnippet>370</a>            FourTuple {
 <a href=#371 id=371 data-nosnippet>371</a>                remote,
@@ -394,7 +394,7 @@
 <a href=#394 id=394 data-nosnippet>394</a>        <span class="kw">let </span><span class="kw-2">mut </span>ids = <span class="macro">vec!</span>[];
 <a href=#395 id=395 data-nosnippet>395</a>        <span class="kw">for _ in </span><span class="number">0</span>..num {
 <a href=#396 id=396 data-nosnippet>396</a>            <span class="kw">let </span>id = <span class="self">self</span>.new_cid(ch, path_id);
-<a href=#397 id=397 data-nosnippet>397</a>            <span class="kw">let </span>cid_meta = <span class="self">self</span>.connections[ch].loc_cids.entry(path_id).or_default();
+<a href=#397 id=397 data-nosnippet>397</a>            <span class="kw">let </span>cid_meta = <span class="self">self</span>.connections[ch].local_cids.entry(path_id).or_default();
 <a href=#398 id=398 data-nosnippet>398</a>            <span class="kw">let </span>sequence = cid_meta.issued;
 <a href=#399 id=399 data-nosnippet>399</a>            cid_meta.issued += <span class="number">1</span>;
 <a href=#400 id=400 data-nosnippet>400</a>            cid_meta.cids.insert(sequence, id);
@@ -606,16 +606,16 @@
 <a href=#606 id=606 data-nosnippet>606</a>        };
 <a href=#607 id=607 data-nosnippet>607</a>
 <a href=#608 id=608 data-nosnippet>608</a>        <span class="kw">let </span>ch = ConnectionHandle(<span class="self">self</span>.connections.vacant_key());
-<a href=#609 id=609 data-nosnippet>609</a>        <span class="kw">let </span>loc_cid = <span class="self">self</span>.new_cid(ch, PathId::ZERO);
+<a href=#609 id=609 data-nosnippet>609</a>        <span class="kw">let </span>local_cid = <span class="self">self</span>.new_cid(ch, PathId::ZERO);
 <a href=#610 id=610 data-nosnippet>610</a>        <span class="kw">let </span><span class="kw-2">mut </span>params = TransportParameters::new(
 <a href=#611 id=611 data-nosnippet>611</a>            <span class="kw-2">&amp;</span>server_config.transport,
 <a href=#612 id=612 data-nosnippet>612</a>            <span class="kw-2">&amp;</span><span class="self">self</span>.config,
 <a href=#613 id=613 data-nosnippet>613</a>            <span class="self">self</span>.local_cid_generator.as_ref(),
-<a href=#614 id=614 data-nosnippet>614</a>            loc_cid,
+<a href=#614 id=614 data-nosnippet>614</a>            local_cid,
 <a href=#615 id=615 data-nosnippet>615</a>            <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>server_config),
 <a href=#616 id=616 data-nosnippet>616</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>.rng,
 <a href=#617 id=617 data-nosnippet>617</a>        );
-<a href=#618 id=618 data-nosnippet>618</a>        params.stateless_reset_token = <span class="prelude-val">Some</span>(ResetToken::new(<span class="kw-2">&amp;*</span><span class="self">self</span>.config.reset_key, loc_cid));
+<a href=#618 id=618 data-nosnippet>618</a>        params.stateless_reset_token = <span class="prelude-val">Some</span>(ResetToken::new(<span class="kw-2">&amp;*</span><span class="self">self</span>.config.reset_key, local_cid));
 <a href=#619 id=619 data-nosnippet>619</a>        params.original_dst_cid = <span class="prelude-val">Some</span>(incoming.token.orig_dst_cid);
 <a href=#620 id=620 data-nosnippet>620</a>        params.retry_src_cid = incoming.token.retry_src_cid;
 <a href=#621 id=621 data-nosnippet>621</a>        <span class="kw">let </span><span class="kw-2">mut </span>pref_addr_cid = <span class="prelude-val">None</span>;
@@ -636,7 +636,7 @@
 <a href=#636 id=636 data-nosnippet>636</a>            ch,
 <a href=#637 id=637 data-nosnippet>637</a>            version,
 <a href=#638 id=638 data-nosnippet>638</a>            dst_cid,
-<a href=#639 id=639 data-nosnippet>639</a>            loc_cid,
+<a href=#639 id=639 data-nosnippet>639</a>            local_cid,
 <a href=#640 id=640 data-nosnippet>640</a>            src_cid,
 <a href=#641 id=641 data-nosnippet>641</a>            incoming.network_path,
 <a href=#642 id=642 data-nosnippet>642</a>            incoming.received_at,
@@ -751,7 +751,7 @@
 <a href=#751 id=751 data-nosnippet>751</a>        // with established connections. In the unlikely event that a collision occurs
 <a href=#752 id=752 data-nosnippet>752</a>        // between two connections in the initial phase, both will fail fast and may be
 <a href=#753 id=753 data-nosnippet>753</a>        // retried by the application layer.
-<a href=#754 id=754 data-nosnippet>754</a>        </span><span class="kw">let </span>loc_cid = <span class="self">self</span>.local_cid_generator.generate_cid();
+<a href=#754 id=754 data-nosnippet>754</a>        </span><span class="kw">let </span>local_cid = <span class="self">self</span>.local_cid_generator.generate_cid();
 <a href=#755 id=755 data-nosnippet>755</a>
 <a href=#756 id=756 data-nosnippet>756</a>        <span class="kw">let </span>payload = TokenPayload::Retry {
 <a href=#757 id=757 data-nosnippet>757</a>            address: incoming.network_path.remote,
@@ -761,7 +761,7 @@
 <a href=#761 id=761 data-nosnippet>761</a>        <span class="kw">let </span>token = Token::new(payload, <span class="kw-2">&amp;mut </span><span class="self">self</span>.rng).encode(<span class="kw-2">&amp;*</span>server_config.token_key);
 <a href=#762 id=762 data-nosnippet>762</a>
 <a href=#763 id=763 data-nosnippet>763</a>        <span class="kw">let </span>header = Header::Retry {
-<a href=#764 id=764 data-nosnippet>764</a>            src_cid: loc_cid,
+<a href=#764 id=764 data-nosnippet>764</a>            src_cid: local_cid,
 <a href=#765 id=765 data-nosnippet>765</a>            dst_cid: incoming.packet.header.src_cid,
 <a href=#766 id=766 data-nosnippet>766</a>            version: incoming.packet.header.version,
 <a href=#767 id=767 data-nosnippet>767</a>        };
@@ -805,8 +805,8 @@
 <a href=#805 id=805 data-nosnippet>805</a>        ch: ConnectionHandle,
 <a href=#806 id=806 data-nosnippet>806</a>        version: u32,
 <a href=#807 id=807 data-nosnippet>807</a>        init_cid: ConnectionId,
-<a href=#808 id=808 data-nosnippet>808</a>        loc_cid: ConnectionId,
-<a href=#809 id=809 data-nosnippet>809</a>        rem_cid: ConnectionId,
+<a href=#808 id=808 data-nosnippet>808</a>        local_cid: ConnectionId,
+<a href=#809 id=809 data-nosnippet>809</a>        remote_cid: ConnectionId,
 <a href=#810 id=810 data-nosnippet>810</a>        network_path: FourTuple,
 <a href=#811 id=811 data-nosnippet>811</a>        now: Instant,
 <a href=#812 id=812 data-nosnippet>812</a>        tls: Box&lt;<span class="kw">dyn </span>crypto::Session&gt;,
@@ -825,8 +825,8 @@
 <a href=#825 id=825 data-nosnippet>825</a>
 <a href=#826 id=826 data-nosnippet>826</a>        qlog.emit_connection_started(
 <a href=#827 id=827 data-nosnippet>827</a>            now,
-<a href=#828 id=828 data-nosnippet>828</a>            loc_cid,
-<a href=#829 id=829 data-nosnippet>829</a>            rem_cid,
+<a href=#828 id=828 data-nosnippet>828</a>            local_cid,
+<a href=#829 id=829 data-nosnippet>829</a>            remote_cid,
 <a href=#830 id=830 data-nosnippet>830</a>            network_path.remote,
 <a href=#831 id=831 data-nosnippet>831</a>            network_path.local_ip,
 <a href=#832 id=832 data-nosnippet>832</a>            params,
@@ -836,8 +836,8 @@
 <a href=#836 id=836 data-nosnippet>836</a>            <span class="self">self</span>.config.clone(),
 <a href=#837 id=837 data-nosnippet>837</a>            transport_config,
 <a href=#838 id=838 data-nosnippet>838</a>            init_cid,
-<a href=#839 id=839 data-nosnippet>839</a>            loc_cid,
-<a href=#840 id=840 data-nosnippet>840</a>            rem_cid,
+<a href=#839 id=839 data-nosnippet>839</a>            local_cid,
+<a href=#840 id=840 data-nosnippet>840</a>            remote_cid,
 <a href=#841 id=841 data-nosnippet>841</a>            network_path,
 <a href=#842 id=842 data-nosnippet>842</a>            tls,
 <a href=#843 id=843 data-nosnippet>843</a>            <span class="self">self</span>.local_cid_generator.as_ref(),
@@ -850,7 +850,7 @@
 <a href=#850 id=850 data-nosnippet>850</a>        );
 <a href=#851 id=851 data-nosnippet>851</a>
 <a href=#852 id=852 data-nosnippet>852</a>        <span class="kw">let </span><span class="kw-2">mut </span>path_cids = PathLocalCids::default();
-<a href=#853 id=853 data-nosnippet>853</a>        path_cids.cids.insert(path_cids.issued, loc_cid);
+<a href=#853 id=853 data-nosnippet>853</a>        path_cids.cids.insert(path_cids.issued, local_cid);
 <a href=#854 id=854 data-nosnippet>854</a>        path_cids.issued += <span class="number">1</span>;
 <a href=#855 id=855 data-nosnippet>855</a>
 <a href=#856 id=856 data-nosnippet>856</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(cid) = pref_addr_cid {
@@ -861,14 +861,14 @@
 <a href=#861 id=861 data-nosnippet>861</a>
 <a href=#862 id=862 data-nosnippet>862</a>        <span class="kw">let </span>id = <span class="self">self</span>.connections.insert(ConnectionMeta {
 <a href=#863 id=863 data-nosnippet>863</a>            init_cid,
-<a href=#864 id=864 data-nosnippet>864</a>            loc_cids: FxHashMap::from_iter([(PathId::ZERO, path_cids)]),
+<a href=#864 id=864 data-nosnippet>864</a>            local_cids: FxHashMap::from_iter([(PathId::ZERO, path_cids)]),
 <a href=#865 id=865 data-nosnippet>865</a>            network_path,
 <a href=#866 id=866 data-nosnippet>866</a>            side,
 <a href=#867 id=867 data-nosnippet>867</a>            reset_token: Default::default(),
 <a href=#868 id=868 data-nosnippet>868</a>        });
 <a href=#869 id=869 data-nosnippet>869</a>        <span class="macro">debug_assert_eq!</span>(id, ch.<span class="number">0</span>, <span class="string">"connection handle allocation out of sync"</span>);
 <a href=#870 id=870 data-nosnippet>870</a>
-<a href=#871 id=871 data-nosnippet>871</a>        <span class="self">self</span>.index.insert_conn(network_path, loc_cid, ch, side);
+<a href=#871 id=871 data-nosnippet>871</a>        <span class="self">self</span>.index.insert_conn(network_path, local_cid, ch, side);
 <a href=#872 id=872 data-nosnippet>872</a>
 <a href=#873 id=873 data-nosnippet>873</a>        conn
 <a href=#874 id=874 data-nosnippet>874</a>    }
@@ -1093,279 +1093,283 @@
 <a href=#1093 id=1093 data-nosnippet>1093</a>        <span class="kw">if </span>conn.side.is_server() {
 <a href=#1094 id=1094 data-nosnippet>1094</a>            <span class="self">self</span>.remove_initial(conn.init_cid);
 <a href=#1095 id=1095 data-nosnippet>1095</a>        }
-<a href=#1096 id=1096 data-nosnippet>1096</a>        <span class="kw">for </span>cid <span class="kw">in </span>conn.loc_cids.values().flat_map(|pcids| pcids.cids.values()) {
-<a href=#1097 id=1097 data-nosnippet>1097</a>            <span class="self">self</span>.connection_ids.remove(cid);
-<a href=#1098 id=1098 data-nosnippet>1098</a>        }
-<a href=#1099 id=1099 data-nosnippet>1099</a>        <span class="self">self</span>.incoming_connection_remotes.remove(<span class="kw-2">&amp;</span>conn.network_path);
-<a href=#1100 id=1100 data-nosnippet>1100</a>        <span class="self">self</span>.outgoing_connection_remotes
-<a href=#1101 id=1101 data-nosnippet>1101</a>            .remove(<span class="kw-2">&amp;</span>conn.network_path.remote);
-<a href=#1102 id=1102 data-nosnippet>1102</a>        <span class="kw">for </span>(remote, token) <span class="kw">in </span>conn.reset_token.values() {
-<a href=#1103 id=1103 data-nosnippet>1103</a>            <span class="self">self</span>.connection_reset_tokens.remove(<span class="kw-2">*</span>remote, <span class="kw-2">*</span>token);
-<a href=#1104 id=1104 data-nosnippet>1104</a>        }
-<a href=#1105 id=1105 data-nosnippet>1105</a>    }
-<a href=#1106 id=1106 data-nosnippet>1106</a>
-<a href=#1107 id=1107 data-nosnippet>1107</a>    <span class="doccomment">/// Find the existing connection that `datagram` should be routed to, if any
-<a href=#1108 id=1108 data-nosnippet>1108</a>    </span><span class="kw">fn </span>get(<span class="kw-2">&amp;</span><span class="self">self</span>, network_path: <span class="kw-2">&amp;</span>FourTuple, datagram: <span class="kw-2">&amp;</span>PartialDecode) -&gt; <span class="prelude-ty">Option</span>&lt;RouteDatagramTo&gt; {
-<a href=#1109 id=1109 data-nosnippet>1109</a>        <span class="kw">if </span>!datagram.dst_cid().is_empty()
-<a href=#1110 id=1110 data-nosnippet>1110</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>(ch, path_id)) = <span class="self">self</span>.connection_ids.get(<span class="kw-2">&amp;</span>datagram.dst_cid())
-<a href=#1111 id=1111 data-nosnippet>1111</a>        {
-<a href=#1112 id=1112 data-nosnippet>1112</a>            <span class="kw">return </span><span class="prelude-val">Some</span>(RouteDatagramTo::Connection(ch, path_id));
-<a href=#1113 id=1113 data-nosnippet>1113</a>        }
-<a href=#1114 id=1114 data-nosnippet>1114</a>        <span class="kw">if </span>(datagram.is_initial() || datagram.is_0rtt())
-<a href=#1115 id=1115 data-nosnippet>1115</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ch) = <span class="self">self</span>.connection_ids_initial.get(<span class="kw-2">&amp;</span>datagram.dst_cid())
-<a href=#1116 id=1116 data-nosnippet>1116</a>        {
-<a href=#1117 id=1117 data-nosnippet>1117</a>            <span class="kw">return </span><span class="prelude-val">Some</span>(ch);
-<a href=#1118 id=1118 data-nosnippet>1118</a>        }
-<a href=#1119 id=1119 data-nosnippet>1119</a>        <span class="kw">if </span>datagram.dst_cid().is_empty() {
-<a href=#1120 id=1120 data-nosnippet>1120</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ch) = <span class="self">self</span>.incoming_connection_remotes.get(network_path) {
-<a href=#1121 id=1121 data-nosnippet>1121</a>                <span class="comment">// Never multipath because QUIC-MULTIPATH 1.1 mandates the use of non-zero
-<a href=#1122 id=1122 data-nosnippet>1122</a>                // length CIDs.  So this is always PathId::ZERO.
-<a href=#1123 id=1123 data-nosnippet>1123</a>                </span><span class="kw">return </span><span class="prelude-val">Some</span>(RouteDatagramTo::Connection(ch, PathId::ZERO));
-<a href=#1124 id=1124 data-nosnippet>1124</a>            }
-<a href=#1125 id=1125 data-nosnippet>1125</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ch) = <span class="self">self</span>.outgoing_connection_remotes.get(<span class="kw-2">&amp;</span>network_path.remote) {
-<a href=#1126 id=1126 data-nosnippet>1126</a>                <span class="comment">// Like above, QUIC-MULTIPATH 1.1 mandates the use of non-zero length CIDs.
+<a href=#1096 id=1096 data-nosnippet>1096</a>        <span class="kw">for </span>cid <span class="kw">in </span>conn
+<a href=#1097 id=1097 data-nosnippet>1097</a>            .local_cids
+<a href=#1098 id=1098 data-nosnippet>1098</a>            .values()
+<a href=#1099 id=1099 data-nosnippet>1099</a>            .flat_map(|pcids| pcids.cids.values())
+<a href=#1100 id=1100 data-nosnippet>1100</a>        {
+<a href=#1101 id=1101 data-nosnippet>1101</a>            <span class="self">self</span>.connection_ids.remove(cid);
+<a href=#1102 id=1102 data-nosnippet>1102</a>        }
+<a href=#1103 id=1103 data-nosnippet>1103</a>        <span class="self">self</span>.incoming_connection_remotes.remove(<span class="kw-2">&amp;</span>conn.network_path);
+<a href=#1104 id=1104 data-nosnippet>1104</a>        <span class="self">self</span>.outgoing_connection_remotes
+<a href=#1105 id=1105 data-nosnippet>1105</a>            .remove(<span class="kw-2">&amp;</span>conn.network_path.remote);
+<a href=#1106 id=1106 data-nosnippet>1106</a>        <span class="kw">for </span>(remote, token) <span class="kw">in </span>conn.reset_token.values() {
+<a href=#1107 id=1107 data-nosnippet>1107</a>            <span class="self">self</span>.connection_reset_tokens.remove(<span class="kw-2">*</span>remote, <span class="kw-2">*</span>token);
+<a href=#1108 id=1108 data-nosnippet>1108</a>        }
+<a href=#1109 id=1109 data-nosnippet>1109</a>    }
+<a href=#1110 id=1110 data-nosnippet>1110</a>
+<a href=#1111 id=1111 data-nosnippet>1111</a>    <span class="doccomment">/// Find the existing connection that `datagram` should be routed to, if any
+<a href=#1112 id=1112 data-nosnippet>1112</a>    </span><span class="kw">fn </span>get(<span class="kw-2">&amp;</span><span class="self">self</span>, network_path: <span class="kw-2">&amp;</span>FourTuple, datagram: <span class="kw-2">&amp;</span>PartialDecode) -&gt; <span class="prelude-ty">Option</span>&lt;RouteDatagramTo&gt; {
+<a href=#1113 id=1113 data-nosnippet>1113</a>        <span class="kw">if </span>!datagram.dst_cid().is_empty()
+<a href=#1114 id=1114 data-nosnippet>1114</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>(ch, path_id)) = <span class="self">self</span>.connection_ids.get(<span class="kw-2">&amp;</span>datagram.dst_cid())
+<a href=#1115 id=1115 data-nosnippet>1115</a>        {
+<a href=#1116 id=1116 data-nosnippet>1116</a>            <span class="kw">return </span><span class="prelude-val">Some</span>(RouteDatagramTo::Connection(ch, path_id));
+<a href=#1117 id=1117 data-nosnippet>1117</a>        }
+<a href=#1118 id=1118 data-nosnippet>1118</a>        <span class="kw">if </span>(datagram.is_initial() || datagram.is_0rtt())
+<a href=#1119 id=1119 data-nosnippet>1119</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ch) = <span class="self">self</span>.connection_ids_initial.get(<span class="kw-2">&amp;</span>datagram.dst_cid())
+<a href=#1120 id=1120 data-nosnippet>1120</a>        {
+<a href=#1121 id=1121 data-nosnippet>1121</a>            <span class="kw">return </span><span class="prelude-val">Some</span>(ch);
+<a href=#1122 id=1122 data-nosnippet>1122</a>        }
+<a href=#1123 id=1123 data-nosnippet>1123</a>        <span class="kw">if </span>datagram.dst_cid().is_empty() {
+<a href=#1124 id=1124 data-nosnippet>1124</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ch) = <span class="self">self</span>.incoming_connection_remotes.get(network_path) {
+<a href=#1125 id=1125 data-nosnippet>1125</a>                <span class="comment">// Never multipath because QUIC-MULTIPATH 1.1 mandates the use of non-zero
+<a href=#1126 id=1126 data-nosnippet>1126</a>                // length CIDs.  So this is always PathId::ZERO.
 <a href=#1127 id=1127 data-nosnippet>1127</a>                </span><span class="kw">return </span><span class="prelude-val">Some</span>(RouteDatagramTo::Connection(ch, PathId::ZERO));
 <a href=#1128 id=1128 data-nosnippet>1128</a>            }
-<a href=#1129 id=1129 data-nosnippet>1129</a>        }
-<a href=#1130 id=1130 data-nosnippet>1130</a>        <span class="kw">let </span>data = datagram.data();
-<a href=#1131 id=1131 data-nosnippet>1131</a>        <span class="kw">if </span>data.len() &lt; RESET_TOKEN_SIZE {
-<a href=#1132 id=1132 data-nosnippet>1132</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#1129 id=1129 data-nosnippet>1129</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ch) = <span class="self">self</span>.outgoing_connection_remotes.get(<span class="kw-2">&amp;</span>network_path.remote) {
+<a href=#1130 id=1130 data-nosnippet>1130</a>                <span class="comment">// Like above, QUIC-MULTIPATH 1.1 mandates the use of non-zero length CIDs.
+<a href=#1131 id=1131 data-nosnippet>1131</a>                </span><span class="kw">return </span><span class="prelude-val">Some</span>(RouteDatagramTo::Connection(ch, PathId::ZERO));
+<a href=#1132 id=1132 data-nosnippet>1132</a>            }
 <a href=#1133 id=1133 data-nosnippet>1133</a>        }
-<a href=#1134 id=1134 data-nosnippet>1134</a>        <span class="comment">// For stateless resets the PathId is meaningless since it closes the entire
-<a href=#1135 id=1135 data-nosnippet>1135</a>        // connection regardless of path.  So use PathId::ZERO.
-<a href=#1136 id=1136 data-nosnippet>1136</a>        </span><span class="self">self</span>.connection_reset_tokens
-<a href=#1137 id=1137 data-nosnippet>1137</a>            .get(network_path.remote, <span class="kw-2">&amp;</span>data[data.len() - RESET_TOKEN_SIZE..])
-<a href=#1138 id=1138 data-nosnippet>1138</a>            .cloned()
-<a href=#1139 id=1139 data-nosnippet>1139</a>            .map(|ch| RouteDatagramTo::Connection(ch, PathId::ZERO))
-<a href=#1140 id=1140 data-nosnippet>1140</a>    }
-<a href=#1141 id=1141 data-nosnippet>1141</a>}
-<a href=#1142 id=1142 data-nosnippet>1142</a>
-<a href=#1143 id=1143 data-nosnippet>1143</a><span class="attr">#[derive(Debug)]
-<a href=#1144 id=1144 data-nosnippet>1144</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>ConnectionMeta {
-<a href=#1145 id=1145 data-nosnippet>1145</a>    init_cid: ConnectionId,
-<a href=#1146 id=1146 data-nosnippet>1146</a>    <span class="doccomment">/// Locally issues CIDs for each path
-<a href=#1147 id=1147 data-nosnippet>1147</a>    </span>loc_cids: FxHashMap&lt;PathId, PathLocalCids&gt;,
-<a href=#1148 id=1148 data-nosnippet>1148</a>    <span class="doccomment">/// Remote/local addresses the connection began with
-<a href=#1149 id=1149 data-nosnippet>1149</a>    ///
-<a href=#1150 id=1150 data-nosnippet>1150</a>    /// Only needed to support connections with zero-length CIDs, which cannot migrate, so we don't
-<a href=#1151 id=1151 data-nosnippet>1151</a>    /// bother keeping it up to date.
-<a href=#1152 id=1152 data-nosnippet>1152</a>    </span>network_path: FourTuple,
-<a href=#1153 id=1153 data-nosnippet>1153</a>    side: Side,
-<a href=#1154 id=1154 data-nosnippet>1154</a>    <span class="doccomment">/// Reset tokens provided by the peer for CIDs we're currently sending to
-<a href=#1155 id=1155 data-nosnippet>1155</a>    ///
-<a href=#1156 id=1156 data-nosnippet>1156</a>    /// Since each reset token is for a CID, it is also for a fixed remote address which is
-<a href=#1157 id=1157 data-nosnippet>1157</a>    /// also stored. This allows us to look up which reset tokens we might expect from a
-<a href=#1158 id=1158 data-nosnippet>1158</a>    /// given remote address, see [`ResetTokenTable`].
+<a href=#1134 id=1134 data-nosnippet>1134</a>        <span class="kw">let </span>data = datagram.data();
+<a href=#1135 id=1135 data-nosnippet>1135</a>        <span class="kw">if </span>data.len() &lt; RESET_TOKEN_SIZE {
+<a href=#1136 id=1136 data-nosnippet>1136</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#1137 id=1137 data-nosnippet>1137</a>        }
+<a href=#1138 id=1138 data-nosnippet>1138</a>        <span class="comment">// For stateless resets the PathId is meaningless since it closes the entire
+<a href=#1139 id=1139 data-nosnippet>1139</a>        // connection regardless of path.  So use PathId::ZERO.
+<a href=#1140 id=1140 data-nosnippet>1140</a>        </span><span class="self">self</span>.connection_reset_tokens
+<a href=#1141 id=1141 data-nosnippet>1141</a>            .get(network_path.remote, <span class="kw-2">&amp;</span>data[data.len() - RESET_TOKEN_SIZE..])
+<a href=#1142 id=1142 data-nosnippet>1142</a>            .cloned()
+<a href=#1143 id=1143 data-nosnippet>1143</a>            .map(|ch| RouteDatagramTo::Connection(ch, PathId::ZERO))
+<a href=#1144 id=1144 data-nosnippet>1144</a>    }
+<a href=#1145 id=1145 data-nosnippet>1145</a>}
+<a href=#1146 id=1146 data-nosnippet>1146</a>
+<a href=#1147 id=1147 data-nosnippet>1147</a><span class="attr">#[derive(Debug)]
+<a href=#1148 id=1148 data-nosnippet>1148</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>ConnectionMeta {
+<a href=#1149 id=1149 data-nosnippet>1149</a>    init_cid: ConnectionId,
+<a href=#1150 id=1150 data-nosnippet>1150</a>    <span class="doccomment">/// Locally issues CIDs for each path
+<a href=#1151 id=1151 data-nosnippet>1151</a>    </span>local_cids: FxHashMap&lt;PathId, PathLocalCids&gt;,
+<a href=#1152 id=1152 data-nosnippet>1152</a>    <span class="doccomment">/// Remote/local addresses the connection began with
+<a href=#1153 id=1153 data-nosnippet>1153</a>    ///
+<a href=#1154 id=1154 data-nosnippet>1154</a>    /// Only needed to support connections with zero-length CIDs, which cannot migrate, so we don't
+<a href=#1155 id=1155 data-nosnippet>1155</a>    /// bother keeping it up to date.
+<a href=#1156 id=1156 data-nosnippet>1156</a>    </span>network_path: FourTuple,
+<a href=#1157 id=1157 data-nosnippet>1157</a>    side: Side,
+<a href=#1158 id=1158 data-nosnippet>1158</a>    <span class="doccomment">/// Reset tokens provided by the peer for CIDs we're currently sending to
 <a href=#1159 id=1159 data-nosnippet>1159</a>    ///
-<a href=#1160 id=1160 data-nosnippet>1160</a>    /// Each path has its own active CID. We use the [`PathId`] as a unique index, allowing
-<a href=#1161 id=1161 data-nosnippet>1161</a>    /// us to retire the reset token when a path is abandoned.
-<a href=#1162 id=1162 data-nosnippet>1162</a>    </span><span class="comment">// TODO(matheus23): Should be migrated to make reset tokens per 4-tuple instead of per remote addr
-<a href=#1163 id=1163 data-nosnippet>1163</a>    </span>reset_token: FxHashMap&lt;PathId, (SocketAddr, ResetToken)&gt;,
-<a href=#1164 id=1164 data-nosnippet>1164</a>}
-<a href=#1165 id=1165 data-nosnippet>1165</a>
-<a href=#1166 id=1166 data-nosnippet>1166</a><span class="doccomment">/// Local connection IDs for a single path
-<a href=#1167 id=1167 data-nosnippet>1167</a></span><span class="attr">#[derive(Debug, Default)]
-<a href=#1168 id=1168 data-nosnippet>1168</a></span><span class="kw">struct </span>PathLocalCids {
-<a href=#1169 id=1169 data-nosnippet>1169</a>    <span class="doccomment">/// Number of connection IDs that have been issued in (PATH_)NEW_CONNECTION_ID frames
-<a href=#1170 id=1170 data-nosnippet>1170</a>    ///
-<a href=#1171 id=1171 data-nosnippet>1171</a>    /// Another way of saying this is that this is the next sequence number to be issued.
-<a href=#1172 id=1172 data-nosnippet>1172</a>    </span>issued: u64,
-<a href=#1173 id=1173 data-nosnippet>1173</a>    <span class="doccomment">/// Issues CIDs indexed by their sequence number.
-<a href=#1174 id=1174 data-nosnippet>1174</a>    </span>cids: FxHashMap&lt;u64, ConnectionId&gt;,
-<a href=#1175 id=1175 data-nosnippet>1175</a>}
-<a href=#1176 id=1176 data-nosnippet>1176</a>
-<a href=#1177 id=1177 data-nosnippet>1177</a><span class="doccomment">/// Internal identifier for a `Connection` currently associated with an endpoint
-<a href=#1178 id=1178 data-nosnippet>1178</a></span><span class="attr">#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-<a href=#1179 id=1179 data-nosnippet>1179</a></span><span class="kw">pub struct </span>ConnectionHandle(<span class="kw">pub </span>usize);
+<a href=#1160 id=1160 data-nosnippet>1160</a>    /// Since each reset token is for a CID, it is also for a fixed remote address which is
+<a href=#1161 id=1161 data-nosnippet>1161</a>    /// also stored. This allows us to look up which reset tokens we might expect from a
+<a href=#1162 id=1162 data-nosnippet>1162</a>    /// given remote address, see [`ResetTokenTable`].
+<a href=#1163 id=1163 data-nosnippet>1163</a>    ///
+<a href=#1164 id=1164 data-nosnippet>1164</a>    /// Each path has its own active CID. We use the [`PathId`] as a unique index, allowing
+<a href=#1165 id=1165 data-nosnippet>1165</a>    /// us to retire the reset token when a path is abandoned.
+<a href=#1166 id=1166 data-nosnippet>1166</a>    </span><span class="comment">// TODO(matheus23): Should be migrated to make reset tokens per 4-tuple instead of per remote addr
+<a href=#1167 id=1167 data-nosnippet>1167</a>    </span>reset_token: FxHashMap&lt;PathId, (SocketAddr, ResetToken)&gt;,
+<a href=#1168 id=1168 data-nosnippet>1168</a>}
+<a href=#1169 id=1169 data-nosnippet>1169</a>
+<a href=#1170 id=1170 data-nosnippet>1170</a><span class="doccomment">/// Local connection IDs for a single path
+<a href=#1171 id=1171 data-nosnippet>1171</a></span><span class="attr">#[derive(Debug, Default)]
+<a href=#1172 id=1172 data-nosnippet>1172</a></span><span class="kw">struct </span>PathLocalCids {
+<a href=#1173 id=1173 data-nosnippet>1173</a>    <span class="doccomment">/// Number of connection IDs that have been issued in (PATH_)NEW_CONNECTION_ID frames
+<a href=#1174 id=1174 data-nosnippet>1174</a>    ///
+<a href=#1175 id=1175 data-nosnippet>1175</a>    /// Another way of saying this is that this is the next sequence number to be issued.
+<a href=#1176 id=1176 data-nosnippet>1176</a>    </span>issued: u64,
+<a href=#1177 id=1177 data-nosnippet>1177</a>    <span class="doccomment">/// Issues CIDs indexed by their sequence number.
+<a href=#1178 id=1178 data-nosnippet>1178</a>    </span>cids: FxHashMap&lt;u64, ConnectionId&gt;,
+<a href=#1179 id=1179 data-nosnippet>1179</a>}
 <a href=#1180 id=1180 data-nosnippet>1180</a>
-<a href=#1181 id=1181 data-nosnippet>1181</a><span class="kw">impl </span>From&lt;ConnectionHandle&gt; <span class="kw">for </span>usize {
-<a href=#1182 id=1182 data-nosnippet>1182</a>    <span class="kw">fn </span>from(x: ConnectionHandle) -&gt; <span class="self">Self </span>{
-<a href=#1183 id=1183 data-nosnippet>1183</a>        x.<span class="number">0
-<a href=#1184 id=1184 data-nosnippet>1184</a>    </span>}
-<a href=#1185 id=1185 data-nosnippet>1185</a>}
-<a href=#1186 id=1186 data-nosnippet>1186</a>
-<a href=#1187 id=1187 data-nosnippet>1187</a><span class="kw">impl </span>Index&lt;ConnectionHandle&gt; <span class="kw">for </span>Slab&lt;ConnectionMeta&gt; {
-<a href=#1188 id=1188 data-nosnippet>1188</a>    <span class="kw">type </span>Output = ConnectionMeta;
-<a href=#1189 id=1189 data-nosnippet>1189</a>    <span class="kw">fn </span>index(<span class="kw-2">&amp;</span><span class="self">self</span>, ch: ConnectionHandle) -&gt; <span class="kw-2">&amp;</span>ConnectionMeta {
-<a href=#1190 id=1190 data-nosnippet>1190</a>        <span class="kw-2">&amp;</span><span class="self">self</span>[ch.<span class="number">0</span>]
-<a href=#1191 id=1191 data-nosnippet>1191</a>    }
-<a href=#1192 id=1192 data-nosnippet>1192</a>}
-<a href=#1193 id=1193 data-nosnippet>1193</a>
-<a href=#1194 id=1194 data-nosnippet>1194</a><span class="kw">impl </span>IndexMut&lt;ConnectionHandle&gt; <span class="kw">for </span>Slab&lt;ConnectionMeta&gt; {
-<a href=#1195 id=1195 data-nosnippet>1195</a>    <span class="kw">fn </span>index_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>, ch: ConnectionHandle) -&gt; <span class="kw-2">&amp;mut </span>ConnectionMeta {
-<a href=#1196 id=1196 data-nosnippet>1196</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>[ch.<span class="number">0</span>]
-<a href=#1197 id=1197 data-nosnippet>1197</a>    }
-<a href=#1198 id=1198 data-nosnippet>1198</a>}
-<a href=#1199 id=1199 data-nosnippet>1199</a>
-<a href=#1200 id=1200 data-nosnippet>1200</a><span class="doccomment">/// Event resulting from processing a single datagram
-<a href=#1201 id=1201 data-nosnippet>1201</a></span><span class="kw">pub enum </span>DatagramEvent {
-<a href=#1202 id=1202 data-nosnippet>1202</a>    <span class="doccomment">/// The datagram is redirected to its `Connection`
-<a href=#1203 id=1203 data-nosnippet>1203</a>    </span>ConnectionEvent(ConnectionHandle, ConnectionEvent),
-<a href=#1204 id=1204 data-nosnippet>1204</a>    <span class="doccomment">/// The datagram may result in starting a new `Connection`
-<a href=#1205 id=1205 data-nosnippet>1205</a>    </span>NewConnection(Incoming),
-<a href=#1206 id=1206 data-nosnippet>1206</a>    <span class="doccomment">/// Response generated directly by the endpoint
-<a href=#1207 id=1207 data-nosnippet>1207</a>    </span>Response(Transmit),
-<a href=#1208 id=1208 data-nosnippet>1208</a>}
-<a href=#1209 id=1209 data-nosnippet>1209</a>
-<a href=#1210 id=1210 data-nosnippet>1210</a><span class="doccomment">/// An incoming connection for which the server has not yet begun its part of the handshake.
-<a href=#1211 id=1211 data-nosnippet>1211</a></span><span class="attr">#[derive(derive_more::Debug)]
-<a href=#1212 id=1212 data-nosnippet>1212</a></span><span class="kw">pub struct </span>Incoming {
-<a href=#1213 id=1213 data-nosnippet>1213</a>    <span class="attr">#[debug(skip)]
-<a href=#1214 id=1214 data-nosnippet>1214</a>    </span>received_at: Instant,
-<a href=#1215 id=1215 data-nosnippet>1215</a>    network_path: FourTuple,
-<a href=#1216 id=1216 data-nosnippet>1216</a>    ecn: <span class="prelude-ty">Option</span>&lt;EcnCodepoint&gt;,
+<a href=#1181 id=1181 data-nosnippet>1181</a><span class="doccomment">/// Internal identifier for a `Connection` currently associated with an endpoint
+<a href=#1182 id=1182 data-nosnippet>1182</a></span><span class="attr">#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+<a href=#1183 id=1183 data-nosnippet>1183</a></span><span class="kw">pub struct </span>ConnectionHandle(<span class="kw">pub </span>usize);
+<a href=#1184 id=1184 data-nosnippet>1184</a>
+<a href=#1185 id=1185 data-nosnippet>1185</a><span class="kw">impl </span>From&lt;ConnectionHandle&gt; <span class="kw">for </span>usize {
+<a href=#1186 id=1186 data-nosnippet>1186</a>    <span class="kw">fn </span>from(x: ConnectionHandle) -&gt; <span class="self">Self </span>{
+<a href=#1187 id=1187 data-nosnippet>1187</a>        x.<span class="number">0
+<a href=#1188 id=1188 data-nosnippet>1188</a>    </span>}
+<a href=#1189 id=1189 data-nosnippet>1189</a>}
+<a href=#1190 id=1190 data-nosnippet>1190</a>
+<a href=#1191 id=1191 data-nosnippet>1191</a><span class="kw">impl </span>Index&lt;ConnectionHandle&gt; <span class="kw">for </span>Slab&lt;ConnectionMeta&gt; {
+<a href=#1192 id=1192 data-nosnippet>1192</a>    <span class="kw">type </span>Output = ConnectionMeta;
+<a href=#1193 id=1193 data-nosnippet>1193</a>    <span class="kw">fn </span>index(<span class="kw-2">&amp;</span><span class="self">self</span>, ch: ConnectionHandle) -&gt; <span class="kw-2">&amp;</span>ConnectionMeta {
+<a href=#1194 id=1194 data-nosnippet>1194</a>        <span class="kw-2">&amp;</span><span class="self">self</span>[ch.<span class="number">0</span>]
+<a href=#1195 id=1195 data-nosnippet>1195</a>    }
+<a href=#1196 id=1196 data-nosnippet>1196</a>}
+<a href=#1197 id=1197 data-nosnippet>1197</a>
+<a href=#1198 id=1198 data-nosnippet>1198</a><span class="kw">impl </span>IndexMut&lt;ConnectionHandle&gt; <span class="kw">for </span>Slab&lt;ConnectionMeta&gt; {
+<a href=#1199 id=1199 data-nosnippet>1199</a>    <span class="kw">fn </span>index_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>, ch: ConnectionHandle) -&gt; <span class="kw-2">&amp;mut </span>ConnectionMeta {
+<a href=#1200 id=1200 data-nosnippet>1200</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>[ch.<span class="number">0</span>]
+<a href=#1201 id=1201 data-nosnippet>1201</a>    }
+<a href=#1202 id=1202 data-nosnippet>1202</a>}
+<a href=#1203 id=1203 data-nosnippet>1203</a>
+<a href=#1204 id=1204 data-nosnippet>1204</a><span class="doccomment">/// Event resulting from processing a single datagram
+<a href=#1205 id=1205 data-nosnippet>1205</a></span><span class="kw">pub enum </span>DatagramEvent {
+<a href=#1206 id=1206 data-nosnippet>1206</a>    <span class="doccomment">/// The datagram is redirected to its `Connection`
+<a href=#1207 id=1207 data-nosnippet>1207</a>    </span>ConnectionEvent(ConnectionHandle, ConnectionEvent),
+<a href=#1208 id=1208 data-nosnippet>1208</a>    <span class="doccomment">/// The datagram may result in starting a new `Connection`
+<a href=#1209 id=1209 data-nosnippet>1209</a>    </span>NewConnection(Incoming),
+<a href=#1210 id=1210 data-nosnippet>1210</a>    <span class="doccomment">/// Response generated directly by the endpoint
+<a href=#1211 id=1211 data-nosnippet>1211</a>    </span>Response(Transmit),
+<a href=#1212 id=1212 data-nosnippet>1212</a>}
+<a href=#1213 id=1213 data-nosnippet>1213</a>
+<a href=#1214 id=1214 data-nosnippet>1214</a><span class="doccomment">/// An incoming connection for which the server has not yet begun its part of the handshake.
+<a href=#1215 id=1215 data-nosnippet>1215</a></span><span class="attr">#[derive(derive_more::Debug)]
+<a href=#1216 id=1216 data-nosnippet>1216</a></span><span class="kw">pub struct </span>Incoming {
 <a href=#1217 id=1217 data-nosnippet>1217</a>    <span class="attr">#[debug(skip)]
-<a href=#1218 id=1218 data-nosnippet>1218</a>    </span>packet: InitialPacket,
-<a href=#1219 id=1219 data-nosnippet>1219</a>    <span class="attr">#[debug(skip)]
-<a href=#1220 id=1220 data-nosnippet>1220</a>    </span>rest: <span class="prelude-ty">Option</span>&lt;BytesMut&gt;,
+<a href=#1218 id=1218 data-nosnippet>1218</a>    </span>received_at: Instant,
+<a href=#1219 id=1219 data-nosnippet>1219</a>    network_path: FourTuple,
+<a href=#1220 id=1220 data-nosnippet>1220</a>    ecn: <span class="prelude-ty">Option</span>&lt;EcnCodepoint&gt;,
 <a href=#1221 id=1221 data-nosnippet>1221</a>    <span class="attr">#[debug(skip)]
-<a href=#1222 id=1222 data-nosnippet>1222</a>    </span>crypto: Keys,
-<a href=#1223 id=1223 data-nosnippet>1223</a>    token: IncomingToken,
-<a href=#1224 id=1224 data-nosnippet>1224</a>    incoming_idx: usize,
+<a href=#1222 id=1222 data-nosnippet>1222</a>    </span>packet: InitialPacket,
+<a href=#1223 id=1223 data-nosnippet>1223</a>    <span class="attr">#[debug(skip)]
+<a href=#1224 id=1224 data-nosnippet>1224</a>    </span>rest: <span class="prelude-ty">Option</span>&lt;BytesMut&gt;,
 <a href=#1225 id=1225 data-nosnippet>1225</a>    <span class="attr">#[debug(skip)]
-<a href=#1226 id=1226 data-nosnippet>1226</a>    </span>improper_drop_warner: IncomingImproperDropWarner,
-<a href=#1227 id=1227 data-nosnippet>1227</a>}
-<a href=#1228 id=1228 data-nosnippet>1228</a>
-<a href=#1229 id=1229 data-nosnippet>1229</a><span class="kw">impl </span>Incoming {
-<a href=#1230 id=1230 data-nosnippet>1230</a>    <span class="doccomment">/// The local IP address which was used when the peer established the connection
-<a href=#1231 id=1231 data-nosnippet>1231</a>    ///
-<a href=#1232 id=1232 data-nosnippet>1232</a>    /// This has the same behavior as [`Connection::local_ip`].
-<a href=#1233 id=1233 data-nosnippet>1233</a>    </span><span class="kw">pub fn </span>local_ip(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;IpAddr&gt; {
-<a href=#1234 id=1234 data-nosnippet>1234</a>        <span class="self">self</span>.network_path.local_ip
-<a href=#1235 id=1235 data-nosnippet>1235</a>    }
-<a href=#1236 id=1236 data-nosnippet>1236</a>
-<a href=#1237 id=1237 data-nosnippet>1237</a>    <span class="doccomment">/// The peer's UDP address
-<a href=#1238 id=1238 data-nosnippet>1238</a>    </span><span class="kw">pub fn </span>remote_address(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; SocketAddr {
-<a href=#1239 id=1239 data-nosnippet>1239</a>        <span class="self">self</span>.network_path.remote
-<a href=#1240 id=1240 data-nosnippet>1240</a>    }
-<a href=#1241 id=1241 data-nosnippet>1241</a>
-<a href=#1242 id=1242 data-nosnippet>1242</a>    <span class="doccomment">/// Whether the socket address that is initiating this connection has been validated
-<a href=#1243 id=1243 data-nosnippet>1243</a>    ///
-<a href=#1244 id=1244 data-nosnippet>1244</a>    /// This means that the sender of the initial packet has proved that they can receive traffic
-<a href=#1245 id=1245 data-nosnippet>1245</a>    /// sent to `self.remote_address()`.
-<a href=#1246 id=1246 data-nosnippet>1246</a>    ///
-<a href=#1247 id=1247 data-nosnippet>1247</a>    /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
-<a href=#1248 id=1248 data-nosnippet>1248</a>    /// The inverse is not guaranteed.
-<a href=#1249 id=1249 data-nosnippet>1249</a>    </span><span class="kw">pub fn </span>remote_address_validated(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
-<a href=#1250 id=1250 data-nosnippet>1250</a>        <span class="self">self</span>.token.validated
-<a href=#1251 id=1251 data-nosnippet>1251</a>    }
-<a href=#1252 id=1252 data-nosnippet>1252</a>
-<a href=#1253 id=1253 data-nosnippet>1253</a>    <span class="doccomment">/// Whether it is legal to respond with a retry packet
-<a href=#1254 id=1254 data-nosnippet>1254</a>    ///
-<a href=#1255 id=1255 data-nosnippet>1255</a>    /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
-<a href=#1256 id=1256 data-nosnippet>1256</a>    /// The inverse is not guaranteed.
-<a href=#1257 id=1257 data-nosnippet>1257</a>    </span><span class="kw">pub fn </span>may_retry(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
-<a href=#1258 id=1258 data-nosnippet>1258</a>        <span class="self">self</span>.token.retry_src_cid.is_none()
-<a href=#1259 id=1259 data-nosnippet>1259</a>    }
-<a href=#1260 id=1260 data-nosnippet>1260</a>
-<a href=#1261 id=1261 data-nosnippet>1261</a>    <span class="doccomment">/// The original destination connection ID sent by the client
-<a href=#1262 id=1262 data-nosnippet>1262</a>    </span><span class="kw">pub fn </span>orig_dst_cid(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; ConnectionId {
-<a href=#1263 id=1263 data-nosnippet>1263</a>        <span class="self">self</span>.token.orig_dst_cid
-<a href=#1264 id=1264 data-nosnippet>1264</a>    }
-<a href=#1265 id=1265 data-nosnippet>1265</a>}
-<a href=#1266 id=1266 data-nosnippet>1266</a>
-<a href=#1267 id=1267 data-nosnippet>1267</a><span class="kw">struct </span>IncomingImproperDropWarner;
-<a href=#1268 id=1268 data-nosnippet>1268</a>
-<a href=#1269 id=1269 data-nosnippet>1269</a><span class="kw">impl </span>IncomingImproperDropWarner {
-<a href=#1270 id=1270 data-nosnippet>1270</a>    <span class="kw">fn </span>dismiss(<span class="self">self</span>) {
-<a href=#1271 id=1271 data-nosnippet>1271</a>        mem::forget(<span class="self">self</span>);
-<a href=#1272 id=1272 data-nosnippet>1272</a>    }
-<a href=#1273 id=1273 data-nosnippet>1273</a>}
-<a href=#1274 id=1274 data-nosnippet>1274</a>
-<a href=#1275 id=1275 data-nosnippet>1275</a><span class="kw">impl </span>Drop <span class="kw">for </span>IncomingImproperDropWarner {
-<a href=#1276 id=1276 data-nosnippet>1276</a>    <span class="kw">fn </span>drop(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
-<a href=#1277 id=1277 data-nosnippet>1277</a>        <span class="macro">warn!</span>(
-<a href=#1278 id=1278 data-nosnippet>1278</a>            <span class="string">"quinn_proto::Incoming dropped without passing to Endpoint::accept/refuse/retry/ignore \
-<a href=#1279 id=1279 data-nosnippet>1279</a>               (may cause memory leak and eventual inability to accept new connections)"
-<a href=#1280 id=1280 data-nosnippet>1280</a>        </span>);
-<a href=#1281 id=1281 data-nosnippet>1281</a>    }
-<a href=#1282 id=1282 data-nosnippet>1282</a>}
-<a href=#1283 id=1283 data-nosnippet>1283</a>
-<a href=#1284 id=1284 data-nosnippet>1284</a><span class="doccomment">/// Errors in the parameters being used to create a new connection
-<a href=#1285 id=1285 data-nosnippet>1285</a>///
-<a href=#1286 id=1286 data-nosnippet>1286</a>/// These arise before any I/O has been performed.
-<a href=#1287 id=1287 data-nosnippet>1287</a></span><span class="attr">#[derive(Debug, Error, Clone, PartialEq, Eq)]
-<a href=#1288 id=1288 data-nosnippet>1288</a></span><span class="kw">pub enum </span>ConnectError {
-<a href=#1289 id=1289 data-nosnippet>1289</a>    <span class="doccomment">/// The endpoint can no longer create new connections
-<a href=#1290 id=1290 data-nosnippet>1290</a>    ///
-<a href=#1291 id=1291 data-nosnippet>1291</a>    /// Indicates that a necessary component of the endpoint has been dropped or otherwise disabled.
-<a href=#1292 id=1292 data-nosnippet>1292</a>    </span><span class="attr">#[error(<span class="string">"endpoint stopping"</span>)]
-<a href=#1293 id=1293 data-nosnippet>1293</a>    </span>EndpointStopping,
-<a href=#1294 id=1294 data-nosnippet>1294</a>    <span class="doccomment">/// The connection could not be created because not enough of the CID space is available
-<a href=#1295 id=1295 data-nosnippet>1295</a>    ///
-<a href=#1296 id=1296 data-nosnippet>1296</a>    /// Try using longer connection IDs
-<a href=#1297 id=1297 data-nosnippet>1297</a>    </span><span class="attr">#[error(<span class="string">"CIDs exhausted"</span>)]
-<a href=#1298 id=1298 data-nosnippet>1298</a>    </span>CidsExhausted,
-<a href=#1299 id=1299 data-nosnippet>1299</a>    <span class="doccomment">/// The given server name was malformed
-<a href=#1300 id=1300 data-nosnippet>1300</a>    </span><span class="attr">#[error(<span class="string">"invalid server name: {0}"</span>)]
-<a href=#1301 id=1301 data-nosnippet>1301</a>    </span>InvalidServerName(String),
-<a href=#1302 id=1302 data-nosnippet>1302</a>    <span class="doccomment">/// The remote [`SocketAddr`] supplied was malformed
-<a href=#1303 id=1303 data-nosnippet>1303</a>    ///
-<a href=#1304 id=1304 data-nosnippet>1304</a>    /// Examples include attempting to connect to port 0, or using an inappropriate address family.
-<a href=#1305 id=1305 data-nosnippet>1305</a>    </span><span class="attr">#[error(<span class="string">"invalid remote address: {0}"</span>)]
-<a href=#1306 id=1306 data-nosnippet>1306</a>    </span>InvalidRemoteAddress(SocketAddr),
-<a href=#1307 id=1307 data-nosnippet>1307</a>    <span class="doccomment">/// No default client configuration was set up
-<a href=#1308 id=1308 data-nosnippet>1308</a>    ///
-<a href=#1309 id=1309 data-nosnippet>1309</a>    /// Use `Endpoint::connect_with` to specify a client configuration.
-<a href=#1310 id=1310 data-nosnippet>1310</a>    </span><span class="attr">#[error(<span class="string">"no default client config"</span>)]
-<a href=#1311 id=1311 data-nosnippet>1311</a>    </span>NoDefaultClientConfig,
-<a href=#1312 id=1312 data-nosnippet>1312</a>    <span class="doccomment">/// The local endpoint does not support the QUIC version specified in the client configuration
-<a href=#1313 id=1313 data-nosnippet>1313</a>    </span><span class="attr">#[error(<span class="string">"unsupported QUIC version"</span>)]
-<a href=#1314 id=1314 data-nosnippet>1314</a>    </span>UnsupportedVersion,
-<a href=#1315 id=1315 data-nosnippet>1315</a>}
-<a href=#1316 id=1316 data-nosnippet>1316</a>
-<a href=#1317 id=1317 data-nosnippet>1317</a><span class="doccomment">/// Error type for attempting to accept an [`Incoming`]
-<a href=#1318 id=1318 data-nosnippet>1318</a></span><span class="attr">#[derive(Debug)]
-<a href=#1319 id=1319 data-nosnippet>1319</a></span><span class="kw">pub struct </span>AcceptError {
-<a href=#1320 id=1320 data-nosnippet>1320</a>    <span class="doccomment">/// Underlying error describing reason for failure
-<a href=#1321 id=1321 data-nosnippet>1321</a>    </span><span class="kw">pub </span>cause: ConnectionError,
-<a href=#1322 id=1322 data-nosnippet>1322</a>    <span class="doccomment">/// Optional response to transmit back
-<a href=#1323 id=1323 data-nosnippet>1323</a>    </span><span class="kw">pub </span>response: <span class="prelude-ty">Option</span>&lt;Transmit&gt;,
-<a href=#1324 id=1324 data-nosnippet>1324</a>}
-<a href=#1325 id=1325 data-nosnippet>1325</a>
-<a href=#1326 id=1326 data-nosnippet>1326</a><span class="doccomment">/// Error for attempting to retry an [`Incoming`] which already bears a token from a previous retry
-<a href=#1327 id=1327 data-nosnippet>1327</a></span><span class="attr">#[derive(Debug, Error)]
-<a href=#1328 id=1328 data-nosnippet>1328</a>#[error(<span class="string">"retry() with validated Incoming"</span>)]
-<a href=#1329 id=1329 data-nosnippet>1329</a></span><span class="kw">pub struct </span>RetryError(Box&lt;Incoming&gt;);
-<a href=#1330 id=1330 data-nosnippet>1330</a>
-<a href=#1331 id=1331 data-nosnippet>1331</a><span class="kw">impl </span>RetryError {
-<a href=#1332 id=1332 data-nosnippet>1332</a>    <span class="doccomment">/// Get the [`Incoming`]
-<a href=#1333 id=1333 data-nosnippet>1333</a>    </span><span class="kw">pub fn </span>into_incoming(<span class="self">self</span>) -&gt; Incoming {
-<a href=#1334 id=1334 data-nosnippet>1334</a>        <span class="kw-2">*</span><span class="self">self</span>.<span class="number">0
-<a href=#1335 id=1335 data-nosnippet>1335</a>    </span>}
-<a href=#1336 id=1336 data-nosnippet>1336</a>}
-<a href=#1337 id=1337 data-nosnippet>1337</a>
-<a href=#1338 id=1338 data-nosnippet>1338</a><span class="doccomment">/// Reset Tokens which are associated with peer socket addresses
-<a href=#1339 id=1339 data-nosnippet>1339</a>///
-<a href=#1340 id=1340 data-nosnippet>1340</a>/// The standard `HashMap` is used since both `SocketAddr` and `ResetToken` are
-<a href=#1341 id=1341 data-nosnippet>1341</a>/// peer generated and might be usable for hash collision attacks.
-<a href=#1342 id=1342 data-nosnippet>1342</a></span><span class="attr">#[derive(Default, Debug)]
-<a href=#1343 id=1343 data-nosnippet>1343</a></span><span class="kw">struct </span>ResetTokenTable(HashMap&lt;SocketAddr, HashMap&lt;ResetToken, ConnectionHandle&gt;&gt;);
-<a href=#1344 id=1344 data-nosnippet>1344</a>
-<a href=#1345 id=1345 data-nosnippet>1345</a><span class="kw">impl </span>ResetTokenTable {
-<a href=#1346 id=1346 data-nosnippet>1346</a>    <span class="kw">fn </span>insert(<span class="kw-2">&amp;mut </span><span class="self">self</span>, remote: SocketAddr, token: ResetToken, ch: ConnectionHandle) -&gt; bool {
-<a href=#1347 id=1347 data-nosnippet>1347</a>        <span class="self">self</span>.<span class="number">0
-<a href=#1348 id=1348 data-nosnippet>1348</a>            </span>.entry(remote)
-<a href=#1349 id=1349 data-nosnippet>1349</a>            .or_default()
-<a href=#1350 id=1350 data-nosnippet>1350</a>            .insert(token, ch)
-<a href=#1351 id=1351 data-nosnippet>1351</a>            .is_some()
-<a href=#1352 id=1352 data-nosnippet>1352</a>    }
-<a href=#1353 id=1353 data-nosnippet>1353</a>
-<a href=#1354 id=1354 data-nosnippet>1354</a>    <span class="kw">fn </span>remove(<span class="kw-2">&amp;mut </span><span class="self">self</span>, remote: SocketAddr, token: ResetToken) {
-<a href=#1355 id=1355 data-nosnippet>1355</a>        <span class="kw">use </span>std::collections::hash_map::Entry;
-<a href=#1356 id=1356 data-nosnippet>1356</a>        <span class="kw">match </span><span class="self">self</span>.<span class="number">0</span>.entry(remote) {
-<a href=#1357 id=1357 data-nosnippet>1357</a>            Entry::Vacant(<span class="kw">_</span>) =&gt; {}
-<a href=#1358 id=1358 data-nosnippet>1358</a>            Entry::Occupied(<span class="kw-2">mut </span>e) =&gt; {
-<a href=#1359 id=1359 data-nosnippet>1359</a>                e.get_mut().remove(<span class="kw-2">&amp;</span>token);
-<a href=#1360 id=1360 data-nosnippet>1360</a>                <span class="kw">if </span>e.get().is_empty() {
-<a href=#1361 id=1361 data-nosnippet>1361</a>                    e.remove_entry();
-<a href=#1362 id=1362 data-nosnippet>1362</a>                }
-<a href=#1363 id=1363 data-nosnippet>1363</a>            }
-<a href=#1364 id=1364 data-nosnippet>1364</a>        }
-<a href=#1365 id=1365 data-nosnippet>1365</a>    }
-<a href=#1366 id=1366 data-nosnippet>1366</a>
-<a href=#1367 id=1367 data-nosnippet>1367</a>    <span class="kw">fn </span>get(<span class="kw-2">&amp;</span><span class="self">self</span>, remote: SocketAddr, token: <span class="kw-2">&amp;</span>[u8]) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>ConnectionHandle&gt; {
-<a href=#1368 id=1368 data-nosnippet>1368</a>        <span class="kw">let </span>token = ResetToken::from(&lt;[u8; RESET_TOKEN_SIZE]&gt;::try_from(token).ok()<span class="question-mark">?</span>);
-<a href=#1369 id=1369 data-nosnippet>1369</a>        <span class="self">self</span>.<span class="number">0</span>.get(<span class="kw-2">&amp;</span>remote)<span class="question-mark">?</span>.get(<span class="kw-2">&amp;</span>token)
-<a href=#1370 id=1370 data-nosnippet>1370</a>    }
-<a href=#1371 id=1371 data-nosnippet>1371</a>}</code></pre></div></section></main></body></html>
+<a href=#1226 id=1226 data-nosnippet>1226</a>    </span>crypto: Keys,
+<a href=#1227 id=1227 data-nosnippet>1227</a>    token: IncomingToken,
+<a href=#1228 id=1228 data-nosnippet>1228</a>    incoming_idx: usize,
+<a href=#1229 id=1229 data-nosnippet>1229</a>    <span class="attr">#[debug(skip)]
+<a href=#1230 id=1230 data-nosnippet>1230</a>    </span>improper_drop_warner: IncomingImproperDropWarner,
+<a href=#1231 id=1231 data-nosnippet>1231</a>}
+<a href=#1232 id=1232 data-nosnippet>1232</a>
+<a href=#1233 id=1233 data-nosnippet>1233</a><span class="kw">impl </span>Incoming {
+<a href=#1234 id=1234 data-nosnippet>1234</a>    <span class="doccomment">/// The local IP address which was used when the peer established the connection
+<a href=#1235 id=1235 data-nosnippet>1235</a>    ///
+<a href=#1236 id=1236 data-nosnippet>1236</a>    /// This has the same behavior as [`Connection::local_ip`].
+<a href=#1237 id=1237 data-nosnippet>1237</a>    </span><span class="kw">pub fn </span>local_ip(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;IpAddr&gt; {
+<a href=#1238 id=1238 data-nosnippet>1238</a>        <span class="self">self</span>.network_path.local_ip
+<a href=#1239 id=1239 data-nosnippet>1239</a>    }
+<a href=#1240 id=1240 data-nosnippet>1240</a>
+<a href=#1241 id=1241 data-nosnippet>1241</a>    <span class="doccomment">/// The peer's UDP address
+<a href=#1242 id=1242 data-nosnippet>1242</a>    </span><span class="kw">pub fn </span>remote_address(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; SocketAddr {
+<a href=#1243 id=1243 data-nosnippet>1243</a>        <span class="self">self</span>.network_path.remote
+<a href=#1244 id=1244 data-nosnippet>1244</a>    }
+<a href=#1245 id=1245 data-nosnippet>1245</a>
+<a href=#1246 id=1246 data-nosnippet>1246</a>    <span class="doccomment">/// Whether the socket address that is initiating this connection has been validated
+<a href=#1247 id=1247 data-nosnippet>1247</a>    ///
+<a href=#1248 id=1248 data-nosnippet>1248</a>    /// This means that the sender of the initial packet has proved that they can receive traffic
+<a href=#1249 id=1249 data-nosnippet>1249</a>    /// sent to `self.remote_address()`.
+<a href=#1250 id=1250 data-nosnippet>1250</a>    ///
+<a href=#1251 id=1251 data-nosnippet>1251</a>    /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
+<a href=#1252 id=1252 data-nosnippet>1252</a>    /// The inverse is not guaranteed.
+<a href=#1253 id=1253 data-nosnippet>1253</a>    </span><span class="kw">pub fn </span>remote_address_validated(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+<a href=#1254 id=1254 data-nosnippet>1254</a>        <span class="self">self</span>.token.validated
+<a href=#1255 id=1255 data-nosnippet>1255</a>    }
+<a href=#1256 id=1256 data-nosnippet>1256</a>
+<a href=#1257 id=1257 data-nosnippet>1257</a>    <span class="doccomment">/// Whether it is legal to respond with a retry packet
+<a href=#1258 id=1258 data-nosnippet>1258</a>    ///
+<a href=#1259 id=1259 data-nosnippet>1259</a>    /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
+<a href=#1260 id=1260 data-nosnippet>1260</a>    /// The inverse is not guaranteed.
+<a href=#1261 id=1261 data-nosnippet>1261</a>    </span><span class="kw">pub fn </span>may_retry(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+<a href=#1262 id=1262 data-nosnippet>1262</a>        <span class="self">self</span>.token.retry_src_cid.is_none()
+<a href=#1263 id=1263 data-nosnippet>1263</a>    }
+<a href=#1264 id=1264 data-nosnippet>1264</a>
+<a href=#1265 id=1265 data-nosnippet>1265</a>    <span class="doccomment">/// The original destination connection ID sent by the client
+<a href=#1266 id=1266 data-nosnippet>1266</a>    </span><span class="kw">pub fn </span>orig_dst_cid(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; ConnectionId {
+<a href=#1267 id=1267 data-nosnippet>1267</a>        <span class="self">self</span>.token.orig_dst_cid
+<a href=#1268 id=1268 data-nosnippet>1268</a>    }
+<a href=#1269 id=1269 data-nosnippet>1269</a>}
+<a href=#1270 id=1270 data-nosnippet>1270</a>
+<a href=#1271 id=1271 data-nosnippet>1271</a><span class="kw">struct </span>IncomingImproperDropWarner;
+<a href=#1272 id=1272 data-nosnippet>1272</a>
+<a href=#1273 id=1273 data-nosnippet>1273</a><span class="kw">impl </span>IncomingImproperDropWarner {
+<a href=#1274 id=1274 data-nosnippet>1274</a>    <span class="kw">fn </span>dismiss(<span class="self">self</span>) {
+<a href=#1275 id=1275 data-nosnippet>1275</a>        mem::forget(<span class="self">self</span>);
+<a href=#1276 id=1276 data-nosnippet>1276</a>    }
+<a href=#1277 id=1277 data-nosnippet>1277</a>}
+<a href=#1278 id=1278 data-nosnippet>1278</a>
+<a href=#1279 id=1279 data-nosnippet>1279</a><span class="kw">impl </span>Drop <span class="kw">for </span>IncomingImproperDropWarner {
+<a href=#1280 id=1280 data-nosnippet>1280</a>    <span class="kw">fn </span>drop(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
+<a href=#1281 id=1281 data-nosnippet>1281</a>        <span class="macro">warn!</span>(
+<a href=#1282 id=1282 data-nosnippet>1282</a>            <span class="string">"quinn_proto::Incoming dropped without passing to Endpoint::accept/refuse/retry/ignore \
+<a href=#1283 id=1283 data-nosnippet>1283</a>               (may cause memory leak and eventual inability to accept new connections)"
+<a href=#1284 id=1284 data-nosnippet>1284</a>        </span>);
+<a href=#1285 id=1285 data-nosnippet>1285</a>    }
+<a href=#1286 id=1286 data-nosnippet>1286</a>}
+<a href=#1287 id=1287 data-nosnippet>1287</a>
+<a href=#1288 id=1288 data-nosnippet>1288</a><span class="doccomment">/// Errors in the parameters being used to create a new connection
+<a href=#1289 id=1289 data-nosnippet>1289</a>///
+<a href=#1290 id=1290 data-nosnippet>1290</a>/// These arise before any I/O has been performed.
+<a href=#1291 id=1291 data-nosnippet>1291</a></span><span class="attr">#[derive(Debug, Error, Clone, PartialEq, Eq)]
+<a href=#1292 id=1292 data-nosnippet>1292</a></span><span class="kw">pub enum </span>ConnectError {
+<a href=#1293 id=1293 data-nosnippet>1293</a>    <span class="doccomment">/// The endpoint can no longer create new connections
+<a href=#1294 id=1294 data-nosnippet>1294</a>    ///
+<a href=#1295 id=1295 data-nosnippet>1295</a>    /// Indicates that a necessary component of the endpoint has been dropped or otherwise disabled.
+<a href=#1296 id=1296 data-nosnippet>1296</a>    </span><span class="attr">#[error(<span class="string">"endpoint stopping"</span>)]
+<a href=#1297 id=1297 data-nosnippet>1297</a>    </span>EndpointStopping,
+<a href=#1298 id=1298 data-nosnippet>1298</a>    <span class="doccomment">/// The connection could not be created because not enough of the CID space is available
+<a href=#1299 id=1299 data-nosnippet>1299</a>    ///
+<a href=#1300 id=1300 data-nosnippet>1300</a>    /// Try using longer connection IDs
+<a href=#1301 id=1301 data-nosnippet>1301</a>    </span><span class="attr">#[error(<span class="string">"CIDs exhausted"</span>)]
+<a href=#1302 id=1302 data-nosnippet>1302</a>    </span>CidsExhausted,
+<a href=#1303 id=1303 data-nosnippet>1303</a>    <span class="doccomment">/// The given server name was malformed
+<a href=#1304 id=1304 data-nosnippet>1304</a>    </span><span class="attr">#[error(<span class="string">"invalid server name: {0}"</span>)]
+<a href=#1305 id=1305 data-nosnippet>1305</a>    </span>InvalidServerName(String),
+<a href=#1306 id=1306 data-nosnippet>1306</a>    <span class="doccomment">/// The remote [`SocketAddr`] supplied was malformed
+<a href=#1307 id=1307 data-nosnippet>1307</a>    ///
+<a href=#1308 id=1308 data-nosnippet>1308</a>    /// Examples include attempting to connect to port 0, or using an inappropriate address family.
+<a href=#1309 id=1309 data-nosnippet>1309</a>    </span><span class="attr">#[error(<span class="string">"invalid remote address: {0}"</span>)]
+<a href=#1310 id=1310 data-nosnippet>1310</a>    </span>InvalidRemoteAddress(SocketAddr),
+<a href=#1311 id=1311 data-nosnippet>1311</a>    <span class="doccomment">/// No default client configuration was set up
+<a href=#1312 id=1312 data-nosnippet>1312</a>    ///
+<a href=#1313 id=1313 data-nosnippet>1313</a>    /// Use `Endpoint::connect_with` to specify a client configuration.
+<a href=#1314 id=1314 data-nosnippet>1314</a>    </span><span class="attr">#[error(<span class="string">"no default client config"</span>)]
+<a href=#1315 id=1315 data-nosnippet>1315</a>    </span>NoDefaultClientConfig,
+<a href=#1316 id=1316 data-nosnippet>1316</a>    <span class="doccomment">/// The local endpoint does not support the QUIC version specified in the client configuration
+<a href=#1317 id=1317 data-nosnippet>1317</a>    </span><span class="attr">#[error(<span class="string">"unsupported QUIC version"</span>)]
+<a href=#1318 id=1318 data-nosnippet>1318</a>    </span>UnsupportedVersion,
+<a href=#1319 id=1319 data-nosnippet>1319</a>}
+<a href=#1320 id=1320 data-nosnippet>1320</a>
+<a href=#1321 id=1321 data-nosnippet>1321</a><span class="doccomment">/// Error type for attempting to accept an [`Incoming`]
+<a href=#1322 id=1322 data-nosnippet>1322</a></span><span class="attr">#[derive(Debug)]
+<a href=#1323 id=1323 data-nosnippet>1323</a></span><span class="kw">pub struct </span>AcceptError {
+<a href=#1324 id=1324 data-nosnippet>1324</a>    <span class="doccomment">/// Underlying error describing reason for failure
+<a href=#1325 id=1325 data-nosnippet>1325</a>    </span><span class="kw">pub </span>cause: ConnectionError,
+<a href=#1326 id=1326 data-nosnippet>1326</a>    <span class="doccomment">/// Optional response to transmit back
+<a href=#1327 id=1327 data-nosnippet>1327</a>    </span><span class="kw">pub </span>response: <span class="prelude-ty">Option</span>&lt;Transmit&gt;,
+<a href=#1328 id=1328 data-nosnippet>1328</a>}
+<a href=#1329 id=1329 data-nosnippet>1329</a>
+<a href=#1330 id=1330 data-nosnippet>1330</a><span class="doccomment">/// Error for attempting to retry an [`Incoming`] which already bears a token from a previous retry
+<a href=#1331 id=1331 data-nosnippet>1331</a></span><span class="attr">#[derive(Debug, Error)]
+<a href=#1332 id=1332 data-nosnippet>1332</a>#[error(<span class="string">"retry() with validated Incoming"</span>)]
+<a href=#1333 id=1333 data-nosnippet>1333</a></span><span class="kw">pub struct </span>RetryError(Box&lt;Incoming&gt;);
+<a href=#1334 id=1334 data-nosnippet>1334</a>
+<a href=#1335 id=1335 data-nosnippet>1335</a><span class="kw">impl </span>RetryError {
+<a href=#1336 id=1336 data-nosnippet>1336</a>    <span class="doccomment">/// Get the [`Incoming`]
+<a href=#1337 id=1337 data-nosnippet>1337</a>    </span><span class="kw">pub fn </span>into_incoming(<span class="self">self</span>) -&gt; Incoming {
+<a href=#1338 id=1338 data-nosnippet>1338</a>        <span class="kw-2">*</span><span class="self">self</span>.<span class="number">0
+<a href=#1339 id=1339 data-nosnippet>1339</a>    </span>}
+<a href=#1340 id=1340 data-nosnippet>1340</a>}
+<a href=#1341 id=1341 data-nosnippet>1341</a>
+<a href=#1342 id=1342 data-nosnippet>1342</a><span class="doccomment">/// Reset Tokens which are associated with peer socket addresses
+<a href=#1343 id=1343 data-nosnippet>1343</a>///
+<a href=#1344 id=1344 data-nosnippet>1344</a>/// The standard `HashMap` is used since both `SocketAddr` and `ResetToken` are
+<a href=#1345 id=1345 data-nosnippet>1345</a>/// peer generated and might be usable for hash collision attacks.
+<a href=#1346 id=1346 data-nosnippet>1346</a></span><span class="attr">#[derive(Default, Debug)]
+<a href=#1347 id=1347 data-nosnippet>1347</a></span><span class="kw">struct </span>ResetTokenTable(HashMap&lt;SocketAddr, HashMap&lt;ResetToken, ConnectionHandle&gt;&gt;);
+<a href=#1348 id=1348 data-nosnippet>1348</a>
+<a href=#1349 id=1349 data-nosnippet>1349</a><span class="kw">impl </span>ResetTokenTable {
+<a href=#1350 id=1350 data-nosnippet>1350</a>    <span class="kw">fn </span>insert(<span class="kw-2">&amp;mut </span><span class="self">self</span>, remote: SocketAddr, token: ResetToken, ch: ConnectionHandle) -&gt; bool {
+<a href=#1351 id=1351 data-nosnippet>1351</a>        <span class="self">self</span>.<span class="number">0
+<a href=#1352 id=1352 data-nosnippet>1352</a>            </span>.entry(remote)
+<a href=#1353 id=1353 data-nosnippet>1353</a>            .or_default()
+<a href=#1354 id=1354 data-nosnippet>1354</a>            .insert(token, ch)
+<a href=#1355 id=1355 data-nosnippet>1355</a>            .is_some()
+<a href=#1356 id=1356 data-nosnippet>1356</a>    }
+<a href=#1357 id=1357 data-nosnippet>1357</a>
+<a href=#1358 id=1358 data-nosnippet>1358</a>    <span class="kw">fn </span>remove(<span class="kw-2">&amp;mut </span><span class="self">self</span>, remote: SocketAddr, token: ResetToken) {
+<a href=#1359 id=1359 data-nosnippet>1359</a>        <span class="kw">use </span>std::collections::hash_map::Entry;
+<a href=#1360 id=1360 data-nosnippet>1360</a>        <span class="kw">match </span><span class="self">self</span>.<span class="number">0</span>.entry(remote) {
+<a href=#1361 id=1361 data-nosnippet>1361</a>            Entry::Vacant(<span class="kw">_</span>) =&gt; {}
+<a href=#1362 id=1362 data-nosnippet>1362</a>            Entry::Occupied(<span class="kw-2">mut </span>e) =&gt; {
+<a href=#1363 id=1363 data-nosnippet>1363</a>                e.get_mut().remove(<span class="kw-2">&amp;</span>token);
+<a href=#1364 id=1364 data-nosnippet>1364</a>                <span class="kw">if </span>e.get().is_empty() {
+<a href=#1365 id=1365 data-nosnippet>1365</a>                    e.remove_entry();
+<a href=#1366 id=1366 data-nosnippet>1366</a>                }
+<a href=#1367 id=1367 data-nosnippet>1367</a>            }
+<a href=#1368 id=1368 data-nosnippet>1368</a>        }
+<a href=#1369 id=1369 data-nosnippet>1369</a>    }
+<a href=#1370 id=1370 data-nosnippet>1370</a>
+<a href=#1371 id=1371 data-nosnippet>1371</a>    <span class="kw">fn </span>get(<span class="kw-2">&amp;</span><span class="self">self</span>, remote: SocketAddr, token: <span class="kw-2">&amp;</span>[u8]) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>ConnectionHandle&gt; {
+<a href=#1372 id=1372 data-nosnippet>1372</a>        <span class="kw">let </span>token = ResetToken::from(&lt;[u8; RESET_TOKEN_SIZE]&gt;::try_from(token).ok()<span class="question-mark">?</span>);
+<a href=#1373 id=1373 data-nosnippet>1373</a>        <span class="self">self</span>.<span class="number">0</span>.get(<span class="kw-2">&amp;</span>remote)<span class="question-mark">?</span>.get(<span class="kw-2">&amp;</span>token)
+<a href=#1374 id=1374 data-nosnippet>1374</a>    }
+<a href=#1375 id=1375 data-nosnippet>1375</a>}</code></pre></div></section></main></body></html>
