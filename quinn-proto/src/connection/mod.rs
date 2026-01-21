@@ -1203,7 +1203,7 @@ impl Connection {
         close: bool,
     ) -> PollPathStatus {
         // Check if there is at least one active CID to use for sending
-        let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
+        let Some(remote_cid) = self.remote_cids.get(&path_id).map(CidQueue::active) else {
             if self.abandoned_paths.contains(&path_id) {
                 trace!(%path_id, "remote CIDs retired for abandoned path");
             } else {
@@ -1736,7 +1736,7 @@ impl Connection {
     /// - The path is not abandoned.
     /// - The MTU Discovery subsystem wants to probe the path.
     fn get_mtu_probe_data(&mut self, now: Instant, path_id: PathId) -> Option<(ConnectionId, u16)> {
-        let active_cid = self.rem_cids.get(&path_id).map(CidQueue::active)?;
+        let active_cid = self.remote_cids.get(&path_id).map(CidQueue::active)?;
         let is_eligible = self.path_data(path_id).validated
             && !self.path_data(path_id).is_validating_path()
             && !self.abandoned_paths.contains(&path_id);
