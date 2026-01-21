@@ -333,8 +333,8 @@ enum PollPathStatus {
         /// If true there was data to send but congestion control did not allow so.
         congestion_blocked: bool,
     },
-    /// One or more packets have been written into the [`TransmitBuf`] and should be sent.
-    Send,
+    /// The transmit is ready to be sent.
+    Send(Transmit),
 }
 
 /// Return value for [`Connection::poll_transmit_path_space`].
@@ -1073,20 +1073,16 @@ impl Connection {
                 return Some(transmit);
             }
 
-            // Set the segment size to this path's MTU for on-path data.
-            let pmtu = self.path_data(path_id).current_mtu().into();
-            let mut transmit = TransmitBuf::new(buf, max_datagrams, pmtu);
-
             // Poll for on-path transmits.
             match self.poll_transmit_on_path(
                 now,
-                &mut transmit,
+                buf,
                 path_id,
+                max_datagrams,
                 have_available_path,
                 close,
             ) {
-                PollPathStatus::Send => {
-                    let transmit = self.build_transmit(path_id, transmit);
+                PollPathStatus::Send(transmit) => {
                     return Some(transmit);
                 }
                 PollPathStatus::NothingToSend {
@@ -1096,8 +1092,8 @@ impl Connection {
                     // Continue checking other paths, tail-loss probes may need to be sent
                     // in all spaces.
                     debug_assert!(
-                        transmit.is_empty(),
-                        "nothing to send on path but transmit not empty"
+                        buf.is_empty(),
+                        "nothing to send on path but buffer not empty"
                     );
                 }
             }
@@ -1114,12 +1110,7 @@ impl Connection {
         if self.state.is_established() {
             // Try MTU probing now
             for path_id in path_ids {
-                // The MTU parameter here is really a dummy one, poll_transmit_mut_probe
-                // explicitly sets the size.
-                let mut transmit = TransmitBuf::new(buf, max_datagrams, MIN_INITIAL_SIZE.into());
-                self.poll_transmit_mtu_probe(now, &mut transmit, path_id);
-                if !transmit.is_empty() {
-                    let transmit = self.build_transmit(path_id, transmit);
+                if let Some(transmit) = self.poll_transmit_mtu_probe(now, buf, path_id) {
                     return Some(transmit);
                 }
             }
@@ -1197,8 +1188,9 @@ impl Connection {
     fn poll_transmit_on_path(
         &mut self,
         now: Instant,
-        transmit: &mut TransmitBuf<'_>,
+        buf: &mut Vec<u8>,
         path_id: PathId,
+        max_datagrams: NonZeroUsize,
         have_available_path: bool,
         close: bool,
     ) -> PollPathStatus {
@@ -1230,6 +1222,10 @@ impl Connection {
         // nothing to send or because we were congestion blocked.
         let mut congestion_blocked = false;
 
+        // Set the segment size to this path's MTU for on-path data.
+        let pmtu = self.path_data(path_id).current_mtu().into();
+        let mut transmit = TransmitBuf::new(buf, max_datagrams, pmtu);
+
         // Iterate over the available spaces.
         for space_id in SpaceId::iter() {
             // Only PathId::ZERO uses non Data space ids.
@@ -1238,7 +1234,7 @@ impl Connection {
             }
             match self.poll_transmit_path_space(
                 now,
-                transmit,
+                &mut transmit,
                 path_id,
                 space_id,
                 remote_cid,
@@ -1293,8 +1289,7 @@ impl Connection {
                     transmit.len() as u64,
                     last_packet_number,
                 );
-
-                PollPathStatus::Send
+                PollPathStatus::Send(self.build_transmit(path_id, transmit))
             }
             None => PollPathStatus::NothingToSend { congestion_blocked },
         }
@@ -1688,28 +1683,24 @@ impl Connection {
     fn poll_transmit_mtu_probe(
         &mut self,
         now: Instant,
-        transmit: &mut TransmitBuf<'_>,
+        buf: &mut Vec<u8>,
         path_id: PathId,
-    ) {
-        let Some((active_cid, probe_size)) = self.get_mtu_probe_data(now, path_id) else {
-            return;
-        };
+    ) -> Option<Transmit> {
+        let (active_cid, probe_size) = self.get_mtu_probe_data(now, path_id)?;
 
         // We are definitely sending a DPLPMTUD probe.
-        debug_assert_eq!(transmit.num_datagrams(), 0);
+        let mut transmit = TransmitBuf::new(buf, NonZeroUsize::MIN, probe_size as usize);
         transmit.start_new_datagram_with_size(probe_size as usize);
 
-        let Some(mut builder) = PacketBuilder::new(
+        let mut builder = PacketBuilder::new(
             now,
             SpaceId::Data,
             path_id,
             active_cid,
-            transmit,
+            &mut transmit,
             true,
             self,
-        ) else {
-            return;
-        };
+        )?;
 
         // We implement MTU probes as ping packets padded up to the probe size
         trace!(?probe_size, "writing MTUD probe");
@@ -1726,6 +1717,8 @@ impl Connection {
             .entry(path_id)
             .or_default()
             .sent_plpmtud_probes += 1;
+
+        Some(self.build_transmit(path_id, transmit))
     }
 
     /// Returns the CID and probe size if a DPLPMTUD probe is needed.
