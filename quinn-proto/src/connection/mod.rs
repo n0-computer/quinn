@@ -907,7 +907,7 @@ impl Connection {
         // If the remote opened this path we may not have CIDs for it. For locally opened
         // paths the caller should have already made sure we have CIDs and refused to open
         // it if there were none.
-        if !self.rem_cids.contains_key(&path_id) {
+        if !self.remote_cids.contains_key(&path_id) {
             debug!("Remote opened path without issuing CIDs");
             self.spaces[SpaceId::Data]
                 .pending
