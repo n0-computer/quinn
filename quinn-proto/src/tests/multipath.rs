@@ -12,7 +12,7 @@ use crate::tests::RoutingTable;
 use crate::tests::util::{CLIENT_PORTS, SERVER_PORTS};
 use crate::{
     ClientConfig, ClosePathError, ConnectionHandle, ConnectionId, ConnectionIdGenerator, Endpoint,
-    EndpointConfig, FourTuple, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator,
+    EndpointConfig, FourTuple, LOCAL_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator,
     ServerConfig, TransportConfig, cid_queue::CidQueue,
 };
 use crate::{Event, PathError, PathEvent};
@@ -238,7 +238,7 @@ fn multipath_cid_rotation() {
     let end = pair.time + 5 * CID_TIMEOUT;
 
     let mut active_cid_num = CidQueue::LEN as u64 + 1;
-    active_cid_num = active_cid_num.min(LOC_CID_COUNT);
+    active_cid_num = active_cid_num.min(LOCAL_CID_COUNT);
     let mut left_bound = 0;
     let mut right_bound = active_cid_num - 1;
 

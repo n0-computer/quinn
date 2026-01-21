@@ -21,6 +21,8 @@ use crate::{
 use super::connection::qlog::ToQlog;
 
 #[cfg(test)]
+use crate::varint::varint_u64;
+#[cfg(test)]
 use proptest::{collection, prelude::any, strategy::Strategy};
 #[cfg(test)]
 use test_strategy::Arbitrary;
@@ -382,6 +384,7 @@ impl DatagramInfo {
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(Arbitrary))]
 pub(crate) enum Frame {
     Padding,
     Ping,
@@ -585,7 +588,7 @@ impl Encodable for PathResponse {
 #[derive(Debug, Clone, Copy, derive_more::Display)]
 #[cfg_attr(test, derive(Arbitrary, PartialEq, Eq))]
 #[display("DATA_BLOCKED offset: {_0}")]
-pub(crate) struct DataBlocked(#[cfg_attr(test, strategy(0u64..(1u64 << 62)))] pub(crate) u64);
+pub(crate) struct DataBlocked(#[cfg_attr(test, strategy(varint_u64()))] pub(crate) u64);
 
 impl Encodable for DataBlocked {
     fn encode<B: BufMut>(&self, buf: &mut B) {
@@ -599,7 +602,7 @@ impl Encodable for DataBlocked {
 #[display("STREAM_DATA_BLOCKED id: {id} offset: {offset}")]
 pub(crate) struct StreamDataBlocked {
     pub(crate) id: StreamId,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) offset: u64,
 }
 
@@ -622,7 +625,7 @@ impl Encodable for StreamDataBlocked {
 #[display("STREAMS_BLOCKED dir: {:?} limit: {limit}", dir)]
 pub(crate) struct StreamsBlocked {
     pub(crate) dir: Dir,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) limit: u64,
 }
 
@@ -671,7 +674,7 @@ impl Encodable for MaxData {
 #[display("MAX_STREAM_DATA id: {id} max: {offset}")]
 pub(crate) struct MaxStreamData {
     pub(crate) id: StreamId,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) offset: u64,
 }
 
@@ -703,7 +706,7 @@ impl Encodable for MaxStreamData {
 #[display("{} count: {count}", self.get_type())]
 pub(crate) struct MaxStreams {
     pub(crate) dir: Dir,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) count: u64,
 }
 
@@ -728,7 +731,7 @@ impl Encodable for MaxStreams {
 #[display("{} {} seq: {sequence}", self.get_type(), DisplayOption::new("path_id", path_id.as_ref()))]
 pub(crate) struct RetireConnectionId {
     pub(crate) path_id: Option<PathId>,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) sequence: u64,
 }
 
@@ -788,6 +791,7 @@ impl Encodable for RetireConnectionId {
     }
 }
 
+#[cfg_attr(test, derive(Arbitrary))]
 #[derive(Clone, Debug, derive_more::Display)]
 pub(crate) enum Close {
     Connection(ConnectionClose),
@@ -850,12 +854,14 @@ impl From<ApplicationClose> for Close {
 
 /// Reason given by the transport for closing the connection
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct ConnectionClose {
     /// Class of error as encoded in the specification
     pub error_code: TransportErrorCode,
     /// Type of frame that caused the close
     pub frame_type: MaybeFrame,
     /// Human-readable reason for the close
+    #[cfg_attr(test, strategy(proptest::collection::vec(any::<u8>(), 0..64).prop_map(Bytes::from)))]
     pub reason: Bytes,
 }
 
@@ -901,10 +907,12 @@ impl ConnectionClose {
 
 /// Reason given by an application for closing the connection
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct ApplicationClose {
     /// Application-specific reason code
     pub error_code: VarInt,
     /// Human-readable reason for the close
+    #[cfg_attr(test, strategy(proptest::collection::vec(any::<u8>(), 0..64).prop_map(Bytes::from)))]
     pub reason: Bytes,
 }
 
@@ -944,6 +952,31 @@ pub(crate) struct PathAck {
     pub delay: u64,
     pub ranges: ArrayRangeSet,
     pub ecn: Option<EcnCounts>,
+}
+
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for PathAck {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        (
+            any::<PathId>(),
+            varint_u64(),
+            any::<ArrayRangeSet>()
+                .prop_filter("ranges must be non empty", |ranges| !ranges.is_empty()),
+            any::<Option<EcnCounts>>(),
+        )
+            .prop_map(|(path_id, delay, ranges, ecn)| Self {
+                path_id,
+                largest: ranges.max().expect("ranges must be non empty"),
+                delay,
+                ranges,
+                ecn,
+            })
+            .boxed()
+    }
 }
 
 impl PathAck {
@@ -1050,6 +1083,29 @@ pub(crate) struct Ack {
     pub ecn: Option<EcnCounts>,
 }
 
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for Ack {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        (
+            varint_u64(),
+            any::<ArrayRangeSet>()
+                .prop_filter("ranges must be non empty", |ranges| !ranges.is_empty()),
+            any::<Option<EcnCounts>>(),
+        )
+            .prop_map(|(delay, ranges, ecn)| Self {
+                largest: ranges.max().expect("ranges must be non empty"),
+                delay,
+                ranges,
+                ecn,
+            })
+            .boxed()
+    }
+}
+
 impl Ack {
     pub(crate) fn encoder<'a>(
         delay: u64,
@@ -1118,10 +1174,14 @@ impl<'a> Encodable for AckEncoder<'a> {
     }
 }
 
+#[cfg_attr(test, derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(crate) struct EcnCounts {
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub ect0: u64,
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub ect1: u64,
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub ce: u64,
 }
 
@@ -1161,7 +1221,7 @@ impl Encodable for EcnCounts {
 #[cfg_attr(test, derive(Arbitrary, PartialEq, Eq))]
 pub(crate) struct Stream {
     pub(crate) id: StreamId,
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) offset: u64,
     pub(crate) fin: bool,
     #[cfg_attr(test, strategy(Strategy::prop_map(collection::vec(any::<u8>(), 0..100), Bytes::from)))]
@@ -1252,7 +1312,7 @@ pub(crate) type StreamMetaVec = TinyVec<[StreamMeta; 1]>;
 #[cfg_attr(test, derive(Arbitrary, PartialEq, Eq))]
 #[display("CRYPTO off: {offset} len = {}", data.len())]
 pub(crate) struct Crypto {
-    #[cfg_attr(test, strategy(0u64..(1u64 << 62)))]
+    #[cfg_attr(test, strategy(varint_u64()))]
     pub(crate) offset: u64,
     #[cfg_attr(test, strategy(Strategy::prop_map(collection::vec(any::<u8>(), 0..1024), Bytes::from)))]
     pub(crate) data: Bytes,
@@ -1607,7 +1667,7 @@ impl Iter {
         })
     }
 
-    fn take_remaining(&mut self) -> Bytes {
+    pub(crate) fn take_remaining(&mut self) -> Bytes {
         mem::take(&mut self.bytes)
     }
 }
@@ -1776,6 +1836,46 @@ pub(crate) struct NewConnectionId {
     pub(crate) retire_prior_to: u64,
     pub(crate) id: ConnectionId,
     pub(crate) reset_token: ResetToken,
+}
+
+#[cfg(test)]
+fn connection_id_and_reset_token() -> impl Strategy<Value = (crate::ConnectionId, ResetToken)> {
+    (any::<ConnectionId>(), any::<[u8; 64]>()).prop_map(|(id, reset_key)| {
+        #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
+        use aws_lc_rs::hmac;
+        #[cfg(feature = "ring")]
+        use ring::hmac;
+        let key = hmac::Key::new(hmac::HMAC_SHA256, &reset_key);
+        (id, ResetToken::new(&key, id))
+    })
+}
+
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for NewConnectionId {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        (
+            any::<Option<PathId>>(),
+            varint_u64(),
+            varint_u64(),
+            connection_id_and_reset_token(),
+        )
+            .prop_map(|(path_id, a, b, (id, reset_token))| {
+                let sequence = std::cmp::max(a, b);
+                let retire_prior_to = std::cmp::min(a, b);
+                Self {
+                    path_id,
+                    sequence,
+                    retire_prior_to,
+                    id,
+                    reset_token,
+                }
+            })
+            .boxed()
+    }
 }
 
 impl NewConnectionId {
@@ -1960,6 +2060,7 @@ impl Encodable for AckFrequency {
 /// ([`FrameType::ObservedIpv4Addr`], [`FrameType::ObservedIpv6Addr`]).
 #[derive(Debug, PartialEq, Eq, Clone, derive_more::Display)]
 #[display("{} seq_no: {seq_no} addr: {}", self.get_type(), self.socket_addr())]
+#[cfg_attr(test, derive(Arbitrary))]
 pub(crate) struct ObservedAddr {
     /// Monotonically increasing integer within the same connection.
     pub(crate) seq_no: VarInt,
@@ -2141,6 +2242,7 @@ impl Decodable for PathStatusBackup {
 /// ([`FrameType::AddIpv4Address`], [`FrameType::AddIpv6Address`]).
 #[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord, derive_more::Display)]
 #[display("{} seq_no: {seq_no} addr: {}", self.get_type(), self.socket_addr())]
+#[cfg_attr(test, derive(Arbitrary))]
 pub(crate) struct AddAddress {
     /// Monotonically increasing integer within the same connection
     // TODO(@divma): both assumed, the draft has no mention of this but it's standard
@@ -2229,6 +2331,7 @@ impl Encodable for AddAddress {
 /// ([`FrameType::ReachOutAtIpv4`], [`FrameType::ReachOutAtIpv6`])
 #[derive(Debug, PartialEq, Eq, Clone, derive_more::Display)]
 #[display("REACH_OUT round: {round} local_addr: {}", self.socket_addr())]
+#[cfg_attr(test, derive(Arbitrary))]
 pub(crate) struct ReachOut {
     /// The sequence number of the NAT Traversal attempts
     pub(crate) round: VarInt,

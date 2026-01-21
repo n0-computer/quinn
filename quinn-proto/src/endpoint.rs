@@ -118,7 +118,7 @@ impl Endpoint {
             }
             RetireConnectionId(now, path_id, seq, allow_more_cids) => {
                 if let Some(cid) = self.connections[ch]
-                    .loc_cids
+                    .local_cids
                     .get_mut(&path_id)
                     .and_then(|pcid| pcid.cids.remove(&seq))
                 {
@@ -348,12 +348,12 @@ impl Endpoint {
         trace!(initial_dcid = %remote_id);
 
         let ch = ConnectionHandle(self.connections.vacant_key());
-        let loc_cid = self.new_cid(ch, PathId::ZERO);
+        let local_cid = self.new_cid(ch, PathId::ZERO);
         let params = TransportParameters::new(
             &config.transport,
             &self.config,
             self.local_cid_generator.as_ref(),
-            loc_cid,
+            local_cid,
             None,
             &mut self.rng,
         );
@@ -365,7 +365,7 @@ impl Endpoint {
             ch,
             config.version,
             remote_id,
-            loc_cid,
+            local_cid,
             remote_id,
             FourTuple {
                 remote,
@@ -394,7 +394,7 @@ impl Endpoint {
         let mut ids = vec![];
         for _ in 0..num {
             let id = self.new_cid(ch, path_id);
-            let cid_meta = self.connections[ch].loc_cids.entry(path_id).or_default();
+            let cid_meta = self.connections[ch].local_cids.entry(path_id).or_default();
             let sequence = cid_meta.issued;
             cid_meta.issued += 1;
             cid_meta.cids.insert(sequence, id);
@@ -606,16 +606,16 @@ impl Endpoint {
         };
 
         let ch = ConnectionHandle(self.connections.vacant_key());
-        let loc_cid = self.new_cid(ch, PathId::ZERO);
+        let local_cid = self.new_cid(ch, PathId::ZERO);
         let mut params = TransportParameters::new(
             &server_config.transport,
             &self.config,
             self.local_cid_generator.as_ref(),
-            loc_cid,
+            local_cid,
             Some(&server_config),
             &mut self.rng,
         );
-        params.stateless_reset_token = Some(ResetToken::new(&*self.config.reset_key, loc_cid));
+        params.stateless_reset_token = Some(ResetToken::new(&*self.config.reset_key, local_cid));
         params.original_dst_cid = Some(incoming.token.orig_dst_cid);
         params.retry_src_cid = incoming.token.retry_src_cid;
         let mut pref_addr_cid = None;
@@ -636,7 +636,7 @@ impl Endpoint {
             ch,
             version,
             dst_cid,
-            loc_cid,
+            local_cid,
             src_cid,
             incoming.network_path,
             incoming.received_at,
@@ -751,7 +751,7 @@ impl Endpoint {
         // with established connections. In the unlikely event that a collision occurs
         // between two connections in the initial phase, both will fail fast and may be
         // retried by the application layer.
-        let loc_cid = self.local_cid_generator.generate_cid();
+        let local_cid = self.local_cid_generator.generate_cid();
 
         let payload = TokenPayload::Retry {
             address: incoming.network_path.remote,
@@ -761,7 +761,7 @@ impl Endpoint {
         let token = Token::new(payload, &mut self.rng).encode(&*server_config.token_key);
 
         let header = Header::Retry {
-            src_cid: loc_cid,
+            src_cid: local_cid,
             dst_cid: incoming.packet.header.src_cid,
             version: incoming.packet.header.version,
         };
@@ -805,8 +805,8 @@ impl Endpoint {
         ch: ConnectionHandle,
         version: u32,
         init_cid: ConnectionId,
-        loc_cid: ConnectionId,
-        rem_cid: ConnectionId,
+        local_cid: ConnectionId,
+        remote_cid: ConnectionId,
         network_path: FourTuple,
         now: Instant,
         tls: Box<dyn crypto::Session>,
@@ -825,8 +825,8 @@ impl Endpoint {
 
         qlog.emit_connection_started(
             now,
-            loc_cid,
-            rem_cid,
+            local_cid,
+            remote_cid,
             network_path.remote,
             network_path.local_ip,
             params,
@@ -836,8 +836,8 @@ impl Endpoint {
             self.config.clone(),
             transport_config,
             init_cid,
-            loc_cid,
-            rem_cid,
+            local_cid,
+            remote_cid,
             network_path,
             tls,
             self.local_cid_generator.as_ref(),
@@ -850,7 +850,7 @@ impl Endpoint {
         );
 
         let mut path_cids = PathLocalCids::default();
-        path_cids.cids.insert(path_cids.issued, loc_cid);
+        path_cids.cids.insert(path_cids.issued, local_cid);
         path_cids.issued += 1;
 
         if let Some(cid) = pref_addr_cid {
@@ -861,14 +861,14 @@ impl Endpoint {
 
         let id = self.connections.insert(ConnectionMeta {
             init_cid,
-            loc_cids: FxHashMap::from_iter([(PathId::ZERO, path_cids)]),
+            local_cids: FxHashMap::from_iter([(PathId::ZERO, path_cids)]),
             network_path,
             side,
             reset_token: Default::default(),
         });
         debug_assert_eq!(id, ch.0, "connection handle allocation out of sync");
 
-        self.index.insert_conn(network_path, loc_cid, ch, side);
+        self.index.insert_conn(network_path, local_cid, ch, side);
 
         conn
     }
@@ -1093,7 +1093,11 @@ impl ConnectionIndex {
         if conn.side.is_server() {
             self.remove_initial(conn.init_cid);
         }
-        for cid in conn.loc_cids.values().flat_map(|pcids| pcids.cids.values()) {
+        for cid in conn
+            .local_cids
+            .values()
+            .flat_map(|pcids| pcids.cids.values())
+        {
             self.connection_ids.remove(cid);
         }
         self.incoming_connection_remotes.remove(&conn.network_path);
@@ -1144,7 +1148,7 @@ impl ConnectionIndex {
 pub(crate) struct ConnectionMeta {
     init_cid: ConnectionId,
     /// Locally issues CIDs for each path
-    loc_cids: FxHashMap<PathId, PathLocalCids>,
+    local_cids: FxHashMap<PathId, PathLocalCids>,
     /// Remote/local addresses the connection began with
     ///
     /// Only needed to support connections with zero-length CIDs, which cannot migrate, so we don't

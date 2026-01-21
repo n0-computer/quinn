@@ -1702,9 +1702,9 @@ fn cid_rotation() {
     let mut stop = pair.time;
     let end = pair.time + 5 * CID_TIMEOUT;
 
-    use crate::{LOC_CID_COUNT, cid_queue::CidQueue};
+    use crate::{LOCAL_CID_COUNT, cid_queue::CidQueue};
     let mut active_cid_num = CidQueue::LEN as u64 + 1;
-    active_cid_num = active_cid_num.min(LOC_CID_COUNT);
+    active_cid_num = active_cid_num.min(LOCAL_CID_COUNT);
     let mut left_bound = 0;
     let mut right_bound = active_cid_num - 1;
 
@@ -1747,11 +1747,11 @@ fn cid_retirement() {
     // Any unexpected behavior may trigger TransportError::CONNECTION_ID_LIMIT_ERROR
     assert!(!pair.client_conn_mut(client_ch).is_closed());
     assert!(!pair.server_conn_mut(server_ch).is_closed());
-    assert_matches!(pair.client_conn_mut(client_ch).active_rem_cid_seq(), 1);
+    assert_matches!(pair.client_conn_mut(client_ch).active_remote_cid_seq(), 1);
 
-    use crate::{LOC_CID_COUNT, cid_queue::CidQueue};
+    use crate::{LOCAL_CID_COUNT, cid_queue::CidQueue};
     let mut active_cid_num = CidQueue::LEN as u64;
-    active_cid_num = active_cid_num.min(LOC_CID_COUNT);
+    active_cid_num = active_cid_num.min(LOCAL_CID_COUNT);
 
     let now = pair.time;
     let next_retire_prior_to = active_cid_num + 1;
@@ -1764,7 +1764,7 @@ fn cid_retirement() {
     assert!(!pair.server_conn_mut(server_ch).is_closed());
 
     assert_eq!(
-        pair.client_conn_mut(client_ch).active_rem_cid_seq(),
+        pair.client_conn_mut(client_ch).active_remote_cid_seq(),
         next_retire_prior_to,
     );
 }

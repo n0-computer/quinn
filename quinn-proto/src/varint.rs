@@ -150,6 +150,12 @@ impl proptest::arbitrary::Arbitrary for VarInt {
     }
 }
 
+/// Strategy for generating a u64 in the valid VarInt range (0..2^62)
+#[cfg(test)]
+pub(crate) fn varint_u64() -> impl proptest::strategy::Strategy<Value = u64> {
+    0..=VarInt::MAX.0
+}
+
 /// Error returned when constructing a `VarInt` from a value >= 2^62
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Error)]
 #[error("value too large for varint encoding")]
