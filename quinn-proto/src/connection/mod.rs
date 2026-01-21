@@ -908,7 +908,7 @@ impl Connection {
         // paths the caller should have already made sure we have CIDs and refused to open
         // it if there were none.
         if !self.remote_cids.contains_key(&path_id) {
-            debug!("Remote opened path without issuing CIDs");
+            debug!(%path_id, "Remote opened path without issuing CIDs");
             self.spaces[SpaceId::Data]
                 .pending
                 .path_cids_blocked
