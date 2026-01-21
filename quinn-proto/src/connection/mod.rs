@@ -838,7 +838,7 @@ impl Connection {
         // matheus23: Perhaps looking at !self.abandoned_paths.contains(path_id) is enough, given keep-alives?
     }
 
-    /// Creates the [`PathData`] for a new [`Path Id`].
+    /// Creates the [`PathData`] for a new [`PathId`].
     ///
     /// Called for incoming packets as well as when opening a new path locally.
     fn ensure_path(
@@ -901,7 +901,7 @@ impl Connection {
         // If the remote opened this path we may not have CIDs for it. For locally opened
         // paths the caller should have already made sure we have CIDs and refused to open
         // it if there were none.
-        if self.rem_cids.contains_key(&path_id) {
+        if !self.rem_cids.contains_key(&path_id) {
             debug!("Remote opened path without issuing CIDs");
             self.spaces[SpaceId::Data]
                 .pending
