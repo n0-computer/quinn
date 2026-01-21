@@ -226,3 +226,28 @@ impl ArrayRangeSet {
         self.iter().next_back().map(|x| x.end - 1)
     }
 }
+
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for ArrayRangeSet {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+        // Generate 1-8 ranges. Each range is defined by a gap from the previous and a size.
+        // We use small values to keep encoding reasonable.
+        prop::collection::vec((1u64..100, 1u64..50), 0..8)
+            .prop_map(|gaps_and_sizes| {
+                let mut ranges = Self::new();
+                let mut pos = 0u64;
+                for (gap, size) in gaps_and_sizes {
+                    let start = pos + gap;
+                    let end = start + size;
+                    ranges.insert(start..end);
+                    pos = end;
+                }
+                ranges
+            })
+            .boxed()
+    }
+}

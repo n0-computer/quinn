@@ -17,7 +17,7 @@ use rand::{Rng as _, RngCore, seq::SliceRandom as _};
 use thiserror::Error;
 
 use crate::{
-    LOC_CID_COUNT, MAX_CID_SIZE, MAX_STREAM_COUNT, RESET_TOKEN_SIZE, ResetToken, Side,
+    LOCAL_CID_COUNT, MAX_CID_SIZE, MAX_STREAM_COUNT, RESET_TOKEN_SIZE, ResetToken, Side,
     TIMER_GRANULARITY, TransportError, VarInt, address_discovery,
     cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
@@ -227,9 +227,9 @@ impl TransportParameters {
     /// Maximum number of CIDs to issue to this peer
     ///
     /// Consider both a) the active_connection_id_limit from the other end; and
-    /// b) LOC_CID_COUNT used locally
+    /// b) LOCAL_CID_COUNT used locally
     pub(crate) fn issue_cids_limit(&self) -> u64 {
-        self.active_connection_id_limit.0.min(LOC_CID_COUNT)
+        self.active_connection_id_limit.0.min(LOCAL_CID_COUNT)
     }
 }
 
