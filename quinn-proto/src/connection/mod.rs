@@ -229,7 +229,7 @@ pub struct Connection {
     // Queued non-retransmittable 1-RTT data
     //
     /// If the CONNECTION_CLOSE frame needs to be sent
-    close: bool,
+    connection_close_pending: bool,
 
     //
     // ACK frequency
@@ -426,7 +426,7 @@ impl Connection {
             },
             timers: TimerTable::default(),
             authentication_failures: 0,
-            close: false,
+            connection_close_pending: false,
 
             ack_frequency: AckFrequencyState::new(get_max_ack_delay(
                 &TransportParameters::default(),
@@ -987,7 +987,7 @@ impl Connection {
             StateType::Draining | StateType::Closed => {
                 // self.close is only reset once the associated packet had been
                 // encoded successfully
-                if !self.close {
+                if !self.connection_close_pending {
                     self.app_limited = true;
                     return None;
                 }
@@ -996,7 +996,7 @@ impl Connection {
             _ => false,
         };
 
-        // Check whether we need to send an ACK_FREQUENCY frame
+        // Schedule an ACK_FREQUENCY frame if a new one needs to be sent.
         if let Some(config) = &self.config.ack_frequency_config {
             let rtt = self
                 .paths
@@ -1036,15 +1036,8 @@ impl Connection {
                 && self.remote_cids.contains_key(id)
         });
 
-        if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
-            return Some(challenge);
-        }
-
-        // Send an off-path PATH_RESPONSE. Prioritized over on-path data to ensure that
-        // path validation can occur while the link is saturated.
-        // TODO(@divma): I have no idea what this comment is supposed to mean
-        if let Some(response) = self.send_off_path_path_response(now, buf, path_id) {
-            return Some(response);
+        if let Some(transmit) = self.poll_transmit_off_path(now, buf, path_id) {
+            return Some(transmit);
         }
 
         let mut space_id = match path_id {
@@ -1246,7 +1239,7 @@ impl Connection {
                 can_send.other,
                 self,
             )?;
-            last_packet_number = Some(builder.exact_number);
+            last_packet_number = Some(builder.packet_number);
             coalesce = coalesce && builder.can_coalesce;
 
             if space_id == SpaceId::Initial && (self.side.is_client() || can_send.other) {
@@ -1314,7 +1307,7 @@ impl Connection {
                 if space_id == self.highest_space {
                     // Don't send another close packet. Even with multipath we only send
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
-                    self.close = false;
+                    self.connection_close_pending = false;
                     // `CONNECTION_CLOSE` is the final packet
                     break;
                 } else {
@@ -1409,8 +1402,11 @@ impl Connection {
                 } else {
                     builder.finish_and_track(now, self, path_id, pad_datagram);
                 }
+
+                // If this is the first datagram we set the segment size to the size of the
+                // first datagram.
                 if transmit.num_datagrams() == 1 {
-                    transmit.clip_datagram_size();
+                    transmit.clip_segment_size();
                 }
             }
         }
@@ -1508,6 +1504,15 @@ impl Connection {
             return None;
         }
 
+        Some(self.build_transmit(path_id, transmit))
+    }
+
+    fn build_transmit(&mut self, path_id: PathId, transmit: TransmitBuf<'_>) -> Transmit {
+        debug_assert!(
+            !transmit.is_empty(),
+            "must not be called with an empty transmit buffer"
+        );
+
         let network_path = self.path_data(path_id).network_path;
         trace!(
             segment_size = transmit.segment_size(),
@@ -1529,7 +1534,7 @@ impl Connection {
             .udp_tx
             .on_sent(transmit.num_datagrams() as u64, transmit.len());
 
-        Some(Transmit {
+        Transmit {
             destination: network_path.remote,
             size: transmit.len(),
             ecn: if self.path_data(path_id).sending_ecn {
@@ -1542,7 +1547,23 @@ impl Connection {
                 _ => Some(transmit.segment_size()),
             },
             src_ip: network_path.local_ip,
-        })
+        }
+    }
+
+    /// poll_transmit logic for off-path data.
+    fn poll_transmit_off_path(
+        &mut self,
+        now: Instant,
+        buf: &mut Vec<u8>,
+        path_id: PathId,
+    ) -> Option<Transmit> {
+        if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
+            return Some(challenge);
+        }
+        if let Some(response) = self.send_off_path_path_response(now, buf, path_id) {
+            return Some(response);
+        }
+        None
     }
 
     /// Returns the [`SpaceId`] of the next packet space which has data to send
@@ -1741,13 +1762,14 @@ impl Connection {
     /// Indicate what types of frames are ready to send for the given space
     ///
     /// *packet_size* is the number of bytes available to build the next packet.
-    /// *close* indicates whether a CONNECTION_CLOSE frame needs to be sent.
+    /// *connection_close_pending* indicates whether a CONNECTION_CLOSE frame needs to be
+    /// sent.
     fn space_can_send(
         &mut self,
         space_id: SpaceId,
         path_id: PathId,
         packet_size: usize,
-        close: bool,
+        connection_close_pending: bool,
     ) -> SendableFrames {
         let space = &mut self.spaces[space_id];
         let space_has_crypto = space.crypto.is_some();
@@ -1771,7 +1793,7 @@ impl Connection {
             can_send |= self.can_send_1rtt(path_id, frame_space_1rtt);
         }
 
-        can_send.close = close && space_has_crypto;
+        can_send.close = connection_close_pending && space_has_crypto;
 
         can_send
     }
@@ -2107,7 +2129,7 @@ impl Connection {
         if !was_closed {
             self.close_common();
             self.set_close_timer(now);
-            self.close = true;
+            self.connection_close_pending = true;
             self.state.move_to_closed_local(reason);
         }
     }
@@ -3168,7 +3190,7 @@ impl Connection {
                     ));
                 self.close_common();
                 self.set_close_timer(now);
-                self.close = true;
+                self.connection_close_pending = true;
             }
             return;
         }
@@ -3815,7 +3837,7 @@ impl Connection {
                 .get(&path_id)
                 .map(|p| p.data.network_path)
                 .unwrap_or(network_path);
-            self.close = network_path == path_remote;
+            self.connection_close_pending = network_path == path_remote;
         }
     }
 
@@ -4889,7 +4911,7 @@ impl Connection {
 
         if let Some(reason) = close {
             self.state.move_to_draining(Some(reason.into()));
-            self.close = true;
+            self.connection_close_pending = true;
         }
 
         if Some(number) == self.spaces[SpaceId::Data].for_path(path_id).rx_packet
@@ -5085,7 +5107,7 @@ impl Connection {
         path_exclusive_only: bool,
         builder: &mut PacketBuilder<'a, 'b>,
     ) {
-        let pn = builder.exact_number;
+        let pn = builder.packet_number;
         let is_multipath_negotiated = self.is_multipath_negotiated();
         let stats = &mut self.stats.frame_tx;
         let space = &mut self.spaces[space_id];
