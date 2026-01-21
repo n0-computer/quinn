@@ -698,6 +698,11 @@ impl Connection {
 
         self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
 
+        // Clear all timers.
+        // We still need some timers after we close a path, e.g. the `DiscardPath` timer,
+        // but that timer is going to be set once we the `PATH_ABANDON` frame is sent.
+        self.timers.stop_per_path(path_id, self.qlog.with_time(now));
+
         Ok(())
     }
 
