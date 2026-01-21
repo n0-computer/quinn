@@ -29,9 +29,9 @@ const MAX_PATHS: u32 = 3;
 )]
 fn multipath_pair() -> (Pair, ConnectionHandle, ConnectionHandle) {
     let mut cfg = TransportConfig::default();
-    cfg.max_concurrent_multipath_paths = NonZeroU32::new(MAX_PATHS);
+    cfg.max_concurrent_multipath_paths(MAX_PATHS);
     // Assume a low-latency connection so pacing doesn't interfere with the test
-    cfg.initial_rtt = Duration::from_millis(10);
+    cfg.initial_rtt(Duration::from_millis(10));
     #[cfg(feature = "qlog")]
     cfg.qlog_from_env("multipath_test");
 
