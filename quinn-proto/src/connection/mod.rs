@@ -1056,9 +1056,7 @@ impl Connection {
         loop {
             // check if there is at least one active CID to use for sending
             let Some(remote_cid) = self.rem_cids.get(&path_id).map(CidQueue::active) else {
-                if self.abandoned_paths.contains(&path_id) {
-                    trace!(%path_id, "remote CIDs retired for abandoned path");
-                } else {
+                if !self.abandoned_paths.contains(&path_id) {
                     debug!(%path_id, "no remote CIDs for path");
                 }
 
