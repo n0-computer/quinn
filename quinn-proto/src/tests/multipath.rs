@@ -23,10 +23,6 @@ use super::{Pair, client_config, server_config};
 const MAX_PATHS: u32 = 3;
 
 /// Returns a connected client-server pair with multipath enabled
-#[allow(
-    clippy::field_reassign_with_default,
-    reason = "consistency with cfg-gated assignments below"
-)]
 fn multipath_pair() -> (Pair, ConnectionHandle, ConnectionHandle) {
     let mut cfg = TransportConfig::default();
     cfg.max_concurrent_multipath_paths(MAX_PATHS);
