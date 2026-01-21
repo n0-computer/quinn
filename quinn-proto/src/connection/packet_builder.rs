@@ -287,7 +287,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         match pad_datagram {
             PadDatagram::No => (),
             PadDatagram::ToSize(size) => self.pad_to(size),
-            PadDatagram::ToSegmentSize => self.pad_to(self.buf.segment_size() as u16),
+            PadDatagram::ToMaxSize => self.pad_to(self.buf.max_datagram_size() as u16),
             PadDatagram::ToMinMtu => self.pad_to(MIN_INITIAL_SIZE),
         }
         let ack_eliciting = self.ack_eliciting;
@@ -414,11 +414,11 @@ pub(super) enum PadDatagram {
     No,
     /// To a specific size
     ToSize(u16),
-    /// Pad to the current MTU/segment size
+    /// Pad to the maximum allowed size for this datagram.
     ///
-    /// For the first datagram in a transmit the MTU is the same as the
-    /// [`TransmitBuf::segment_size`].
-    ToSegmentSize,
+    /// Usually this will be the path MTU as initialised by
+    /// [`TransmitBuf::start_first_datagram`].
+    ToMaxSize,
     /// Pad to [`MIN_INITIAL_SIZE`], the minimal QUIC MTU of 1200 bytes
     ToMinMtu,
 }
@@ -437,12 +437,12 @@ impl std::ops::BitOr for PadDatagram {
             (Self::No, rhs) => rhs,
             (Self::ToSize(size), Self::No) => Self::ToSize(size),
             (Self::ToSize(a), Self::ToSize(b)) => Self::ToSize(a.max(b)),
-            (Self::ToSize(_), Self::ToSegmentSize) => Self::ToSegmentSize,
+            (Self::ToSize(_), Self::ToMaxSize) => Self::ToMaxSize,
             (Self::ToSize(_), Self::ToMinMtu) => Self::ToMinMtu,
-            (Self::ToSegmentSize, Self::No) => Self::ToSegmentSize,
-            (Self::ToSegmentSize, Self::ToSize(_)) => Self::ToSegmentSize,
-            (Self::ToSegmentSize, Self::ToSegmentSize) => Self::ToSegmentSize,
-            (Self::ToSegmentSize, Self::ToMinMtu) => Self::ToMinMtu,
+            (Self::ToMaxSize, Self::No) => Self::ToMaxSize,
+            (Self::ToMaxSize, Self::ToSize(_)) => Self::ToMaxSize,
+            (Self::ToMaxSize, Self::ToMaxSize) => Self::ToMaxSize,
+            (Self::ToMaxSize, Self::ToMinMtu) => Self::ToMinMtu,
             (Self::ToMinMtu, _) => Self::ToMinMtu,
         }
     }
