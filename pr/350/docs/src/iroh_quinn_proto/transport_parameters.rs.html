@@ -17,7 +17,7 @@
 <a href=#17 id=17 data-nosnippet>17</a><span class="kw">use </span>thiserror::Error;
 <a href=#18 id=18 data-nosnippet>18</a>
 <a href=#19 id=19 data-nosnippet>19</a><span class="kw">use crate</span>::{
-<a href=#20 id=20 data-nosnippet>20</a>    LOC_CID_COUNT, MAX_CID_SIZE, MAX_STREAM_COUNT, RESET_TOKEN_SIZE, ResetToken, Side,
+<a href=#20 id=20 data-nosnippet>20</a>    LOCAL_CID_COUNT, MAX_CID_SIZE, MAX_STREAM_COUNT, RESET_TOKEN_SIZE, ResetToken, Side,
 <a href=#21 id=21 data-nosnippet>21</a>    TIMER_GRANULARITY, TransportError, VarInt, address_discovery,
 <a href=#22 id=22 data-nosnippet>22</a>    cid_generator::ConnectionIdGenerator,
 <a href=#23 id=23 data-nosnippet>23</a>    cid_queue::CidQueue,
@@ -227,9 +227,9 @@
 <a href=#227 id=227 data-nosnippet>227</a>    <span class="doccomment">/// Maximum number of CIDs to issue to this peer
 <a href=#228 id=228 data-nosnippet>228</a>    ///
 <a href=#229 id=229 data-nosnippet>229</a>    /// Consider both a) the active_connection_id_limit from the other end; and
-<a href=#230 id=230 data-nosnippet>230</a>    /// b) LOC_CID_COUNT used locally
+<a href=#230 id=230 data-nosnippet>230</a>    /// b) LOCAL_CID_COUNT used locally
 <a href=#231 id=231 data-nosnippet>231</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>issue_cids_limit(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; u64 {
-<a href=#232 id=232 data-nosnippet>232</a>        <span class="self">self</span>.active_connection_id_limit.<span class="number">0</span>.min(LOC_CID_COUNT)
+<a href=#232 id=232 data-nosnippet>232</a>        <span class="self">self</span>.active_connection_id_limit.<span class="number">0</span>.min(LOCAL_CID_COUNT)
 <a href=#233 id=233 data-nosnippet>233</a>    }
 <a href=#234 id=234 data-nosnippet>234</a>}
 <a href=#235 id=235 data-nosnippet>235</a>

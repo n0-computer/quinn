@@ -25,7 +25,7 @@
 <a href=#25 id=25 data-nosnippet>25</a>    path: PathId,
 <a href=#26 id=26 data-nosnippet>26</a>    <span class="kw">pub</span>(<span class="kw">super</span>) partial_encode: PartialEncode,
 <a href=#27 id=27 data-nosnippet>27</a>    <span class="kw">pub</span>(<span class="kw">super</span>) ack_eliciting: bool,
-<a href=#28 id=28 data-nosnippet>28</a>    <span class="kw">pub</span>(<span class="kw">super</span>) exact_number: u64,
+<a href=#28 id=28 data-nosnippet>28</a>    <span class="kw">pub</span>(<span class="kw">super</span>) packet_number: u64,
 <a href=#29 id=29 data-nosnippet>29</a>    <span class="doccomment">/// Is this packet allowed to be coalesced?
 <a href=#30 id=30 data-nosnippet>30</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) can_coalesce: bool,
 <a href=#31 id=31 data-nosnippet>31</a>    <span class="doccomment">/// Smallest absolute position in the associated buffer that must be occupied by this packet's
@@ -93,11 +93,11 @@
 <a href=#93 id=93 data-nosnippet>93</a>        }
 <a href=#94 id=94 data-nosnippet>94</a>
 <a href=#95 id=95 data-nosnippet>95</a>        <span class="kw">let </span>space = <span class="kw-2">&amp;mut </span>conn.spaces[space_id];
-<a href=#96 id=96 data-nosnippet>96</a>        <span class="kw">let </span>exact_number = space.for_path(path_id).get_tx_number(<span class="kw-2">&amp;mut </span>conn.rng);
-<a href=#97 id=97 data-nosnippet>97</a>        <span class="kw">let </span>span = <span class="macro">trace_span!</span>(<span class="string">"send"</span>, space = <span class="question-mark">?</span>space_id, pn = exact_number, %path_id).entered();
+<a href=#96 id=96 data-nosnippet>96</a>        <span class="kw">let </span>packet_number = space.for_path(path_id).get_tx_number(<span class="kw-2">&amp;mut </span>conn.rng);
+<a href=#97 id=97 data-nosnippet>97</a>        <span class="kw">let </span>span = <span class="macro">trace_span!</span>(<span class="string">"send"</span>, space = <span class="question-mark">?</span>space_id, pn = packet_number, %path_id).entered();
 <a href=#98 id=98 data-nosnippet>98</a>
 <a href=#99 id=99 data-nosnippet>99</a>        <span class="kw">let </span>number = PacketNumber::new(
-<a href=#100 id=100 data-nosnippet>100</a>            exact_number,
+<a href=#100 id=100 data-nosnippet>100</a>            packet_number,
 <a href=#101 id=101 data-nosnippet>101</a>            space.for_path(path_id).largest_acked_packet.unwrap_or(<span class="number">0</span>),
 <a href=#102 id=102 data-nosnippet>102</a>        );
 <a href=#103 id=103 data-nosnippet>103</a>        <span class="kw">let </span>header = <span class="kw">match </span>space_id {
@@ -171,7 +171,7 @@
 <a href=#171 id=171 data-nosnippet>171</a>
 <a href=#172 id=172 data-nosnippet>172</a>        qlog.header(
 <a href=#173 id=173 data-nosnippet>173</a>            <span class="kw-2">&amp;</span>header,
-<a href=#174 id=174 data-nosnippet>174</a>            <span class="prelude-val">Some</span>(exact_number),
+<a href=#174 id=174 data-nosnippet>174</a>            <span class="prelude-val">Some</span>(packet_number),
 <a href=#175 id=175 data-nosnippet>175</a>            space_id,
 <a href=#176 id=176 data-nosnippet>176</a>            space_id == SpaceId::Data &amp;&amp; conn.spaces[SpaceId::Data].crypto.is_none(),
 <a href=#177 id=177 data-nosnippet>177</a>            path_id,
@@ -182,7 +182,7 @@
 <a href=#182 id=182 data-nosnippet>182</a>            space: space_id,
 <a href=#183 id=183 data-nosnippet>183</a>            path: path_id,
 <a href=#184 id=184 data-nosnippet>184</a>            partial_encode,
-<a href=#185 id=185 data-nosnippet>185</a>            exact_number,
+<a href=#185 id=185 data-nosnippet>185</a>            packet_number,
 <a href=#186 id=186 data-nosnippet>186</a>            can_coalesce: header.can_coalesce(),
 <a href=#187 id=187 data-nosnippet>187</a>            min_size,
 <a href=#188 id=188 data-nosnippet>188</a>            tag_len,
@@ -201,7 +201,7 @@
 <a href=#201 id=201 data-nosnippet>201</a>            path: PathId::ZERO,
 <a href=#202 id=202 data-nosnippet>202</a>            partial_encode: PartialEncode::no_header(),
 <a href=#203 id=203 data-nosnippet>203</a>            ack_eliciting: <span class="bool-val">true</span>,
-<a href=#204 id=204 data-nosnippet>204</a>            exact_number: <span class="number">0</span>,
+<a href=#204 id=204 data-nosnippet>204</a>            packet_number: <span class="number">0</span>,
 <a href=#205 id=205 data-nosnippet>205</a>            can_coalesce: <span class="bool-val">true</span>,
 <a href=#206 id=206 data-nosnippet>206</a>            min_size: <span class="number">0</span>,
 <a href=#207 id=207 data-nosnippet>207</a>            tag_len: <span class="number">0</span>,
@@ -291,7 +291,7 @@
 <a href=#291 id=291 data-nosnippet>291</a>            PadDatagram::ToMinMtu =&gt; <span class="self">self</span>.pad_to(MIN_INITIAL_SIZE),
 <a href=#292 id=292 data-nosnippet>292</a>        }
 <a href=#293 id=293 data-nosnippet>293</a>        <span class="kw">let </span>ack_eliciting = <span class="self">self</span>.ack_eliciting;
-<a href=#294 id=294 data-nosnippet>294</a>        <span class="kw">let </span>exact_number = <span class="self">self</span>.exact_number;
+<a href=#294 id=294 data-nosnippet>294</a>        <span class="kw">let </span>packet_number = <span class="self">self</span>.packet_number;
 <a href=#295 id=295 data-nosnippet>295</a>        <span class="kw">let </span>space_id = <span class="self">self</span>.space;
 <a href=#296 id=296 data-nosnippet>296</a>        <span class="kw">let </span>(size, padded, sent) = <span class="self">self</span>.finish(conn, now);
 <a href=#297 id=297 data-nosnippet>297</a>
@@ -311,7 +311,7 @@
 <a href=#311 id=311 data-nosnippet>311</a>        };
 <a href=#312 id=312 data-nosnippet>312</a>
 <a href=#313 id=313 data-nosnippet>313</a>        conn.paths.get_mut(<span class="kw-2">&amp;</span>path_id).unwrap().data.sent(
-<a href=#314 id=314 data-nosnippet>314</a>            exact_number,
+<a href=#314 id=314 data-nosnippet>314</a>            packet_number,
 <a href=#315 id=315 data-nosnippet>315</a>            packet,
 <a href=#316 id=316 data-nosnippet>316</a>            conn.spaces[space_id].for_path(path_id),
 <a href=#317 id=317 data-nosnippet>317</a>        );
@@ -372,7 +372,7 @@
 <a href=#372 id=372 data-nosnippet>372</a>        </span><span class="self">self</span>.partial_encode.finish(
 <a href=#373 id=373 data-nosnippet>373</a>            packet_buf,
 <a href=#374 id=374 data-nosnippet>374</a>            header_crypto,
-<a href=#375 id=375 data-nosnippet>375</a>            <span class="prelude-val">Some</span>((<span class="self">self</span>.exact_number, <span class="self">self</span>.path, packet_crypto)),
+<a href=#375 id=375 data-nosnippet>375</a>            <span class="prelude-val">Some</span>((<span class="self">self</span>.packet_number, <span class="self">self</span>.path, packet_crypto)),
 <a href=#376 id=376 data-nosnippet>376</a>        );
 <a href=#377 id=377 data-nosnippet>377</a>
 <a href=#378 id=378 data-nosnippet>378</a>        <span class="kw">let </span>packet_len = <span class="self">self</span>.buf.len() - encode_start;
