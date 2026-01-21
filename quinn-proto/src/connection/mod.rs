@@ -1338,14 +1338,13 @@ impl Connection {
                 transmit.datagram_remaining_mut()
             } else {
                 // A new datagram needs to be started. The first datagram is sized to the
-                // MTU. All other datagrams can be maximum the size of the previous
+                // MTU. All other datagrams can be at most the size of the previous
                 // datagram.
                 match transmit.num_datagrams {
                     0 => self.path_data(path_id).current_mtu().into(),
                     _ => transmit.max_datagram_size(),
                 }
             };
-            tracing::warn!(max_packet_size, "XXXXXXXXXXXXXX");
             let can_send =
                 self.space_can_send(space_id, path_id, max_packet_size, connection_close_pending);
 
@@ -1677,8 +1676,8 @@ impl Connection {
                     builder.finish_and_track(now, self, path_id, pad_datagram);
                 }
 
-                // If this is the first datagram we set the segment size to the size of the
-                // first datagram.
+                // If this is the first datagram we set its maximum size to this finished
+                // packet.
                 if transmit.num_datagrams() == 1 {
                     transmit.end_first_datagram();
                 }
