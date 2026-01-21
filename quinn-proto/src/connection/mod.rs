@@ -844,6 +844,9 @@ impl Connection {
         // matheus23: Perhaps looking at !self.abandoned_paths.contains(path_id) is enough, given keep-alives?
     }
 
+    /// Creates the [`PathData`] for a new [`PathId`].
+    ///
+    /// Called for incoming packets as well as when opening a new path locally.
     fn ensure_path(
         &mut self,
         path_id: PathId,
@@ -886,8 +889,8 @@ impl Connection {
             self.qlog.with_time(now),
         );
 
-        // for the path to be opened we need to send a packet on the path. Sending a challenge
-        // guarantees this
+        // To open a path locally we need to send a packet on the path. Sending a challenge
+        // guarantees this.
         data.send_new_challenge = true;
 
         let path = vacant_entry.insert(PathState { data, prev: None });
@@ -900,6 +903,20 @@ impl Connection {
             .number_spaces
             .insert(path_id, pn_space);
         self.qlog.emit_tuple_assigned(path_id, network_path, now);
+
+        // If the remote opened this path we may not have CIDs for it. For locally opened
+        // paths the caller should have already made sure we have CIDs and refused to open
+        // it if there were none.
+        if !self.remote_cids.contains_key(&path_id) {
+            debug!("Remote opened path without issuing CIDs");
+            self.spaces[SpaceId::Data]
+                .pending
+                .path_cids_blocked
+                .insert(path_id);
+            // Do not abandon this path right away. CIDs might be in-flight still and arrive
+            // soon. It is up to the remote to handle this situation.
+        }
+
         &mut path.data
     }
 
@@ -1045,28 +1062,8 @@ impl Connection {
         loop {
             // check if there is at least one active CID to use for sending
             let Some(remote_cid) = self.remote_cids.get(&path_id).map(CidQueue::active) else {
-                let err = PathError::RemoteCidsExhausted;
                 if !self.abandoned_paths.contains(&path_id) {
-                    debug!(?err, %path_id, "no active CID for path");
-                    self.events.push_back(Event::Path(PathEvent::LocallyClosed {
-                        id: path_id,
-                        error: err,
-                    }));
-                    // Locally we should have refused to open this path, the remote should
-                    // have given us CIDs for this path before opening it.  So we can always
-                    // abandon this here.
-                    self.close_path(
-                        now,
-                        path_id,
-                        TransportErrorCode::NO_CID_AVAILABLE_FOR_PATH.into(),
-                    )
-                    .ok();
-                    self.spaces[SpaceId::Data]
-                        .pending
-                        .path_cids_blocked
-                        .insert(path_id);
-                } else {
-                    trace!(%path_id, "remote CIDs retired for abandoned path");
+                    debug!(%path_id, "no remote CIDs for path");
                 }
 
                 let Some(next_path_id) = self.paths.keys().find(|&&next| next > path_id) else {
@@ -1806,8 +1803,9 @@ impl Connection {
                 let was_anti_amplification_blocked = self
                     .path(path_id)
                     .map(|path| path.anti_amplification_blocked(1))
-                    .unwrap_or(true); // if we don't know about this path it's eagerly considered as unvalidated
-                // TODO(@divma): revisit this
+                    // We never tried to send on an non-existing (new) path so have not been
+                    // anti-amplification blocked for it previously.
+                    .unwrap_or(false);
 
                 self.stats.udp_rx.datagrams += 1;
                 self.stats.udp_rx.bytes += first_decode.len() as u64;
