@@ -144,8 +144,8 @@
 <a href=#144 id=144 data-nosnippet>144</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>emit_connection_started(
 <a href=#145 id=145 data-nosnippet>145</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
 <a href=#146 id=146 data-nosnippet>146</a>        now: Instant,
-<a href=#147 id=147 data-nosnippet>147</a>        loc_cid: ConnectionId,
-<a href=#148 id=148 data-nosnippet>148</a>        rem_cid: ConnectionId,
+<a href=#147 id=147 data-nosnippet>147</a>        local_cid: ConnectionId,
+<a href=#148 id=148 data-nosnippet>148</a>        remote_cid: ConnectionId,
 <a href=#149 id=149 data-nosnippet>149</a>        remote: SocketAddr,
 <a href=#150 id=150 data-nosnippet>150</a>        local_ip: <span class="prelude-ty">Option</span>&lt;IpAddr&gt;,
 <a href=#151 id=151 data-nosnippet>151</a>        transport_params: <span class="kw-2">&amp;</span>TransportParameters,
@@ -157,11 +157,11 @@
 <a href=#157 id=157 data-nosnippet>157</a>            };
 <a href=#158 id=158 data-nosnippet>158</a>            stream.emit_event(
 <a href=#159 id=159 data-nosnippet>159</a>                EventData::ConnectionStarted(ConnectionStarted {
-<a href=#160 id=160 data-nosnippet>160</a>                    local: tuple_endpoint_info(local_ip, <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(loc_cid)),
+<a href=#160 id=160 data-nosnippet>160</a>                    local: tuple_endpoint_info(local_ip, <span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(local_cid)),
 <a href=#161 id=161 data-nosnippet>161</a>                    remote: tuple_endpoint_info(
 <a href=#162 id=162 data-nosnippet>162</a>                        <span class="prelude-val">Some</span>(remote.ip()),
 <a href=#163 id=163 data-nosnippet>163</a>                        <span class="prelude-val">Some</span>(remote.port()),
-<a href=#164 id=164 data-nosnippet>164</a>                        <span class="prelude-val">Some</span>(rem_cid),
+<a href=#164 id=164 data-nosnippet>164</a>                        <span class="prelude-val">Some</span>(remote_cid),
 <a href=#165 id=165 data-nosnippet>165</a>                    ),
 <a href=#166 id=166 data-nosnippet>166</a>                }),
 <a href=#167 id=167 data-nosnippet>167</a>                now,
