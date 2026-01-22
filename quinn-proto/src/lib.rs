@@ -247,7 +247,7 @@ impl fmt::Display for Dir {
 /// Identifier for a stream within a particular connection
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(test, derive(Arbitrary))]
-pub struct StreamId(#[cfg_attr(test, strategy(0u64..(1u64 << 62)))] u64);
+pub struct StreamId(#[cfg_attr(test, strategy(crate::varint::varint_u64()))] u64);
 
 impl fmt::Display for StreamId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -351,7 +351,7 @@ pub struct Transmit {
 //
 
 /// The maximum number of CIDs we bother to issue per path
-const LOC_CID_COUNT: u64 = 12;
+const LOCAL_CID_COUNT: u64 = 12;
 const RESET_TOKEN_SIZE: usize = 16;
 const MAX_CID_SIZE: usize = 20;
 const MIN_INITIAL_SIZE: u16 = 1200;

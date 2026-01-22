@@ -12,7 +12,7 @@ use crate::tests::RoutingTable;
 use crate::tests::util::{CLIENT_PORTS, SERVER_PORTS};
 use crate::{
     ClientConfig, ClosePathError, ConnectionHandle, ConnectionId, ConnectionIdGenerator, Endpoint,
-    EndpointConfig, FourTuple, LOC_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator,
+    EndpointConfig, FourTuple, LOCAL_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator,
     ServerConfig, TransportConfig, cid_queue::CidQueue,
 };
 use crate::{Event, PathError, PathEvent};
@@ -24,14 +24,16 @@ const MAX_PATHS: u32 = 3;
 
 /// Returns a connected client-server pair with multipath enabled
 fn multipath_pair() -> (Pair, ConnectionHandle, ConnectionHandle) {
-    let multipath_transport_cfg = Arc::new(TransportConfig {
-        max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
-        // Assume a low-latency connection so pacing doesn't interfere with the test
-        initial_rtt: Duration::from_millis(10),
-        ..TransportConfig::default()
-    });
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(MAX_PATHS);
+    // Assume a low-latency connection so pacing doesn't interfere with the test
+    cfg.initial_rtt(Duration::from_millis(10));
+    #[cfg(feature = "qlog")]
+    cfg.qlog_from_env("multipath_test");
+
+    let multipath_transport_config = Arc::new(cfg);
     let server_cfg = Arc::new(ServerConfig {
-        transport: multipath_transport_cfg.clone(),
+        transport: multipath_transport_config.clone(),
         ..server_config()
     });
     let server = Endpoint::new(Default::default(), Some(server_cfg), true);
@@ -39,7 +41,7 @@ fn multipath_pair() -> (Pair, ConnectionHandle, ConnectionHandle) {
 
     let mut pair = Pair::new_from_endpoint(client, server);
     let client_cfg = ClientConfig {
-        transport: multipath_transport_cfg,
+        transport: multipath_transport_config,
         ..client_config()
     };
     let (client_ch, server_ch) = pair.connect_with(client_cfg);
@@ -238,7 +240,7 @@ fn multipath_cid_rotation() {
     let end = pair.time + 5 * CID_TIMEOUT;
 
     let mut active_cid_num = CidQueue::LEN as u64 + 1;
-    active_cid_num = active_cid_num.min(LOC_CID_COUNT);
+    active_cid_num = active_cid_num.min(LOCAL_CID_COUNT);
     let mut left_bound = 0;
     let mut right_bound = active_cid_num - 1;
 
@@ -566,8 +568,16 @@ fn open_path_validation_fails_client_side() {
         .open_path(network_path, PathStatus::Available, now)
         .unwrap();
 
-    // block the client from receiving anything
-    while pair.blackhole_step(false, true) {}
+    // Make sure the client's path open makes it through to the server and is processed.
+    pair.drive_client();
+    pair.drive_server();
+    pair.client.inbound.clear();
+
+    // Sever the connection and run it to idle.
+    // This makes sure that
+    // - path validation can't succeed because path responses don't make it through and
+    // - the server needs to decide to close the path on its own, because path abandons don't make it through.
+    while pair.blackhole_step(true, true) {}
 
     let server_conn = pair.server_conn_mut(client_ch);
     assert_matches!(server_conn.poll().unwrap(),
