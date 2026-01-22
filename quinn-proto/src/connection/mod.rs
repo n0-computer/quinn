@@ -1091,8 +1091,8 @@ impl Connection {
         let mut congestion_blocked = false;
 
         for &path_id in &path_ids {
-            if let Some(transmit) =
-                self.poll_transmit_off_path(now, buf, path_id, connection_close_pending)
+            if let Some(transmit) = self.poll_transmit_off_path(now, buf, path_id)
+                && !connection_close_pending
             {
                 return Some(transmit);
             }
@@ -1192,21 +1192,11 @@ impl Connection {
         now: Instant,
         buf: &mut Vec<u8>,
         path_id: PathId,
-        connection_close_pending: bool,
     ) -> Option<Transmit> {
-        // If CONNECTION_CLOSE in pending do still want to send PATH_CHALLENGEs to the
-        // previous path, in case some on-path attacker forged a migration. This will elicit
-        // a response and still allows us to send a CONNECTION_CLOSE to the remote the peer
-        // is actually on later.
         if let Some(challenge) = self.send_prev_path_challenge(now, buf, path_id) {
             return Some(challenge);
         }
-        // Off-path PATH_RESPONSES however are associated with real migration attempts, or
-        // just path probing. Neither of which we still want to continue if a
-        // CONNECTION_CLOSE in pending.
-        if let Some(response) = self.send_off_path_path_response(now, buf, path_id)
-            && !connection_close_pending
-        {
+        if let Some(response) = self.send_off_path_path_response(now, buf, path_id) {
             return Some(response);
         }
         None
