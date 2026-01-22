@@ -132,7 +132,7 @@
 <a href=#132 id=132 data-nosnippet>132</a>        <span class="self">self</span>.num_datagrams += <span class="number">1</span>;
 <a href=#133 id=133 data-nosnippet>133</a>    }
 <a href=#134 id=134 data-nosnippet>134</a>
-<a href=#135 id=135 data-nosnippet>135</a>    <span class="doccomment">/// Clips the datagram size to the current size
+<a href=#135 id=135 data-nosnippet>135</a>    <span class="doccomment">/// Clips the segment size to the current size
 <a href=#136 id=136 data-nosnippet>136</a>    ///
 <a href=#137 id=137 data-nosnippet>137</a>    /// Only valid for the first datagram, when the datagram might be smaller than the
 <a href=#138 id=138 data-nosnippet>138</a>    /// segment size. Needed before estimating the available space in the next datagram
@@ -140,7 +140,7 @@
 <a href=#140 id=140 data-nosnippet>140</a>    ///
 <a href=#141 id=141 data-nosnippet>141</a>    /// Use [`TransmitBuf::start_new_datagram_with_size`] if you need to reduce the size of
 <a href=#142 id=142 data-nosnippet>142</a>    /// the last datagram in a batch.
-<a href=#143 id=143 data-nosnippet>143</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>clip_datagram_size(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
+<a href=#143 id=143 data-nosnippet>143</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>clip_segment_size(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
 <a href=#144 id=144 data-nosnippet>144</a>        <span class="macro">debug_assert_eq!</span>(<span class="self">self</span>.num_datagrams, <span class="number">1</span>);
 <a href=#145 id=145 data-nosnippet>145</a>        <span class="kw">if </span><span class="self">self</span>.buf.len() &lt; <span class="self">self</span>.segment_size {
 <a href=#146 id=146 data-nosnippet>146</a>            <span class="macro">trace!</span>(

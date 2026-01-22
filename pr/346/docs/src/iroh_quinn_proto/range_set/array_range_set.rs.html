@@ -225,4 +225,29 @@
 <a href=#225 id=225 data-nosnippet>225</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>max(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;u64&gt; {
 <a href=#226 id=226 data-nosnippet>226</a>        <span class="self">self</span>.iter().next_back().map(|x| x.end - <span class="number">1</span>)
 <a href=#227 id=227 data-nosnippet>227</a>    }
-<a href=#228 id=228 data-nosnippet>228</a>}</code></pre></div></section></main></body></html>
+<a href=#228 id=228 data-nosnippet>228</a>}
+<a href=#229 id=229 data-nosnippet>229</a>
+<a href=#230 id=230 data-nosnippet>230</a><span class="attr">#[cfg(test)]
+<a href=#231 id=231 data-nosnippet>231</a></span><span class="kw">impl </span>proptest::arbitrary::Arbitrary <span class="kw">for </span>ArrayRangeSet {
+<a href=#232 id=232 data-nosnippet>232</a>    <span class="kw">type </span>Parameters = ();
+<a href=#233 id=233 data-nosnippet>233</a>    <span class="kw">type </span>Strategy = proptest::strategy::BoxedStrategy&lt;<span class="self">Self</span>&gt;;
+<a href=#234 id=234 data-nosnippet>234</a>
+<a href=#235 id=235 data-nosnippet>235</a>    <span class="kw">fn </span>arbitrary_with(<span class="kw">_</span>: <span class="self">Self</span>::Parameters) -&gt; <span class="self">Self</span>::Strategy {
+<a href=#236 id=236 data-nosnippet>236</a>        <span class="kw">use </span>proptest::prelude::<span class="kw-2">*</span>;
+<a href=#237 id=237 data-nosnippet>237</a>        <span class="comment">// Generate 1-8 ranges. Each range is defined by a gap from the previous and a size.
+<a href=#238 id=238 data-nosnippet>238</a>        // We use small values to keep encoding reasonable.
+<a href=#239 id=239 data-nosnippet>239</a>        </span>prop::collection::vec((<span class="number">1u64</span>..<span class="number">100</span>, <span class="number">1u64</span>..<span class="number">50</span>), <span class="number">0</span>..<span class="number">8</span>)
+<a href=#240 id=240 data-nosnippet>240</a>            .prop_map(|gaps_and_sizes| {
+<a href=#241 id=241 data-nosnippet>241</a>                <span class="kw">let </span><span class="kw-2">mut </span>ranges = <span class="self">Self</span>::new();
+<a href=#242 id=242 data-nosnippet>242</a>                <span class="kw">let </span><span class="kw-2">mut </span>pos = <span class="number">0u64</span>;
+<a href=#243 id=243 data-nosnippet>243</a>                <span class="kw">for </span>(gap, size) <span class="kw">in </span>gaps_and_sizes {
+<a href=#244 id=244 data-nosnippet>244</a>                    <span class="kw">let </span>start = pos + gap;
+<a href=#245 id=245 data-nosnippet>245</a>                    <span class="kw">let </span>end = start + size;
+<a href=#246 id=246 data-nosnippet>246</a>                    ranges.insert(start..end);
+<a href=#247 id=247 data-nosnippet>247</a>                    pos = end;
+<a href=#248 id=248 data-nosnippet>248</a>                }
+<a href=#249 id=249 data-nosnippet>249</a>                ranges
+<a href=#250 id=250 data-nosnippet>250</a>            })
+<a href=#251 id=251 data-nosnippet>251</a>            .boxed()
+<a href=#252 id=252 data-nosnippet>252</a>    }
+<a href=#253 id=253 data-nosnippet>253</a>}</code></pre></div></section></main></body></html>
