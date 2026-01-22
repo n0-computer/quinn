@@ -2,7 +2,9 @@ use bytes::Bytes;
 use tracing::trace;
 
 use crate::frame::Close;
-use crate::{ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode};
+use crate::{
+    ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode,
+};
 
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
@@ -126,9 +128,22 @@ impl State {
         }
     }
 
-    /// Moves to a closed state after a remote error is received.
+    /// Enters the Closing connection state, due to changes in the [`Connection`] state.
+    ///
+    /// This is the closing state from
+    /// <https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2.1> due to the local side
+    /// having initiated immediate close.
+    ///
+    /// Crucially this is to be used when internal state changes result in initiating an
+    /// immediate close. The resulting error will be surface as a [`ConnectionLost`] event
+    /// in [`Connection::poll`].
+    ///
+    /// # Panics
     ///
     /// Panics if the state is later than established.
+    ///
+    /// [`ConnectionLost`]: crate::Event::ConnectionLost
+    /// [`Connection::poll`]: super::Connection::poll
     pub(super) fn move_to_closed<R: Into<CloseReason>>(&mut self, reason: R) {
         assert!(
             matches!(
@@ -148,9 +163,25 @@ impl State {
         };
     }
 
-    /// Moves to a closed state after a local error.
+    /// Enters the Closing connection state, initiated by explicit API calls.
+    ///
+    /// This is the closing state from
+    /// <https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2.1> due to the local side
+    /// having initiated immediate close.
+    ///
+    /// Crucially this is to be used when immediate close is entered due to a local API
+    /// being called. It means the close will NOT surface as a [`ConnectionLost`] event in
+    /// [`Connection::poll`].
+    ///
+    /// See [`Self::move_to_closed`] for when the internal state changes resulted in
+    /// initiating an immediate close.
+    ///
+    /// # Panics
     ///
     /// Panics if the state is later than established.
+    ///
+    /// [`ConnectionLost`]: crate::Event::ConnectionLost
+    /// [`Connection::poll`]: super::Connection::poll
     pub(super) fn move_to_closed_local<R: Into<CloseReason>>(&mut self, reason: R) {
         assert!(
             matches!(
@@ -236,12 +267,35 @@ impl State {
     }
 }
 
+/// The state a [`Connection`] can be in.
+///
+/// [`Connection`]: super::Connection
 #[derive(Debug, Clone)]
 pub(super) enum StateType {
+    /// Before the handshake is *confirmed*.
     Handshake,
+    /// Once the handshake is *confirmed*.
     Established,
+    /// The connection is closed, waiting for remote to confirm close.
+    ///
+    /// Specifically <https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2.1>.
+    ///
+    /// So the side that initiates an immediate close will stay in this state while it is
+    /// waiting for the remote to also send a CONNECTION_CLOSE. The side that receives a
+    /// connection close will skip straight to [`StateType::Draining`].
     Closed,
+    /// The connection is draining, giving time to gracefully discard any in-flight packets.
+    ///
+    /// Specifically <https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2.2>.
+    ///
+    /// See [`StateType::Closed`] above for more details.
     Draining,
+    /// The connection is drained, waiting for the application to drop us.
+    ///
+    /// This is a terminal state in which the connection does nothing and can never do
+    /// anything again. Waiting for the application to drop the [`Connection`] struct.
+    ///
+    /// [`Connection`]: super::Connection
     Drained,
 }
 
@@ -299,8 +353,11 @@ impl From<CloseReason> for Close {
 
 #[derive(Debug, Clone)]
 enum InnerState {
+    /// See [`StateType::Handshake`].
     Handshake(Handshake),
+    /// See [`StateType::Established`].
     Established,
+    /// See [`StateType::Closed`].
     Closed {
         /// The reason the remote closed the connection, or the reason we are sending to the remote.
         remote_reason: CloseReason,
@@ -309,12 +366,14 @@ enum InnerState {
         /// Did we read this as error already?
         error_read: bool,
     },
+    /// See [`StateType::Draining`].
     Draining {
         /// Why the connection was lost, if it has been.
         error: Option<ConnectionError>,
         /// Set to true if we closed the connection locally.
         is_local: bool,
     },
+    /// See [`StateType::Drained`].
     /// Waiting for application to call close so we can dispose of the resources.
     Drained {
         /// Why the connection was lost, if it has been.
