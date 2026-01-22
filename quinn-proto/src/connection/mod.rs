@@ -6256,12 +6256,7 @@ impl Connection {
         &mut self,
         now: Instant,
         (ip, port): (IpAddr, u16),
-        ipv6: bool,
     ) -> Result<Option<(PathId, SocketAddr)>, PathError> {
-        let Some(ip) = iroh_hp::map_to_local_socket_family(ip, ipv6) else {
-            trace!(?ip, "not using IPv6 nat candidate for IPv4 socket");
-            return Ok(None);
-        };
         let remote = (ip, port).into();
         // TODO(matheus23): Probe the correct 4-tuple, instead of only a remote address?
         // By specifying None, we do two things: 1. open_path_ensure won't generate two
@@ -6302,13 +6297,14 @@ impl Connection {
             return Err(iroh_hp::Error::Closed);
         }
 
+        let ipv6 = self.is_ipv6();
         let client_state = self.iroh_hp.client_side_mut()?;
         let iroh_hp::NatTraversalRound {
             new_round,
             reach_out_at,
             addresses_to_probe,
             prev_round_path_ids,
-        } = client_state.initiate_nat_traversal_round()?;
+        } = client_state.initiate_nat_traversal_round(ipv6)?;
 
         self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
 
@@ -6324,9 +6320,7 @@ impl Connection {
             // And we only close paths that we don't want to probe anyways.
             if !addresses_to_probe
                 .iter()
-                .any(|(_, (probe_ip, probe_port))| {
-                    *probe_port == port && probe_ip.to_canonical() == ip.to_canonical()
-                })
+                .any(|(_, probe)| *probe == (ip, port))
                 && !path.validated
                 && !self.abandoned_paths.contains(&path_id)
             {
@@ -6343,10 +6337,9 @@ impl Connection {
 
         let mut path_ids = Vec::with_capacity(addresses_to_probe.len());
         let mut probed_addresses = Vec::with_capacity(addresses_to_probe.len());
-        let ipv6 = self.is_ipv6();
 
         for (id, address) in addresses_to_probe {
-            match self.open_nat_traversal_path(now, address, ipv6) {
+            match self.open_nat_traversal_path(now, address) {
                 Ok(None) => {}
                 Ok(Some((path_id, remote))) => {
                     path_ids.push(path_id);
@@ -6382,9 +6375,10 @@ impl Connection {
     /// If there was nothing to do, it returns `None`. Otherwise it returns whether the path was
     /// successfully open.
     fn continue_nat_traversal_round(&mut self, now: Instant) -> Option<bool> {
+        let ipv6 = self.is_ipv6();
         let client_state = self.iroh_hp.client_side_mut().ok()?;
-        let (id, address) = client_state.continue_nat_traversal_round()?;
-        let open_result = self.open_nat_traversal_path(now, address, self.is_ipv6());
+        let (id, address) = client_state.continue_nat_traversal_round(ipv6)?;
+        let open_result = self.open_nat_traversal_path(now, address);
         let client_state = self.iroh_hp.client_side_mut().expect("validated");
         match open_result {
             Ok(None) => Some(true),

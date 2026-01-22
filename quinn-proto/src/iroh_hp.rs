@@ -48,6 +48,8 @@ pub(crate) struct NatTraversalRound {
     ///
     /// The addresses include their Id, so that it can be used to signal these should be returned
     /// in a nat traversal continuation by calling [`ClientState::report_in_continuation`].
+    ///
+    /// These are filtered and mapped to the IP family the local socket supports.
     pub(crate) addresses_to_probe: Vec<(VarInt, IpPort)>,
     /// [`PathId`]s of the cancelled round.
     pub(crate) prev_round_path_ids: Vec<PathId>,
@@ -131,7 +133,10 @@ impl ClientState {
     /// frames, and initiating probing of the known remote addresses. When a new round is
     /// initiated, the previous one is cancelled, and paths that have not been opened should be
     /// closed.
-    pub(crate) fn initiate_nat_traversal_round(&mut self) -> Result<NatTraversalRound, Error> {
+    pub(crate) fn initiate_nat_traversal_round(
+        &mut self,
+        ipv6: bool,
+    ) -> Result<NatTraversalRound, Error> {
         if self.local_addresses.is_empty() {
             return Err(Error::NotEnoughAddresses);
         }
@@ -139,9 +144,14 @@ impl ClientState {
         let prev_round_path_ids = std::mem::take(&mut self.round_path_ids);
         self.round = self.round.saturating_add(1u8);
         let mut addresses_to_probe = Vec::with_capacity(self.remote_addresses.len());
-        for (id, (address, report_in_continuation)) in self.remote_addresses.iter_mut() {
-            addresses_to_probe.push((*id, *address));
+        for (id, ((ip, port), report_in_continuation)) in self.remote_addresses.iter_mut() {
             *report_in_continuation = false;
+
+            if let Some(ip) = map_to_local_socket_family(*ip, ipv6) {
+                addresses_to_probe.push((*id, (ip, *port)));
+            } else {
+                trace!(?ip, "not using IPv6 nat candidate for IPv4 socket");
+            }
         }
 
         Ok(NatTraversalRound {
@@ -172,14 +182,23 @@ impl ClientState {
     ///
     /// The address will not be returned twice unless marked as such again with
     /// [`Self::report_in_continuation`].
-    pub(crate) fn continue_nat_traversal_round(&mut self) -> Option<(VarInt, IpPort)> {
+    pub(crate) fn continue_nat_traversal_round(&mut self, ipv6: bool) -> Option<(VarInt, IpPort)> {
         // this being random depends on iteration not returning always on the same order
         let (id, (address, report_in_continuation)) = self
             .remote_addresses
             .iter_mut()
-            .find(|(_id, (_addr, report))| *report)?;
+            .filter(|(_id, (_addr, report))| *report)
+            .filter_map(|(id, ((ip, port), report))| {
+                // only continue with addresses we can send on our local socket
+                let Some(ip) = map_to_local_socket_family(*ip, ipv6) else {
+                    trace!(?ip, "not using IPv6 nat candidate for IPv4 socket");
+                    return None;
+                };
+                Some((*id, ((ip, *port), report)))
+            })
+            .next()?;
         *report_in_continuation = false;
-        Some((*id, *address))
+        Some((id, address))
     }
 
     /// Add a [`PathId`] as part of the current attempts to create paths based on the server's
