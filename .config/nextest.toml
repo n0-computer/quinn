@@ -1,6 +1,24 @@
+# Be aware that all profils inherit from the default profile unless
+# explicitly set to a different profile.
+
 [profile.default]
 slow-timeout = { period = "2s", terminate-after = 3 }
+fail-fast = false
+
+# Do not run proptests by default. Use --ignore-default-filter to run these anyway.
+# To give proptests a proper spin run:
+#    cargo nextest run --ignore-default-filter -E 'test(~proptest::)'
+# Or use the proptests profile below which has a longer slow-timeout:
+#    PROPTEST_CASES=10000 cargo nextest run -P proptests
+default-filter = 'not test(~proptest::)'
+
+[profile.proptests]
+# Select this profile with -P proptests
+# To give proptests a proper spin, run with PROPTEST_CASES=10000
+slow-timeout = '300s'
+default-filter = 'test(~proptest::)'
 
 [profile.ci]
 slow-timeout = { period = "5s", terminate-after = 3 }
 fail-fast = false
+default-filter = 'all()'
