@@ -1022,7 +1022,7 @@ impl Connection {
         // datagrams for one destination address are produced for each poll_transmit call.
 
         // Check whether we need to send a close message
-        let close = match self.state.as_type() {
+        let connection_close_pending = match self.state.as_type() {
             StateType::Drained => {
                 self.app_limited = true;
                 return None;
@@ -1091,7 +1091,9 @@ impl Connection {
         let mut congestion_blocked = false;
 
         for &path_id in &path_ids {
-            if let Some(transmit) = self.poll_transmit_off_path(now, buf, path_id) {
+            if let Some(transmit) = self.poll_transmit_off_path(now, buf, path_id)
+                && !connection_close_pending
+            {
                 return Some(transmit);
             }
 
@@ -1102,7 +1104,7 @@ impl Connection {
                 path_id,
                 max_datagrams,
                 have_available_path,
-                close,
+                connection_close_pending,
             ) {
                 PollPathStatus::Send(transmit) => {
                     return Some(transmit);
@@ -1214,7 +1216,7 @@ impl Connection {
         path_id: PathId,
         max_datagrams: NonZeroUsize,
         have_available_path: bool,
-        close: bool,
+        connection_close_pending: bool,
     ) -> PollPathStatus {
         // Check if there is at least one active CID to use for sending
         let Some(remote_cid) = self.remote_cids.get(&path_id).map(CidQueue::active) else {
@@ -1259,7 +1261,7 @@ impl Connection {
                 space_id,
                 remote_cid,
                 have_available_path,
-                close,
+                connection_close_pending,
                 pad_datagram,
             ) {
                 PollPathSpaceStatus::NothingToSend {
