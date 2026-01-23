@@ -1232,8 +1232,6 @@ pub struct Incoming {
 
 impl Incoming {
     /// The local IP address which was used when the peer established the connection
-    ///
-    /// This has the same behavior as [`Connection::local_ip`].
     pub fn local_ip(&self) -> Option<IpAddr> {
         self.network_path.local_ip
     }

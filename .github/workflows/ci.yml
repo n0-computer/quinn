@@ -225,17 +225,20 @@ jobs:
     env:
       RUSTC_WRAPPER: "sccache"
       SCCACHE_GHA_ENABLED: "on"
-      RUSTDOCFLAGS: --cfg docsrs
+      RUSTDOCFLAGS: -Dwarnings
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2025-10-09
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/install@cargo-docs-rs
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: Docs
-        run: cargo doc --workspace --all-features --no-deps --document-private-items
+      - name: quinn docs
+        run: cargo docs-rs -p iroh-quinn
+      - name: quinn-proto docs
+        run: cargo docs-rs -p iroh-quinn-proto
+      - name: quinn-udp docs
+        run: cargo docs-rs -p iroh-quinn-udp
 
   clippy_check:
     timeout-minutes: 30
