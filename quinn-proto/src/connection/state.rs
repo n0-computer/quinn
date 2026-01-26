@@ -134,8 +134,8 @@ impl State {
     /// <https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2.1> due to the local side
     /// having initiated immediate close.
     ///
-    /// Crucially this is to be used when internal state changes result in initiating an
-    /// immediate close. The resulting error will be surface as a [`ConnectionLost`] event
+    /// Crucially, this is to be used when internal state changes result in initiating an
+    /// immediate close. The resulting error will be surfaced as a [`ConnectionLost`] event
     /// in [`Connection::poll`].
     ///
     /// # Panics
