@@ -2135,7 +2135,7 @@ impl Connection {
     /// on an event. See [`State::move_to_closed_local`] for details.
     ///
     /// This initiates immediate close from
-    /// <https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2>, moving the the closed
+    /// <https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2>, moving to the closed
     /// state.
     fn close_inner(&mut self, now: Instant, reason: Close) {
         let was_closed = self.state.is_closed();
