@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use frame::StreamMetaVec;
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
