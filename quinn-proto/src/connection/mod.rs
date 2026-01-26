@@ -1549,7 +1549,10 @@ impl Connection {
                 // Since there only 64 ACK frames there will always be enough space
                 // to encode the ConnectionClose frame too. However we still have the
                 // check here to prevent crashes if something changes.
-                // TODO(flub): This needs fixing for multipath.
+
+                // TODO(flub): This needs fixing for multipath, to ensure we can always
+                //    write the CONNECTION_CLOSE even if we have many PATH_ACKs to send:
+                //    https://github.com/n0-computer/quinn/issues/367.
                 debug_assert!(
                     builder.frame_space_remaining() > frame::ConnectionClose::SIZE_BOUND,
                     "ACKs should leave space for ConnectionClose"
