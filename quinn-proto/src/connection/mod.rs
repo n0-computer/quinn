@@ -3854,14 +3854,29 @@ impl Connection {
         // TODO: This SHOULD be rate-limited according to §10.2.1 of QUIC-TRANSPORT, but
         //    that does not yet happen. This is triggered by each received packet.
         if matches!(self.state.as_type(), StateType::Closed) {
-            // While in the closing state we must either:
-            // - discard packets coming from a migrated connection OR
-            // - ensure we do not send more than 3 times the received data
-            // Since doing the 2nd is a lot more work, we do the first for now.
+            // From https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2.1-7
             //
-            // We do not open new paths while in the closing state, so by only doing this
-            // when the remote matches the path's remote we ignore any migrations.
-            if self.paths.get(&path_id).map(|p| p.data.network_path) == Some(network_path) {
+            // While in the closing state we must either:
+            // - discard packets coming from an un-validated remote OR
+            // - ensure we do not send more than 3 times the received data
+            //
+            // Doing the 2nd would mean we would be able to send CONNECTION_CLOSE to a peer
+            // who was (involuntary) migrated just at the time we initiated immediate
+            // close. It is a lot more work though. So while we would like to do this for
+            // now we only do 1.
+            //
+            // Another shortcoming of the current implementation is that when we have a
+            // previous PathData which is validated and the remote matches that path, we
+            // should schedule CONNECTION_CLOSE on that path. However currently we can not
+            // schedule such a packet. We should also fix this some day. This makes us
+            // vulnerable to an attacker faking a migration at the right time and then we'd
+            // be unable to send the CONNECTION_CLOSE to the real remote.
+            if self
+                .paths
+                .get(&path_id)
+                .map(|p| p.data.validated && p.data.network_path == network_path)
+                .unwrap_or_default()
+            {
                 self.connection_close_pending = true;
             }
         }
