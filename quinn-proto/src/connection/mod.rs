@@ -1392,9 +1392,9 @@ impl Connection {
                         {
                             trace!(?space_id, %path_id, "nothing to send in space");
                         }
-                        return PollPathSpaceStatus::NothingToSend {
+                        PollPathSpaceStatus::NothingToSend {
                             congestion_blocked: false,
-                        };
+                        }
                     }
                 };
             }
