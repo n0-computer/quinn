@@ -3137,8 +3137,8 @@
 <a href=#3137 id=3137 data-nosnippet>3137</a>    /// See [`Connection::pto`]
 <a href=#3138 id=3138 data-nosnippet>3138</a>    </span><span class="kw">fn </span>max_pto_all_paths(<span class="kw-2">&amp;</span><span class="self">self</span>, space: SpaceId) -&gt; Duration {
 <a href=#3139 id=3139 data-nosnippet>3139</a>        <span class="self">self</span>.paths
-<a href=#3140 id=3140 data-nosnippet>3140</a>            .iter()
-<a href=#3141 id=3141 data-nosnippet>3141</a>            .map(|(path_id, <span class="kw">_</span>)| <span class="self">self</span>.pto(space, <span class="kw-2">*</span>path_id))
+<a href=#3140 id=3140 data-nosnippet>3140</a>            .keys()
+<a href=#3141 id=3141 data-nosnippet>3141</a>            .map(|path_id| <span class="self">self</span>.pto(space, <span class="kw-2">*</span>path_id))
 <a href=#3142 id=3142 data-nosnippet>3142</a>            .max()
 <a href=#3143 id=3143 data-nosnippet>3143</a>            .expect(<span class="string">"there should be at least one path"</span>)
 <a href=#3144 id=3144 data-nosnippet>3144</a>    }
