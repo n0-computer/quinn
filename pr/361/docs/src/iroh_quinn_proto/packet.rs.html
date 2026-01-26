@@ -951,12 +951,12 @@
 <a href=#951 id=951 data-nosnippet>951</a>
 <a href=#952 id=952 data-nosnippet>952</a>    <span class="doccomment">/// Returns the next higher packet space.
 <a href=#953 id=953 data-nosnippet>953</a>    ///
-<a href=#954 id=954 data-nosnippet>954</a>    /// Keeps returning [`SpaceId::Data`] as the highest space.
-<a href=#955 id=955 data-nosnippet>955</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>next(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="self">Self </span>{
+<a href=#954 id=954 data-nosnippet>954</a>    /// Returns `None` if at  [`SpaceId::Data`].
+<a href=#955 id=955 data-nosnippet>955</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>next(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="self">Self</span>&gt; {
 <a href=#956 id=956 data-nosnippet>956</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#957 id=957 data-nosnippet>957</a>            <span class="self">Self</span>::Initial =&gt; <span class="self">Self</span>::Handshake,
-<a href=#958 id=958 data-nosnippet>958</a>            <span class="self">Self</span>::Handshake =&gt; <span class="self">Self</span>::Data,
-<a href=#959 id=959 data-nosnippet>959</a>            <span class="self">Self</span>::Data =&gt; <span class="self">Self</span>::Data,
+<a href=#957 id=957 data-nosnippet>957</a>            <span class="self">Self</span>::Initial =&gt; <span class="prelude-val">Some</span>(<span class="self">Self</span>::Handshake),
+<a href=#958 id=958 data-nosnippet>958</a>            <span class="self">Self</span>::Handshake =&gt; <span class="prelude-val">Some</span>(<span class="self">Self</span>::Data),
+<a href=#959 id=959 data-nosnippet>959</a>            <span class="self">Self</span>::Data =&gt; <span class="prelude-val">None</span>,
 <a href=#960 id=960 data-nosnippet>960</a>        }
 <a href=#961 id=961 data-nosnippet>961</a>    }
 <a href=#962 id=962 data-nosnippet>962</a>}
