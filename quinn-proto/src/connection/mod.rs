@@ -4955,12 +4955,11 @@ impl Connection {
         // Note that the congestion window will not grow until validation terminates. Helps mitigate
         // amplification attacks performed by spoofing source addresses.
         let prev_pto = self.pto(SpaceId::Data, path_id);
-        let known_path = self.paths.get_mut(&path_id).expect("known path");
-        let path = &mut known_path.data;
-        let mut new_path = if network_path.remote.is_ipv4()
-            && network_path.remote.ip() == path.network_path.remote.ip()
+        let path = self.paths.get_mut(&path_id).expect("known path");
+        let mut new_path_data = if network_path.remote.is_ipv4()
+            && network_path.remote.ip() == path.data.network_path.remote.ip()
         {
-            PathData::from_previous(network_path, path, self.path_generation_counter, now)
+            PathData::from_previous(network_path, &path.data, self.path_generation_counter, now)
         } else {
             let peer_max_udp_payload_size =
                 u16::try_from(self.peer_params.max_udp_payload_size.into_inner())
@@ -4974,9 +4973,9 @@ impl Connection {
                 &self.config,
             )
         };
-        new_path.last_observed_addr_report = path.last_observed_addr_report.clone();
+        new_path_data.last_observed_addr_report = path.data.last_observed_addr_report.clone();
         if let Some(report) = observed_addr
-            && let Some(updated) = new_path.update_observed_addr_report(report)
+            && let Some(updated) = new_path_data.update_observed_addr_report(report)
         {
             tracing::info!("adding observed addr event from migration");
             self.events.push_back(Event::Path(PathEvent::ObservedAddr {
@@ -4984,16 +4983,25 @@ impl Connection {
                 addr: updated,
             }));
         }
-        new_path.send_new_challenge = true;
+        new_path_data.send_new_challenge = true;
 
-        let mut prev = mem::replace(path, new_path);
-        // Don't clobber the original path if the previous one hasn't been validated yet
-        if !prev.is_validating_path() {
-            prev.send_new_challenge = true;
+        let mut prev_path_data = mem::replace(&mut path.data, new_path_data);
+
+        // Only store this as previous path if it was validated. For all we know there could
+        // already be a previous path stored which might have been validated in the past,
+        // which is more valuable than one that's not yet validated.
+        //
+        // With multipath it is possible that there are no remote CIDs for the path ID
+        // yet. In this case we would never have sent on this path yet and would not be able
+        // to send a PATH_CHALLENGE either, which is currently a fire-and-forget affair
+        // anyway. So don't store such a path either.
+        if !prev_path_data.validated
+            && let Some(cid) = self.remote_cids.get(&path_id).map(CidQueue::active)
+        {
+            prev_path_data.send_new_challenge = true;
             // We haven't updated the remote CID yet, this captures the remote CID we were using on
             // the previous path.
-
-            known_path.prev = Some((self.remote_cids.get(&path_id).unwrap().active(), prev));
+            path.prev = Some((cid, prev_path_data));
         }
 
         // We need to re-assign the correct remote to this path in qlog
