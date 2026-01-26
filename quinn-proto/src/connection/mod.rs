@@ -1002,7 +1002,7 @@ impl Connection {
             trace!(%destination, "RAND_DATA packet");
             let token: u64 = self.rng.random();
             buf.put_u64(token);
-            probing.finish(token);
+            probing.mark_as_sent(token);
             return Some(Transmit {
                 destination,
                 ecn: None,
@@ -1198,6 +1198,9 @@ impl Connection {
         }
         if let Some(response) = self.send_off_path_path_response(now, buf, path_id) {
             return Some(response);
+        }
+        if let Some(challenge) = self.send_nat_traversal_path_challenge(now, buf, path_id) {
+            return Some(challenge);
         }
         None
     }
@@ -1957,6 +1960,77 @@ impl Connection {
         let stats = &mut self.stats.frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
         builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
+
+        let size = buf.len();
+
+        self.stats.udp_tx.on_sent(1, size);
+        self.path_stats
+            .entry(path_id)
+            .or_default()
+            .udp_tx
+            .on_sent(1, size);
+        Some(Transmit {
+            destination: network_path.remote,
+            size,
+            ecn: None,
+            segment_size: None,
+            src_ip: network_path.local_ip,
+        })
+    }
+
+    /// Send a nat traversal challenge (off-path) on this path if possible.
+    ///
+    /// This will ensure the path still has a remaining CID to use if the active one should be
+    /// retired.
+    fn send_nat_traversal_path_challenge(
+        &mut self,
+        now: Instant,
+        buf: &mut Vec<u8>,
+        path_id: PathId,
+    ) -> Option<Transmit> {
+        let server_side = self.iroh_hp.server_side_mut().ok()?;
+        let probe = server_side.next_probe()?;
+        if !self.paths.get(&path_id)?.data.validated {
+            // Path is not usable for probing
+            return None;
+        }
+
+        let remote_cids = self.remote_cids.get_mut(&path_id)?;
+
+        // Check if this path has enough CIDs to send a probe. One to be reserved, one in case the
+        // active CID needs to be retired.
+        if remote_cids.remaining() < 2 {
+            return None;
+        }
+
+        let cid = remote_cids.next_reserved()?;
+        let remote = probe.remote();
+        let token = self.rng.random();
+        probe.mark_as_sent(token);
+
+        let frame = frame::PathChallenge(token);
+
+        let mut buf = TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
+        buf.start_new_datagram();
+
+        let mut builder =
+            PacketBuilder::new(now, SpaceId::Data, path_id, cid, &mut buf, false, self)?;
+        let stats = &mut self.stats.frame_tx;
+        builder.write_frame_with_log_msg(frame, stats, Some("(nat-traversal)"));
+        builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
+
+        let path = self.path_mut(path_id).expect("valid for nat traversal");
+        let network_path = FourTuple {
+            remote,
+            local_ip: None,
+        };
+        path.challenges_sent.insert(
+            token,
+            paths::SentChallengeInfo {
+                sent_instant: now,
+                network_path,
+            },
+        );
 
         let size = buf.len();
 

@@ -397,7 +397,7 @@ pub(crate) struct ServerProbing<'a> {
 }
 
 impl<'a> ServerProbing<'a> {
-    pub(crate) fn finish(self, token: u64) {
+    pub(crate) fn mark_as_sent(self, token: u64) {
         self.pending_probes.remove(&self.remote);
         self.active_probes.insert(token, self.remote);
     }
@@ -558,9 +558,9 @@ mod tests {
         assert_eq!(state.active_probes.len(), 0);
 
         let probe = state.next_probe().unwrap();
-        probe.finish(1);
+        probe.mark_as_sent(1);
         let probe = state.next_probe().unwrap();
-        probe.finish(2);
+        probe.mark_as_sent(2);
 
         assert!(state.next_probe().is_none());
         assert_eq!(state.pending_probes.len(), 0);
