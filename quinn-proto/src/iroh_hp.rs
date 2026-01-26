@@ -2,7 +2,7 @@
 
 use std::{
     collections::hash_map::Entry,
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
 };
 
 use identity_hash::IntMap;
@@ -518,7 +518,15 @@ pub(crate) fn map_to_local_socket_family(address: IpAddr, ipv6: bool) -> Option<
         IpAddr::V4(addr) if ipv6 => IpAddr::V6(addr.to_ipv6_mapped()),
         IpAddr::V4(_) => address,
         IpAddr::V6(_) if ipv6 => address,
-        IpAddr::V6(addr) => IpAddr::V4(addr.to_ipv4()?),
+        IpAddr::V6(addr) => {
+            if let [0, 0, 0, 0, 0, 0xffff, ab, cd] = addr.segments() {
+                let [a, b] = ab.to_be_bytes();
+                let [c, d] = cd.to_be_bytes();
+                IpAddr::V4(Ipv4Addr::new(a, b, c, d))
+            } else {
+                return None;
+            }
+        }
     };
     Some(ip)
 }
@@ -585,5 +593,9 @@ mod tests {
             map_to_local_socket_family("::1".parse().unwrap(), false),
             None
         );
+        assert_eq!(
+            map_to_local_socket_family("::ffff:1.1.1.1".parse().unwrap(), false),
+            Some("1.1.1.1".parse().unwrap())
+        )
     }
 }
