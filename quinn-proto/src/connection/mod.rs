@@ -3875,7 +3875,7 @@ impl Connection {
                 .paths
                 .get(&path_id)
                 .map(|p| p.data.validated && p.data.network_path == network_path)
-                .unwrap_or_default()
+                .unwrap_or(false)
             {
                 self.connection_close_pending = true;
             }
