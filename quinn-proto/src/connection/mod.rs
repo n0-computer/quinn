@@ -1986,7 +1986,7 @@ impl Connection {
         let cid = remote_cids.next_reserved()?;
         let remote = probe.remote();
         let token = self.rng.random();
-        probe.mark_as_sent(token);
+        probe.mark_as_sent();
 
         let frame = frame::PathChallenge(token);
 
