@@ -2129,7 +2129,11 @@ impl Connection {
         )
     }
 
-    /// Close the connection immediately, initiated by a local API call.
+    /// Close the connection immediately, initiated by an API call.
+    ///
+    /// This will not produce a [`ConnectionLost`] event propagated by the
+    /// [`Connection::poll`] call, because the API call already propagated the error to the
+    /// user.
     ///
     /// Not to be used when entering immediate close due to an internal state change based
     /// on an event. See [`State::move_to_closed_local`] for details.
@@ -2137,6 +2141,9 @@ impl Connection {
     /// This initiates immediate close from
     /// <https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2>, moving to the closed
     /// state.
+    ///
+    /// [`ConnectionLost`]: crate::Event::ConnectionLost
+    /// [`Connection::poll`]: super::Connection::poll
     fn close_inner(&mut self, now: Instant, reason: Close) {
         let was_closed = self.state.is_closed();
         if !was_closed {

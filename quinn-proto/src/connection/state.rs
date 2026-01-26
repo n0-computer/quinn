@@ -169,7 +169,7 @@ impl State {
     /// <https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2.1> due to the local side
     /// having initiated immediate close.
     ///
-    /// Crucially this is to be used when immediate close is entered due to a local API
+    /// Crucially, this is to be used when immediate close is entered due to an API
     /// being called. It means the close will NOT surface as a [`ConnectionLost`] event in
     /// [`Connection::poll`].
     ///
