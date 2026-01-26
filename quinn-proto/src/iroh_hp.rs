@@ -133,6 +133,11 @@ impl ClientState {
     /// frames, and initiating probing of the known remote addresses. When a new round is
     /// initiated, the previous one is cancelled, and paths that have not been opened should be
     /// closed.
+    ///
+    /// `ipv6` indicates if the connection runs on a socket that supports IPv6. If so, then all
+    /// addresses returned in [`NatTraversalRound`] will be IPv6 addresses (and IPv4-mapped IPv6
+    /// addresses if necessary). Otherwise they're all IPv4 addresses.
+    /// See also [`map_to_local_socket_family`].
     pub(crate) fn initiate_nat_traversal_round(
         &mut self,
         ipv6: bool,
@@ -182,6 +187,11 @@ impl ClientState {
     ///
     /// The address will not be returned twice unless marked as such again with
     /// [`Self::report_in_continuation`].
+    ///
+    /// `ipv6` indicates if the connection runs on a socket that supports IPv6. If so, then all
+    /// addresses returned in [`NatTraversalRound`] will be IPv6 addresses (and IPv4-mapped IPv6
+    /// addresses if necessary). Otherwise they're all IPv4 addresses.
+    /// See also [`map_to_local_socket_family`].
     pub(crate) fn continue_nat_traversal_round(&mut self, ipv6: bool) -> Option<(VarInt, IpPort)> {
         // this being random depends on iteration not returning always on the same order
         let (id, (address, report_in_continuation)) = self

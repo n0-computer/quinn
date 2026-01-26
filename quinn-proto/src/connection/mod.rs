@@ -6248,20 +6248,17 @@ impl Connection {
 
     /// Attempts to open a path for nat traversal.
     ///
-    /// `ipv6` indicates if the path should be opened using an IPV6 remote. If the address is
-    /// ignored, it will return `None`.
-    ///
     /// On success returns the [`PathId`] and remote address of the path.
     fn open_nat_traversal_path(
         &mut self,
         now: Instant,
-        (ip, port): (IpAddr, u16),
+        ip_port: (IpAddr, u16),
     ) -> Result<Option<(PathId, SocketAddr)>, PathError> {
-        let remote = (ip, port).into();
+        let remote = ip_port.into();
         // TODO(matheus23): Probe the correct 4-tuple, instead of only a remote address?
-        // By specifying None, we do two things: 1. open_path_ensure won't generate two
-        // paths to the same remote and 2. we let the OS choose which interface to use for
-        // sending on that path.
+        // By specifying None for `local_ip`, we do two things: 1. open_path_ensure won't
+        // generate two paths to the same remote and 2. we let the OS choose which
+        // interface to use for sending on that path.
         let network_path = FourTuple {
             remote,
             local_ip: None,
