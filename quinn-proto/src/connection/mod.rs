@@ -992,26 +992,6 @@ impl Connection {
         max_datagrams: NonZeroUsize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
-        if let Some(probing) = self
-            .iroh_hp
-            .server_side_mut()
-            .ok()
-            .and_then(iroh_hp::ServerState::next_probe)
-        {
-            let destination = probing.remote();
-            trace!(%destination, "RAND_DATA packet");
-            let token: u64 = self.rng.random();
-            buf.put_u64(token);
-            probing.mark_as_sent(token);
-            return Some(Transmit {
-                destination,
-                ecn: None,
-                size: 8,
-                segment_size: None,
-                src_ip: None,
-            });
-        }
-
         let max_datagrams = match self.config.enable_segmentation_offload {
             false => NonZeroUsize::MIN,
             true => max_datagrams,
