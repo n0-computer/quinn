@@ -1091,8 +1091,8 @@ impl Connection {
         let mut congestion_blocked = false;
 
         for &path_id in &path_ids {
-            if let Some(transmit) = self.poll_transmit_off_path(now, buf, path_id)
-                && !connection_close_pending
+            if !connection_close_pending
+                && let Some(transmit) = self.poll_transmit_off_path(now, buf, path_id)
             {
                 return Some(transmit);
             }
