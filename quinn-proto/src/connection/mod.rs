@@ -3137,8 +3137,8 @@ impl Connection {
     /// See [`Connection::pto`]
     fn max_pto_all_paths(&self, space: SpaceId) -> Duration {
         self.paths
-            .iter()
-            .map(|(path_id, _)| self.pto(space, *path_id))
+            .keys()
+            .map(|path_id| self.pto(space, *path_id))
             .max()
             .expect("there should be at least one path")
     }
