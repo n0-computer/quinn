@@ -515,12 +515,10 @@ impl State {
 /// IPv6, then this returns `None`.
 pub(crate) fn map_to_local_socket_family(address: IpAddr, ipv6: bool) -> Option<IpAddr> {
     let ip = match address {
-        IpAddr::V4(addr) if ipv6 => addr.to_ipv6_mapped().into(),
+        IpAddr::V4(addr) if ipv6 => IpAddr::V6(addr.to_ipv6_mapped()),
         IpAddr::V4(_) => address,
         IpAddr::V6(_) if ipv6 => address,
-        IpAddr::V6(_) => {
-            return None;
-        }
+        IpAddr::V6(addr) => IpAddr::V4(addr.to_ipv4()?),
     };
     Some(ip)
 }
