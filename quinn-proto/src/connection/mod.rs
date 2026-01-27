@@ -6566,15 +6566,25 @@ impl Connection {
 
         self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
 
-        for path_id in prev_round_path_ids {
+        // When force_close is set, close all non-validated paths (for network changes).
+        // Otherwise, only close paths from the previous round that aren't in the probe set.
+        let paths_to_check: Vec<PathId> = if force_close_previous_paths {
+            self.paths()
+        } else {
+            prev_round_path_ids
+        };
+
+        for path_id in paths_to_check {
+            // Never close PathId(0) - it's the initial path
+            if path_id == PathId::ZERO {
+                continue;
+            }
             let Some(path) = self.path(path_id) else {
                 continue;
             };
             let ip = path.network_path.remote.ip();
             let port = path.network_path.remote.port();
 
-            // Close non-validated paths from previous round. With force_close, close all;
-            // otherwise only close paths not in the current probe set.
             let dominated_by_probe = addresses_to_probe
                 .iter()
                 .any(|(_, probe)| *probe == (ip, port));
@@ -6583,7 +6593,7 @@ impl Connection {
                 && (force_close_previous_paths || !dominated_by_probe);
 
             if should_close {
-                trace!(%path_id, %force_close_previous_paths, "closing path from previous round");
+                trace!(%path_id, %force_close_previous_paths, "closing path");
                 let _ = self.close_path(
                     now,
                     path_id,
