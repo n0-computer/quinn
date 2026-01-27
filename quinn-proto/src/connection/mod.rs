@@ -1999,17 +1999,25 @@ impl Connection {
         builder.write_frame_with_log_msg(frame, stats, Some("(nat-traversal)"));
         builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
 
-        let path = self.path_mut(path_id).expect("valid for nat traversal");
-        let network_path = FourTuple {
-            remote,
-            local_ip: None,
-        };
+        let path = &mut self.paths.get_mut(&path_id).expect("checked").data;
+
         path.challenges_sent.insert(
             token,
             paths::SentChallengeInfo {
                 sent_instant: now,
-                network_path,
+                network_path: FourTuple {
+                    remote,
+                    local_ip: None,
+                },
             },
+        );
+
+        let next_challenge = path.earliest_expiring_challenge()?;
+
+        self.timers.set(
+            Timer::PerPath(path_id, PathTimer::PathChallengeLost),
+            next_challenge,
+            self.qlog.with_time(now),
         );
 
         let size = buf.len();
@@ -2020,12 +2028,13 @@ impl Connection {
             .or_default()
             .udp_tx
             .on_sent(1, size);
+
         Some(Transmit {
-            destination: network_path.remote,
+            destination: remote,
             size,
             ecn: None,
             segment_size: None,
-            src_ip: network_path.local_ip,
+            src_ip: None,
         })
     }
 
