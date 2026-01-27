@@ -108,7 +108,7 @@
 <a href=#108 id=108 data-nosnippet>108</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(alert) = <span class="self">self</span>.inner.alert() {
 <a href=#109 id=109 data-nosnippet>109</a>                TransportError {
 <a href=#110 id=110 data-nosnippet>110</a>                    code: TransportErrorCode::crypto(alert.into()),
-<a href=#111 id=111 data-nosnippet>111</a>                    frame: <span class="prelude-val">None</span>,
+<a href=#111 id=111 data-nosnippet>111</a>                    frame: <span class="kw">crate</span>::frame::MaybeFrame::None,
 <a href=#112 id=112 data-nosnippet>112</a>                    reason: e.to_string(),
 <a href=#113 id=113 data-nosnippet>113</a>                    crypto: <span class="prelude-val">Some</span>(Arc::new(e)),
 <a href=#114 id=114 data-nosnippet>114</a>                }
@@ -274,7 +274,7 @@
 <a href=#274 id=274 data-nosnippet>274</a><span class="doccomment">/// A QUIC-compatible TLS client configuration
 <a href=#275 id=275 data-nosnippet>275</a>///
 <a href=#276 id=276 data-nosnippet>276</a>/// Quinn implicitly constructs a `QuicClientConfig` with reasonable defaults within
-<a href=#277 id=277 data-nosnippet>277</a>/// [`ClientConfig::with_root_certificates()`][root_certs] and [`ClientConfig::with_platform_verifier()`][platform].
+<a href=#277 id=277 data-nosnippet>277</a>/// [`ClientConfig::with_root_certificates()`][root_certs] and [`ClientConfig::try_with_platform_verifier()`][platform].
 <a href=#278 id=278 data-nosnippet>278</a>/// Alternatively, `QuicClientConfig`'s [`TryFrom`] implementation can be used to wrap around a
 <a href=#279 id=279 data-nosnippet>279</a>/// custom [`rustls::ClientConfig`], in which case care should be taken around certain points:
 <a href=#280 id=280 data-nosnippet>280</a>///
@@ -288,7 +288,7 @@
 <a href=#288 id=288 data-nosnippet>288</a>/// 256 server names.
 <a href=#289 id=289 data-nosnippet>289</a>///
 <a href=#290 id=290 data-nosnippet>290</a>/// [root_certs]: crate::config::ClientConfig::with_root_certificates()
-<a href=#291 id=291 data-nosnippet>291</a>/// [platform]: crate::config::ClientConfig::with_platform_verifier()
+<a href=#291 id=291 data-nosnippet>291</a>/// [platform]: crate::config::ClientConfig::try_with_platform_verifier()
 <a href=#292 id=292 data-nosnippet>292</a></span><span class="kw">pub struct </span>QuicClientConfig {
 <a href=#293 id=293 data-nosnippet>293</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) inner: Arc&lt;rustls::ClientConfig&gt;,
 <a href=#294 id=294 data-nosnippet>294</a>    initial: Suite,
@@ -416,7 +416,7 @@
 <a href=#416 id=416 data-nosnippet>416</a>}
 <a href=#417 id=417 data-nosnippet>417</a>
 <a href=#418 id=418 data-nosnippet>418</a><span class="kw">impl </span>std::fmt::Display <span class="kw">for </span>NoInitialCipherSuite {
-<a href=#419 id=419 data-nosnippet>419</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>std::fmt::Formatter) -&gt; std::fmt::Result {
+<a href=#419 id=419 data-nosnippet>419</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>std::fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; std::fmt::Result {
 <a href=#420 id=420 data-nosnippet>420</a>        f.write_str(<span class="kw">match </span><span class="self">self</span>.specific {
 <a href=#421 id=421 data-nosnippet>421</a>            <span class="bool-val">true </span>=&gt; <span class="string">"invalid cipher suite specified"</span>,
 <a href=#422 id=422 data-nosnippet>422</a>            <span class="bool-val">false </span>=&gt; <span class="string">"no initial cipher suite found"</span>,

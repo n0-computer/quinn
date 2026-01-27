@@ -627,77 +627,70 @@
 <a href=#627 id=627 data-nosnippet>627</a><span class="attr">#[cfg(any(feature = <span class="string">"rustls-aws-lc-rs"</span>, feature = <span class="string">"rustls-ring"</span>))]
 <a href=#628 id=628 data-nosnippet>628</a></span><span class="kw">impl </span>ClientConfig {
 <a href=#629 id=629 data-nosnippet>629</a>    <span class="doccomment">/// Create a client configuration that trusts the platform's native roots
-<a href=#630 id=630 data-nosnippet>630</a>    </span><span class="attr">#[deprecated(since = <span class="string">"0.11.13"</span>, note = <span class="string">"use `try_with_platform_verifier()` instead"</span>)]
-<a href=#631 id=631 data-nosnippet>631</a>    #[cfg(feature = <span class="string">"platform-verifier"</span>)]
-<a href=#632 id=632 data-nosnippet>632</a>    </span><span class="kw">pub fn </span>with_platform_verifier() -&gt; <span class="self">Self </span>{
-<a href=#633 id=633 data-nosnippet>633</a>        <span class="self">Self</span>::try_with_platform_verifier().expect(<span class="string">"use try_with_platform_verifier() instead"</span>)
-<a href=#634 id=634 data-nosnippet>634</a>    }
-<a href=#635 id=635 data-nosnippet>635</a>
-<a href=#636 id=636 data-nosnippet>636</a>    <span class="doccomment">/// Create a client configuration that trusts the platform's native roots
-<a href=#637 id=637 data-nosnippet>637</a>    </span><span class="attr">#[cfg(feature = <span class="string">"platform-verifier"</span>)]
-<a href=#638 id=638 data-nosnippet>638</a>    </span><span class="kw">pub fn </span>try_with_platform_verifier() -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, rustls::Error&gt; {
-<a href=#639 id=639 data-nosnippet>639</a>        <span class="prelude-val">Ok</span>(<span class="self">Self</span>::new(Arc::new(
-<a href=#640 id=640 data-nosnippet>640</a>            crypto::rustls::QuicClientConfig::with_platform_verifier()<span class="question-mark">?</span>,
-<a href=#641 id=641 data-nosnippet>641</a>        )))
-<a href=#642 id=642 data-nosnippet>642</a>    }
-<a href=#643 id=643 data-nosnippet>643</a>
-<a href=#644 id=644 data-nosnippet>644</a>    <span class="doccomment">/// Create a client configuration that trusts specified trust anchors
-<a href=#645 id=645 data-nosnippet>645</a>    </span><span class="kw">pub fn </span>with_root_certificates(
-<a href=#646 id=646 data-nosnippet>646</a>        roots: Arc&lt;rustls::RootCertStore&gt;,
-<a href=#647 id=647 data-nosnippet>647</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, rustls::client::VerifierBuilderError&gt; {
-<a href=#648 id=648 data-nosnippet>648</a>        <span class="prelude-val">Ok</span>(<span class="self">Self</span>::new(Arc::new(crypto::rustls::QuicClientConfig::new(
-<a href=#649 id=649 data-nosnippet>649</a>            WebPkiServerVerifier::builder_with_provider(roots, configured_provider()).build()<span class="question-mark">?</span>,
-<a href=#650 id=650 data-nosnippet>650</a>        ))))
-<a href=#651 id=651 data-nosnippet>651</a>    }
-<a href=#652 id=652 data-nosnippet>652</a>}
-<a href=#653 id=653 data-nosnippet>653</a>
-<a href=#654 id=654 data-nosnippet>654</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>ClientConfig {
-<a href=#655 id=655 data-nosnippet>655</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, fmt: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
-<a href=#656 id=656 data-nosnippet>656</a>        fmt.debug_struct(<span class="string">"ClientConfig"</span>)
-<a href=#657 id=657 data-nosnippet>657</a>            .field(<span class="string">"transport"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.transport)
-<a href=#658 id=658 data-nosnippet>658</a>            <span class="comment">// crypto not debug
-<a href=#659 id=659 data-nosnippet>659</a>            // token_store not debug
-<a href=#660 id=660 data-nosnippet>660</a>            </span>.field(<span class="string">"version"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.version)
-<a href=#661 id=661 data-nosnippet>661</a>            .finish_non_exhaustive()
-<a href=#662 id=662 data-nosnippet>662</a>    }
-<a href=#663 id=663 data-nosnippet>663</a>}
-<a href=#664 id=664 data-nosnippet>664</a>
-<a href=#665 id=665 data-nosnippet>665</a><span class="doccomment">/// Errors in the configuration of an endpoint
-<a href=#666 id=666 data-nosnippet>666</a></span><span class="attr">#[derive(Debug, Error, Clone, PartialEq, Eq)]
-<a href=#667 id=667 data-nosnippet>667</a>#[non_exhaustive]
-<a href=#668 id=668 data-nosnippet>668</a></span><span class="kw">pub enum </span>ConfigError {
-<a href=#669 id=669 data-nosnippet>669</a>    <span class="doccomment">/// Value exceeds supported bounds
-<a href=#670 id=670 data-nosnippet>670</a>    </span><span class="attr">#[error(<span class="string">"value exceeds supported bounds"</span>)]
-<a href=#671 id=671 data-nosnippet>671</a>    </span>OutOfBounds,
-<a href=#672 id=672 data-nosnippet>672</a>}
-<a href=#673 id=673 data-nosnippet>673</a>
-<a href=#674 id=674 data-nosnippet>674</a><span class="kw">impl </span>From&lt;TryFromIntError&gt; <span class="kw">for </span>ConfigError {
-<a href=#675 id=675 data-nosnippet>675</a>    <span class="kw">fn </span>from(<span class="kw">_</span>: TryFromIntError) -&gt; <span class="self">Self </span>{
-<a href=#676 id=676 data-nosnippet>676</a>        <span class="self">Self</span>::OutOfBounds
-<a href=#677 id=677 data-nosnippet>677</a>    }
-<a href=#678 id=678 data-nosnippet>678</a>}
-<a href=#679 id=679 data-nosnippet>679</a>
-<a href=#680 id=680 data-nosnippet>680</a><span class="kw">impl </span>From&lt;VarIntBoundsExceeded&gt; <span class="kw">for </span>ConfigError {
-<a href=#681 id=681 data-nosnippet>681</a>    <span class="kw">fn </span>from(<span class="kw">_</span>: VarIntBoundsExceeded) -&gt; <span class="self">Self </span>{
-<a href=#682 id=682 data-nosnippet>682</a>        <span class="self">Self</span>::OutOfBounds
-<a href=#683 id=683 data-nosnippet>683</a>    }
-<a href=#684 id=684 data-nosnippet>684</a>}
-<a href=#685 id=685 data-nosnippet>685</a>
-<a href=#686 id=686 data-nosnippet>686</a><span class="doccomment">/// Object to get current [`SystemTime`]
-<a href=#687 id=687 data-nosnippet>687</a>///
-<a href=#688 id=688 data-nosnippet>688</a>/// This exists to allow system time to be mocked in tests, or wherever else desired.
-<a href=#689 id=689 data-nosnippet>689</a></span><span class="kw">pub trait </span>TimeSource: Send + Sync {
-<a href=#690 id=690 data-nosnippet>690</a>    <span class="doccomment">/// Get [`SystemTime::now()`](SystemTime::now) or the mocked equivalent
-<a href=#691 id=691 data-nosnippet>691</a>    </span><span class="kw">fn </span>now(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; SystemTime;
-<a href=#692 id=692 data-nosnippet>692</a>}
-<a href=#693 id=693 data-nosnippet>693</a>
-<a href=#694 id=694 data-nosnippet>694</a><span class="doccomment">/// Default implementation of [`TimeSource`]
-<a href=#695 id=695 data-nosnippet>695</a>///
-<a href=#696 id=696 data-nosnippet>696</a>/// Implements `now` by calling [`SystemTime::now()`](SystemTime::now).
-<a href=#697 id=697 data-nosnippet>697</a></span><span class="kw">pub struct </span>StdSystemTime;
-<a href=#698 id=698 data-nosnippet>698</a>
-<a href=#699 id=699 data-nosnippet>699</a><span class="kw">impl </span>TimeSource <span class="kw">for </span>StdSystemTime {
-<a href=#700 id=700 data-nosnippet>700</a>    <span class="kw">fn </span>now(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; SystemTime {
-<a href=#701 id=701 data-nosnippet>701</a>        SystemTime::now()
-<a href=#702 id=702 data-nosnippet>702</a>    }
-<a href=#703 id=703 data-nosnippet>703</a>}</code></pre></div></section></main></body></html>
+<a href=#630 id=630 data-nosnippet>630</a>    </span><span class="attr">#[cfg(feature = <span class="string">"platform-verifier"</span>)]
+<a href=#631 id=631 data-nosnippet>631</a>    </span><span class="kw">pub fn </span>try_with_platform_verifier() -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, rustls::Error&gt; {
+<a href=#632 id=632 data-nosnippet>632</a>        <span class="prelude-val">Ok</span>(<span class="self">Self</span>::new(Arc::new(
+<a href=#633 id=633 data-nosnippet>633</a>            crypto::rustls::QuicClientConfig::with_platform_verifier()<span class="question-mark">?</span>,
+<a href=#634 id=634 data-nosnippet>634</a>        )))
+<a href=#635 id=635 data-nosnippet>635</a>    }
+<a href=#636 id=636 data-nosnippet>636</a>
+<a href=#637 id=637 data-nosnippet>637</a>    <span class="doccomment">/// Create a client configuration that trusts specified trust anchors
+<a href=#638 id=638 data-nosnippet>638</a>    </span><span class="kw">pub fn </span>with_root_certificates(
+<a href=#639 id=639 data-nosnippet>639</a>        roots: Arc&lt;rustls::RootCertStore&gt;,
+<a href=#640 id=640 data-nosnippet>640</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, rustls::client::VerifierBuilderError&gt; {
+<a href=#641 id=641 data-nosnippet>641</a>        <span class="prelude-val">Ok</span>(<span class="self">Self</span>::new(Arc::new(crypto::rustls::QuicClientConfig::new(
+<a href=#642 id=642 data-nosnippet>642</a>            WebPkiServerVerifier::builder_with_provider(roots, configured_provider()).build()<span class="question-mark">?</span>,
+<a href=#643 id=643 data-nosnippet>643</a>        ))))
+<a href=#644 id=644 data-nosnippet>644</a>    }
+<a href=#645 id=645 data-nosnippet>645</a>}
+<a href=#646 id=646 data-nosnippet>646</a>
+<a href=#647 id=647 data-nosnippet>647</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>ClientConfig {
+<a href=#648 id=648 data-nosnippet>648</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, fmt: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
+<a href=#649 id=649 data-nosnippet>649</a>        fmt.debug_struct(<span class="string">"ClientConfig"</span>)
+<a href=#650 id=650 data-nosnippet>650</a>            .field(<span class="string">"transport"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.transport)
+<a href=#651 id=651 data-nosnippet>651</a>            <span class="comment">// crypto not debug
+<a href=#652 id=652 data-nosnippet>652</a>            // token_store not debug
+<a href=#653 id=653 data-nosnippet>653</a>            </span>.field(<span class="string">"version"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.version)
+<a href=#654 id=654 data-nosnippet>654</a>            .finish_non_exhaustive()
+<a href=#655 id=655 data-nosnippet>655</a>    }
+<a href=#656 id=656 data-nosnippet>656</a>}
+<a href=#657 id=657 data-nosnippet>657</a>
+<a href=#658 id=658 data-nosnippet>658</a><span class="doccomment">/// Errors in the configuration of an endpoint
+<a href=#659 id=659 data-nosnippet>659</a></span><span class="attr">#[derive(Debug, Error, Clone, PartialEq, Eq)]
+<a href=#660 id=660 data-nosnippet>660</a>#[non_exhaustive]
+<a href=#661 id=661 data-nosnippet>661</a></span><span class="kw">pub enum </span>ConfigError {
+<a href=#662 id=662 data-nosnippet>662</a>    <span class="doccomment">/// Value exceeds supported bounds
+<a href=#663 id=663 data-nosnippet>663</a>    </span><span class="attr">#[error(<span class="string">"value exceeds supported bounds"</span>)]
+<a href=#664 id=664 data-nosnippet>664</a>    </span>OutOfBounds,
+<a href=#665 id=665 data-nosnippet>665</a>}
+<a href=#666 id=666 data-nosnippet>666</a>
+<a href=#667 id=667 data-nosnippet>667</a><span class="kw">impl </span>From&lt;TryFromIntError&gt; <span class="kw">for </span>ConfigError {
+<a href=#668 id=668 data-nosnippet>668</a>    <span class="kw">fn </span>from(<span class="kw">_</span>: TryFromIntError) -&gt; <span class="self">Self </span>{
+<a href=#669 id=669 data-nosnippet>669</a>        <span class="self">Self</span>::OutOfBounds
+<a href=#670 id=670 data-nosnippet>670</a>    }
+<a href=#671 id=671 data-nosnippet>671</a>}
+<a href=#672 id=672 data-nosnippet>672</a>
+<a href=#673 id=673 data-nosnippet>673</a><span class="kw">impl </span>From&lt;VarIntBoundsExceeded&gt; <span class="kw">for </span>ConfigError {
+<a href=#674 id=674 data-nosnippet>674</a>    <span class="kw">fn </span>from(<span class="kw">_</span>: VarIntBoundsExceeded) -&gt; <span class="self">Self </span>{
+<a href=#675 id=675 data-nosnippet>675</a>        <span class="self">Self</span>::OutOfBounds
+<a href=#676 id=676 data-nosnippet>676</a>    }
+<a href=#677 id=677 data-nosnippet>677</a>}
+<a href=#678 id=678 data-nosnippet>678</a>
+<a href=#679 id=679 data-nosnippet>679</a><span class="doccomment">/// Object to get current [`SystemTime`]
+<a href=#680 id=680 data-nosnippet>680</a>///
+<a href=#681 id=681 data-nosnippet>681</a>/// This exists to allow system time to be mocked in tests, or wherever else desired.
+<a href=#682 id=682 data-nosnippet>682</a></span><span class="kw">pub trait </span>TimeSource: Send + Sync {
+<a href=#683 id=683 data-nosnippet>683</a>    <span class="doccomment">/// Get [`SystemTime::now()`](SystemTime::now) or the mocked equivalent
+<a href=#684 id=684 data-nosnippet>684</a>    </span><span class="kw">fn </span>now(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; SystemTime;
+<a href=#685 id=685 data-nosnippet>685</a>}
+<a href=#686 id=686 data-nosnippet>686</a>
+<a href=#687 id=687 data-nosnippet>687</a><span class="doccomment">/// Default implementation of [`TimeSource`]
+<a href=#688 id=688 data-nosnippet>688</a>///
+<a href=#689 id=689 data-nosnippet>689</a>/// Implements `now` by calling [`SystemTime::now()`](SystemTime::now).
+<a href=#690 id=690 data-nosnippet>690</a></span><span class="kw">pub struct </span>StdSystemTime;
+<a href=#691 id=691 data-nosnippet>691</a>
+<a href=#692 id=692 data-nosnippet>692</a><span class="kw">impl </span>TimeSource <span class="kw">for </span>StdSystemTime {
+<a href=#693 id=693 data-nosnippet>693</a>    <span class="kw">fn </span>now(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; SystemTime {
+<a href=#694 id=694 data-nosnippet>694</a>        SystemTime::now()
+<a href=#695 id=695 data-nosnippet>695</a>    }
+<a href=#696 id=696 data-nosnippet>696</a>}</code></pre></div></section></main></body></html>
