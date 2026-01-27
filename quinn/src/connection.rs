@@ -968,7 +968,8 @@ impl Connection {
     ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
         let mut conn = self.0.state.lock("initiate_nat_traversal_round");
         let now = conn.runtime.now();
-        conn.inner.initiate_nat_traversal_round(now, force_close_previous_paths)
+        conn.inner
+            .initiate_nat_traversal_round(now, force_close_previous_paths)
     }
 }
 
