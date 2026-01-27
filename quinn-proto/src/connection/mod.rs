@@ -2345,6 +2345,21 @@ impl Connection {
         )
     }
 
+    /// Close the connection immediately, initiated by an API call.
+    ///
+    /// This will not produce a [`ConnectionLost`] event propagated by the
+    /// [`Connection::poll`] call, because the API call already propagated the error to the
+    /// user.
+    ///
+    /// Not to be used when entering immediate close due to an internal state change based
+    /// on an event. See [`State::move_to_closed_local`] for details.
+    ///
+    /// This initiates immediate close from
+    /// <https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2>, moving to the closed
+    /// state.
+    ///
+    /// [`ConnectionLost`]: crate::Event::ConnectionLost
+    /// [`Connection::poll`]: super::Connection::poll
     fn close_inner(&mut self, now: Instant, reason: Close) {
         let was_closed = self.state.is_closed();
         if !was_closed {
@@ -4048,17 +4063,38 @@ impl Connection {
                 .stop(Timer::Conn(ConnTimer::Close), self.qlog.with_time(now));
         }
 
-        // Transmit CONNECTION_CLOSE if necessary
+        // Transmit CONNECTION_CLOSE if necessary.
+        //
+        // If we received a valid packet and we are in the closed state we should respond
+        // with a CONNECTION_CLOSE frame.
+        // TODO: This SHOULD be rate-limited according to §10.2.1 of QUIC-TRANSPORT, but
+        //    that does not yet happen. This is triggered by each received packet.
         if matches!(self.state.as_type(), StateType::Closed) {
-            // If there is no PathData for this PathId the packet was for a brand new
-            // path. It was a valid packet however, so the remote is valid and we want to
-            // send CONNECTION_CLOSE.
-            let path_remote = self
+            // From https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2.1-7
+            //
+            // While in the closing state we must either:
+            // - discard packets coming from an un-validated remote OR
+            // - ensure we do not send more than 3 times the received data
+            //
+            // Doing the 2nd would mean we would be able to send CONNECTION_CLOSE to a peer
+            // who was (involuntary) migrated just at the time we initiated immediate
+            // close. It is a lot more work though. So while we would like to do this for
+            // now we only do 1.
+            //
+            // Another shortcoming of the current implementation is that when we have a
+            // previous PathData which is validated and the remote matches that path, we
+            // should schedule CONNECTION_CLOSE on that path. However currently we can not
+            // schedule such a packet. We should also fix this some day. This makes us
+            // vulnerable to an attacker faking a migration at the right time and then we'd
+            // be unable to send the CONNECTION_CLOSE to the real remote.
+            if self
                 .paths
                 .get(&path_id)
-                .map(|p| p.data.network_path)
-                .unwrap_or(network_path);
-            self.connection_close_pending = network_path == path_remote;
+                .map(|p| p.data.validated && p.data.network_path == network_path)
+                .unwrap_or(false)
+            {
+                self.connection_close_pending = true;
+            }
         }
     }
 
