@@ -2012,14 +2012,6 @@ impl Connection {
             },
         );
 
-        let next_challenge = path.earliest_expiring_challenge()?;
-
-        self.timers.set(
-            Timer::PerPath(path_id, PathTimer::PathChallengeLost),
-            next_challenge,
-            self.qlog.with_time(now),
-        );
-
         let size = buf.len();
 
         self.stats.udp_tx.on_sent(1, size);
