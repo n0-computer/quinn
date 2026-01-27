@@ -6566,27 +6566,34 @@ impl Connection {
         self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
 
         for path_id in prev_round_path_ids {
-            let Some(path) = self.path(path_id) else {
+            if self.abandoned_paths.contains(&path_id) {
+                // Path is already closed
+                continue;
+            }
+
+            let Some(path) = self.path_mut(path_id) else {
                 continue;
             };
             let ip = path.network_path.remote.ip();
             let port = path.network_path.remote.port();
 
-            // We only close paths that aren't validated (thus are working) that we opened
-            // in a previous round.
-            // And we only close paths that we don't want to probe anyways.
-            if !addresses_to_probe
+            let in_current_round = addresses_to_probe
                 .iter()
-                .any(|(_, probe)| *probe == (ip, port))
-                && !path.validated
-                && !self.abandoned_paths.contains(&path_id)
-            {
+                .any(|(_, probe)| *probe == (ip, port));
+
+            if !in_current_round && !path.validated {
+                // We only close paths that aren't validated (thus are working) that we opened
+                // in a previous round.
+                // And we only close paths that we don't want to probe anyways.
                 trace!(%path_id, "closing path from previous round");
                 let _ = self.close_path(
                     now,
                     path_id,
                     TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
                 );
+            } else if in_current_round && !path.validated {
+                // Re-trigger opening the path for this round
+                path.send_new_challenge = true;
             }
         }
 
