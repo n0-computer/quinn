@@ -6543,12 +6543,13 @@ impl Connection {
     /// frames, and initiating probing of the known remote addresses. When a new round is
     /// initiated, the previous one is cancelled, and paths that have not been opened are closed.
     ///
+    /// Set `force_close_previous_paths` after a network change to close stale paths.
+    ///
     /// Returns the server addresses that are now being probed.
-    /// If addresses fail due to spurious errors, these might succeed later and not be returned in
-    /// this set.
     pub fn initiate_nat_traversal_round(
         &mut self,
         now: Instant,
+        force_close_previous_paths: bool,
     ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
         if self.state.is_closed() {
             return Err(iroh_hp::Error::Closed);
@@ -6572,16 +6573,17 @@ impl Connection {
             let ip = path.network_path.remote.ip();
             let port = path.network_path.remote.port();
 
-            // We only close paths that aren't validated (thus are working) that we opened
-            // in a previous round.
-            // And we only close paths that we don't want to probe anyways.
-            if !addresses_to_probe
+            // Close non-validated paths from previous round. With force_close, close all;
+            // otherwise only close paths not in the current probe set.
+            let dominated_by_probe = addresses_to_probe
                 .iter()
-                .any(|(_, probe)| *probe == (ip, port))
-                && !path.validated
+                .any(|(_, probe)| *probe == (ip, port));
+            let should_close = !path.validated
                 && !self.abandoned_paths.contains(&path_id)
-            {
-                trace!(%path_id, "closing path from previous round");
+                && (force_close_previous_paths || !dominated_by_probe);
+
+            if should_close {
+                trace!(%path_id, %force_close_previous_paths, "closing path from previous round");
                 let _ = self.close_path(
                     now,
                     path_id,

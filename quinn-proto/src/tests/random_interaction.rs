@@ -152,7 +152,7 @@ impl TestOp {
                     Side::Server => server,
                 };
                 let conn = state.conn(pair)?;
-                let addrs = conn.initiate_nat_traversal_round(now).ok()?;
+                let addrs = conn.initiate_nat_traversal_round(now, false).ok()?;
                 trace!(?addrs, "initiating NAT Traversal");
             }
         }

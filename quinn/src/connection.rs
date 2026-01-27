@@ -959,11 +959,16 @@ impl Connection {
     /// frames, and initiating probing of the known remote addresses. When a new round is
     /// initiated, the previous one is cancelled, and paths that have not been opened are closed.
     ///
+    /// Set `force_close_previous_paths` after a network change to close stale paths.
+    ///
     /// Returns the server addresses that are now being probed.
-    pub fn initiate_nat_traversal_round(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    pub fn initiate_nat_traversal_round(
+        &self,
+        force_close_previous_paths: bool,
+    ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
         let mut conn = self.0.state.lock("initiate_nat_traversal_round");
         let now = conn.runtime.now();
-        conn.inner.initiate_nat_traversal_round(now)
+        conn.inner.initiate_nat_traversal_round(now, force_close_previous_paths)
     }
 }
 
