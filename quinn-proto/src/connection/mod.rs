@@ -6566,8 +6566,8 @@ impl Connection {
 
         self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
 
-        // When force_close is set, close all non-validated paths (for network changes).
-        // Otherwise, only close paths from the previous round that aren't in the probe set.
+        // When force_close is set (network change), check all paths.
+        // Otherwise, only check paths from the previous round.
         let paths_to_check: Vec<PathId> = if force_close_previous_paths {
             self.paths()
         } else {
@@ -6575,25 +6575,35 @@ impl Connection {
         };
 
         for path_id in paths_to_check {
-            // Never close PathId(0) - it's the initial path
+            // Never touch PathId(0) - it's the initial path (often relay)
             if path_id == PathId::ZERO {
                 continue;
             }
-            let Some(path) = self.path(path_id) else {
+            if self.abandoned_paths.contains(&path_id) {
+                continue;
+            }
+            let Some(path) = self.path_mut(path_id) else {
                 continue;
             };
             let ip = path.network_path.remote.ip();
             let port = path.network_path.remote.port();
 
-            let dominated_by_probe = addresses_to_probe
+            let in_current_round = addresses_to_probe
                 .iter()
                 .any(|(_, probe)| *probe == (ip, port));
-            let should_close = !path.validated
-                && !self.abandoned_paths.contains(&path_id)
-                && (force_close_previous_paths || !dominated_by_probe);
 
-            if should_close {
-                trace!(%path_id, %force_close_previous_paths, "closing path");
+            if force_close_previous_paths && path.validated {
+                // Network change: re-validate existing paths by sending PATH_CHALLENGE.
+                // Don't close them - they might still work from the new network.
+                trace!(%path_id, "re-validating path after network change");
+                path.send_new_challenge = true;
+            } else if !path.validated && in_current_round {
+                // Unvalidated path that's in the current probe set: re-trigger challenge
+                trace!(%path_id, "re-triggering challenge for path in current round");
+                path.send_new_challenge = true;
+            } else if !path.validated && !in_current_round {
+                // Unvalidated path not in current probe set: close it
+                trace!(%path_id, "closing unvalidated path from previous round");
                 let _ = self.close_path(
                     now,
                     path_id,
