@@ -65,7 +65,7 @@ smol = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tracing =  { workspace = true }
 tokio = { workspace = true }
-udp = { package = "iroh-quinn-udp", path = "../quinn-udp", version = "0.7", default-features = false, features = ["tracing"] }
+udp = { package = "iroh-quinn-udp", path = "../quinn-udp", version = "0.8", default-features = false, features = ["tracing"] }
 
 # Fix minimal dependencies for indirect deps
 async-global-executor = { workspace = true, optional = true }

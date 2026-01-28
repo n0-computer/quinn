@@ -1508,7 +1508,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-quinn-udp"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cfg_aliases",
  "criterion",
@@ -1517,7 +1517,7 @@ dependencies = [
  "socket2",
  "tokio",
  "tracing",
- "windows-sys 0.61.1",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
