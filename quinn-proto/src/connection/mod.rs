@@ -6575,10 +6575,6 @@ impl Connection {
         };
 
         for path_id in paths_to_check {
-            // Never touch PathId(0) - it's the initial path (often relay)
-            if path_id == PathId::ZERO {
-                continue;
-            }
             if self.abandoned_paths.contains(&path_id) {
                 continue;
             }
