@@ -6543,12 +6543,13 @@ impl Connection {
     /// frames, and initiating probing of the known remote addresses. When a new round is
     /// initiated, the previous one is cancelled, and paths that have not been opened are closed.
     ///
+    /// Set `force_close_previous_paths` after a network change to close stale paths.
+    ///
     /// Returns the server addresses that are now being probed.
-    /// If addresses fail due to spurious errors, these might succeed later and not be returned in
-    /// this set.
     pub fn initiate_nat_traversal_round(
         &mut self,
         now: Instant,
+        force_close_previous_paths: bool,
     ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
         if self.state.is_closed() {
             return Err(iroh_hp::Error::Closed);
@@ -6565,23 +6566,40 @@ impl Connection {
 
         self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
 
-        for path_id in prev_round_path_ids {
-            let Some(path) = self.path(path_id) else {
+        // When force_close is set (network change), check all paths.
+        // Otherwise, only check paths from the previous round.
+        let paths_to_check: Vec<PathId> = if force_close_previous_paths {
+            self.paths()
+        } else {
+            prev_round_path_ids
+        };
+
+        for path_id in paths_to_check {
+            if self.abandoned_paths.contains(&path_id) {
+                continue;
+            }
+            let Some(path) = self.path_mut(path_id) else {
                 continue;
             };
             let ip = path.network_path.remote.ip();
             let port = path.network_path.remote.port();
 
-            // We only close paths that aren't validated (thus are working) that we opened
-            // in a previous round.
-            // And we only close paths that we don't want to probe anyways.
-            if !addresses_to_probe
+            let in_current_round = addresses_to_probe
                 .iter()
-                .any(|(_, probe)| *probe == (ip, port))
-                && !path.validated
-                && !self.abandoned_paths.contains(&path_id)
-            {
-                trace!(%path_id, "closing path from previous round");
+                .any(|(_, probe)| *probe == (ip, port));
+
+            if force_close_previous_paths && path.validated {
+                // Network change: re-validate existing paths by sending PATH_CHALLENGE.
+                // Don't close them - they might still work from the new network.
+                trace!(%path_id, "re-validating path after network change");
+                path.send_new_challenge = true;
+            } else if !path.validated && in_current_round {
+                // Unvalidated path that's in the current probe set: re-trigger challenge
+                trace!(%path_id, "re-triggering challenge for path in current round");
+                path.send_new_challenge = true;
+            } else if !path.validated && !in_current_round {
+                // Unvalidated path not in current probe set: close it
+                trace!(%path_id, "closing unvalidated path from previous round");
                 let _ = self.close_path(
                     now,
                     path_id,
