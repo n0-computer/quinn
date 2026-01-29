@@ -240,7 +240,7 @@ impl UdpSocketState {
     /// This is 1 if the platform doesn't support GSO. Subject to change if errors are detected
     /// while using GSO.
     #[inline]
-    pub fn max_gso_segments(&self) -> NonZeroUsize {
+    pub fn max_gso_segments(&self, _destination: SocketAddr) -> NonZeroUsize {
         self.max_gso_segments
             .load(Ordering::Relaxed)
             .try_into()
@@ -353,13 +353,11 @@ fn send(
                 if let Some(libc::EIO) | Some(libc::EINVAL) = e.raw_os_error() {
                     // Prevent new transmits from being scheduled using GSO. Existing GSO transmits
                     // may already be in the pipeline, so we need to tolerate additional failures.
-                    if state.max_gso_segments().get() > 1 {
+                    if state.max_gso_segments.load(Ordering::Relaxed) > 1 {
                         crate::log::info!(
                             "`libc::sendmsg` failed with {e}; halting segmentation offload"
                         );
-                        state
-                            .max_gso_segments
-                            .store(1, std::sync::atomic::Ordering::Relaxed);
+                        state.max_gso_segments.store(1, Ordering::Relaxed);
                     }
                 }
 

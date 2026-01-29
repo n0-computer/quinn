@@ -1,5 +1,7 @@
 use std::{
     io::{self, IoSliceMut},
+    net::SocketAddr,
+    num::NonZeroUsize,
     sync::Mutex,
     time::Instant,
 };
@@ -78,8 +80,8 @@ impl UdpSocketState {
     }
 
     #[inline]
-    pub fn max_gso_segments(&self) -> usize {
-        1
+    pub fn max_gso_segments(&self, _destination: SocketAddr) -> NonZeroUsize {
+        NonZeroUsize::MIN
     }
 
     #[inline]

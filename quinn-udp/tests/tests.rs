@@ -190,10 +190,10 @@ fn gso() {
     let recv = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0))
         .or_else(|_| UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
         .unwrap();
+    let dst_addr = recv.local_addr().unwrap();
     let max_segments = UdpSocketState::new((&send).into())
         .unwrap()
-        .max_gso_segments();
-    let dst_addr = recv.local_addr().unwrap();
+        .max_gso_segments(dst_addr);
     const SEGMENT_SIZE: usize = 128;
     let msg = vec![0xAB; SEGMENT_SIZE * max_segments.get()];
     test_send_recv(
@@ -293,7 +293,7 @@ fn test_send_recv(send: &Socket, recv: &Socket, transmit: Transmit<'_>) {
         Ok(_) => (),
         Err(err) if err.kind() == io::ErrorKind::InvalidInput && cfg!(target_os = "windows") => {
             // GSO can fail on windows. It should have disabled GSO now.
-            assert_eq!(send_state.max_gso_segments().get(), 1);
+            assert_eq!(send_state.max_gso_segments(transmit.destination).get(), 1);
             return;
         }
         Err(err) => panic!("send failed: {err:?}"),

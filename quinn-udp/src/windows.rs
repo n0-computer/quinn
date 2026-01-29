@@ -1,7 +1,7 @@
 use std::{
     io::{self, IoSliceMut},
     mem,
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     num::NonZeroUsize,
     os::windows::io::AsRawSocket,
     ptr,
@@ -287,7 +287,7 @@ impl UdpSocketState {
     /// This is 1 if the platform doesn't support GSO. Subject to change if errors are detected
     /// while using GSO.
     #[inline]
-    pub fn max_gso_segments(&self) -> NonZeroUsize {
+    pub fn max_gso_segments(&self, _destination: SocketAddr) -> NonZeroUsize {
         self.max_gso_segments
             .load(Ordering::Relaxed)
             .try_into()
@@ -430,7 +430,7 @@ fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>)
                 // GSO send failed. Some older versions of Windows report GSO support but
                 // fail on sending. Disable GSO for future sends. Existing GSO transmits may
                 // already be in the pipeline, so we need to tolerate additional failures.
-                if state.max_gso_segments().get() > 1 {
+                if state.max_gso_segments.load(Ordering::Relaxed) > 1 {
                     crate::log::info!("WSASendMsg failed with {err}; halting segmentation offload");
                     state.max_gso_segments.store(1, Ordering::Relaxed);
                 }
