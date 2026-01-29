@@ -1388,21 +1388,18 @@ impl State {
         let now = self.runtime.now();
         let mut transmits = 0;
 
-        let max_datagrams = self
-            .sender
-            .max_transmit_segments()
-            .min(MAX_TRANSMIT_SEGMENTS);
-
         loop {
             // Retry the last transmit, or get a new one.
             let t = match self.buffered_transmit.take() {
                 Some(t) => t,
                 None => {
                     self.send_buffer.clear();
-                    match self
-                        .inner
-                        .poll_transmit(now, max_datagrams, &mut self.send_buffer)
-                    {
+                    let transmit = self.inner.poll_transmit(
+                        now,
+                        |dest| self.sender.max_transmit_segments(dest).min(MAX_TRANSMIT_SEGMENTS),
+                        &mut self.send_buffer,
+                    );
+                    match transmit {
                         Some(t) => {
                             transmits += match t.segment_size {
                                 None => 1,

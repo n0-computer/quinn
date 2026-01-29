@@ -542,7 +542,7 @@ impl TestEndpoint {
                 while let Some(event) = conn.poll_endpoint_events() {
                     endpoint_events.push((*ch, event));
                 }
-                while let Some(transmit) = conn.poll_transmit(now, MAX_DATAGRAMS, &mut buf) {
+                while let Some(transmit) = conn.poll_transmit(now, |_| MAX_DATAGRAMS, &mut buf) {
                     let size = transmit.size;
                     self.outbound.extend(split_transmit(transmit, &buf[..size]));
                     buf.clear();
