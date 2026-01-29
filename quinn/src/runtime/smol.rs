@@ -57,7 +57,7 @@ impl UdpSocket {
 }
 
 impl UdpSenderHelperSocket for UdpSocket {
-    fn max_transmit_segments(&self, destination: std::net::SocketAddr) -> NonZeroUsize {
+    fn max_transmit_segments(&self, destination: &std::net::SocketAddr) -> NonZeroUsize {
         self.inner.max_gso_segments(destination)
     }
 

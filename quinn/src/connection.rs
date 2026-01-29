@@ -1396,7 +1396,7 @@ impl State {
                     self.send_buffer.clear();
                     let transmit = self.inner.poll_transmit(
                         now,
-                        |dest| self.sender.max_transmit_segments(dest).min(MAX_TRANSMIT_SEGMENTS),
+                        |dest| self.sender.max_transmit_segments(&dest).min(MAX_TRANSMIT_SEGMENTS),
                         &mut self.send_buffer,
                     );
                     match transmit {

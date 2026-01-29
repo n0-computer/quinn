@@ -287,7 +287,7 @@ impl UdpSocketState {
     /// This is 1 if the platform doesn't support GSO. Subject to change if errors are detected
     /// while using GSO.
     #[inline]
-    pub fn max_gso_segments(&self, _destination: SocketAddr) -> NonZeroUsize {
+    pub fn max_gso_segments(&self, _destination: &SocketAddr) -> NonZeroUsize {
         self.max_gso_segments
             .load(Ordering::Relaxed)
             .try_into()

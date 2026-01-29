@@ -80,7 +80,7 @@ impl UdpSocketState {
     }
 
     #[inline]
-    pub fn max_gso_segments(&self, _destination: SocketAddr) -> NonZeroUsize {
+    pub fn max_gso_segments(&self, _destination: &SocketAddr) -> NonZeroUsize {
         NonZeroUsize::MIN
     }
 

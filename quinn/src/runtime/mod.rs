@@ -103,7 +103,7 @@ pub trait UdpSender: Send + Sync + Debug + 'static {
     /// Maximum number of datagrams that a [`Transmit`] may encode.
     ///
     /// The implementation may return a value specific to the given destination.
-    fn max_transmit_segments(&self, destination: SocketAddr) -> NonZeroUsize {
+    fn max_transmit_segments(&self, destination: &SocketAddr) -> NonZeroUsize {
         let _ = destination;
         NonZeroUsize::MIN
     }
@@ -199,7 +199,7 @@ where
         }
     }
 
-    fn max_transmit_segments(&self, destination: SocketAddr) -> NonZeroUsize {
+    fn max_transmit_segments(&self, destination: &SocketAddr) -> NonZeroUsize {
         self.socket.max_transmit_segments(destination)
     }
 }
@@ -216,7 +216,7 @@ trait UdpSenderHelperSocket: Send + Sync + 'static {
     fn try_send(&self, transmit: &udp::Transmit<'_>) -> io::Result<()>;
 
     /// See [`UdpSender::max_transmit_segments`].
-    fn max_transmit_segments(&self, destination: SocketAddr) -> NonZeroUsize;
+    fn max_transmit_segments(&self, destination: &SocketAddr) -> NonZeroUsize;
 }
 
 /// Automatically select an appropriate runtime from those enabled at compile time
