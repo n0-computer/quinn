@@ -150,9 +150,7 @@ pub struct ReceivedDatagram {
 }
 
 /// Maximum number of datagrams to store inline without heap allocation
-///
-/// This is set to accommodate a single GRO batch (up to 64 segments on Linux).
-const DATAGRAM_VEC_INLINE_CAP: usize = 64;
+const DATAGRAM_VEC_INLINE_CAP: usize = 4;
 
 /// A collection of received datagrams
 ///
