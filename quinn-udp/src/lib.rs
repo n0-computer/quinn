@@ -29,7 +29,6 @@
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
-use bytes::BytesMut;
 use smallvec::SmallVec;
 #[cfg(unix)]
 use std::os::unix::io::AsFd;
@@ -141,7 +140,7 @@ impl Default for RecvMeta {
 #[derive(Debug)]
 pub struct ReceivedDatagram {
     /// The payload of the datagram
-    pub data: BytesMut,
+    pub data: Vec<u8>,
     /// The source address of the datagram
     pub remote: SocketAddr,
     /// The destination IP address the datagram was sent to

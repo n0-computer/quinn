@@ -8,8 +8,6 @@ use std::{
     time::Instant,
 };
 
-use bytes::BytesMut;
-
 use async_io::Async;
 use async_io::Timer;
 
@@ -137,7 +135,7 @@ impl AsyncUdpSocket for UdpSocket {
                     let mut offset = 0;
                     while offset < meta.len {
                         let stride = meta.stride.min(meta.len - offset);
-                        let data = BytesMut::from(&buf[offset..offset + stride]);
+                        let data = buf[offset..offset + stride].to_vec();
                         result.push(udp::ReceivedDatagram {
                             data,
                             remote: meta.addr,

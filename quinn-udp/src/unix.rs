@@ -15,8 +15,6 @@ use std::{
 
 use socket2::SockRef;
 
-use bytes::BytesMut;
-
 use super::{
     EcnCodepoint, IO_ERROR_LOG_INTERVAL, RecvMeta, ReceivedDatagram, ReceivedDatagrams, Transmit,
     UdpSockRef, cmsg, log_sendmsg_error,
@@ -240,8 +238,7 @@ impl UdpSocketState {
     /// Receives datagrams from the socket, returning owned data.
     ///
     /// This is a higher-level API that handles buffer management and GRO splitting
-    /// internally. Each datagram in the returned collection contains its own `BytesMut`
-    /// buffer suitable for in-place decryption.
+    /// internally. Each datagram in the returned collection contains its own buffer.
     ///
     /// # Arguments
     ///
@@ -279,7 +276,7 @@ impl UdpSocketState {
             let mut offset = 0;
             while offset < meta.len {
                 let stride = meta.stride.min(meta.len - offset);
-                let data = BytesMut::from(&buf[offset..offset + stride]);
+                let data = buf[offset..offset + stride].to_vec();
                 result.push(ReceivedDatagram {
                     data,
                     remote: meta.addr,

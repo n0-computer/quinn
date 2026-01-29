@@ -831,7 +831,7 @@ impl RecvState {
                             now,
                             addresses,
                             datagram.ecn.map(proto_ecn),
-                            datagram.data,
+                            Bytes::from(datagram.data).try_into_mut().expect("freshly created bytes is unique"),
                             &mut response_buffer,
                         ) {
                             Some(DatagramEvent::NewConnection(incoming)) => {

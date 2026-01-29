@@ -65,8 +65,7 @@ pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
     /// Receive UDP datagrams as owned data, or register to be woken if receiving may succeed
     ///
     /// This is a higher-level API that handles buffer management and GRO splitting internally.
-    /// Each datagram in the returned collection contains its own `BytesMut` buffer suitable
-    /// for in-place decryption.
+    /// Each datagram in the returned collection contains its own buffer.
     fn poll_recv_datagrams(
         &mut self,
         cx: &mut Context<'_>,

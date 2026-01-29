@@ -15,8 +15,6 @@ use std::{
 use libc::{c_int, c_uint};
 use windows_sys::Win32::Networking::WinSock;
 
-use bytes::BytesMut;
-
 use crate::{
     EcnCodepoint, IO_ERROR_LOG_INTERVAL, RecvMeta, ReceivedDatagram, ReceivedDatagrams, Transmit,
     UdpSockRef,
@@ -287,8 +285,7 @@ impl UdpSocketState {
     /// Receives datagrams from the socket, returning owned data.
     ///
     /// This is a higher-level API that handles buffer management and GRO splitting
-    /// internally. Each datagram in the returned collection contains its own `BytesMut`
-    /// buffer suitable for in-place decryption.
+    /// internally. Each datagram in the returned collection contains its own buffer.
     pub fn recv_datagrams(
         &self,
         socket: UdpSockRef<'_>,
@@ -311,7 +308,7 @@ impl UdpSocketState {
             let mut offset = 0;
             while offset < meta.len {
                 let stride = meta.stride.min(meta.len - offset);
-                let data = BytesMut::from(&recv_buf[offset..offset + stride]);
+                let data = recv_buf[offset..offset + stride].to_vec();
                 result.push(ReceivedDatagram {
                     data,
                     remote: meta.addr,

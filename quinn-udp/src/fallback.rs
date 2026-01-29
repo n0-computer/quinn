@@ -5,8 +5,6 @@ use std::{
     time::Instant,
 };
 
-use bytes::BytesMut;
-
 use super::{
     IO_ERROR_LOG_INTERVAL, RecvMeta, ReceivedDatagram, ReceivedDatagrams, Transmit, UdpSockRef,
     log_sendmsg_error,
@@ -86,8 +84,7 @@ impl UdpSocketState {
     /// Receives datagrams from the socket, returning owned data.
     ///
     /// This is a higher-level API that handles buffer management internally.
-    /// Each datagram in the returned collection contains its own `BytesMut`
-    /// buffer suitable for in-place decryption.
+    /// Each datagram in the returned collection contains its own buffer.
     pub fn recv_datagrams(
         &self,
         socket: UdpSockRef<'_>,
@@ -101,7 +98,7 @@ impl UdpSocketState {
 
         let mut result = ReceivedDatagrams::new();
         for meta in metas.iter().take(msg_count) {
-            let data = BytesMut::from(&recv_buf[..meta.len]);
+            let data = recv_buf[..meta.len].to_vec();
             result.push(ReceivedDatagram {
                 data,
                 remote: meta.addr,
