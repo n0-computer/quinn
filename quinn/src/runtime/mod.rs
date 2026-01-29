@@ -10,7 +10,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use udp::{RecvMeta, Transmit};
+use udp::{RecvMeta, ReceivedDatagrams, Transmit};
 
 use crate::Instant;
 
@@ -61,6 +61,16 @@ pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
         bufs: &mut [IoSliceMut<'_>],
         meta: &mut [RecvMeta],
     ) -> Poll<io::Result<usize>>;
+
+    /// Receive UDP datagrams as owned data, or register to be woken if receiving may succeed
+    ///
+    /// This is a higher-level API that handles buffer management and GRO splitting internally.
+    /// Each datagram in the returned collection contains its own `BytesMut` buffer suitable
+    /// for in-place decryption.
+    fn poll_recv_datagrams(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<ReceivedDatagrams>>;
 
     /// Look up the local IP address and port used by this socket
     fn local_addr(&self) -> io::Result<SocketAddr>;

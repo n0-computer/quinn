@@ -21,8 +21,10 @@ log = ["dep:log"]
 fast-apple-datapath = []
 
 [dependencies]
+bytes = { workspace = true }
 libc = "0.2.175"
 log = { workspace = true, optional = true }
+smallvec = { workspace = true }
 tracing = { workspace = true, optional = true }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]

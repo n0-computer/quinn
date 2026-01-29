@@ -1510,10 +1510,12 @@ dependencies = [
 name = "iroh-quinn-udp"
 version = "0.8.0"
 dependencies = [
+ "bytes",
  "cfg_aliases",
  "criterion",
  "libc",
  "log",
+ "smallvec",
  "socket2",
  "tokio",
  "tracing",

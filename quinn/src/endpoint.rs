@@ -2,10 +2,9 @@ use std::{
     collections::VecDeque,
     fmt,
     future::Future,
-    io::{self, IoSliceMut},
+    io,
     mem,
     net::{SocketAddr, SocketAddrV6},
-    num::NonZeroUsize,
     pin::Pin,
     str,
     sync::{Arc, Mutex},
@@ -23,7 +22,7 @@ use crate::{
     runtime::{AsyncUdpSocket, Runtime, UdpSender},
     udp_transmit,
 };
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use pin_project_lite::pin_project;
 use proto::{
     self as proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent,
@@ -38,7 +37,6 @@ use rustc_hash::FxHashMap;
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::sync::{Notify, futures::Notified, mpsc};
 use tracing::{Instrument, Span};
-use udp::{BATCH_SIZE, RecvMeta};
 
 use crate::{
     ConnectionEvent, EndpointConfig, IO_LOOP_BOUND, RECV_TIME_BOUND, VarInt,
@@ -731,7 +729,7 @@ impl EndpointRef {
         runtime: Arc<dyn Runtime>,
     ) -> Self {
         let (sender, events) = mpsc::unbounded_channel();
-        let recv_state = RecvState::new(sender, socket.max_receive_segments(), &inner);
+        let recv_state = RecvState::new(sender);
         let sender = socket.create_sender();
         Self(Arc::new(EndpointInner {
             shared: Shared {
@@ -791,22 +789,13 @@ impl std::ops::Deref for EndpointRef {
 struct RecvState {
     incoming: VecDeque<proto::Incoming>,
     connections: ConnectionSet,
-    recv_buf: Box<[u8]>,
     recv_limiter: WorkLimiter,
 }
 
 impl RecvState {
     fn new(
         sender: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>,
-        max_receive_segments: NonZeroUsize,
-        endpoint: &proto::Endpoint,
     ) -> Self {
-        let recv_buf = vec![
-            0;
-            endpoint.config().get_max_udp_payload_size().min(64 * 1024) as usize
-                * max_receive_segments.get()
-                * BATCH_SIZE
-        ];
         Self {
             connections: ConnectionSet {
                 senders: FxHashMap::default(),
@@ -814,7 +803,6 @@ impl RecvState {
                 close: None,
             },
             incoming: VecDeque::new(),
-            recv_buf: recv_buf.into(),
             recv_limiter: WorkLimiter::new(RECV_TIME_BOUND),
         }
     }
@@ -829,62 +817,46 @@ impl RecvState {
         now: Instant,
     ) -> Result<PollProgress, io::Error> {
         let mut received_connection_packet = false;
-        let mut metas = [RecvMeta::default(); BATCH_SIZE];
-        let mut iovs: [IoSliceMut<'_>; BATCH_SIZE] = {
-            let mut bufs = self
-                .recv_buf
-                .chunks_mut(self.recv_buf.len() / BATCH_SIZE)
-                .map(IoSliceMut::new);
-
-            // expect() safe as self.recv_buf is chunked into BATCH_SIZE items
-            // and iovs will be of size BATCH_SIZE, thus from_fn is called
-            // exactly BATCH_SIZE times.
-            std::array::from_fn(|_| bufs.next().expect("BATCH_SIZE elements"))
-        };
         loop {
-            match socket.poll_recv(cx, &mut iovs, &mut metas) {
-                Poll::Ready(Ok(msgs)) => {
-                    self.recv_limiter.record_work(msgs);
-                    for (meta, buf) in metas.iter().zip(iovs.iter()).take(msgs) {
-                        let mut data: BytesMut = buf[0..meta.len].into();
-                        while !data.is_empty() {
-                            let buf = data.split_to(meta.stride.min(data.len()));
-                            let mut response_buffer = Vec::new();
-                            let addresses = FourTuple {
-                                remote: meta.addr,
-                                local_ip: meta.dst_ip,
-                            };
-                            match endpoint.handle(
-                                now,
-                                addresses,
-                                meta.ecn.map(proto_ecn),
-                                buf,
-                                &mut response_buffer,
-                            ) {
-                                Some(DatagramEvent::NewConnection(incoming)) => {
-                                    if self.connections.close.is_none() {
-                                        self.incoming.push_back(incoming);
-                                    } else {
-                                        let transmit =
-                                            endpoint.refuse(incoming, &mut response_buffer);
-                                        respond(transmit, &response_buffer, sender);
-                                    }
-                                }
-                                Some(DatagramEvent::ConnectionEvent(handle, event)) => {
-                                    // Ignoring errors from dropped connections that haven't yet been cleaned up
-                                    received_connection_packet = true;
-                                    let _ = self
-                                        .connections
-                                        .senders
-                                        .get_mut(&handle)
-                                        .unwrap()
-                                        .send(ConnectionEvent::Proto(event));
-                                }
-                                Some(DatagramEvent::Response(transmit)) => {
+            match socket.poll_recv_datagrams(cx) {
+                Poll::Ready(Ok(datagrams)) => {
+                    self.recv_limiter.record_work(datagrams.len());
+                    for datagram in datagrams {
+                        let mut response_buffer = Vec::new();
+                        let addresses = FourTuple {
+                            remote: datagram.remote,
+                            local_ip: datagram.local_ip,
+                        };
+                        match endpoint.handle(
+                            now,
+                            addresses,
+                            datagram.ecn.map(proto_ecn),
+                            datagram.data,
+                            &mut response_buffer,
+                        ) {
+                            Some(DatagramEvent::NewConnection(incoming)) => {
+                                if self.connections.close.is_none() {
+                                    self.incoming.push_back(incoming);
+                                } else {
+                                    let transmit =
+                                        endpoint.refuse(incoming, &mut response_buffer);
                                     respond(transmit, &response_buffer, sender);
                                 }
-                                None => {}
                             }
+                            Some(DatagramEvent::ConnectionEvent(handle, event)) => {
+                                // Ignoring errors from dropped connections that haven't yet been cleaned up
+                                received_connection_packet = true;
+                                let _ = self
+                                    .connections
+                                    .senders
+                                    .get_mut(&handle)
+                                    .unwrap()
+                                    .send(ConnectionEvent::Proto(event));
+                            }
+                            Some(DatagramEvent::Response(transmit)) => {
+                                respond(transmit, &response_buffer, sender);
+                            }
+                            None => {}
                         }
                     }
                 }
@@ -918,7 +890,6 @@ impl fmt::Debug for RecvState {
         f.debug_struct("RecvState")
             .field("incoming", &self.incoming)
             .field("connections", &self.connections)
-            // recv_buf too large
             .field("recv_limiter", &self.recv_limiter)
             .finish_non_exhaustive()
     }

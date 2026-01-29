@@ -1,11 +1,14 @@
 use std::{
     future::Future,
+    io::{self, IoSliceMut},
     num::NonZeroUsize,
     pin::Pin,
-    task::{Context, Poll},
+    sync::Arc,
+    task::{Context, Poll, ready},
     time::Instant,
 };
-use std::{io, sync::Arc, task::ready};
+
+use bytes::BytesMut;
 
 use async_io::Async;
 use async_io::Timer;
@@ -41,22 +44,35 @@ impl AsyncTimer for Timer {
     }
 }
 
+/// The parts of a UDP socket needed for sending
+///
+/// This is separated from UdpSocket so that senders can clone just what they need
+/// without carrying the receive buffer.
 #[derive(Debug, Clone)]
-struct UdpSocket {
+struct UdpSocketSend {
     io: Arc<Async<std::net::UdpSocket>>,
     inner: Arc<udp::UdpSocketState>,
+}
+
+#[derive(Debug)]
+struct UdpSocket {
+    send: UdpSocketSend,
+    recv_buf: Vec<u8>,
 }
 
 impl UdpSocket {
     fn new(sock: std::net::UdpSocket) -> io::Result<Self> {
         Ok(Self {
-            inner: Arc::new(udp::UdpSocketState::new((&sock).into())?),
-            io: Arc::new(Async::new_nonblocking(sock)?),
+            send: UdpSocketSend {
+                inner: Arc::new(udp::UdpSocketState::new((&sock).into())?),
+                io: Arc::new(Async::new_nonblocking(sock)?),
+            },
+            recv_buf: Vec::new(),
         })
     }
 }
 
-impl UdpSenderHelperSocket for UdpSocket {
+impl UdpSenderHelperSocket for UdpSocketSend {
     fn max_transmit_segments(&self) -> NonZeroUsize {
         self.inner.max_gso_segments()
     }
@@ -68,7 +84,8 @@ impl UdpSenderHelperSocket for UdpSocket {
 
 impl AsyncUdpSocket for UdpSocket {
     fn create_sender(&self) -> Pin<Box<dyn UdpSender>> {
-        Box::pin(UdpSenderHelper::new(self.clone(), |socket: &Self| {
+        let core = self.send.clone();
+        Box::pin(UdpSenderHelper::new(core, |socket: &UdpSocketSend| {
             let socket = socket.clone();
             async move { socket.io.writable().await }
         }))
@@ -81,22 +98,69 @@ impl AsyncUdpSocket for UdpSocket {
         meta: &mut [udp::RecvMeta],
     ) -> Poll<io::Result<usize>> {
         loop {
-            ready!(self.io.poll_readable(cx))?;
-            if let Ok(res) = self.inner.recv((&self.io).into(), bufs, meta) {
+            ready!(self.send.io.poll_readable(cx))?;
+            if let Ok(res) = self.send.inner.recv((&self.send.io).into(), bufs, meta) {
                 return Poll::Ready(Ok(res));
             }
         }
     }
 
+    fn poll_recv_datagrams(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<udp::ReceivedDatagrams>> {
+        // Ensure buffer is sized for GRO coalescing
+        // Use 1500 (typical Ethernet MTU) as max payload size
+        const MAX_PAYLOAD_SIZE: usize = 1500;
+        let gro_segments = self.send.inner.gro_segments().get();
+        let buf_size = MAX_PAYLOAD_SIZE * gro_segments;
+        let total_size = buf_size * udp::BATCH_SIZE;
+        if self.recv_buf.len() < total_size {
+            self.recv_buf.resize(total_size, 0);
+        }
+
+        loop {
+            ready!(self.send.io.poll_readable(cx))?;
+
+            // Prepare IoSliceMut array
+            let mut bufs: [IoSliceMut<'_>; udp::BATCH_SIZE] =
+                std::array::from_fn(|_| IoSliceMut::new(&mut []));
+            for (i, chunk) in self.recv_buf.chunks_mut(buf_size).enumerate().take(udp::BATCH_SIZE) {
+                bufs[i] = IoSliceMut::new(chunk);
+            }
+            let mut metas = [udp::RecvMeta::default(); udp::BATCH_SIZE];
+
+            if let Ok(msg_count) = self.send.inner.recv((&self.send.io).into(), &mut bufs, &mut metas) {
+                // Convert to ReceivedDatagrams, splitting by stride
+                let mut result = udp::ReceivedDatagrams::new();
+                for (meta, buf) in metas.iter().zip(bufs.iter()).take(msg_count) {
+                    let mut offset = 0;
+                    while offset < meta.len {
+                        let stride = meta.stride.min(meta.len - offset);
+                        let data = BytesMut::from(&buf[offset..offset + stride]);
+                        result.push(udp::ReceivedDatagram {
+                            data,
+                            remote: meta.addr,
+                            local_ip: meta.dst_ip,
+                            ecn: meta.ecn,
+                        });
+                        offset += stride;
+                    }
+                }
+                return Poll::Ready(Ok(result));
+            }
+        }
+    }
+
     fn local_addr(&self) -> io::Result<std::net::SocketAddr> {
-        self.io.as_ref().as_ref().local_addr()
+        self.send.io.as_ref().as_ref().local_addr()
     }
 
     fn may_fragment(&self) -> bool {
-        self.inner.may_fragment()
+        self.send.inner.may_fragment()
     }
 
     fn max_receive_segments(&self) -> NonZeroUsize {
-        self.inner.gro_segments()
+        self.send.inner.gro_segments()
     }
 }

@@ -28,6 +28,9 @@
 #![warn(clippy::use_self)]
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+
+use bytes::BytesMut;
+use smallvec::SmallVec;
 #[cfg(unix)]
 use std::os::unix::io::AsFd;
 #[cfg(windows)]
@@ -131,6 +134,77 @@ impl Default for RecvMeta {
             dst_ip: None,
             interface_index: None,
         }
+    }
+}
+
+/// A single received UDP datagram
+#[derive(Debug)]
+pub struct ReceivedDatagram {
+    /// The payload of the datagram
+    pub data: BytesMut,
+    /// The source address of the datagram
+    pub remote: SocketAddr,
+    /// The destination IP address the datagram was sent to
+    pub local_ip: Option<IpAddr>,
+    /// The Explicit Congestion Notification bits
+    pub ecn: Option<EcnCodepoint>,
+}
+
+/// Maximum number of datagrams to store inline without heap allocation
+///
+/// This is set to accommodate a single GRO batch (up to 64 segments on Linux).
+const DATAGRAM_VEC_INLINE_CAP: usize = 64;
+
+/// A collection of received datagrams
+///
+/// This type uses inline storage for small batches to avoid heap allocation
+/// in the common case. It implements [`IntoIterator`] for convenient consumption.
+#[derive(Debug)]
+pub struct ReceivedDatagrams {
+    inner: SmallVec<[ReceivedDatagram; DATAGRAM_VEC_INLINE_CAP]>,
+}
+
+impl ReceivedDatagrams {
+    /// Creates an empty collection
+    pub fn new() -> Self {
+        Self {
+            inner: SmallVec::new(),
+        }
+    }
+
+    /// Adds a datagram to the collection
+    pub fn push(&mut self, datagram: ReceivedDatagram) {
+        self.inner.push(datagram);
+    }
+
+    /// Returns the number of datagrams in the collection
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns `true` if the collection contains no datagrams
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Returns an iterator over the datagrams
+    pub fn iter(&self) -> impl Iterator<Item = &ReceivedDatagram> {
+        self.inner.iter()
+    }
+}
+
+impl Default for ReceivedDatagrams {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl IntoIterator for ReceivedDatagrams {
+    type Item = ReceivedDatagram;
+    type IntoIter = smallvec::IntoIter<[ReceivedDatagram; DATAGRAM_VEC_INLINE_CAP]>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
     }
 }
 
