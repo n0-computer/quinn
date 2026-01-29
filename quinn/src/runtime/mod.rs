@@ -66,10 +66,7 @@ pub trait AsyncUdpSocket: Send + Sync + Debug + 'static {
     ///
     /// This is a higher-level API that handles buffer management and GRO splitting internally.
     /// Each datagram in the returned collection contains its own buffer.
-    fn poll_recv_datagrams(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<ReceivedDatagrams>>;
+    fn poll_recv_datagrams(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<ReceivedDatagrams>>;
 
     /// Look up the local IP address and port used by this socket
     fn local_addr(&self) -> io::Result<SocketAddr>;

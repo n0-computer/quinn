@@ -16,8 +16,7 @@ use std::{
 use socket2::SockRef;
 
 use super::{
-    EcnCodepoint, IO_ERROR_LOG_INTERVAL, RecvMeta, ReceivedDatagram, ReceivedDatagrams, Transmit,
-    UdpSockRef, cmsg, log_sendmsg_error,
+    EcnCodepoint, IO_ERROR_LOG_INTERVAL, RecvMeta, Transmit, UdpSockRef, cmsg, log_sendmsg_error,
 };
 
 // Adapted from https://github.com/apple-oss-distributions/xnu/blob/8d741a5de7ff4191bf97d57b9f54c2f6d4a15585/bsd/sys/socket_private.h
@@ -233,61 +232,6 @@ impl UdpSocketState {
         meta: &mut [RecvMeta],
     ) -> io::Result<usize> {
         recv(socket.0, bufs, meta)
-    }
-
-    /// Receives datagrams from the socket, returning owned data.
-    ///
-    /// This is a higher-level API that handles buffer management and GRO splitting
-    /// internally. Each datagram in the returned collection contains its own buffer.
-    ///
-    /// # Arguments
-    ///
-    /// * `socket` - The UDP socket to receive from
-    /// * `max_payload_size` - Maximum expected UDP payload size (typically 65535 or less)
-    ///
-    /// # Returns
-    ///
-    /// A collection of received datagrams, or an error if the receive failed.
-    pub fn recv_datagrams(
-        &self,
-        socket: UdpSockRef<'_>,
-        max_payload_size: usize,
-    ) -> io::Result<ReceivedDatagrams> {
-        // Allocate buffer sized for GRO coalescing
-        let gro_segments = self.gro_segments.get();
-        let buf_size = max_payload_size * gro_segments;
-        let mut recv_buf = vec![0u8; buf_size * BATCH_SIZE];
-
-        // Prepare IoSliceMut array for recv
-        let mut bufs: [IoSliceMut<'_>; BATCH_SIZE] =
-            std::array::from_fn(|_| IoSliceMut::new(&mut []));
-        for (i, chunk) in recv_buf.chunks_mut(buf_size).enumerate().take(BATCH_SIZE) {
-            bufs[i] = IoSliceMut::new(chunk);
-        }
-
-        let mut metas = [RecvMeta::default(); BATCH_SIZE];
-
-        // Call the underlying recv
-        let msg_count = recv(socket.0, &mut bufs, &mut metas)?;
-
-        // Convert to ReceivedDatagrams, splitting by stride
-        let mut result = ReceivedDatagrams::new();
-        for (meta, buf) in metas.iter().zip(bufs.iter()).take(msg_count) {
-            let mut offset = 0;
-            while offset < meta.len {
-                let stride = meta.stride.min(meta.len - offset);
-                let data = buf[offset..offset + stride].to_vec();
-                result.push(ReceivedDatagram {
-                    data,
-                    remote: meta.addr,
-                    local_ip: meta.dst_ip,
-                    ecn: meta.ecn,
-                });
-                offset += stride;
-            }
-        }
-
-        Ok(result)
     }
 
     /// The maximum amount of segments which can be transmitted if a platform

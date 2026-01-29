@@ -16,8 +16,7 @@ use libc::{c_int, c_uint};
 use windows_sys::Win32::Networking::WinSock;
 
 use crate::{
-    EcnCodepoint, IO_ERROR_LOG_INTERVAL, RecvMeta, ReceivedDatagram, ReceivedDatagrams, Transmit,
-    UdpSockRef,
+    EcnCodepoint, IO_ERROR_LOG_INTERVAL, RecvMeta, Transmit, UdpSockRef,
     cmsg::{self, CMsgHdr},
     log::debug,
     log_sendmsg_error,
@@ -280,46 +279,6 @@ impl UdpSocketState {
             interface_index,
         };
         Ok(1)
-    }
-
-    /// Receives datagrams from the socket, returning owned data.
-    ///
-    /// This is a higher-level API that handles buffer management and GRO splitting
-    /// internally. Each datagram in the returned collection contains its own buffer.
-    pub fn recv_datagrams(
-        &self,
-        socket: UdpSockRef<'_>,
-        max_payload_size: usize,
-    ) -> io::Result<ReceivedDatagrams> {
-        // Allocate buffer sized for URO coalescing
-        let gro_segments = self.gro_segments().get();
-        let buf_size = max_payload_size * gro_segments;
-        let mut recv_buf = vec![0u8; buf_size];
-
-        let mut bufs = [IoSliceMut::new(&mut recv_buf)];
-        let mut metas = [RecvMeta::default()];
-
-        // Call the underlying recv
-        let msg_count = self.recv(socket, &mut bufs, &mut metas)?;
-
-        // Convert to ReceivedDatagrams, splitting by stride
-        let mut result = ReceivedDatagrams::new();
-        for meta in metas.iter().take(msg_count) {
-            let mut offset = 0;
-            while offset < meta.len {
-                let stride = meta.stride.min(meta.len - offset);
-                let data = recv_buf[offset..offset + stride].to_vec();
-                result.push(ReceivedDatagram {
-                    data,
-                    remote: meta.addr,
-                    local_ip: meta.dst_ip,
-                    ecn: meta.ecn,
-                });
-                offset += stride;
-            }
-        }
-
-        Ok(result)
     }
 
     /// The maximum amount of segments which can be transmitted if a platform

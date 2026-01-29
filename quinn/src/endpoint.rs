@@ -2,8 +2,7 @@ use std::{
     collections::VecDeque,
     fmt,
     future::Future,
-    io,
-    mem,
+    io, mem,
     net::{SocketAddr, SocketAddrV6},
     pin::Pin,
     str,
@@ -793,9 +792,7 @@ struct RecvState {
 }
 
 impl RecvState {
-    fn new(
-        sender: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>,
-    ) -> Self {
+    fn new(sender: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>) -> Self {
         Self {
             connections: ConnectionSet {
                 senders: FxHashMap::default(),
@@ -831,15 +828,16 @@ impl RecvState {
                             now,
                             addresses,
                             datagram.ecn.map(proto_ecn),
-                            Bytes::from(datagram.data).try_into_mut().expect("freshly created bytes is unique"),
+                            Bytes::from(datagram.data)
+                                .try_into_mut()
+                                .expect("freshly created bytes is unique"),
                             &mut response_buffer,
                         ) {
                             Some(DatagramEvent::NewConnection(incoming)) => {
                                 if self.connections.close.is_none() {
                                     self.incoming.push_back(incoming);
                                 } else {
-                                    let transmit =
-                                        endpoint.refuse(incoming, &mut response_buffer);
+                                    let transmit = endpoint.refuse(incoming, &mut response_buffer);
                                     respond(transmit, &response_buffer, sender);
                                 }
                             }

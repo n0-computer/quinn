@@ -126,13 +126,20 @@ impl AsyncUdpSocket for UdpSocket {
             // Prepare IoSliceMut array
             let mut bufs: [IoSliceMut<'_>; udp::BATCH_SIZE] =
                 std::array::from_fn(|_| IoSliceMut::new(&mut []));
-            for (i, chunk) in self.recv_buf.chunks_mut(buf_size).enumerate().take(udp::BATCH_SIZE) {
+            for (i, chunk) in self
+                .recv_buf
+                .chunks_mut(buf_size)
+                .enumerate()
+                .take(udp::BATCH_SIZE)
+            {
                 bufs[i] = IoSliceMut::new(chunk);
             }
             let mut metas = [udp::RecvMeta::default(); udp::BATCH_SIZE];
 
             if let Ok(msg_count) = self.send.io.try_io(Interest::READABLE, || {
-                self.send.inner.recv((&self.send.io).into(), &mut bufs, &mut metas)
+                self.send
+                    .inner
+                    .recv((&self.send.io).into(), &mut bufs, &mut metas)
             }) {
                 // Convert to ReceivedDatagrams, splitting by stride
                 let mut result = udp::ReceivedDatagrams::new();

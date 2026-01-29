@@ -5,10 +5,7 @@ use std::{
     time::Instant,
 };
 
-use super::{
-    IO_ERROR_LOG_INTERVAL, RecvMeta, ReceivedDatagram, ReceivedDatagrams, Transmit, UdpSockRef,
-    log_sendmsg_error,
-};
+use super::{IO_ERROR_LOG_INTERVAL, RecvMeta, Transmit, UdpSockRef, log_sendmsg_error};
 
 /// Fallback UDP socket interface that stubs out all special functionality
 ///
@@ -79,35 +76,6 @@ impl UdpSocketState {
             interface_index: None,
         };
         Ok(1)
-    }
-
-    /// Receives datagrams from the socket, returning owned data.
-    ///
-    /// This is a higher-level API that handles buffer management internally.
-    /// Each datagram in the returned collection contains its own buffer.
-    pub fn recv_datagrams(
-        &self,
-        socket: UdpSockRef<'_>,
-        max_payload_size: usize,
-    ) -> io::Result<ReceivedDatagrams> {
-        let mut recv_buf = vec![0u8; max_payload_size];
-        let mut bufs = [IoSliceMut::new(&mut recv_buf)];
-        let mut metas = [RecvMeta::default()];
-
-        let msg_count = self.recv(socket, &mut bufs, &mut metas)?;
-
-        let mut result = ReceivedDatagrams::new();
-        for meta in metas.iter().take(msg_count) {
-            let data = recv_buf[..meta.len].to_vec();
-            result.push(ReceivedDatagram {
-                data,
-                remote: meta.addr,
-                local_ip: meta.dst_ip,
-                ecn: meta.ecn,
-            });
-        }
-
-        Ok(result)
     }
 
     #[inline]
