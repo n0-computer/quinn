@@ -3808,7 +3808,9 @@ fn address_discovery_rebind_retransmission() {
 
     // simulate a rebind to ensure we will get an updated address instead of retransmitting
     // outdated info
-    pair.client_conn_mut(client_ch).local_address_changed();
+    let time = pair.time;
+    pair.client_conn_mut(client_ch)
+        .handle_network_change(&(), time);
     pair.client
         .addr
         .set_port(pair.client.addr.port().overflowing_add(1).0);

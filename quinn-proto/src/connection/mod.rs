@@ -5268,10 +5268,92 @@ impl Connection {
     }
 
     /// Handle a change in the local address, i.e. an active migration
-    pub fn local_address_changed(&mut self) {
-        // TODO(flub): if multipath is enabled this needs to create a new path entirely.
-        self.update_remote_cid(PathId::ZERO);
-        self.ping();
+    pub fn handle_network_change(&mut self, hint: &impl NetworkChangeHint, now: Instant) {
+        if self.highest_space < SpaceId::Data {
+            return;
+        }
+        let mut unrecoverable_paths = Vec::default();
+        let mut open_paths = 0;
+
+        let is_multipath_negotiated = self.is_multipath_negotiated();
+
+        let space = &mut self.spaces[SpaceId::Data];
+
+        for (path_id, path) in self.paths.iter_mut() {
+            if self.abandoned_paths.contains(path_id) {
+                continue;
+            }
+            open_paths += 1;
+
+            // Clear the local address for it to be obtained from the socket again.
+            path.data.network_path.local_ip = None;
+
+            let network_path = path.data.network_path;
+            let remote = network_path.remote;
+
+            match hint.is_path_recoverable(*path_id, network_path) {
+                // Path is *not* recoverable.
+                false => unrecoverable_paths.push((*path_id, remote, path.data.local_status())),
+
+                // Path is recoverable.
+                true => {
+                    // Schedule a Ping for a liveness check.
+                    if let Some(path_space) = space.number_spaces.get_mut(path_id) {
+                        path_space.ping_pending = true;
+                    }
+
+                    let Some((reset_token, retired)) =
+                        self.remote_cids.get_mut(path_id).and_then(CidQueue::next)
+                    else {
+                        continue;
+                    };
+
+                    // Retire the current remote CID and any CIDs we had to skip.
+                    space
+                        .pending
+                        .retire_cids
+                        .extend(retired.map(|seq| (*path_id, seq)));
+
+                    self.endpoint_events
+                        .push_back(EndpointEventInner::ResetToken(
+                            *path_id,
+                            remote,
+                            reset_token,
+                        ));
+                }
+            }
+        }
+
+        // Decide if we need to close first or open first in the multipath case.
+        // - Opening first has a higher risk of getting limited by the negotiated MAX_PATH_ID.
+        // - Closing first risks this being the only open path.
+        // We prefer closing paths first unless we identify this is the last open path.
+        if !is_multipath_negotiated || unrecoverable_paths.is_empty() {
+            return;
+        }
+
+        let abandon_error = TransportErrorCode::PATH_UNSTABLE_OR_POOR.into();
+        let open_first = open_paths == unrecoverable_paths.len();
+        for (path_id, remote, status) in unrecoverable_paths.into_iter() {
+            let network_path = FourTuple {
+                remote,
+                local_ip: None, /* allow the local ip to be discovered */
+            };
+            if open_first && let Err(e) = self.open_path(network_path, status, now) {
+                debug!(%e,"Failed to open new path for network change");
+                // if this fails, let the path try to recover itself
+                continue;
+            }
+
+            if let Err(e) = self.close_path(now, path_id, abandon_error) {
+                debug!(%e,"Failed to close unrecoverable path after network change");
+                continue;
+            }
+
+            if !open_first && let Err(e) = self.open_path(network_path, status, now) {
+                debug!(%e,"Failed to open new path for network change");
+            }
+        }
     }
 
     /// Switch to a previously unused remote connection ID, if possible
@@ -6648,6 +6730,26 @@ impl Connection {
                 Some(false)
             }
         }
+    }
+}
+
+/// Hints when the caller identifies a network change.
+pub trait NetworkChangeHint {
+    /// Inform the connection if a path may recover after a network change.
+    ///
+    /// After network changes, paths may not be recoverable. In this case, waiting for the path to
+    /// become idle may take longer than what's desirable. If [`Self::is_path_recoverable`] returns
+    /// `True`, a multipath enabled connection will establish a new path to the same remote,
+    /// closing the current one, insted of migrating the path.
+    ///
+    /// Paths that are deemed recoverable will simply be sent a PING for a liveness check.
+    fn is_path_recoverable(&self, path_id: PathId, network_path: FourTuple) -> bool;
+}
+
+impl NetworkChangeHint for () {
+    fn is_path_recoverable(&self, _path_id: PathId, _network_path: FourTuple) -> bool {
+        // By default assume all paths are affected by the network change.
+        false
     }
 }
 

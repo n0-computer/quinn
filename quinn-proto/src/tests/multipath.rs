@@ -778,7 +778,9 @@ fn per_path_observed_address() {
     assert_matches!(conn.poll(), None);
 
     // simulate a rebind on the client
-    pair.client_conn_mut(client_ch).local_address_changed();
+    let time = pair.time;
+    pair.client_conn_mut(client_ch)
+        .handle_network_change(&(), time);
     pair.client
         .addr
         .set_port(pair.client.addr.port().overflowing_add(1).0);
