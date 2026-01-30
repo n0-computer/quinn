@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4},
+    sync::Arc,
+};
 
 use bytes::Bytes;
 use test_strategy::Arbitrary;
@@ -17,6 +20,7 @@ pub(super) enum TestOp {
     DropInbound(Side),
     ReorderInbound(Side),
     ForceKeyUpdate(Side),
+    PassiveMigration(Side, #[strategy(0..3usize)] usize),
     OpenPath(Side, PathStatus, #[strategy(0..3usize)] usize),
     ClosePath(Side, #[strategy(0..3usize)] usize, u32),
     PathSetStatus(Side, #[strategy(0..3usize)] usize, PathStatus),
@@ -81,8 +85,15 @@ impl TestOp {
                 pair.server.inbound.push_back(item);
             }
             Self::ForceKeyUpdate(Side::Client) => client.conn(pair)?.force_key_update(),
-
             Self::ForceKeyUpdate(Side::Server) => server.conn(pair)?.force_key_update(),
+            Self::PassiveMigration(Side::Client, addr_idx) => {
+                let routes = pair.routes.as_mut()?;
+                routes.sim_client_migration(addr_idx, inc_last_addr_octet);
+            }
+            Self::PassiveMigration(Side::Server, addr_idx) => {
+                let routes = pair.routes.as_mut()?;
+                routes.sim_server_migration(addr_idx, inc_last_addr_octet);
+            }
             Self::OpenPath(side, initial_status, addr) => {
                 let routes = pair.routes.as_ref()?;
                 let remote = match side {
@@ -224,6 +235,23 @@ fn get_path_id(conn: &mut Connection, idx: usize) -> Option<PathId> {
     paths
         .get(idx.clamp(0, paths.len().saturating_sub(1)))
         .copied()
+}
+
+fn inc_last_addr_octet(addr: SocketAddr) -> SocketAddr {
+    match addr {
+        SocketAddr::V4(socket_addr_v4) => {
+            let [a, b, c, d] = socket_addr_v4.ip().octets();
+            SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::new(a, b, c, d.wrapping_add(1)),
+                socket_addr_v4.port(),
+            ))
+        }
+        SocketAddr::V6(mut socket_addr_v6) => {
+            let [a, b, c, d, e, f, g, h] = socket_addr_v6.ip().segments();
+            socket_addr_v6.set_ip(Ipv6Addr::new(a, b, c, d, e, f, g, h.wrapping_add(1)));
+            SocketAddr::V6(socket_addr_v6)
+        }
+    }
 }
 
 pub(super) fn run_random_interaction(
