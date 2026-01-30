@@ -48,6 +48,8 @@ pub(crate) struct NatTraversalRound {
     ///
     /// The addresses include their Id, so that it can be used to signal these should be returned
     /// in a nat traversal continuation by calling [`ClientState::report_in_continuation`].
+    ///
+    /// These are filtered and mapped to the IP family the local socket supports.
     pub(crate) addresses_to_probe: Vec<(VarInt, IpPort)>,
     /// [`PathId`]s of the cancelled round.
     pub(crate) prev_round_path_ids: Vec<PathId>,
@@ -131,7 +133,15 @@ impl ClientState {
     /// frames, and initiating probing of the known remote addresses. When a new round is
     /// initiated, the previous one is cancelled, and paths that have not been opened should be
     /// closed.
-    pub(crate) fn initiate_nat_traversal_round(&mut self) -> Result<NatTraversalRound, Error> {
+    ///
+    /// `ipv6` indicates if the connection runs on a socket that supports IPv6. If so, then all
+    /// addresses returned in [`NatTraversalRound`] will be IPv6 addresses (and IPv4-mapped IPv6
+    /// addresses if necessary). Otherwise they're all IPv4 addresses.
+    /// See also [`map_to_local_socket_family`].
+    pub(crate) fn initiate_nat_traversal_round(
+        &mut self,
+        ipv6: bool,
+    ) -> Result<NatTraversalRound, Error> {
         if self.local_addresses.is_empty() {
             return Err(Error::NotEnoughAddresses);
         }
@@ -139,9 +149,14 @@ impl ClientState {
         let prev_round_path_ids = std::mem::take(&mut self.round_path_ids);
         self.round = self.round.saturating_add(1u8);
         let mut addresses_to_probe = Vec::with_capacity(self.remote_addresses.len());
-        for (id, (address, report_in_continuation)) in self.remote_addresses.iter_mut() {
-            addresses_to_probe.push((*id, *address));
+        for (id, ((ip, port), report_in_continuation)) in self.remote_addresses.iter_mut() {
             *report_in_continuation = false;
+
+            if let Some(ip) = map_to_local_socket_family(*ip, ipv6) {
+                addresses_to_probe.push((*id, (ip, *port)));
+            } else {
+                trace!(?ip, "not using IPv6 nat candidate for IPv4 socket");
+            }
         }
 
         Ok(NatTraversalRound {
@@ -172,14 +187,28 @@ impl ClientState {
     ///
     /// The address will not be returned twice unless marked as such again with
     /// [`Self::report_in_continuation`].
-    pub(crate) fn continue_nat_traversal_round(&mut self) -> Option<(VarInt, IpPort)> {
+    ///
+    /// `ipv6` indicates if the connection runs on a socket that supports IPv6. If so, then all
+    /// addresses returned in [`NatTraversalRound`] will be IPv6 addresses (and IPv4-mapped IPv6
+    /// addresses if necessary). Otherwise they're all IPv4 addresses.
+    /// See also [`map_to_local_socket_family`].
+    pub(crate) fn continue_nat_traversal_round(&mut self, ipv6: bool) -> Option<(VarInt, IpPort)> {
         // this being random depends on iteration not returning always on the same order
         let (id, (address, report_in_continuation)) = self
             .remote_addresses
             .iter_mut()
-            .find(|(_id, (_addr, report))| *report)?;
+            .filter(|(_id, (_addr, report))| *report)
+            .filter_map(|(id, ((ip, port), report))| {
+                // only continue with addresses we can send on our local socket
+                let Some(ip) = map_to_local_socket_family(*ip, ipv6) else {
+                    trace!(?ip, "not using IPv6 nat candidate for IPv4 socket");
+                    return None;
+                };
+                Some((*id, ((ip, *port), report)))
+            })
+            .next()?;
         *report_in_continuation = false;
-        Some((*id, *address))
+        Some((id, address))
     }
 
     /// Add a [`PathId`] as part of the current attempts to create paths based on the server's
@@ -314,17 +343,23 @@ impl ServerState {
 
     /// Handles a received [`ReachOut`].
     ///
-    /// It returns the token that should be sent in response to this frame as a challenge, and
-    /// whether this starts a new nat traversal round.
-    ///
-    /// If this frame was ignored, it returns `None`.
-    pub(crate) fn handle_reach_out(&mut self, reach_out: ReachOut) -> Result<(), Error> {
+    /// This might ignore the reach out frame if it belongs to an older round or if
+    /// the reach out can't be handled by an ipv4-only local socket.
+    pub(crate) fn handle_reach_out(
+        &mut self,
+        reach_out: ReachOut,
+        ipv6: bool,
+    ) -> Result<(), Error> {
         let ReachOut { round, ip, port } = reach_out;
 
         if round < self.round {
             trace!(current_round=%self.round, "ignoring REACH_OUT for previous round");
             return Ok(());
         }
+        let Some(ip) = map_to_local_socket_family(ip, ipv6) else {
+            trace!("Ignoring IPv6 REACH_OUT frame due to not supporting IPv6 locally");
+            return Ok(());
+        };
 
         if round > self.round {
             self.round = round;
@@ -421,15 +456,14 @@ impl State {
         &mut self,
         address: SocketAddr,
     ) -> Result<Option<AddAddress>, Error> {
+        let ip_port = IpPort::from((address.ip(), address.port()));
         match self {
             Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
             Self::ClientSide(client_state) => {
-                client_state.add_local_address((address.ip(), address.port()))?;
+                client_state.add_local_address(ip_port)?;
                 Ok(None)
             }
-            Self::ServerSide(server_state) => {
-                server_state.add_local_address((address.ip(), address.port()))
-            }
+            Self::ServerSide(server_state) => server_state.add_local_address(ip_port),
         }
     }
 
@@ -443,14 +477,14 @@ impl State {
         &mut self,
         address: SocketAddr,
     ) -> Result<Option<RemoveAddress>, Error> {
-        let address = &(address.ip(), address.port());
+        let address = IpPort::from((address.ip(), address.port()));
         match self {
             Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
             Self::ClientSide(client_state) => {
-                client_state.remove_local_address(address);
+                client_state.remove_local_address(&address);
                 Ok(None)
             }
-            Self::ServerSide(server_state) => Ok(server_state.remove_local_address(address)),
+            Self::ServerSide(server_state) => Ok(server_state.remove_local_address(&address)),
         }
     }
 
@@ -473,6 +507,22 @@ impl State {
     }
 }
 
+/// Returns the given address as canonicalized IP address.
+///
+/// This checks that the address family is supported by our local socket.
+/// If it is supported, then the address is mapped to the respective IP address.
+/// If the given address is an IPv6 address, but our local socket doesn't support
+/// IPv6, then this returns `None`.
+pub(crate) fn map_to_local_socket_family(address: IpAddr, ipv6: bool) -> Option<IpAddr> {
+    let ip = match address {
+        IpAddr::V4(addr) if ipv6 => IpAddr::V6(addr.to_ipv6_mapped()),
+        IpAddr::V4(_) => address,
+        IpAddr::V6(_) if ipv6 => address,
+        IpAddr::V6(addr) => IpAddr::V4(addr.to_ipv4_mapped()?),
+    };
+    Some(ip)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -482,19 +532,25 @@ mod tests {
         let mut state = ServerState::new(2, 2);
 
         state
-            .handle_reach_out(ReachOut {
-                round: 1u32.into(),
-                ip: std::net::Ipv4Addr::LOCALHOST.into(),
-                port: 1,
-            })
+            .handle_reach_out(
+                ReachOut {
+                    round: 1u32.into(),
+                    ip: std::net::Ipv4Addr::LOCALHOST.into(),
+                    port: 1,
+                },
+                true,
+            )
             .unwrap();
 
         state
-            .handle_reach_out(ReachOut {
-                round: 1u32.into(),
-                ip: "1.1.1.1".parse().unwrap(), //std::net::Ipv4Addr::LOCALHOST.into(),
-                port: 2,
-            })
+            .handle_reach_out(
+                ReachOut {
+                    round: 1u32.into(),
+                    ip: "1.1.1.1".parse().unwrap(), //std::net::Ipv4Addr::LOCALHOST.into(),
+                    port: 2,
+                },
+                true,
+            )
             .unwrap();
 
         dbg!(&state);
@@ -509,5 +565,29 @@ mod tests {
         assert!(state.next_probe().is_none());
         assert_eq!(state.pending_probes.len(), 0);
         assert_eq!(state.active_probes.len(), 2);
+    }
+
+    #[test]
+    fn test_map_to_local_socket() {
+        assert_eq!(
+            map_to_local_socket_family("1.1.1.1".parse().unwrap(), false),
+            Some("1.1.1.1".parse().unwrap())
+        );
+        assert_eq!(
+            map_to_local_socket_family("1.1.1.1".parse().unwrap(), true),
+            Some("::ffff:1.1.1.1".parse().unwrap())
+        );
+        assert_eq!(
+            map_to_local_socket_family("::1".parse().unwrap(), true),
+            Some("::1".parse().unwrap())
+        );
+        assert_eq!(
+            map_to_local_socket_family("::1".parse().unwrap(), false),
+            None
+        );
+        assert_eq!(
+            map_to_local_socket_family("::ffff:1.1.1.1".parse().unwrap(), false),
+            Some("1.1.1.1".parse().unwrap())
+        )
     }
 }

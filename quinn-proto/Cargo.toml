@@ -1,6 +1,6 @@
 [package]
 name = "iroh-quinn-proto"
-version = "0.14.0"
+version = "0.15.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -93,4 +93,4 @@ workspace = true
 
 [package.metadata.docs.rs]
 # all non-default features except fips (cannot build on docs.rs environment)
-features = ["rustls-aws-lc-rs", "rustls-ring", "platform-verifier", "log", "rustls-log"]
+features = ["aws-lc-rs", "rustls-aws-lc-rs", "rustls-ring", "platform-verifier", "rustls-log", "qlog", "bench"]

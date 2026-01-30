@@ -727,13 +727,24 @@ impl ToQlog for frame::MaxStreams {
 #[cfg(feature = "qlog")]
 impl ToQlog for frame::NewConnectionId {
     fn to_qlog(&self) -> QuicFrame {
-        QuicFrame::NewConnectionId {
-            sequence_number: self.sequence,
-            retire_prior_to: self.retire_prior_to,
-            connection_id_length: Some(self.id.len() as u8),
-            connection_id: self.id.to_string(),
-            stateless_reset_token: Some(self.reset_token.to_string()),
-            raw: None,
+        match self.path_id {
+            None => QuicFrame::NewConnectionId {
+                sequence_number: self.sequence,
+                retire_prior_to: self.retire_prior_to,
+                connection_id_length: Some(self.id.len() as u8),
+                connection_id: self.id.to_string(),
+                stateless_reset_token: Some(self.reset_token.to_string()),
+                raw: None,
+            },
+            Some(path_id) => QuicFrame::PathNewConnectionId {
+                path_id: path_id.0 as u64,
+                sequence_number: self.sequence,
+                retire_prior_to: self.retire_prior_to,
+                connection_id_length: Some(self.id.len() as u8),
+                connection_id: self.id.to_string(),
+                stateless_reset_token: Some(self.reset_token.to_string()),
+                raw: None,
+            },
         }
     }
 }
@@ -923,9 +934,16 @@ impl ToQlog for frame::StopSending {
 #[cfg(feature = "qlog")]
 impl ToQlog for frame::RetireConnectionId {
     fn to_qlog(&self) -> QuicFrame {
-        QuicFrame::RetireConnectionId {
-            sequence_number: self.sequence,
-            raw: None,
+        match self.path_id {
+            None => QuicFrame::RetireConnectionId {
+                sequence_number: self.sequence,
+                raw: None,
+            },
+            Some(path_id) => QuicFrame::PathRetireConnectionId {
+                path_id: path_id.0 as u64,
+                sequence_number: self.sequence,
+                raw: None,
+            },
         }
     }
 }
