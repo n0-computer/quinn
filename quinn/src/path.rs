@@ -104,7 +104,7 @@ impl Future for OpenPath {
 }
 
 /// An open (Multi)Path
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Path {
     id: PathId,
     conn: ConnectionRef,
