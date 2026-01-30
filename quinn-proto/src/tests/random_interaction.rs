@@ -242,14 +242,13 @@ fn inc_last_addr_octet(addr: SocketAddr) -> SocketAddr {
         SocketAddr::V4(socket_addr_v4) => {
             let [a, b, c, d] = socket_addr_v4.ip().octets();
             SocketAddr::V4(SocketAddrV4::new(
-                Ipv4Addr::from_octets([a, b, c, d.wrapping_add(1)]),
+                Ipv4Addr::new(a, b, c, d.wrapping_add(1)),
                 socket_addr_v4.port(),
             ))
         }
         SocketAddr::V6(mut socket_addr_v6) => {
-            let mut octets = socket_addr_v6.ip().octets();
-            octets[15] = octets[15].wrapping_add(1);
-            socket_addr_v6.set_ip(Ipv6Addr::from_octets(octets));
+            let [a, b, c, d, e, f, g, h] = socket_addr_v6.ip().segments();
+            socket_addr_v6.set_ip(Ipv6Addr::new(a, b, c, d, e, f, g, h.wrapping_add(1)));
             SocketAddr::V6(socket_addr_v6)
         }
     }
