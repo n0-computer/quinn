@@ -213,36 +213,24 @@
 <a href=#213 id=213 data-nosnippet>213</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>as_mut_slice(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;mut </span>[u8] {
 <a href=#214 id=214 data-nosnippet>214</a>        <span class="self">self</span>.buf.as_mut_slice()
 <a href=#215 id=215 data-nosnippet>215</a>    }
-<a href=#216 id=216 data-nosnippet>216</a>
-<a href=#217 id=217 data-nosnippet>217</a>    <span class="doccomment">/// Returns the underlying buffer and the GSO segment size, if any.
-<a href=#218 id=218 data-nosnippet>218</a>    ///
-<a href=#219 id=219 data-nosnippet>219</a>    /// Note that the GSO segment size is only defined if there is more than one segment.
-<a href=#220 id=220 data-nosnippet>220</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>finish(<span class="self">self</span>) -&gt; (<span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span>Vec&lt;u8&gt;, <span class="prelude-ty">Option</span>&lt;usize&gt;) {
-<a href=#221 id=221 data-nosnippet>221</a>        <span class="kw">let </span>gso_segment_size = <span class="kw">if </span><span class="self">self</span>.num_datagrams() &gt; <span class="number">1 </span>{
-<a href=#222 id=222 data-nosnippet>222</a>            <span class="prelude-val">Some</span>(<span class="self">self</span>.segment_size)
-<a href=#223 id=223 data-nosnippet>223</a>        } <span class="kw">else </span>{
-<a href=#224 id=224 data-nosnippet>224</a>            <span class="prelude-val">None
-<a href=#225 id=225 data-nosnippet>225</a>        </span>};
-<a href=#226 id=226 data-nosnippet>226</a>        (<span class="self">self</span>.buf, gso_segment_size)
-<a href=#227 id=227 data-nosnippet>227</a>    }
-<a href=#228 id=228 data-nosnippet>228</a>}
-<a href=#229 id=229 data-nosnippet>229</a>
-<a href=#230 id=230 data-nosnippet>230</a><span class="kw">unsafe impl </span>BufMut <span class="kw">for </span>TransmitBuf&lt;<span class="lifetime">'_</span>&gt; {
-<a href=#231 id=231 data-nosnippet>231</a>    <span class="kw">fn </span>remaining_mut(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
-<a href=#232 id=232 data-nosnippet>232</a>        <span class="self">self</span>.buf.remaining_mut()
-<a href=#233 id=233 data-nosnippet>233</a>    }
-<a href=#234 id=234 data-nosnippet>234</a>
-<a href=#235 id=235 data-nosnippet>235</a>    <span class="kw">unsafe fn </span>advance_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>, cnt: usize) {
-<a href=#236 id=236 data-nosnippet>236</a>        <span class="kw">unsafe </span>{ <span class="self">self</span>.buf.advance_mut(cnt) };
-<a href=#237 id=237 data-nosnippet>237</a>    }
-<a href=#238 id=238 data-nosnippet>238</a>
-<a href=#239 id=239 data-nosnippet>239</a>    <span class="kw">fn </span>chunk_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;mut </span>bytes::buf::UninitSlice {
-<a href=#240 id=240 data-nosnippet>240</a>        <span class="self">self</span>.buf.chunk_mut()
-<a href=#241 id=241 data-nosnippet>241</a>    }
-<a href=#242 id=242 data-nosnippet>242</a>}
-<a href=#243 id=243 data-nosnippet>243</a>
-<a href=#244 id=244 data-nosnippet>244</a><span class="kw">impl </span>BufLen <span class="kw">for </span>TransmitBuf&lt;<span class="lifetime">'_</span>&gt; {
-<a href=#245 id=245 data-nosnippet>245</a>    <span class="kw">fn </span>len(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
-<a href=#246 id=246 data-nosnippet>246</a>        <span class="self">self</span>.len()
-<a href=#247 id=247 data-nosnippet>247</a>    }
-<a href=#248 id=248 data-nosnippet>248</a>}</code></pre></div></section></main></body></html>
+<a href=#216 id=216 data-nosnippet>216</a>}
+<a href=#217 id=217 data-nosnippet>217</a>
+<a href=#218 id=218 data-nosnippet>218</a><span class="kw">unsafe impl </span>BufMut <span class="kw">for </span>TransmitBuf&lt;<span class="lifetime">'_</span>&gt; {
+<a href=#219 id=219 data-nosnippet>219</a>    <span class="kw">fn </span>remaining_mut(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
+<a href=#220 id=220 data-nosnippet>220</a>        <span class="self">self</span>.buf.remaining_mut()
+<a href=#221 id=221 data-nosnippet>221</a>    }
+<a href=#222 id=222 data-nosnippet>222</a>
+<a href=#223 id=223 data-nosnippet>223</a>    <span class="kw">unsafe fn </span>advance_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>, cnt: usize) {
+<a href=#224 id=224 data-nosnippet>224</a>        <span class="kw">unsafe </span>{ <span class="self">self</span>.buf.advance_mut(cnt) };
+<a href=#225 id=225 data-nosnippet>225</a>    }
+<a href=#226 id=226 data-nosnippet>226</a>
+<a href=#227 id=227 data-nosnippet>227</a>    <span class="kw">fn </span>chunk_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;mut </span>bytes::buf::UninitSlice {
+<a href=#228 id=228 data-nosnippet>228</a>        <span class="self">self</span>.buf.chunk_mut()
+<a href=#229 id=229 data-nosnippet>229</a>    }
+<a href=#230 id=230 data-nosnippet>230</a>}
+<a href=#231 id=231 data-nosnippet>231</a>
+<a href=#232 id=232 data-nosnippet>232</a><span class="kw">impl </span>BufLen <span class="kw">for </span>TransmitBuf&lt;<span class="lifetime">'_</span>&gt; {
+<a href=#233 id=233 data-nosnippet>233</a>    <span class="kw">fn </span>len(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
+<a href=#234 id=234 data-nosnippet>234</a>        <span class="self">self</span>.len()
+<a href=#235 id=235 data-nosnippet>235</a>    }
+<a href=#236 id=236 data-nosnippet>236</a>}</code></pre></div></section></main></body></html>
