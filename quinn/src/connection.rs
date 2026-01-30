@@ -1458,7 +1458,7 @@ impl State {
             match self.conn_events.poll_recv(cx) {
                 Poll::Ready(Some(ConnectionEvent::Rebind(sender))) => {
                     self.sender = sender;
-                    self.inner.local_address_changed();
+                    self.inner.handle_network_change(&(), self.runtime.now());
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
                     self.inner.handle_event(event);
