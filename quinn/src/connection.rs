@@ -312,7 +312,7 @@ pub struct Connection(ConnectionRef);
 impl Connection {
     /// Returns a weak reference to the inner connection struct.
     pub fn weak_handle(&self) -> WeakConnectionHandle {
-        WeakConnectionHandle(Arc::downgrade(&self.0.0))
+        self.0.weak_handle()
     }
 
     /// Initiate a new outgoing unidirectional stream.
@@ -502,12 +502,7 @@ impl Connection {
 
     /// Returns the [`Path`] structure of an open path
     pub fn path(&self, id: PathId) -> Option<Path> {
-        // TODO(flub): Using this to know if the path still exists is... hacky.
-        self.0.state.lock("path").inner.path_status(id).ok()?;
-        Some(Path {
-            id,
-            conn: self.0.clone(),
-        })
+        Path::new(&self.0, id)
     }
 
     /// A broadcast receiver of [`PathEvent`]s for all paths in this connection
@@ -789,7 +784,7 @@ impl Connection {
 
     /// Returns path statistics
     pub fn path_stats(&self, path_id: PathId) -> Option<PathStats> {
-        self.0.state.lock("path_stats").inner.path_stats(path_id)
+        self.0.state.lock("path_stats").path_stats(path_id)
     }
 
     /// Current state of the congestion control algorithm, for debugging purposes
@@ -1242,6 +1237,10 @@ impl ConnectionRef {
     fn stable_id(&self) -> usize {
         &*self.0 as *const _ as usize
     }
+
+    pub(crate) fn weak_handle(&self) -> WeakConnectionHandle {
+        WeakConnectionHandle(Arc::downgrade(&self.0))
+    }
 }
 
 impl Clone for ConnectionRef {
@@ -1294,9 +1293,11 @@ impl WeakConnectionHandle {
 
     /// Upgrade the handle to a full `Connection`
     pub fn upgrade(&self) -> Option<Connection> {
-        self.0
-            .upgrade()
-            .map(|inner| Connection(ConnectionRef::from_arc(inner)))
+        self.upgrade_to_ref().map(Connection)
+    }
+
+    pub(crate) fn upgrade_to_ref(&self) -> Option<ConnectionRef> {
+        self.0.upgrade().map(|inner| ConnectionRef::from_arc(inner))
     }
 }
 
@@ -1334,6 +1335,7 @@ pub(crate) struct State {
     open_path: FxHashMap<PathId, watch::Sender<Result<(), PathError>>>,
     /// Tracks paths being closed
     pub(crate) close_path: FxHashMap<PathId, oneshot::Sender<VarInt>>,
+    pub(crate) path_refs: FxHashMap<PathId, usize>,
     pub(crate) path_events: tokio::sync::broadcast::Sender<PathEvent>,
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
     ref_count: usize,
@@ -1347,6 +1349,8 @@ pub(crate) struct State {
     pub(crate) observed_external_addr: watch::Sender<Option<SocketAddr>>,
     pub(crate) nat_traversal_updates: tokio::sync::broadcast::Sender<iroh_hp::Event>,
     on_closed: Vec<oneshot::Sender<(ConnectionError, ConnectionStats)>>,
+    /// Statistics for discarded paths.
+    pub(crate) final_path_stats: FxHashMap<PathId, PathStats>,
 }
 
 impl State {
@@ -1388,6 +1392,8 @@ impl State {
             observed_external_addr: watch::Sender::new(None),
             nat_traversal_updates: tokio::sync::broadcast::channel(32).0,
             on_closed: Vec::new(),
+            final_path_stats: Default::default(),
+            path_refs: Default::default(),
         }
     }
 
@@ -1558,7 +1564,10 @@ impl State {
                         let _ = sender.send(error_code);
                     }
                 }
-                Path(evt @ PathEvent::Abandoned { .. }) => {
+                Path(evt @ PathEvent::Abandoned { id, path_stats }) => {
+                    if self.path_refs.get(&id).copied().unwrap_or_default() > 0 {
+                        self.final_path_stats.insert(id, path_stats);
+                    }
                     self.path_events.send(evt).ok();
                 }
                 Path(ref evt @ PathEvent::LocallyClosed { id, error }) => {
@@ -1682,6 +1691,26 @@ impl State {
             Ok(())
         } else {
             Err(())
+        }
+    }
+
+    pub(crate) fn path_stats(&mut self, path_id: PathId) -> Option<PathStats> {
+        self.inner
+            .path_stats(path_id)
+            .or_else(|| self.final_path_stats.get(&path_id).copied())
+    }
+
+    pub(crate) fn inc_path_refs(&mut self, path_id: PathId) {
+        *self.path_refs.entry(path_id).or_default() += 1;
+    }
+
+    pub(crate) fn dec_path_refs(&mut self, path_id: PathId) {
+        if let Some(refs) = self.path_refs.get_mut(&path_id) {
+            *refs = refs.saturating_sub(1);
+            if *refs == 0 {
+                self.path_refs.remove(&path_id);
+                self.final_path_stats.remove(&path_id);
+            }
         }
     }
 }
