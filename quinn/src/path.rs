@@ -6,14 +6,14 @@ use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
 use proto::{
-    ClosePathError, ClosedPath, ConnectionError, PathError, PathEvent, PathId, PathStatus,
-    SetPathStatusError, TransportErrorCode, VarInt,
+    ClosePathError, ClosedPath, ConnectionError, PathError, PathEvent, PathId, PathStats,
+    PathStatus, SetPathStatusError, TransportErrorCode, VarInt,
 };
 use tokio::sync::{oneshot, watch};
 use tokio_stream::{Stream, wrappers::WatchStream};
 
-use crate::Runtime;
 use crate::connection::ConnectionRef;
+use crate::{Runtime, WeakConnectionHandle};
 
 /// Future produced by [`crate::Connection::open_path`]
 pub struct OpenPath(OpenPathInner);
@@ -84,10 +84,9 @@ impl Future for OpenPath {
                 path_id,
                 ref mut conn,
             } => match ready!(Pin::new(opened).poll_next(ctx)) {
-                Some(value) => Poll::Ready(value.map(|_| Path {
-                    id: path_id,
-                    conn: conn.clone(),
-                })),
+                Some(value) => {
+                    Poll::Ready(value.map(|_| Path::new_unchecked(conn.clone(), path_id)))
+                }
                 None => {
                     // This only happens if receiving a notification change failed, this means the
                     // sender was dropped. This generally should not happen so we use a transient
@@ -98,10 +97,7 @@ impl Future for OpenPath {
             OpenPathInner::Ready {
                 path_id,
                 ref mut conn,
-            } => Poll::Ready(Ok(Path {
-                id: path_id,
-                conn: conn.clone(),
-            })),
+            } => Poll::Ready(Ok(Path::new_unchecked(conn.clone(), path_id))),
             OpenPathInner::Rejected { err } => Poll::Ready(Err(err)),
         }
     }
@@ -110,11 +106,48 @@ impl Future for OpenPath {
 /// An open (Multi)Path
 #[derive(Debug)]
 pub struct Path {
-    pub(crate) id: PathId,
-    pub(crate) conn: ConnectionRef,
+    id: PathId,
+    conn: ConnectionRef,
+}
+
+impl Drop for Path {
+    fn drop(&mut self) {
+        let mut state = self.conn.state.lock("Path::drop");
+        state.dec_path_refs(self.id);
+    }
 }
 
 impl Path {
+    pub(crate) fn new(conn: &ConnectionRef, id: PathId) -> Option<Self> {
+        {
+            let mut state = conn.state.lock("Path::new");
+            // TODO(flub): Using this to know if the path still exists is... hacky.
+            state.inner.path_status(id).ok()?;
+            state.inc_path_refs(id);
+        }
+        Some(Self {
+            id,
+            conn: conn.clone(),
+        })
+    }
+
+    fn new_unchecked(conn: ConnectionRef, id: PathId) -> Self {
+        conn.state.lock("Path::new_unchecked").inc_path_refs(id);
+        Self { id, conn }
+    }
+
+    /// Returns a [`WeakPathHandle`].
+    pub fn weak_handle(&self) -> WeakPathHandle {
+        self.conn
+            .state
+            .lock("Path::weak_handle")
+            .inc_path_refs(self.id);
+        WeakPathHandle {
+            id: self.id,
+            conn: self.conn.weak_handle(),
+        }
+    }
+
     /// The [`PathId`] of this path.
     pub fn id(&self) -> PathId {
         self.id
@@ -137,6 +170,15 @@ impl Path {
             .inner
             .set_path_status(self.id, status)?;
         Ok(())
+    }
+
+    /// Returns the [`PathStats`] for this path.
+    pub fn stats(&self) -> PathStats {
+        self.conn
+            .state
+            .lock("Path::stats")
+            .path_stats(self.id)
+            .expect("either path stats or discarded path stats are always set as long as Path is not dropped")
     }
 
     /// Closes this path
@@ -216,6 +258,37 @@ impl Path {
     pub fn ping(&self) -> Result<(), ClosedPath> {
         let mut state = self.conn.state.lock("ping");
         state.inner.ping_path(self.id)
+    }
+}
+
+/// Weak handle for a [`Path`] that does not keep the connection alive.
+#[derive(Debug, Clone)]
+pub struct WeakPathHandle {
+    id: PathId,
+    conn: WeakConnectionHandle,
+}
+
+impl Drop for WeakPathHandle {
+    fn drop(&mut self) {
+        if let Some(conn) = self.conn.upgrade_to_ref() {
+            conn.state
+                .lock("WeakPathHandle::drop")
+                .dec_path_refs(self.id);
+        }
+    }
+}
+
+impl WeakPathHandle {
+    /// The [`PathId`] of this path.
+    pub fn id(&self) -> PathId {
+        self.id
+    }
+    /// Upgrade to a [`Path`]
+    ///
+    /// Returns `false` if the connection was dropped.
+    pub fn upgrade(&self) -> Option<Path> {
+        let conn = self.conn.upgrade_to_ref()?;
+        Some(Path::new_unchecked(conn, self.id))
     }
 }
 
