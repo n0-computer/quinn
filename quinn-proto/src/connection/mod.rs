@@ -694,6 +694,9 @@ impl Connection {
         path_id: PathId,
         error_code: VarInt,
     ) -> Result<(), ClosePathError> {
+        if !self.is_multipath_negotiated() {
+            return Err(ClosePathError::MultipathNotNegotiated);
+        }
         if self.abandoned_paths.contains(&path_id)
             || Some(path_id) > self.max_path_id()
             || !self.paths.contains_key(&path_id)
@@ -4957,6 +4960,11 @@ impl Connection {
                         Err(ClosePathError::ClosedPath) => {
                             trace!("peer abandoned already closed path");
                         }
+                        Err(ClosePathError::MultipathNotNegotiated) => {
+                            return Err(TransportError::PROTOCOL_VIOLATION(
+                                "received PATH_ABANDON frame when multipath was not negotiated",
+                            ));
+                        }
                     };
                     // If we receive a retransmit of PATH_ABANDON then we may already have
                     // abandoned this path locally.  In that case the DiscardPath timer
@@ -6845,6 +6853,9 @@ pub enum ClosePathError {
     /// This is the last path, which can not be abandoned
     #[error("last open path")]
     LastOpenPath,
+    /// Multipath is not negotiated
+    #[error("Multipath extension not negotiated")]
+    MultipathNotNegotiated,
 }
 
 /// Error when the multipath extension was not negotiated, but attempted to be used.
