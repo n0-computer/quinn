@@ -1,5 +1,6 @@
 use std::{
     io::{self, IoSliceMut},
+    num::NonZeroUsize,
     sync::Mutex,
     time::Instant,
 };
