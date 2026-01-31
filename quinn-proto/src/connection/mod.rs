@@ -983,13 +983,13 @@ impl Connection {
     /// - a call was made to `handle_event`
     /// - a call was made to `handle_timeout`
     ///
-    /// `max_datagrams` specifies how many datagrams can be returned inside a
-    /// single Transmit using GSO. This must be at least 1.
+    /// `max_datagrams` returns how many datagrams can be returned inside a
+    /// single Transmit using GSO for a given destination. This must be at least 1.
     #[must_use]
     pub fn poll_transmit(
         &mut self,
         now: Instant,
-        max_datagrams: NonZeroUsize,
+        max_datagrams: impl Fn(SocketAddr) -> NonZeroUsize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
         if let Some(probing) = self
@@ -1011,11 +1011,6 @@ impl Connection {
                 src_ip: None,
             });
         }
-
-        let max_datagrams = match self.config.enable_segmentation_offload {
-            false => NonZeroUsize::MIN,
-            true => max_datagrams,
-        };
 
         // Each call to poll_transmit can only send datagrams to one destination, because
         // all datagrams in a GSO batch are for the same destination.  Therefore only
@@ -1097,12 +1092,18 @@ impl Connection {
                 return Some(transmit);
             }
 
+            // Compute max_datagrams for this path's destination
+            let path_max_datagrams = match self.config.enable_segmentation_offload {
+                false => NonZeroUsize::MIN,
+                true => max_datagrams(self.path_data(path_id).network_path.remote),
+            };
+
             // Poll for on-path transmits.
             match self.poll_transmit_on_path(
                 now,
                 buf,
                 path_id,
-                max_datagrams,
+                path_max_datagrams,
                 have_available_path,
                 connection_close_pending,
             ) {
