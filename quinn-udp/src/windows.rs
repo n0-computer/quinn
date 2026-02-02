@@ -7,7 +7,7 @@ use std::{
     ptr,
     sync::{
         LazyLock, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Instant,
 };
@@ -29,6 +29,9 @@ use crate::{
 pub struct UdpSocketState {
     last_send_error: Mutex<Instant>,
     max_gso_segments: AtomicUsize,
+    ecn_enabled: AtomicBool,
+    pktinfo_v4_enabled: AtomicBool,
+    pktinfo_v6_enabled: AtomicBool,
 }
 
 impl UdpSocketState {
@@ -72,6 +75,10 @@ impl UdpSocketState {
             ));
         }
 
+        let mut ecn_enabled = true;
+        let mut pktinfo_v4_enabled = true;
+        let mut pktinfo_v6_enabled = true;
+
         if is_ipv4 {
             set_socket_option(
                 &*socket.0,
@@ -80,18 +87,33 @@ impl UdpSocketState {
                 OPTION_ON,
             )?;
 
-            set_socket_option(
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IP,
                 WinSock::IP_PKTINFO,
                 OPTION_ON,
-            )?;
-            set_socket_option(
+            ) {
+                if is_unsupported_error(&e) {
+                    crate::log::warn!("IP_PKTINFO not supported, dst_ip will be unavailable");
+                    pktinfo_v4_enabled = false;
+                } else {
+                    return Err(e);
+                }
+            }
+
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IP,
                 WinSock::IP_RECVECN,
                 OPTION_ON,
-            )?;
+            ) {
+                if is_unsupported_error(&e) {
+                    crate::log::warn!("IP_RECVECN not supported, ECN will be disabled");
+                    ecn_enabled = false;
+                } else {
+                    return Err(e);
+                }
+            }
         }
 
         if is_ipv6 {
@@ -102,25 +124,42 @@ impl UdpSocketState {
                 OPTION_ON,
             )?;
 
-            set_socket_option(
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IPV6,
                 WinSock::IPV6_PKTINFO,
                 OPTION_ON,
-            )?;
+            ) {
+                if is_unsupported_error(&e) {
+                    crate::log::warn!("IPV6_PKTINFO not supported, dst_ip will be unavailable");
+                    pktinfo_v6_enabled = false;
+                } else {
+                    return Err(e);
+                }
+            }
 
-            set_socket_option(
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IPV6,
                 WinSock::IPV6_RECVECN,
                 OPTION_ON,
-            )?;
+            ) {
+                if is_unsupported_error(&e) {
+                    crate::log::warn!("IPV6_RECVECN not supported, ECN will be disabled");
+                    ecn_enabled = false;
+                } else {
+                    return Err(e);
+                }
+            }
         }
 
         let now = Instant::now();
         Ok(Self {
             last_send_error: Mutex::new(now.checked_sub(2 * IO_ERROR_LOG_INTERVAL).unwrap_or(now)),
             max_gso_segments: AtomicUsize::new(*MAX_GSO_SEGMENTS),
+            ecn_enabled: AtomicBool::new(ecn_enabled),
+            pktinfo_v4_enabled: AtomicBool::new(pktinfo_v4_enabled),
+            pktinfo_v6_enabled: AtomicBool::new(pktinfo_v6_enabled),
         })
     }
 
@@ -334,6 +373,11 @@ impl UdpSocketState {
     }
 }
 
+fn is_unsupported_error(e: &io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(WinSock::WSAEOPNOTSUPP))
+        || e.kind() == io::ErrorKind::Unsupported
+}
+
 fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
     // we cannot use [`socket2::sendmsg()`] and [`socket2::MsgHdr`] as we do not have access
     // to the inner field which holds the WSAMSG
@@ -362,11 +406,14 @@ fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>)
     // Add control messages (ECN and PKTINFO)
     let mut encoder = unsafe { cmsg::Encoder::new(&mut wsa_msg) };
 
+    let is_ipv4 = transmit.destination.is_ipv4()
+        || matches!(transmit.destination.ip(), IpAddr::V6(addr) if addr.to_ipv4_mapped().is_some());
+
     if let Some(ip) = transmit.src_ip {
         let ip = std::net::SocketAddr::new(ip, 0);
         let ip = socket2::SockAddr::from(ip);
         match ip.family() {
-            WinSock::AF_INET => {
+            WinSock::AF_INET if state.pktinfo_v4_enabled.load(Ordering::Relaxed) => {
                 let src_ip = unsafe { ptr::read(ip.as_ptr() as *const WinSock::SOCKADDR_IN) };
                 let pktinfo = WinSock::IN_PKTINFO {
                     ipi_addr: src_ip.sin_addr,
@@ -374,7 +421,7 @@ fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>)
                 };
                 encoder.push(WinSock::IPPROTO_IP, WinSock::IP_PKTINFO, pktinfo);
             }
-            WinSock::AF_INET6 => {
+            WinSock::AF_INET6 if state.pktinfo_v6_enabled.load(Ordering::Relaxed) => {
                 let src_ip = unsafe { ptr::read(ip.as_ptr() as *const WinSock::SOCKADDR_IN6) };
                 let pktinfo = WinSock::IN6_PKTINFO {
                     ipi6_addr: src_ip.sin6_addr,
@@ -382,21 +429,20 @@ fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>)
                 };
                 encoder.push(WinSock::IPPROTO_IPV6, WinSock::IPV6_PKTINFO, pktinfo);
             }
+            WinSock::AF_INET | WinSock::AF_INET6 => {}
             _ => {
                 return Err(io::Error::from(io::ErrorKind::InvalidInput));
             }
         }
     }
 
-    // ECN is a C integer https://learn.microsoft.com/en-us/windows/win32/winsock/winsock-ecn
-    let ecn = transmit.ecn.map_or(0, |x| x as c_int);
-    // True for IPv4 or IPv4-Mapped IPv6
-    let is_ipv4 = transmit.destination.is_ipv4()
-        || matches!(transmit.destination.ip(), IpAddr::V6(addr) if addr.to_ipv4_mapped().is_some());
-    if is_ipv4 {
-        encoder.push(WinSock::IPPROTO_IP, WinSock::IP_ECN, ecn);
-    } else {
-        encoder.push(WinSock::IPPROTO_IPV6, WinSock::IPV6_ECN, ecn);
+    if state.ecn_enabled.load(Ordering::Relaxed) {
+        let ecn = transmit.ecn.map_or(0, |x| x as c_int);
+        if is_ipv4 {
+            encoder.push(WinSock::IPPROTO_IP, WinSock::IP_ECN, ecn);
+        } else {
+            encoder.push(WinSock::IPPROTO_IPV6, WinSock::IPV6_ECN, ecn);
+        }
     }
 
     // Segment size is a u32 https://learn.microsoft.com/en-us/windows/win32/api/ws2tcpip/nf-ws2tcpip-wsasetudpsendmessagesize
