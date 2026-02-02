@@ -21,3 +21,5 @@ cc 1564b6bdcfac5091ec82355328cf6ec990238c15e3e18ba8a415f69e291112f8 # shrinks to
 cc e2f4cb531c73ebf9e324ad607f0add9f194268d80938cd9715f99b78fd1e6b02
 cc 8daf158b1f4b03c27d814093051e640fd2b827b6b018a96facf824df2ba770ff # shrinks to input = _RandomInteractionWithMultipathComplexRoutingArgs { seed: [179, 44, 141, 170, 106, 126, 221, 37, 208, 214, 74, 185, 175, 135, 82, 12, 146, 194, 218, 42, 130, 247, 23, 110, 181, 136, 159, 70, 84, 189, 192, 111], interactions: [StreamOp(Server, Open(Uni)), StreamOp(Server, Finish(0))], routes: RoutingTable { client_routes: [([::ffff:1.1.1.0]:44433, 0)], server_routes: [([::ffff:2.2.2.0]:4433, 0)] } }
 cc 37b5a6ce1709860b5e8334e5aaff33d160afb5db489094520bfe5b97b711885d # shrinks to input = _RandomInteractionWithMultipathSimpleRoutingArgs { seed: [195, 211, 32, 63, 142, 43, 224, 28, 233, 156, 118, 119, 158, 28, 10, 100, 6, 70, 113, 174, 84, 7, 158, 157, 211, 112, 238, 238, 73, 253, 36, 220], interactions: [CloseConn(Client, 0), PassiveMigration(Client, 0)] }
+cc 02868b25ef3efeb1c591c94b1abc3ba196f3505a1f04646f88860ca284970e7d
+cc 05acf50632ee647b18d3a42c74459d54a11f5f3a76b8ee15bb3fb113f9c5dede
