@@ -310,7 +310,16 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-      - uses: taiki-e/install-action@cargo-make
+      - name: Cache cargo-make
+        id: cache-cargo-make
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-make.exe
+          key: cargo-make-windows-0.37.24
+
+      - name: Install cargo-make
+        if: steps.cache-cargo-make.outputs.cache-hit != 'true'
+        run: cargo install cargo-make --version 0.37.24 --locked
 
       - name: run proptests (1 minute minimum)
         if: ${{ ! inputs.flaky }}
