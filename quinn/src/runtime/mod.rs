@@ -4,7 +4,7 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     io::{self, IoSliceMut},
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
@@ -102,9 +102,13 @@ pub trait UdpSender: Send + Sync + Debug + 'static {
 
     /// Maximum number of datagrams that a [`Transmit`] may encode.
     ///
-    /// The implementation may return a value specific to the given destination.
-    fn max_transmit_segments(&self, destination: &SocketAddr) -> NonZeroUsize {
-        let _ = destination;
+    /// The implementation may return a value specific to the given destination and local address.
+    fn max_transmit_segments(
+        &self,
+        destination: &SocketAddr,
+        local_ip: Option<&IpAddr>,
+    ) -> NonZeroUsize {
+        let _ = (destination, local_ip);
         NonZeroUsize::MIN
     }
 }
@@ -199,8 +203,12 @@ where
         }
     }
 
-    fn max_transmit_segments(&self, destination: &SocketAddr) -> NonZeroUsize {
-        self.socket.max_transmit_segments(destination)
+    fn max_transmit_segments(
+        &self,
+        destination: &SocketAddr,
+        local_ip: Option<&IpAddr>,
+    ) -> NonZeroUsize {
+        self.socket.max_transmit_segments(destination, local_ip)
     }
 }
 
@@ -216,7 +224,11 @@ trait UdpSenderHelperSocket: Send + Sync + 'static {
     fn try_send(&self, transmit: &udp::Transmit<'_>) -> io::Result<()>;
 
     /// See [`UdpSender::max_transmit_segments`].
-    fn max_transmit_segments(&self, destination: &SocketAddr) -> NonZeroUsize;
+    fn max_transmit_segments(
+        &self,
+        destination: &SocketAddr,
+        local_ip: Option<&IpAddr>,
+    ) -> NonZeroUsize;
 }
 
 /// Automatically select an appropriate runtime from those enabled at compile time

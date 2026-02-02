@@ -57,8 +57,12 @@ struct UdpSocket {
 }
 
 impl UdpSenderHelperSocket for UdpSocket {
-    fn max_transmit_segments(&self, destination: &std::net::SocketAddr) -> NonZeroUsize {
-        self.inner.max_gso_segments(destination)
+    fn max_transmit_segments(
+        &self,
+        destination: &std::net::SocketAddr,
+        local_ip: Option<&std::net::IpAddr>,
+    ) -> NonZeroUsize {
+        self.inner.max_gso_segments(destination, local_ip)
     }
 
     fn try_send(&self, transmit: &udp::Transmit<'_>) -> io::Result<()> {

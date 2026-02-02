@@ -1403,9 +1403,12 @@ impl State {
                     self.send_buffer.clear();
                     let transmit = self.inner.poll_transmit(
                         now,
-                        |dest| {
+                        |network_path| {
                             self.sender
-                                .max_transmit_segments(&dest)
+                                .max_transmit_segments(
+                                    &network_path.remote,
+                                    network_path.local_ip.as_ref(),
+                                )
                                 .min(MAX_TRANSMIT_SEGMENTS)
                         },
                         &mut self.send_buffer,

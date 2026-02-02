@@ -53,7 +53,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         group.throughput(criterion::Throughput::Bytes(TOTAL_BYTES as u64));
 
         let gso_segments = if gso_enabled {
-            send_state.max_gso_segments(&dst_addr)
+            send_state.max_gso_segments(&dst_addr, None)
         } else {
             NonZeroUsize::MIN
         };

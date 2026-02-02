@@ -984,12 +984,12 @@ impl Connection {
     /// - a call was made to `handle_timeout`
     ///
     /// `max_datagrams` returns how many datagrams can be returned inside a
-    /// single Transmit using GSO for a given destination. This must be at least 1.
+    /// single Transmit using GSO for a given network path. This must be at least 1.
     #[must_use]
     pub fn poll_transmit(
         &mut self,
         now: Instant,
-        max_datagrams: impl Fn(SocketAddr) -> NonZeroUsize,
+        max_datagrams: impl Fn(&FourTuple) -> NonZeroUsize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
         if let Some(probing) = self
@@ -1092,10 +1092,10 @@ impl Connection {
                 return Some(transmit);
             }
 
-            // Compute max_datagrams for this path's destination
+            // Compute max_datagrams for this path
             let path_max_datagrams = match self.config.enable_segmentation_offload {
                 false => NonZeroUsize::MIN,
-                true => max_datagrams(self.path_data(path_id).network_path.remote),
+                true => max_datagrams(&self.path_data(path_id).network_path),
             };
 
             // Poll for on-path transmits.
