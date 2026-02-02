@@ -57,50 +57,54 @@
 <a href=#57 id=57 data-nosnippet>57</a>}
 <a href=#58 id=58 data-nosnippet>58</a>
 <a href=#59 id=59 data-nosnippet>59</a><span class="kw">impl </span>UdpSenderHelperSocket <span class="kw">for </span>UdpSocket {
-<a href=#60 id=60 data-nosnippet>60</a>    <span class="kw">fn </span>max_transmit_segments(<span class="kw-2">&amp;</span><span class="self">self</span>, destination: <span class="kw-2">&amp;</span>std::net::SocketAddr, local_ip: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>std::net::IpAddr&gt;) -&gt; NonZeroUsize {
-<a href=#61 id=61 data-nosnippet>61</a>        <span class="self">self</span>.inner.max_gso_segments(destination, local_ip)
-<a href=#62 id=62 data-nosnippet>62</a>    }
-<a href=#63 id=63 data-nosnippet>63</a>
-<a href=#64 id=64 data-nosnippet>64</a>    <span class="kw">fn </span>try_send(<span class="kw-2">&amp;</span><span class="self">self</span>, transmit: <span class="kw-2">&amp;</span>udp::Transmit&lt;<span class="lifetime">'_</span>&gt;) -&gt; io::Result&lt;()&gt; {
-<a href=#65 id=65 data-nosnippet>65</a>        <span class="self">self</span>.io.try_io(Interest::WRITABLE, || {
-<a href=#66 id=66 data-nosnippet>66</a>            <span class="self">self</span>.inner.send((<span class="kw-2">&amp;</span><span class="self">self</span>.io).into(), transmit)
-<a href=#67 id=67 data-nosnippet>67</a>        })
-<a href=#68 id=68 data-nosnippet>68</a>    }
-<a href=#69 id=69 data-nosnippet>69</a>}
-<a href=#70 id=70 data-nosnippet>70</a>
-<a href=#71 id=71 data-nosnippet>71</a><span class="kw">impl </span>AsyncUdpSocket <span class="kw">for </span>UdpSocket {
-<a href=#72 id=72 data-nosnippet>72</a>    <span class="kw">fn </span>create_sender(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Pin&lt;Box&lt;<span class="kw">dyn </span><span class="kw">super</span>::UdpSender&gt;&gt; {
-<a href=#73 id=73 data-nosnippet>73</a>        Box::pin(UdpSenderHelper::new(<span class="self">self</span>.clone(), |socket: <span class="kw-2">&amp;</span><span class="self">Self</span>| {
-<a href=#74 id=74 data-nosnippet>74</a>            <span class="kw">let </span>socket = socket.clone();
-<a href=#75 id=75 data-nosnippet>75</a>            <span class="kw">async move </span>{ socket.io.writable().<span class="kw">await </span>}
-<a href=#76 id=76 data-nosnippet>76</a>        }))
-<a href=#77 id=77 data-nosnippet>77</a>    }
-<a href=#78 id=78 data-nosnippet>78</a>
-<a href=#79 id=79 data-nosnippet>79</a>    <span class="kw">fn </span>poll_recv(
-<a href=#80 id=80 data-nosnippet>80</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#81 id=81 data-nosnippet>81</a>        cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;,
-<a href=#82 id=82 data-nosnippet>82</a>        bufs: <span class="kw-2">&amp;mut </span>[std::io::IoSliceMut&lt;<span class="lifetime">'_</span>&gt;],
-<a href=#83 id=83 data-nosnippet>83</a>        meta: <span class="kw-2">&amp;mut </span>[udp::RecvMeta],
-<a href=#84 id=84 data-nosnippet>84</a>    ) -&gt; Poll&lt;io::Result&lt;usize&gt;&gt; {
-<a href=#85 id=85 data-nosnippet>85</a>        <span class="kw">loop </span>{
-<a href=#86 id=86 data-nosnippet>86</a>            <span class="macro">ready!</span>(<span class="self">self</span>.io.poll_recv_ready(cx))<span class="question-mark">?</span>;
-<a href=#87 id=87 data-nosnippet>87</a>            <span class="kw">if let </span><span class="prelude-val">Ok</span>(res) = <span class="self">self</span>.io.try_io(Interest::READABLE, || {
-<a href=#88 id=88 data-nosnippet>88</a>                <span class="self">self</span>.inner.recv((<span class="kw-2">&amp;</span><span class="self">self</span>.io).into(), bufs, meta)
-<a href=#89 id=89 data-nosnippet>89</a>            }) {
-<a href=#90 id=90 data-nosnippet>90</a>                <span class="kw">return </span>Poll::Ready(<span class="prelude-val">Ok</span>(res));
-<a href=#91 id=91 data-nosnippet>91</a>            }
-<a href=#92 id=92 data-nosnippet>92</a>        }
-<a href=#93 id=93 data-nosnippet>93</a>    }
-<a href=#94 id=94 data-nosnippet>94</a>
-<a href=#95 id=95 data-nosnippet>95</a>    <span class="kw">fn </span>local_addr(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; io::Result&lt;std::net::SocketAddr&gt; {
-<a href=#96 id=96 data-nosnippet>96</a>        <span class="self">self</span>.io.local_addr()
+<a href=#60 id=60 data-nosnippet>60</a>    <span class="kw">fn </span>max_transmit_segments(
+<a href=#61 id=61 data-nosnippet>61</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#62 id=62 data-nosnippet>62</a>        destination: <span class="kw-2">&amp;</span>std::net::SocketAddr,
+<a href=#63 id=63 data-nosnippet>63</a>        local_ip: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>std::net::IpAddr&gt;,
+<a href=#64 id=64 data-nosnippet>64</a>    ) -&gt; NonZeroUsize {
+<a href=#65 id=65 data-nosnippet>65</a>        <span class="self">self</span>.inner.max_gso_segments(destination, local_ip)
+<a href=#66 id=66 data-nosnippet>66</a>    }
+<a href=#67 id=67 data-nosnippet>67</a>
+<a href=#68 id=68 data-nosnippet>68</a>    <span class="kw">fn </span>try_send(<span class="kw-2">&amp;</span><span class="self">self</span>, transmit: <span class="kw-2">&amp;</span>udp::Transmit&lt;<span class="lifetime">'_</span>&gt;) -&gt; io::Result&lt;()&gt; {
+<a href=#69 id=69 data-nosnippet>69</a>        <span class="self">self</span>.io.try_io(Interest::WRITABLE, || {
+<a href=#70 id=70 data-nosnippet>70</a>            <span class="self">self</span>.inner.send((<span class="kw-2">&amp;</span><span class="self">self</span>.io).into(), transmit)
+<a href=#71 id=71 data-nosnippet>71</a>        })
+<a href=#72 id=72 data-nosnippet>72</a>    }
+<a href=#73 id=73 data-nosnippet>73</a>}
+<a href=#74 id=74 data-nosnippet>74</a>
+<a href=#75 id=75 data-nosnippet>75</a><span class="kw">impl </span>AsyncUdpSocket <span class="kw">for </span>UdpSocket {
+<a href=#76 id=76 data-nosnippet>76</a>    <span class="kw">fn </span>create_sender(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Pin&lt;Box&lt;<span class="kw">dyn </span><span class="kw">super</span>::UdpSender&gt;&gt; {
+<a href=#77 id=77 data-nosnippet>77</a>        Box::pin(UdpSenderHelper::new(<span class="self">self</span>.clone(), |socket: <span class="kw-2">&amp;</span><span class="self">Self</span>| {
+<a href=#78 id=78 data-nosnippet>78</a>            <span class="kw">let </span>socket = socket.clone();
+<a href=#79 id=79 data-nosnippet>79</a>            <span class="kw">async move </span>{ socket.io.writable().<span class="kw">await </span>}
+<a href=#80 id=80 data-nosnippet>80</a>        }))
+<a href=#81 id=81 data-nosnippet>81</a>    }
+<a href=#82 id=82 data-nosnippet>82</a>
+<a href=#83 id=83 data-nosnippet>83</a>    <span class="kw">fn </span>poll_recv(
+<a href=#84 id=84 data-nosnippet>84</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#85 id=85 data-nosnippet>85</a>        cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;,
+<a href=#86 id=86 data-nosnippet>86</a>        bufs: <span class="kw-2">&amp;mut </span>[std::io::IoSliceMut&lt;<span class="lifetime">'_</span>&gt;],
+<a href=#87 id=87 data-nosnippet>87</a>        meta: <span class="kw-2">&amp;mut </span>[udp::RecvMeta],
+<a href=#88 id=88 data-nosnippet>88</a>    ) -&gt; Poll&lt;io::Result&lt;usize&gt;&gt; {
+<a href=#89 id=89 data-nosnippet>89</a>        <span class="kw">loop </span>{
+<a href=#90 id=90 data-nosnippet>90</a>            <span class="macro">ready!</span>(<span class="self">self</span>.io.poll_recv_ready(cx))<span class="question-mark">?</span>;
+<a href=#91 id=91 data-nosnippet>91</a>            <span class="kw">if let </span><span class="prelude-val">Ok</span>(res) = <span class="self">self</span>.io.try_io(Interest::READABLE, || {
+<a href=#92 id=92 data-nosnippet>92</a>                <span class="self">self</span>.inner.recv((<span class="kw-2">&amp;</span><span class="self">self</span>.io).into(), bufs, meta)
+<a href=#93 id=93 data-nosnippet>93</a>            }) {
+<a href=#94 id=94 data-nosnippet>94</a>                <span class="kw">return </span>Poll::Ready(<span class="prelude-val">Ok</span>(res));
+<a href=#95 id=95 data-nosnippet>95</a>            }
+<a href=#96 id=96 data-nosnippet>96</a>        }
 <a href=#97 id=97 data-nosnippet>97</a>    }
 <a href=#98 id=98 data-nosnippet>98</a>
-<a href=#99 id=99 data-nosnippet>99</a>    <span class="kw">fn </span>may_fragment(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
-<a href=#100 id=100 data-nosnippet>100</a>        <span class="self">self</span>.inner.may_fragment()
+<a href=#99 id=99 data-nosnippet>99</a>    <span class="kw">fn </span>local_addr(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; io::Result&lt;std::net::SocketAddr&gt; {
+<a href=#100 id=100 data-nosnippet>100</a>        <span class="self">self</span>.io.local_addr()
 <a href=#101 id=101 data-nosnippet>101</a>    }
 <a href=#102 id=102 data-nosnippet>102</a>
-<a href=#103 id=103 data-nosnippet>103</a>    <span class="kw">fn </span>max_receive_segments(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; NonZeroUsize {
-<a href=#104 id=104 data-nosnippet>104</a>        <span class="self">self</span>.inner.gro_segments()
+<a href=#103 id=103 data-nosnippet>103</a>    <span class="kw">fn </span>may_fragment(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+<a href=#104 id=104 data-nosnippet>104</a>        <span class="self">self</span>.inner.may_fragment()
 <a href=#105 id=105 data-nosnippet>105</a>    }
-<a href=#106 id=106 data-nosnippet>106</a>}</code></pre></div></section></main></body></html>
+<a href=#106 id=106 data-nosnippet>106</a>
+<a href=#107 id=107 data-nosnippet>107</a>    <span class="kw">fn </span>max_receive_segments(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; NonZeroUsize {
+<a href=#108 id=108 data-nosnippet>108</a>        <span class="self">self</span>.inner.gro_segments()
+<a href=#109 id=109 data-nosnippet>109</a>    }
+<a href=#110 id=110 data-nosnippet>110</a>}</code></pre></div></section></main></body></html>
