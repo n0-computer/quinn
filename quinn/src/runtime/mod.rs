@@ -10,9 +10,37 @@ use std::{
     task::{Context, Poll},
 };
 
+use bytes::BytesMut;
 use udp::{RecvMeta, ReceivedDatagrams, Transmit};
 
 use crate::Instant;
+
+/// Convert raw recv buffers and metadata into owned `ReceivedDatagrams`
+///
+/// This handles GRO stride splitting - a single message may contain multiple
+/// coalesced datagrams that need to be split by stride.
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
+fn recv_to_datagrams(
+    bufs: &[IoSliceMut<'_>],
+    metas: &[RecvMeta],
+    msg_count: usize,
+) -> ReceivedDatagrams {
+    let mut result = ReceivedDatagrams::new();
+    for (meta, buf) in metas.iter().zip(bufs.iter()).take(msg_count) {
+        // Create one BytesMut for the entire message, then split by stride
+        let mut data = BytesMut::from(&buf[..meta.len]);
+        while !data.is_empty() {
+            let segment = data.split_to(data.len().min(meta.stride));
+            result.push(udp::ReceivedDatagram {
+                data: segment,
+                remote: meta.addr,
+                local_ip: meta.dst_ip,
+                ecn: meta.ecn,
+            });
+        }
+    }
+    result
+}
 
 /// Abstracts I/O and timer operations for runtime independence
 pub trait Runtime: Send + Sync + Debug + 'static {

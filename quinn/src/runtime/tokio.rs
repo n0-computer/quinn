@@ -136,29 +136,15 @@ impl AsyncUdpSocket for UdpSocket {
             }
             let mut metas = [udp::RecvMeta::default(); udp::BATCH_SIZE];
 
-            if let Ok(msg_count) = self.send.io.try_io(Interest::READABLE, || {
+            break Poll::Ready(match self.send.io.try_io(Interest::READABLE, || {
                 self.send
                     .inner
                     .recv((&self.send.io).into(), &mut bufs, &mut metas)
             }) {
-                // Convert to ReceivedDatagrams, splitting by stride
-                let mut result = udp::ReceivedDatagrams::new();
-                for (meta, buf) in metas.iter().zip(bufs.iter()).take(msg_count) {
-                    let mut offset = 0;
-                    while offset < meta.len {
-                        let stride = meta.stride.min(meta.len - offset);
-                        let data = buf[offset..offset + stride].to_vec();
-                        result.push(udp::ReceivedDatagram {
-                            data,
-                            remote: meta.addr,
-                            local_ip: meta.dst_ip,
-                            ecn: meta.ecn,
-                        });
-                        offset += stride;
-                    }
-                }
-                return Poll::Ready(Ok(result));
-            }
+                Ok(msg_count) => Ok(super::recv_to_datagrams(&bufs, &metas, msg_count)),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(e) => Err(e),
+            });
         }
     }
 
