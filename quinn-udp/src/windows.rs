@@ -29,7 +29,8 @@ use crate::{
 pub struct UdpSocketState {
     last_send_error: Mutex<Instant>,
     max_gso_segments: AtomicUsize,
-    ecn_enabled: AtomicBool,
+    ecn_v4_enabled: AtomicBool,
+    ecn_v6_enabled: AtomicBool,
     pktinfo_v4_enabled: AtomicBool,
     pktinfo_v6_enabled: AtomicBool,
 }
@@ -75,7 +76,8 @@ impl UdpSocketState {
             ));
         }
 
-        let mut ecn_enabled = true;
+        let mut ecn_v4_enabled = true;
+        let mut ecn_v6_enabled = true;
         let mut pktinfo_v4_enabled = true;
         let mut pktinfo_v6_enabled = true;
 
@@ -108,8 +110,8 @@ impl UdpSocketState {
                 OPTION_ON,
             ) {
                 if is_unsupported_error(&e) {
-                    crate::log::warn!("IP_RECVECN not supported, ECN will be disabled");
-                    ecn_enabled = false;
+                    crate::log::warn!("IP_RECVECN not supported, IPv4 ECN will be disabled");
+                    ecn_v4_enabled = false;
                 } else {
                     return Err(e);
                 }
@@ -145,8 +147,8 @@ impl UdpSocketState {
                 OPTION_ON,
             ) {
                 if is_unsupported_error(&e) {
-                    crate::log::warn!("IPV6_RECVECN not supported, ECN will be disabled");
-                    ecn_enabled = false;
+                    crate::log::warn!("IPV6_RECVECN not supported, IPv6 ECN will be disabled");
+                    ecn_v6_enabled = false;
                 } else {
                     return Err(e);
                 }
@@ -157,7 +159,8 @@ impl UdpSocketState {
         Ok(Self {
             last_send_error: Mutex::new(now.checked_sub(2 * IO_ERROR_LOG_INTERVAL).unwrap_or(now)),
             max_gso_segments: AtomicUsize::new(*MAX_GSO_SEGMENTS),
-            ecn_enabled: AtomicBool::new(ecn_enabled),
+            ecn_v4_enabled: AtomicBool::new(ecn_v4_enabled),
+            ecn_v6_enabled: AtomicBool::new(ecn_v6_enabled),
             pktinfo_v4_enabled: AtomicBool::new(pktinfo_v4_enabled),
             pktinfo_v6_enabled: AtomicBool::new(pktinfo_v6_enabled),
         })
@@ -436,11 +439,13 @@ fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>)
         }
     }
 
-    if state.ecn_enabled.load(Ordering::Relaxed) {
-        let ecn = transmit.ecn.map_or(0, |x| x as c_int);
-        if is_ipv4 {
+    let ecn = transmit.ecn.map_or(0, |x| x as c_int);
+    if is_ipv4 {
+        if state.ecn_v4_enabled.load(Ordering::Relaxed) {
             encoder.push(WinSock::IPPROTO_IP, WinSock::IP_ECN, ecn);
-        } else {
+        }
+    } else {
+        if state.ecn_v6_enabled.load(Ordering::Relaxed) {
             encoder.push(WinSock::IPPROTO_IPV6, WinSock::IPV6_ECN, ecn);
         }
     }
