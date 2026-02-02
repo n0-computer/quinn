@@ -377,7 +377,7 @@ impl UdpSocketState {
 }
 
 fn is_unsupported_error(e: &io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(WinSock::WSAEOPNOTSUPP))
+    matches!(e.raw_os_error(), Some(WinSock::WSAEOPNOTSUPP | WinSock::WSAENOPROTOOPT))
         || e.kind() == io::ErrorKind::Unsupported
 }
 
