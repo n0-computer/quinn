@@ -48,14 +48,14 @@ jobs:
 
       - name: List available tests
         run: |
-          for exe in target/x86_64-pc-windows-gnu/release/deps/quinn-*.exe; do
+          for exe in target/x86_64-pc-windows-gnu/release/deps/*.exe; do
             echo "=== Tests in $exe ==="
             wine "$exe" --list
           done
 
       - name: Run tests under Wine
         run: |
-          for exe in target/x86_64-pc-windows-gnu/release/deps/quinn-*.exe; do
+          for exe in target/x86_64-pc-windows-gnu/release/deps/*.exe; do
             echo "=== Running $exe ==="
             wine "$exe" --test-threads=1
           done
