@@ -561,7 +561,14 @@ impl Connection {
     /// if there are futures returned from this function still being awaited.
     pub fn on_closed(&self) -> OnClosed {
         let (tx, rx) = oneshot::channel();
-        self.0.state.lock("on_closed").on_closed.push(tx);
+        let mut state = self.0.state.lock("on_closed");
+        if let Some(error) = &state.error {
+            // Connection already closed, send immediately
+            let _ = tx.send((error.clone(), state.inner.stats()));
+        } else {
+            state.on_closed.push(tx);
+        }
+        drop(state);
         OnClosed {
             conn: self.weak_handle(),
             rx,
