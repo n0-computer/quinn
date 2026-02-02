@@ -984,12 +984,12 @@
 <a href=#984 id=984 data-nosnippet>984</a>    /// - a call was made to `handle_timeout`
 <a href=#985 id=985 data-nosnippet>985</a>    ///
 <a href=#986 id=986 data-nosnippet>986</a>    /// `max_datagrams` returns how many datagrams can be returned inside a
-<a href=#987 id=987 data-nosnippet>987</a>    /// single Transmit using GSO for a given destination. This must be at least 1.
+<a href=#987 id=987 data-nosnippet>987</a>    /// single Transmit using GSO for a given network path. This must be at least 1.
 <a href=#988 id=988 data-nosnippet>988</a>    </span><span class="attr">#[must_use]
 <a href=#989 id=989 data-nosnippet>989</a>    </span><span class="kw">pub fn </span>poll_transmit(
 <a href=#990 id=990 data-nosnippet>990</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
 <a href=#991 id=991 data-nosnippet>991</a>        now: Instant,
-<a href=#992 id=992 data-nosnippet>992</a>        max_datagrams: <span class="kw">impl </span>Fn(SocketAddr) -&gt; NonZeroUsize,
+<a href=#992 id=992 data-nosnippet>992</a>        max_datagrams: <span class="kw">impl </span>Fn(<span class="kw-2">&amp;</span>FourTuple) -&gt; NonZeroUsize,
 <a href=#993 id=993 data-nosnippet>993</a>        buf: <span class="kw-2">&amp;mut </span>Vec&lt;u8&gt;,
 <a href=#994 id=994 data-nosnippet>994</a>    ) -&gt; <span class="prelude-ty">Option</span>&lt;Transmit&gt; {
 <a href=#995 id=995 data-nosnippet>995</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(probing) = <span class="self">self
@@ -1092,10 +1092,10 @@
 <a href=#1092 id=1092 data-nosnippet>1092</a>                <span class="kw">return </span><span class="prelude-val">Some</span>(transmit);
 <a href=#1093 id=1093 data-nosnippet>1093</a>            }
 <a href=#1094 id=1094 data-nosnippet>1094</a>
-<a href=#1095 id=1095 data-nosnippet>1095</a>            <span class="comment">// Compute max_datagrams for this path's destination
+<a href=#1095 id=1095 data-nosnippet>1095</a>            <span class="comment">// Compute max_datagrams for this path
 <a href=#1096 id=1096 data-nosnippet>1096</a>            </span><span class="kw">let </span>path_max_datagrams = <span class="kw">match </span><span class="self">self</span>.config.enable_segmentation_offload {
 <a href=#1097 id=1097 data-nosnippet>1097</a>                <span class="bool-val">false </span>=&gt; NonZeroUsize::MIN,
-<a href=#1098 id=1098 data-nosnippet>1098</a>                <span class="bool-val">true </span>=&gt; max_datagrams(<span class="self">self</span>.path_data(path_id).network_path.remote),
+<a href=#1098 id=1098 data-nosnippet>1098</a>                <span class="bool-val">true </span>=&gt; max_datagrams(<span class="kw-2">&amp;</span><span class="self">self</span>.path_data(path_id).network_path),
 <a href=#1099 id=1099 data-nosnippet>1099</a>            };
 <a href=#1100 id=1100 data-nosnippet>1100</a>
 <a href=#1101 id=1101 data-nosnippet>1101</a>            <span class="comment">// Poll for on-path transmits.

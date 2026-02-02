@@ -240,7 +240,7 @@
 <a href=#240 id=240 data-nosnippet>240</a>    /// This is 1 if the platform doesn't support GSO. Subject to change if errors are detected
 <a href=#241 id=241 data-nosnippet>241</a>    /// while using GSO.
 <a href=#242 id=242 data-nosnippet>242</a>    </span><span class="attr">#[inline]
-<a href=#243 id=243 data-nosnippet>243</a>    </span><span class="kw">pub fn </span>max_gso_segments(<span class="kw-2">&amp;</span><span class="self">self</span>, _destination: <span class="kw-2">&amp;</span>SocketAddr) -&gt; NonZeroUsize {
+<a href=#243 id=243 data-nosnippet>243</a>    </span><span class="kw">pub fn </span>max_gso_segments(<span class="kw-2">&amp;</span><span class="self">self</span>, _destination: <span class="kw-2">&amp;</span>SocketAddr, _local_ip: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>IpAddr&gt;) -&gt; NonZeroUsize {
 <a href=#244 id=244 data-nosnippet>244</a>        <span class="self">self</span>.max_gso_segments
 <a href=#245 id=245 data-nosnippet>245</a>            .load(Ordering::Relaxed)
 <a href=#246 id=246 data-nosnippet>246</a>            .try_into()

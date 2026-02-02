@@ -57,8 +57,8 @@
 <a href=#57 id=57 data-nosnippet>57</a>}
 <a href=#58 id=58 data-nosnippet>58</a>
 <a href=#59 id=59 data-nosnippet>59</a><span class="kw">impl </span>UdpSenderHelperSocket <span class="kw">for </span>UdpSocket {
-<a href=#60 id=60 data-nosnippet>60</a>    <span class="kw">fn </span>max_transmit_segments(<span class="kw-2">&amp;</span><span class="self">self</span>, destination: <span class="kw-2">&amp;</span>std::net::SocketAddr) -&gt; NonZeroUsize {
-<a href=#61 id=61 data-nosnippet>61</a>        <span class="self">self</span>.inner.max_gso_segments(destination)
+<a href=#60 id=60 data-nosnippet>60</a>    <span class="kw">fn </span>max_transmit_segments(<span class="kw-2">&amp;</span><span class="self">self</span>, destination: <span class="kw-2">&amp;</span>std::net::SocketAddr, local_ip: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>std::net::IpAddr&gt;) -&gt; NonZeroUsize {
+<a href=#61 id=61 data-nosnippet>61</a>        <span class="self">self</span>.inner.max_gso_segments(destination, local_ip)
 <a href=#62 id=62 data-nosnippet>62</a>    }
 <a href=#63 id=63 data-nosnippet>63</a>
 <a href=#64 id=64 data-nosnippet>64</a>    <span class="kw">fn </span>try_send(<span class="kw-2">&amp;</span><span class="self">self</span>, transmit: <span class="kw-2">&amp;</span>udp::Transmit&lt;<span class="lifetime">'_</span>&gt;) -&gt; io::Result&lt;()&gt; {

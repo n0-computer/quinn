@@ -4,7 +4,7 @@
 <a href=#4 id=4 data-nosnippet>4</a>    fmt::{<span class="self">self</span>, Debug},
 <a href=#5 id=5 data-nosnippet>5</a>    future::Future,
 <a href=#6 id=6 data-nosnippet>6</a>    io::{<span class="self">self</span>, IoSliceMut},
-<a href=#7 id=7 data-nosnippet>7</a>    net::SocketAddr,
+<a href=#7 id=7 data-nosnippet>7</a>    net::{IpAddr, SocketAddr},
 <a href=#8 id=8 data-nosnippet>8</a>    num::NonZeroUsize,
 <a href=#9 id=9 data-nosnippet>9</a>    pin::Pin,
 <a href=#10 id=10 data-nosnippet>10</a>    task::{Context, Poll},
@@ -102,9 +102,9 @@
 <a href=#102 id=102 data-nosnippet>102</a>
 <a href=#103 id=103 data-nosnippet>103</a>    <span class="doccomment">/// Maximum number of datagrams that a [`Transmit`] may encode.
 <a href=#104 id=104 data-nosnippet>104</a>    ///
-<a href=#105 id=105 data-nosnippet>105</a>    /// The implementation may return a value specific to the given destination.
-<a href=#106 id=106 data-nosnippet>106</a>    </span><span class="kw">fn </span>max_transmit_segments(<span class="kw-2">&amp;</span><span class="self">self</span>, destination: <span class="kw-2">&amp;</span>SocketAddr) -&gt; NonZeroUsize {
-<a href=#107 id=107 data-nosnippet>107</a>        <span class="kw">let _ </span>= destination;
+<a href=#105 id=105 data-nosnippet>105</a>    /// The implementation may return a value specific to the given destination and local address.
+<a href=#106 id=106 data-nosnippet>106</a>    </span><span class="kw">fn </span>max_transmit_segments(<span class="kw-2">&amp;</span><span class="self">self</span>, destination: <span class="kw-2">&amp;</span>SocketAddr, local_ip: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>IpAddr&gt;) -&gt; NonZeroUsize {
+<a href=#107 id=107 data-nosnippet>107</a>        <span class="kw">let _ </span>= (destination, local_ip);
 <a href=#108 id=108 data-nosnippet>108</a>        NonZeroUsize::MIN
 <a href=#109 id=109 data-nosnippet>109</a>    }
 <a href=#110 id=110 data-nosnippet>110</a>}
@@ -199,8 +199,8 @@
 <a href=#199 id=199 data-nosnippet>199</a>        }
 <a href=#200 id=200 data-nosnippet>200</a>    }
 <a href=#201 id=201 data-nosnippet>201</a>
-<a href=#202 id=202 data-nosnippet>202</a>    <span class="kw">fn </span>max_transmit_segments(<span class="kw-2">&amp;</span><span class="self">self</span>, destination: <span class="kw-2">&amp;</span>SocketAddr) -&gt; NonZeroUsize {
-<a href=#203 id=203 data-nosnippet>203</a>        <span class="self">self</span>.socket.max_transmit_segments(destination)
+<a href=#202 id=202 data-nosnippet>202</a>    <span class="kw">fn </span>max_transmit_segments(<span class="kw-2">&amp;</span><span class="self">self</span>, destination: <span class="kw-2">&amp;</span>SocketAddr, local_ip: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>IpAddr&gt;) -&gt; NonZeroUsize {
+<a href=#203 id=203 data-nosnippet>203</a>        <span class="self">self</span>.socket.max_transmit_segments(destination, local_ip)
 <a href=#204 id=204 data-nosnippet>204</a>    }
 <a href=#205 id=205 data-nosnippet>205</a>}
 <a href=#206 id=206 data-nosnippet>206</a>
@@ -216,7 +216,7 @@
 <a href=#216 id=216 data-nosnippet>216</a>    </span><span class="kw">fn </span>try_send(<span class="kw-2">&amp;</span><span class="self">self</span>, transmit: <span class="kw-2">&amp;</span>udp::Transmit&lt;<span class="lifetime">'_</span>&gt;) -&gt; io::Result&lt;()&gt;;
 <a href=#217 id=217 data-nosnippet>217</a>
 <a href=#218 id=218 data-nosnippet>218</a>    <span class="doccomment">/// See [`UdpSender::max_transmit_segments`].
-<a href=#219 id=219 data-nosnippet>219</a>    </span><span class="kw">fn </span>max_transmit_segments(<span class="kw-2">&amp;</span><span class="self">self</span>, destination: <span class="kw-2">&amp;</span>SocketAddr) -&gt; NonZeroUsize;
+<a href=#219 id=219 data-nosnippet>219</a>    </span><span class="kw">fn </span>max_transmit_segments(<span class="kw-2">&amp;</span><span class="self">self</span>, destination: <span class="kw-2">&amp;</span>SocketAddr, local_ip: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>IpAddr&gt;) -&gt; NonZeroUsize;
 <a href=#220 id=220 data-nosnippet>220</a>}
 <a href=#221 id=221 data-nosnippet>221</a>
 <a href=#222 id=222 data-nosnippet>222</a><span class="doccomment">/// Automatically select an appropriate runtime from those enabled at compile time
