@@ -967,4 +967,24 @@ impl RoutingTable {
         let (addr, _) = self.server_routes.get(idx)?;
         Some(*addr)
     }
+
+    pub(super) fn sim_client_migration(
+        &mut self,
+        route_idx: usize,
+        modify_fn: impl Fn(SocketAddr) -> SocketAddr,
+    ) -> Option<SocketAddr> {
+        let route = self.client_routes.get_mut(route_idx)?;
+        route.0 = modify_fn(route.0);
+        Some(route.0)
+    }
+
+    pub(super) fn sim_server_migration(
+        &mut self,
+        route_idx: usize,
+        modify_fn: impl Fn(SocketAddr) -> SocketAddr,
+    ) -> Option<SocketAddr> {
+        let route = self.server_routes.get_mut(route_idx)?;
+        route.0 = modify_fn(route.0);
+        Some(route.0)
+    }
 }
