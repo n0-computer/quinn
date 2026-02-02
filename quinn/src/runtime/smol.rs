@@ -42,26 +42,26 @@ impl AsyncTimer for Timer {
     }
 }
 
-/// The parts of a UDP socket needed for sending
+/// The clonable core of a UDP socket
 ///
 /// This is separated from UdpSocket so that senders can clone just what they need
 /// without carrying the receive buffer.
 #[derive(Debug, Clone)]
-struct UdpSocketSend {
+struct UdpSocketCore {
     io: Arc<Async<std::net::UdpSocket>>,
     inner: Arc<udp::UdpSocketState>,
 }
 
 #[derive(Debug)]
 struct UdpSocket {
-    send: UdpSocketSend,
+    core: UdpSocketCore,
     recv_buf: Vec<u8>,
 }
 
 impl UdpSocket {
     fn new(sock: std::net::UdpSocket) -> io::Result<Self> {
         Ok(Self {
-            send: UdpSocketSend {
+            core: UdpSocketCore {
                 inner: Arc::new(udp::UdpSocketState::new((&sock).into())?),
                 io: Arc::new(Async::new_nonblocking(sock)?),
             },
@@ -70,7 +70,7 @@ impl UdpSocket {
     }
 }
 
-impl UdpSenderHelperSocket for UdpSocketSend {
+impl UdpSenderHelperSocket for UdpSocketCore {
     fn max_transmit_segments(&self) -> NonZeroUsize {
         self.inner.max_gso_segments()
     }
@@ -82,8 +82,8 @@ impl UdpSenderHelperSocket for UdpSocketSend {
 
 impl AsyncUdpSocket for UdpSocket {
     fn create_sender(&self) -> Pin<Box<dyn UdpSender>> {
-        let core = self.send.clone();
-        Box::pin(UdpSenderHelper::new(core, |socket: &UdpSocketSend| {
+        let core = self.core.clone();
+        Box::pin(UdpSenderHelper::new(core, |socket: &UdpSocketCore| {
             let socket = socket.clone();
             async move { socket.io.writable().await }
         }))
@@ -96,8 +96,8 @@ impl AsyncUdpSocket for UdpSocket {
         meta: &mut [udp::RecvMeta],
     ) -> Poll<io::Result<usize>> {
         loop {
-            ready!(self.send.io.poll_readable(cx))?;
-            if let Ok(res) = self.send.inner.recv((&self.send.io).into(), bufs, meta) {
+            ready!(self.core.io.poll_readable(cx))?;
+            if let Ok(res) = self.core.inner.recv((&self.core.io).into(), bufs, meta) {
                 return Poll::Ready(Ok(res));
             }
         }
@@ -110,7 +110,7 @@ impl AsyncUdpSocket for UdpSocket {
         // Ensure buffer is sized for GRO coalescing
         // Use 1500 (typical Ethernet MTU) as max payload size
         const MAX_PAYLOAD_SIZE: usize = 1500;
-        let gro_segments = self.send.inner.gro_segments().get();
+        let gro_segments = self.core.inner.gro_segments().get();
         let buf_size = MAX_PAYLOAD_SIZE * gro_segments;
         let total_size = buf_size * udp::BATCH_SIZE;
         if self.recv_buf.len() < total_size {
@@ -118,7 +118,7 @@ impl AsyncUdpSocket for UdpSocket {
         }
 
         loop {
-            ready!(self.send.io.poll_readable(cx))?;
+            ready!(self.core.io.poll_readable(cx))?;
 
             // Prepare IoSliceMut array
             let mut bufs: [IoSliceMut<'_>; udp::BATCH_SIZE] =
@@ -133,27 +133,29 @@ impl AsyncUdpSocket for UdpSocket {
             }
             let mut metas = [udp::RecvMeta::default(); udp::BATCH_SIZE];
 
-            break Poll::Ready(match self
-                .send
-                .inner
-                .recv((&self.send.io).into(), &mut bufs, &mut metas)
-            {
-                Ok(msg_count) => Ok(super::recv_to_datagrams(&bufs, &metas, msg_count)),
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
-                Err(e) => Err(e),
-            });
+            break Poll::Ready(
+                match self
+                    .core
+                    .inner
+                    .recv((&self.core.io).into(), &mut bufs, &mut metas)
+                {
+                    Ok(msg_count) => Ok(super::recv_to_datagrams(&bufs, &metas, msg_count)),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                    Err(e) => Err(e),
+                },
+            );
         }
     }
 
     fn local_addr(&self) -> io::Result<std::net::SocketAddr> {
-        self.send.io.as_ref().as_ref().local_addr()
+        self.core.io.as_ref().as_ref().local_addr()
     }
 
     fn may_fragment(&self) -> bool {
-        self.send.inner.may_fragment()
+        self.core.inner.may_fragment()
     }
 
     fn max_receive_segments(&self) -> NonZeroUsize {
-        self.send.inner.gro_segments()
+        self.core.inner.gro_segments()
     }
 }
