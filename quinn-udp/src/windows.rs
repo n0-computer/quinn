@@ -82,12 +82,18 @@ impl UdpSocketState {
         let mut pktinfo_v6_enabled = true;
 
         if is_ipv4 {
-            set_socket_option(
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IP,
                 WinSock::IP_DONTFRAGMENT,
                 OPTION_ON,
-            )?;
+            ) {
+                if is_unsupported_error(&e) {
+                    crate::log::warn!("IP_DONTFRAGMENT not supported, fragmentation may occur");
+                } else {
+                    return Err(e);
+                }
+            }
 
             if let Err(e) = set_socket_option(
                 &*socket.0,
@@ -119,12 +125,18 @@ impl UdpSocketState {
         }
 
         if is_ipv6 {
-            set_socket_option(
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IPV6,
                 WinSock::IPV6_DONTFRAG,
                 OPTION_ON,
-            )?;
+            ) {
+                if is_unsupported_error(&e) {
+                    crate::log::warn!("IPV6_DONTFRAG not supported, fragmentation may occur");
+                } else {
+                    return Err(e);
+                }
+            }
 
             if let Err(e) = set_socket_option(
                 &*socket.0,
