@@ -16,7 +16,7 @@ fn is_wine() -> bool {
 
     unsafe {
         let ntdll = GetModuleHandleA(b"ntdll.dll\0".as_ptr());
-        if ntdll.is_null() {
+        if ntdll == 0 {
             return false;
         }
         GetProcAddress(ntdll, b"wine_get_version\0".as_ptr()).is_some()
