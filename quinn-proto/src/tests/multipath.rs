@@ -777,7 +777,7 @@ fn per_path_observed_address() {
     assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
     assert_matches!(conn.poll(), None);
 
-    // simulate a rebind on the client
+    // simulate a rebind on the client, this will close the current path and open a new one
     let time = pair.time;
     pair.client_conn_mut(client_ch)
         .handle_network_change(&(), time);
@@ -786,28 +786,14 @@ fn per_path_observed_address() {
         .set_port(pair.client.addr.port().overflowing_add(1).0);
     let our_addr = pair.client.addr;
 
-    // open a second path
-    let now = pair.time;
-    let network_path = pair.addrs_to_server();
-    let conn = pair.client_conn_mut(client_ch);
-    let _new_path_id = conn
-        .open_path(network_path, PathStatus::Available, now)
-        .unwrap();
-
     pair.drive();
     let conn = pair.client_conn_mut(client_ch);
-    // check the migration related event
-    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{ id: PathId::ZERO, addr })) if addr == our_addr);
-    // wait for the open event
-    let mut opened = false;
-    while let Some(ev) = conn.poll() {
-        if matches!(ev, Event::Path(PathEvent::Opened { id: PathId(1) })) {
-            opened = true;
-            break;
-        }
-    }
-    assert!(opened);
-    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId(1), addr})) if addr == our_addr);
+
+    assert_matches!(
+        conn.poll(),
+        Some(Event::Path(PathEvent::Opened { id: PathId(1) }))
+    );
+    assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{ id: PathId(1), addr })) if addr == our_addr);
 }
 
 #[test]
