@@ -107,10 +107,20 @@ impl Future for OpenPath {
 ///
 /// As long as a [`Path`] or [`WeakPathHandle`] is alive, it is ensured that the [`PathStats`] for this path
 /// are not dropped even after the path is abandoned.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Path {
     id: PathId,
     conn: ConnectionRef,
+}
+
+impl Clone for Path {
+    fn clone(&self) -> Self {
+        self.conn.state.lock("Path::clone").inc_path_refs(self.id);
+        Self {
+            id: self.id,
+            conn: self.conn.clone(),
+        }
+    }
 }
 
 impl Drop for Path {
@@ -278,10 +288,22 @@ impl Path {
 /// The [`WeakPathHandle`] can be upgraded to a [`Path`] as long as its [`Connection`] has not been dropped.
 ///
 /// [`Connection`]: crate::Connection
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WeakPathHandle {
     id: PathId,
     conn: WeakConnectionHandle,
+}
+
+impl Clone for WeakPathHandle {
+    fn clone(&self) -> Self {
+        if let Some(conn) = self.conn.upgrade_to_ref() {
+            conn.state.lock("WeakPathHandle::clone").inc_path_refs(self.id);
+        }
+        Self {
+            id: self.id,
+            conn: self.conn.clone(),
+        }
+    }
 }
 
 impl PartialEq for WeakPathHandle {
