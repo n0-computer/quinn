@@ -29,6 +29,7 @@ use crate::{
 pub struct UdpSocketState {
     last_send_error: Mutex<Instant>,
     max_gso_segments: AtomicUsize,
+    may_fragment: bool,
     ecn_v4_enabled: AtomicBool,
     ecn_v6_enabled: AtomicBool,
     pktinfo_v4_enabled: AtomicBool,
@@ -80,6 +81,7 @@ impl UdpSocketState {
             ));
         }
 
+        let mut may_fragment = false;
         let mut ecn_v4_enabled = true;
         let mut ecn_v6_enabled = true;
         let mut pktinfo_v4_enabled = true;
@@ -94,6 +96,7 @@ impl UdpSocketState {
             ) {
                 if is_unsupported_error(&e) {
                     crate::log::warn!("IP_DONTFRAGMENT not supported, fragmentation may occur");
+                    may_fragment = true;
                 } else {
                     return Err(e);
                 }
@@ -137,6 +140,7 @@ impl UdpSocketState {
             ) {
                 if is_unsupported_error(&e) {
                     crate::log::warn!("IPV6_DONTFRAG not supported, fragmentation may occur");
+                    may_fragment = true;
                 } else {
                     return Err(e);
                 }
@@ -175,6 +179,7 @@ impl UdpSocketState {
         Ok(Self {
             last_send_error: Mutex::new(now.checked_sub(2 * IO_ERROR_LOG_INTERVAL).unwrap_or(now)),
             max_gso_segments: AtomicUsize::new(*MAX_GSO_SEGMENTS),
+            may_fragment,
             ecn_v4_enabled: AtomicBool::new(ecn_v4_enabled),
             ecn_v6_enabled: AtomicBool::new(ecn_v6_enabled),
             pktinfo_v4_enabled: AtomicBool::new(pktinfo_v4_enabled),
@@ -388,7 +393,7 @@ impl UdpSocketState {
 
     #[inline]
     pub fn may_fragment(&self) -> bool {
-        false
+        self.may_fragment
     }
 }
 
