@@ -1297,7 +1297,7 @@
 <a href=#1297 id=1297 data-nosnippet>1297</a>    }
 <a href=#1298 id=1298 data-nosnippet>1298</a>
 <a href=#1299 id=1299 data-nosnippet>1299</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>upgrade_to_ref(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;ConnectionRef&gt; {
-<a href=#1300 id=1300 data-nosnippet>1300</a>        <span class="self">self</span>.<span class="number">0</span>.upgrade().map(|inner| ConnectionRef::from_arc(inner))
+<a href=#1300 id=1300 data-nosnippet>1300</a>        <span class="self">self</span>.<span class="number">0</span>.upgrade().map(ConnectionRef::from_arc)
 <a href=#1301 id=1301 data-nosnippet>1301</a>    }
 <a href=#1302 id=1302 data-nosnippet>1302</a>
 <a href=#1303 id=1303 data-nosnippet>1303</a>    <span class="doccomment">/// Returns `true` if the two [`WeakConnectionHandle`] point at the same connection.
