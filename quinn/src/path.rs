@@ -297,7 +297,9 @@ pub struct WeakPathHandle {
 impl Clone for WeakPathHandle {
     fn clone(&self) -> Self {
         if let Some(conn) = self.conn.upgrade_to_ref() {
-            conn.state.lock("WeakPathHandle::clone").inc_path_refs(self.id);
+            conn.state
+                .lock("WeakPathHandle::clone")
+                .inc_path_refs(self.id);
         }
         Self {
             id: self.id,
