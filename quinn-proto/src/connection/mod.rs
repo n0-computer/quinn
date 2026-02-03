@@ -5,7 +5,6 @@ use std::{
     fmt, io, mem,
     net::{IpAddr, SocketAddr},
     num::{NonZeroU32, NonZeroUsize},
-    ops::Not,
     sync::Arc,
 };
 
@@ -694,22 +693,42 @@ impl Connection {
         path_id: PathId,
         error_code: VarInt,
     ) -> Result<(), ClosePathError> {
+        let locally_initiated = true;
+        self.close_path_inner(now, path_id, error_code, locally_initiated)
+    }
+
+    fn close_path_inner(
+        &mut self,
+        now: Instant,
+        path_id: PathId,
+        error_code: VarInt,
+        locally_initiated: bool,
+    ) -> Result<(), ClosePathError> {
         if self.abandoned_paths.contains(&path_id)
             || Some(path_id) > self.max_path_id()
             || !self.paths.contains_key(&path_id)
         {
             return Err(ClosePathError::ClosedPath);
         }
-        if self
-            .paths
-            .iter()
-            // Would there be any remaining, non-abandoned, validated paths
-            .any(|(id, path)| {
+
+        if locally_initiated {
+            let has_remaining_validated_paths = self.paths.iter().any(|(id, path)| {
                 *id != path_id && !self.abandoned_paths.contains(id) && path.data.validated
-            })
-            .not()
-        {
-            return Err(ClosePathError::LastOpenPath);
+            });
+            if !has_remaining_validated_paths {
+                return Err(ClosePathError::LastOpenPath);
+            }
+        } else {
+            // The remote abandoned this path. We should always "accept" this. Doing so right now,
+            // however, breaks assumptions throughout the code. We error instead, for the
+            // connection to be killed. See <https://github.com/n0-computer/quinn/issues/397>
+            let has_remaining_paths = self
+                .paths
+                .keys()
+                .any(|id| *id != path_id && !self.abandoned_paths.contains(id));
+            if !has_remaining_paths {
+                return Err(ClosePathError::LastOpenPath);
+            }
         }
 
         // Send PATH_ABANDON
@@ -4947,7 +4966,9 @@ impl Connection {
                 }) => {
                     span.record("path", tracing::field::debug(&path_id));
                     // TODO(flub): don't really know which error code to use here.
-                    match self.close_path(now, path_id, error_code.into()) {
+                    let locally_initiated = false;
+                    match self.close_path_inner(now, path_id, error_code.into(), locally_initiated)
+                    {
                         Ok(()) => {
                             trace!("peer abandoned path");
                         }
