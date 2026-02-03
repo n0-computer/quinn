@@ -720,8 +720,8 @@ impl Connection {
             }
         } else {
             // The remote abandoned this path. We should always "accept" this. Doing so right now,
-            // however, breaks assumptions throughout the code. We error instead, for the conection
-            // to be killed. See <https://github.com/n0-computer/quinn/issues/397>
+            // however, breaks assumptions throughout the code. We error instead, for the
+            // connection to be killed. See <https://github.com/n0-computer/quinn/issues/397>
             let has_remaining_paths = self
                 .paths
                 .keys()
