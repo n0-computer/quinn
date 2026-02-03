@@ -1572,7 +1572,7 @@ impl State {
                     }
                 }
                 Path(evt @ PathEvent::Abandoned { id, path_stats }) => {
-                    if self.path_refs.get(&id).is_some() {
+                    if self.path_refs.contains_key(&id) {
                         self.final_path_stats.insert(id, path_stats);
                     }
                     self.path_events.send(evt).ok();
