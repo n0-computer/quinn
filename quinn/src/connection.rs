@@ -1299,6 +1299,11 @@ impl WeakConnectionHandle {
     pub(crate) fn upgrade_to_ref(&self) -> Option<ConnectionRef> {
         self.0.upgrade().map(|inner| ConnectionRef::from_arc(inner))
     }
+
+    /// Returns `true` if the two [`WeakConnectionHandle`] point at the same connection.
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        self.0.ptr_eq(&other.0)
+    }
 }
 
 #[derive(Debug, Default)]

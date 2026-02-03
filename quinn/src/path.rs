@@ -103,7 +103,10 @@ impl Future for OpenPath {
     }
 }
 
-/// An open (Multi)Path
+/// An open network transmission within a multipath-enabled connection.
+///
+/// As long as a [`Path`] or [`WeakPathHandle`] is alive, it is ensured that the [`PathStats`] for this path
+/// are not dropped even after the path is abandoned.
 #[derive(Debug, Clone)]
 pub struct Path {
     id: PathId,
@@ -118,6 +121,7 @@ impl Drop for Path {
 }
 
 impl Path {
+    /// Returns a [`Path`] for a path id, after checking that the path is not closed.
     pub(crate) fn new(conn: &ConnectionRef, id: PathId) -> Option<Self> {
         {
             let mut state = conn.state.lock("Path::new");
@@ -131,12 +135,17 @@ impl Path {
         })
     }
 
+    /// Returns a [`Path`] for a path id without checking if the path exists or is closed.
     fn new_unchecked(conn: ConnectionRef, id: PathId) -> Self {
         conn.state.lock("Path::new_unchecked").inc_path_refs(id);
         Self { id, conn }
     }
 
-    /// Returns a [`WeakPathHandle`].
+    /// Returns a [`WeakPathHandle`] for this path.
+    ///
+    /// Holding a [`WeakPathHandle`] does not keep a connection alive, but ensures that the
+    /// path's stats are not dropped until the underlying connection is dropped, even if the
+    /// path is abandoned.
     pub fn weak_handle(&self) -> WeakPathHandle {
         self.conn
             .state
@@ -262,11 +271,26 @@ impl Path {
 }
 
 /// Weak handle for a [`Path`] that does not keep the connection alive.
+///
+/// As long as a [`WeakPathHandle`] for a path exists, that path's final stats will not be dropped even if
+/// the path was abandoned.
+///
+/// The [`WeakPathHandle`] can be upgraded to a [`Path`] as long as its [`Connection`] has not been dropped.
+///
+/// [`Connection`]: crate::Connection
 #[derive(Debug, Clone)]
 pub struct WeakPathHandle {
     id: PathId,
     conn: WeakConnectionHandle,
 }
+
+impl PartialEq for WeakPathHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && self.conn.ptr_eq(&other.conn)
+    }
+}
+
+impl Eq for WeakPathHandle {}
 
 impl Drop for WeakPathHandle {
     fn drop(&mut self) {
@@ -279,13 +303,14 @@ impl Drop for WeakPathHandle {
 }
 
 impl WeakPathHandle {
-    /// The [`PathId`] of this path.
+    /// Returns the [`PathId`] of this path.
     pub fn id(&self) -> PathId {
         self.id
     }
-    /// Upgrade to a [`Path`]
+
+    /// Upgrades to a [`Path`].
     ///
-    /// Returns `false` if the connection was dropped.
+    /// Returns `None` if the connection was dropped.
     pub fn upgrade(&self) -> Option<Path> {
         let conn = self.conn.upgrade_to_ref()?;
         Some(Path::new_unchecked(conn, self.id))
