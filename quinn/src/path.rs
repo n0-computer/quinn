@@ -115,7 +115,10 @@ pub struct Path {
 
 impl Clone for Path {
     fn clone(&self) -> Self {
-        self.conn.state.lock("Path::clone").inc_path_refs(self.id);
+        self.conn
+            .state
+            .lock("Path::clone")
+            .increment_path_refs(self.id);
         Self {
             id: self.id,
             conn: self.conn.clone(),
@@ -126,7 +129,7 @@ impl Clone for Path {
 impl Drop for Path {
     fn drop(&mut self) {
         let mut state = self.conn.state.lock("Path::drop");
-        state.dec_path_refs(self.id);
+        state.decrement_path_refs(self.id);
     }
 }
 
@@ -137,7 +140,7 @@ impl Path {
             let mut state = conn.state.lock("Path::new");
             // TODO(flub): Using this to know if the path still exists is... hacky.
             state.inner.path_status(id).ok()?;
-            state.inc_path_refs(id);
+            state.increment_path_refs(id);
         }
         Some(Self {
             id,
@@ -147,7 +150,9 @@ impl Path {
 
     /// Returns a [`Path`] for a path id without checking if the path exists or is closed.
     fn new_unchecked(conn: ConnectionRef, id: PathId) -> Self {
-        conn.state.lock("Path::new_unchecked").inc_path_refs(id);
+        conn.state
+            .lock("Path::new_unchecked")
+            .increment_path_refs(id);
         Self { id, conn }
     }
 
@@ -160,7 +165,7 @@ impl Path {
         self.conn
             .state
             .lock("Path::weak_handle")
-            .inc_path_refs(self.id);
+            .increment_path_refs(self.id);
         WeakPathHandle {
             id: self.id,
             conn: self.conn.weak_handle(),
@@ -193,6 +198,14 @@ impl Path {
 
     /// Returns the [`PathStats`] for this path.
     pub fn stats(&self) -> PathStats {
+        // The `expect` is safe:
+        // - `Path` can only be created for non-closed paths.
+        // - `Path` and its clones or `WeakPathHandle`s all increment the connection state's `path_ref`
+        //   reference counter
+        // - As long as a path is not abandoned, its stats are available from `proto::Connection`
+        // - If a path is abandoned, the `crate::Connection` stores the final stats as long as
+        //   the path's refcount is not 0
+        // - Therefore, we always get stats here.
         self.conn
             .state
             .lock("Path::stats")
@@ -299,7 +312,7 @@ impl Clone for WeakPathHandle {
         if let Some(conn) = self.conn.upgrade_to_ref() {
             conn.state
                 .lock("WeakPathHandle::clone")
-                .inc_path_refs(self.id);
+                .increment_path_refs(self.id);
         }
         Self {
             id: self.id,
@@ -321,7 +334,7 @@ impl Drop for WeakPathHandle {
         if let Some(conn) = self.conn.upgrade_to_ref() {
             conn.state
                 .lock("WeakPathHandle::drop")
-                .dec_path_refs(self.id);
+                .decrement_path_refs(self.id);
         }
     }
 }

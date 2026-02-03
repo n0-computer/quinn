@@ -1340,7 +1340,11 @@ pub(crate) struct State {
     open_path: FxHashMap<PathId, watch::Sender<Result<(), PathError>>>,
     /// Tracks paths being closed
     pub(crate) close_path: FxHashMap<PathId, oneshot::Sender<VarInt>>,
+    /// Tracks reference counts for paths, i.e. how many [`Path`] structs are alive for a path
     pub(crate) path_refs: FxHashMap<PathId, usize>,
+    /// Final path stats for discarded paths.
+    /// Are only populated for paths that have a refcount higher than 0.
+    pub(crate) final_path_stats: FxHashMap<PathId, PathStats>,
     pub(crate) path_events: tokio::sync::broadcast::Sender<PathEvent>,
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
     ref_count: usize,
@@ -1354,8 +1358,6 @@ pub(crate) struct State {
     pub(crate) observed_external_addr: watch::Sender<Option<SocketAddr>>,
     pub(crate) nat_traversal_updates: tokio::sync::broadcast::Sender<iroh_hp::Event>,
     on_closed: Vec<oneshot::Sender<(ConnectionError, ConnectionStats)>>,
-    /// Statistics for discarded paths.
-    pub(crate) final_path_stats: FxHashMap<PathId, PathStats>,
 }
 
 impl State {
@@ -1570,7 +1572,7 @@ impl State {
                     }
                 }
                 Path(evt @ PathEvent::Abandoned { id, path_stats }) => {
-                    if self.path_refs.get(&id).copied().unwrap_or_default() > 0 {
+                    if self.path_refs.get(&id).is_some() {
                         self.final_path_stats.insert(id, path_stats);
                     }
                     self.path_events.send(evt).ok();
@@ -1699,17 +1701,26 @@ impl State {
         }
     }
 
+    /// Returns [`PathStats`] for a path, if available.
+    ///
+    /// This gets the stats from [`proto::Connection`]. If that returns `None`
+    /// it gets them from `Self::final_path_stats` instead.
     pub(crate) fn path_stats(&mut self, path_id: PathId) -> Option<PathStats> {
         self.inner
             .path_stats(path_id)
             .or_else(|| self.final_path_stats.get(&path_id).copied())
     }
 
-    pub(crate) fn inc_path_refs(&mut self, path_id: PathId) {
+    /// Increment the application-level reference counter for a path.
+    ///
+    /// This counts how many [`Path`] or [`WeakPathHandle`] structs exist for a path.
+    /// Currently only is used to determine whether to store the final stats after a path is abandoned.
+    pub(crate) fn increment_path_refs(&mut self, path_id: PathId) {
         *self.path_refs.entry(path_id).or_default() += 1;
     }
 
-    pub(crate) fn dec_path_refs(&mut self, path_id: PathId) {
+    /// Decrement application-level reference counter for a path.
+    pub(crate) fn decrement_path_refs(&mut self, path_id: PathId) {
         if let Some(refs) = self.path_refs.get_mut(&path_id) {
             *refs = refs.saturating_sub(1);
             if *refs == 0 {
