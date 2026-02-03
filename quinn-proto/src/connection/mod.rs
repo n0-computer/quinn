@@ -5,7 +5,6 @@ use std::{
     fmt, io, mem,
     net::{IpAddr, SocketAddr},
     num::{NonZeroU32, NonZeroUsize},
-    ops::Not,
     sync::Arc,
 };
 
@@ -694,22 +693,42 @@ impl Connection {
         path_id: PathId,
         error_code: VarInt,
     ) -> Result<(), ClosePathError> {
+        let locally_initiated = true;
+        self.close_path_inner(now, path_id, error_code, locally_initiated)
+    }
+
+    fn close_path_inner(
+        &mut self,
+        now: Instant,
+        path_id: PathId,
+        error_code: VarInt,
+        locally_initiated: bool,
+    ) -> Result<(), ClosePathError> {
         if self.abandoned_paths.contains(&path_id)
             || Some(path_id) > self.max_path_id()
             || !self.paths.contains_key(&path_id)
         {
             return Err(ClosePathError::ClosedPath);
         }
-        if self
-            .paths
-            .iter()
-            // Would there be any remaining, non-abandoned, validated paths
-            .any(|(id, path)| {
+
+        if locally_initiated {
+            let has_remaining_validated_paths = self.paths.iter().any(|(id, path)| {
                 *id != path_id && !self.abandoned_paths.contains(id) && path.data.validated
-            })
-            .not()
-        {
-            return Err(ClosePathError::LastOpenPath);
+            });
+            if !has_remaining_validated_paths {
+                return Err(ClosePathError::LastOpenPath);
+            }
+        } else {
+            // The remote abandoned this path. We should always "accept" this. Doing so right now,
+            // however, breaks assumptions throughout the code. We error instead, for the
+            // connection to be killed. See <https://github.com/n0-computer/quinn/issues/397>
+            let has_remaining_paths = self
+                .paths
+                .keys()
+                .any(|id| *id != path_id && !self.abandoned_paths.contains(id));
+            if !has_remaining_paths {
+                return Err(ClosePathError::LastOpenPath);
+            }
         }
 
         // Send PATH_ABANDON
@@ -2878,10 +2897,10 @@ impl Connection {
                 .1
         };
 
-        // QUIC-MULTIPATH § 2.5 Key Phase Update Process: use largest PTO off all paths.
+        // QUIC-MULTIPATH § 2.5 Key Phase Update Process: use largest PTO of all paths.
         self.timers.set(
             Timer::Conn(ConnTimer::KeyDiscard),
-            start + self.pto_max_path(space, false) * 3,
+            start + self.max_pto_all_paths(space) * 3,
             self.qlog.with_time(now),
         );
     }
@@ -3365,27 +3384,13 @@ impl Connection {
 
     /// The maximum probe timeout across all paths
     ///
-    /// If `is_closing` is set to `true` it will filter out paths that have not yet been used.
-    ///
     /// See [`Connection::pto`]
-    fn pto_max_path(&self, space: SpaceId, is_closing: bool) -> Duration {
-        match space {
-            SpaceId::Initial | SpaceId::Handshake => self.pto(space, PathId::ZERO),
-            SpaceId::Data => self
-                .paths
-                .iter()
-                .filter_map(|(path_id, state)| {
-                    if is_closing && state.data.total_sent == 0 && state.data.total_recvd == 0 {
-                        // If we are closing and haven't sent anything yet, do not include
-                        None
-                    } else {
-                        let pto = self.pto(space, *path_id);
-                        Some(pto)
-                    }
-                })
-                .max()
-                .expect("there should be at least one path"),
-        }
+    fn max_pto_all_paths(&self, space: SpaceId) -> Duration {
+        self.paths
+            .keys()
+            .map(|path_id| self.pto(space, *path_id))
+            .max()
+            .expect("there should be at least one path")
     }
 
     /// Probe Timeout
@@ -3494,7 +3499,7 @@ impl Connection {
                 self.timers
                     .stop(Timer::Conn(ConnTimer::Idle), self.qlog.with_time(now));
             } else {
-                let dt = cmp::max(timeout, 3 * self.pto_max_path(space, false));
+                let dt = cmp::max(timeout, 3 * self.max_pto_all_paths(space));
                 self.timers.set(
                     Timer::Conn(ConnTimer::Idle),
                     now + dt,
@@ -4958,7 +4963,9 @@ impl Connection {
                 }) => {
                     span.record("path", tracing::field::debug(&path_id));
                     // TODO(flub): don't really know which error code to use here.
-                    match self.close_path(now, path_id, error_code.into()) {
+                    let locally_initiated = false;
+                    match self.close_path_inner(now, path_id, error_code.into(), locally_initiated)
+                    {
                         Ok(()) => {
                             trace!("peer abandoned path");
                         }
@@ -6034,9 +6041,9 @@ impl Connection {
     }
 
     fn set_close_timer(&mut self, now: Instant) {
-        // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO with PTO the max of
-        // the PTO for all paths.
-        let pto_max = self.pto_max_path(self.highest_space, true);
+        // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO using the max PTO of
+        // all paths.
+        let pto_max = self.max_pto_all_paths(self.highest_space);
         self.timers.set(
             Timer::Conn(ConnTimer::Close),
             now + 3 * pto_max,
