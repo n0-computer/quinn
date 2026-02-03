@@ -10,7 +10,7 @@
 <p>After network changes, paths may not be recoverable. In this case, waiting for the path to
 become idle may take longer than what’s desirable. If <a href="trait.NetworkChangeHint.html#tymethod.is_path_recoverable"><code>Self::is_path_recoverable</code></a> returns
 <code>True</code>, a multipath enabled connection will establish a new path to the same remote,
-closing the current one, insted of migrating the path.</p>
+closing the current one, instead of migrating the path.</p>
 <p>Paths that are deemed recoverable will simply be sent a PING for a liveness check.</p>
 </div></details></div><h2 id="foreign-impls" class="section-header">Implementations on Foreign Types<a href="#foreign-impls" class="anchor">§</a></h2><details class="toggle implementors-toggle"><summary><section id="impl-NetworkChangeHint-for-()" class="impl"><a class="src rightside" href="../src/iroh_quinn_proto/connection/mod.rs.html#6756-6761">Source</a><a href="#impl-NetworkChangeHint-for-()" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.NetworkChangeHint.html" title="trait iroh_quinn_proto::NetworkChangeHint">NetworkChangeHint</a> for <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a></h3></section></summary><div class="impl-items"><section id="method.is_path_recoverable" class="method trait-impl"><a class="src rightside" href="../src/iroh_quinn_proto/connection/mod.rs.html#6757-6760">Source</a><a href="#method.is_path_recoverable" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.is_path_recoverable" class="fn">is_path_recoverable</a>(
     &amp;self,
