@@ -1572,7 +1572,7 @@
 <a href=#1572 id=1572 data-nosnippet>1572</a>                    }
 <a href=#1573 id=1573 data-nosnippet>1573</a>                }
 <a href=#1574 id=1574 data-nosnippet>1574</a>                Path(evt @ PathEvent::Abandoned { id, path_stats }) =&gt; {
-<a href=#1575 id=1575 data-nosnippet>1575</a>                    <span class="kw">if </span><span class="self">self</span>.path_refs.get(<span class="kw-2">&amp;</span>id).is_some() {
+<a href=#1575 id=1575 data-nosnippet>1575</a>                    <span class="kw">if </span><span class="self">self</span>.path_refs.contains_key(<span class="kw-2">&amp;</span>id) {
 <a href=#1576 id=1576 data-nosnippet>1576</a>                        <span class="self">self</span>.final_path_stats.insert(id, path_stats);
 <a href=#1577 id=1577 data-nosnippet>1577</a>                    }
 <a href=#1578 id=1578 data-nosnippet>1578</a>                    <span class="self">self</span>.path_events.send(evt).ok();
