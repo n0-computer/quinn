@@ -391,12 +391,32 @@ impl ConnPair {
         }
     }
 
+    /// Creates a [`ConnPair`] with the default [`EndpointConfig`] and given `server_cfg` and
+    /// `client_cfg`.
     pub(super) fn with_default_endpoint(
         server_cfg: ServerConfig,
         client_cfg: ClientConfig,
     ) -> Self {
         let pair = Pair::new(Default::default(), server_cfg);
         Self::connect_with(pair, client_cfg)
+    }
+
+    /// Creates a [`ConnPair`] using the default [`EndpointConfig`] and configurations for the
+    /// server and client as defined by [`server_config`] and [`client_config`], setting the
+    /// [`TransportConfig`] given for each.
+    pub(super) fn with_transport_cfg(
+        server_transport: TransportConfig,
+        client_transport: TransportConfig,
+    ) -> Self {
+        let server_cfg = ServerConfig {
+            transport: Arc::new(server_transport),
+            ..server_config()
+        };
+        let client_cfg = ClientConfig {
+            transport: Arc::new(client_transport),
+            ..client_config()
+        };
+        Self::with_default_endpoint(server_cfg, client_cfg)
     }
 
     pub(super) fn conn(&self, side: Side) -> &Connection {

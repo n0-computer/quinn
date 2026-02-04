@@ -32,17 +32,7 @@ fn multipath_pair() -> ConnPair {
     #[cfg(feature = "qlog")]
     cfg.qlog_from_env("multipath_test");
 
-    let multipath_transport_config = Arc::new(cfg);
-    let server_cfg = ServerConfig {
-        transport: multipath_transport_config.clone(),
-        ..server_config()
-    };
-
-    let client_cfg = ClientConfig {
-        transport: multipath_transport_config,
-        ..client_config()
-    };
-    let mut pair = ConnPair::with_default_endpoint(server_cfg, client_cfg);
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
     pair.drive();
     info!("connected");
     pair
@@ -301,30 +291,22 @@ fn issue_max_path_id() -> TestResult {
     let _guard = subscribe();
 
     // We enable multipath but initially do not allow any paths to be opened.
-    let multipath_transport_cfg = Arc::new(TransportConfig {
+    let server_cfg = TransportConfig {
         max_concurrent_multipath_paths: NonZeroU32::new(1),
         // Assume a low-latency connection so pacing doesn't interfere with the test
         initial_rtt: Duration::from_millis(10),
         ..TransportConfig::default()
-    });
-    let server_cfg = ServerConfig {
-        transport: multipath_transport_cfg.clone(),
-        ..server_config()
     };
 
     // The client is allowed to create more paths immediately.
-    let client_multipath_transport_cfg = Arc::new(TransportConfig {
+    let client_cfg = TransportConfig {
         max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
         // Assume a low-latency connection so pacing doesn't interfere with the test
         initial_rtt: Duration::from_millis(10),
         ..TransportConfig::default()
-    });
-    let client_cfg = ClientConfig {
-        transport: client_multipath_transport_cfg,
-        ..client_config()
     };
 
-    let mut pair = ConnPair::with_default_endpoint(server_cfg, client_cfg);
+    let mut pair = ConnPair::with_transport_cfg(server_cfg, client_cfg);
 
     pair.drive();
     info!("connected");
@@ -371,29 +353,21 @@ fn issue_max_path_id_reordered() -> TestResult {
     let _guard = subscribe();
 
     // We enable multipath but initially do not allow any paths to be opened.
-    let multipath_transport_cfg = Arc::new(TransportConfig {
+    let server_cfg = TransportConfig {
         max_concurrent_multipath_paths: NonZeroU32::new(1),
         // Assume a low-latency connection so pacing doesn't interfere with the test
         initial_rtt: Duration::from_millis(10),
         ..TransportConfig::default()
-    });
-    let server_cfg = ServerConfig {
-        transport: multipath_transport_cfg.clone(),
-        ..server_config()
     };
 
     // The client is allowed to create more paths immediately.
-    let client_multipath_transport_cfg = Arc::new(TransportConfig {
+    let client_cfg = TransportConfig {
         max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
         // Assume a low-latency connection so pacing doesn't interfere with the test
         initial_rtt: Duration::from_millis(10),
         ..TransportConfig::default()
-    });
-    let client_cfg = ClientConfig {
-        transport: client_multipath_transport_cfg,
-        ..client_config()
     };
-    let mut pair = ConnPair::with_default_endpoint(server_cfg, client_cfg);
+    let mut pair = ConnPair::with_transport_cfg(server_cfg, client_cfg);
 
     pair.drive();
     info!("connected");
@@ -671,22 +645,13 @@ fn close_last_path() -> TestResult {
 fn per_path_observed_address() -> TestResult {
     let _guard = subscribe();
     // create the endpoint pair with both address discovery and multipath enabled
-    let transport_cfg = Arc::new(TransportConfig {
+    let transport_cfg = TransportConfig {
         max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
         address_discovery_role: crate::address_discovery::Role::Both,
         ..TransportConfig::default()
-    });
-    let server_cfg = ServerConfig {
-        transport: transport_cfg.clone(),
-        ..server_config()
     };
 
-    let client_cfg = ClientConfig {
-        transport: transport_cfg,
-        ..client_config()
-    };
-
-    let mut pair = ConnPair::with_default_endpoint(server_cfg, client_cfg);
+    let mut pair = ConnPair::with_transport_cfg(transport_cfg.clone(), transport_cfg);
     info!("connected");
     pair.drive();
 
