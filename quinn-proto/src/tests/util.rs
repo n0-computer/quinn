@@ -376,39 +376,14 @@ impl Pair {
 }
 
 pub(super) struct ConnPair {
-    pub(super) pair: Pair,
-    pub(super) client_ch: ConnectionHandle,
-    pub(super) server_ch: ConnectionHandle,
+    pair: Pair,
+    client_ch: ConnectionHandle,
+    server_ch: ConnectionHandle,
 }
 
 impl ConnPair {
-    pub(super) fn default() -> Self {
-        let mut pair = Pair::default();
-        let (client_ch, server_ch) = pair.connect();
-        Self {
-            pair,
-            client_ch,
-            server_ch,
-        }
-    }
-
-    pub(super) fn new(endpoint_config: Arc<EndpointConfig>, server_config: ServerConfig) -> Self {
-        let mut pair = Pair::new(endpoint_config, server_config);
-        let (client_ch, server_ch) = pair.connect();
-        Self {
-            pair,
-            client_ch,
-            server_ch,
-        }
-    }
-
-    pub(super) fn new_with(
-        endpoint_config: Arc<EndpointConfig>,
-        server_config: ServerConfig,
-        client_config: ClientConfig,
-    ) -> Self {
-        let mut pair = Pair::new(endpoint_config, server_config);
-        let (client_ch, server_ch) = pair.connect_with(client_config);
+    pub(super) fn connect_with(mut pair: Pair, client_cfg: ClientConfig) -> Self {
+        let (client_ch, server_ch) = pair.connect_with(client_cfg);
         Self {
             pair,
             client_ch,

@@ -40,19 +40,14 @@ fn multipath_pair() -> ConnPair {
     let server = Endpoint::new(Default::default(), Some(server_cfg), true);
     let client = Endpoint::new(Default::default(), None, true);
 
-    let mut pair = Pair::new_from_endpoint(client, server);
     let client_cfg = ClientConfig {
         transport: multipath_transport_config,
         ..client_config()
     };
-    let (client_ch, server_ch) = pair.connect_with(client_cfg);
+    let mut pair = ConnPair::connect_with(Pair::new_from_endpoint(client, server), client_cfg);
     pair.drive();
     info!("connected");
-    ConnPair {
-        pair,
-        client_ch,
-        server_ch,
-    }
+    pair
 }
 
 #[test]
@@ -221,7 +216,6 @@ fn multipath_cid_rotation() {
     );
     let client = Endpoint::new(Arc::new(EndpointConfig::default()), None, true);
 
-    let mut pair = Pair::new_from_endpoint(client, server);
     let client_cfg = ClientConfig {
         transport: Arc::new(TransportConfig {
             max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
@@ -232,15 +226,7 @@ fn multipath_cid_rotation() {
         ..client_config()
     };
 
-    let mut pair = {
-        let (client_ch, server_ch) = pair.connect_with(client_cfg);
-        ConnPair {
-            pair,
-            client_ch,
-            server_ch,
-        }
-    };
-
+    let mut pair = ConnPair::connect_with(Pair::new_from_endpoint(client, server), client_cfg);
     let mut round: u64 = 1;
     let mut stop = pair.time;
     let end = pair.time + 5 * CID_TIMEOUT;
@@ -316,43 +302,33 @@ fn multipath_cid_rotation() {
 fn issue_max_path_id() -> TestResult {
     let _guard = subscribe();
 
-    let mut pair = {
-        // We enable multipath but initially do not allow any paths to be opened.
-        let multipath_transport_cfg = Arc::new(TransportConfig {
-            max_concurrent_multipath_paths: NonZeroU32::new(1),
-            // Assume a low-latency connection so pacing doesn't interfere with the test
-            initial_rtt: Duration::from_millis(10),
-            ..TransportConfig::default()
-        });
-        let server_cfg = Arc::new(ServerConfig {
-            transport: multipath_transport_cfg.clone(),
-            ..server_config()
-        });
-        let server = Endpoint::new(Default::default(), Some(server_cfg), true);
-        let client = Endpoint::new(Default::default(), None, true);
+    // We enable multipath but initially do not allow any paths to be opened.
+    let multipath_transport_cfg = Arc::new(TransportConfig {
+        max_concurrent_multipath_paths: NonZeroU32::new(1),
+        // Assume a low-latency connection so pacing doesn't interfere with the test
+        initial_rtt: Duration::from_millis(10),
+        ..TransportConfig::default()
+    });
+    let server_cfg = Arc::new(ServerConfig {
+        transport: multipath_transport_cfg.clone(),
+        ..server_config()
+    });
+    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
+    let client = Endpoint::new(Default::default(), None, true);
 
-        let mut pair = Pair::new_from_endpoint(client, server);
-
-        // The client is allowed to create more paths immediately.
-        let client_multipath_transport_cfg = Arc::new(TransportConfig {
-            max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
-            // Assume a low-latency connection so pacing doesn't interfere with the test
-            initial_rtt: Duration::from_millis(10),
-            ..TransportConfig::default()
-        });
-        let client_cfg = ClientConfig {
-            transport: client_multipath_transport_cfg,
-            ..client_config()
-        };
-
-        let (client_ch, server_ch) = pair.connect_with(client_cfg);
-
-        ConnPair {
-            pair,
-            client_ch,
-            server_ch,
-        }
+    // The client is allowed to create more paths immediately.
+    let client_multipath_transport_cfg = Arc::new(TransportConfig {
+        max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
+        // Assume a low-latency connection so pacing doesn't interfere with the test
+        initial_rtt: Duration::from_millis(10),
+        ..TransportConfig::default()
+    });
+    let client_cfg = ClientConfig {
+        transport: client_multipath_transport_cfg,
+        ..client_config()
     };
+
+    let mut pair = ConnPair::connect_with(Pair::new_from_endpoint(client, server), client_cfg);
 
     pair.drive();
     info!("connected");
@@ -398,42 +374,33 @@ fn issue_max_path_id() -> TestResult {
 fn issue_max_path_id_reordered() -> TestResult {
     let _guard = subscribe();
 
-    let mut pair = {
-        // We enable multipath but initially do not allow any paths to be opened.
-        let multipath_transport_cfg = Arc::new(TransportConfig {
-            max_concurrent_multipath_paths: NonZeroU32::new(1),
-            // Assume a low-latency connection so pacing doesn't interfere with the test
-            initial_rtt: Duration::from_millis(10),
-            ..TransportConfig::default()
-        });
-        let server_cfg = Arc::new(ServerConfig {
-            transport: multipath_transport_cfg.clone(),
-            ..server_config()
-        });
-        let server = Endpoint::new(Default::default(), Some(server_cfg), true);
-        let client = Endpoint::new(Default::default(), None, true);
+    // We enable multipath but initially do not allow any paths to be opened.
+    let multipath_transport_cfg = Arc::new(TransportConfig {
+        max_concurrent_multipath_paths: NonZeroU32::new(1),
+        // Assume a low-latency connection so pacing doesn't interfere with the test
+        initial_rtt: Duration::from_millis(10),
+        ..TransportConfig::default()
+    });
+    let server_cfg = Arc::new(ServerConfig {
+        transport: multipath_transport_cfg.clone(),
+        ..server_config()
+    });
+    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
+    let client = Endpoint::new(Default::default(), None, true);
 
-        let mut pair = Pair::new_from_endpoint(client, server);
-
-        // The client is allowed to create more paths immediately.
-        let client_multipath_transport_cfg = Arc::new(TransportConfig {
-            max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
-            // Assume a low-latency connection so pacing doesn't interfere with the test
-            initial_rtt: Duration::from_millis(10),
-            ..TransportConfig::default()
-        });
-        let client_cfg = ClientConfig {
-            transport: client_multipath_transport_cfg,
-            ..client_config()
-        };
-        let (client_ch, server_ch) = pair.connect_with(client_cfg);
-
-        ConnPair {
-            pair,
-            client_ch,
-            server_ch,
-        }
+    // The client is allowed to create more paths immediately.
+    let client_multipath_transport_cfg = Arc::new(TransportConfig {
+        max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
+        // Assume a low-latency connection so pacing doesn't interfere with the test
+        initial_rtt: Duration::from_millis(10),
+        ..TransportConfig::default()
+    });
+    let client_cfg = ClientConfig {
+        transport: client_multipath_transport_cfg,
+        ..client_config()
     };
+    let mut pair = ConnPair::connect_with(Pair::new_from_endpoint(client, server), client_cfg);
+
     pair.drive();
     info!("connected");
 
@@ -710,33 +677,26 @@ fn close_last_path() -> TestResult {
 fn per_path_observed_address() -> TestResult {
     let _guard = subscribe();
     // create the endpoint pair with both address discovery and multipath enabled
-    let mut pair = {
-        let transport_cfg = Arc::new(TransportConfig {
-            max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
-            address_discovery_role: crate::address_discovery::Role::Both,
-            ..TransportConfig::default()
-        });
-        let server_cfg = Arc::new(ServerConfig {
-            transport: transport_cfg.clone(),
-            ..server_config()
-        });
-        let server = Endpoint::new(Default::default(), Some(server_cfg), true);
-        let client = Endpoint::new(Default::default(), None, true);
+    let transport_cfg = Arc::new(TransportConfig {
+        max_concurrent_multipath_paths: NonZeroU32::new(MAX_PATHS),
+        address_discovery_role: crate::address_discovery::Role::Both,
+        ..TransportConfig::default()
+    });
+    let server_cfg = Arc::new(ServerConfig {
+        transport: transport_cfg.clone(),
+        ..server_config()
+    });
+    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
+    let client = Endpoint::new(Default::default(), None, true);
 
-        let mut pair = Pair::new_from_endpoint(client, server);
-        let client_cfg = ClientConfig {
-            transport: transport_cfg,
-            ..client_config()
-        };
-        let (client_ch, server_ch) = pair.connect_with(client_cfg);
-        pair.drive();
-        info!("connected");
-        ConnPair {
-            pair,
-            client_ch,
-            server_ch,
-        }
+    let client_cfg = ClientConfig {
+        transport: transport_cfg,
+        ..client_config()
     };
+
+    let mut pair = ConnPair::connect_with(Pair::new_from_endpoint(client, server), client_cfg);
+    info!("connected");
+    pair.drive();
 
     // check that the client received the correct address
     let expected_addr = pair.client.addr;
@@ -790,20 +750,15 @@ fn mtud_on_two_paths() -> TestResult {
     let server = Endpoint::new(Default::default(), Some(server_cfg), true);
     let client = Endpoint::new(Default::default(), None, true);
 
-    let mut inner_pair = Pair::new_from_endpoint(client, server);
-    inner_pair.mtu = 1200; // Start with a small MTU
+    let mut pair = Pair::new_from_endpoint(client, server);
+    pair.mtu = 1200; // Start with a small MTU
     let client_cfg = ClientConfig {
         transport: multipath_transport_cfg,
         ..client_config()
     };
-    let (client_ch, server_ch) = inner_pair.connect_with(client_cfg);
-    inner_pair.drive();
+    let mut pair = ConnPair::connect_with(pair, client_cfg);
+    pair.drive();
     info!("connected");
-    let mut pair = ConnPair {
-        pair: inner_pair,
-        client_ch,
-        server_ch,
-    };
 
     assert_eq!(pair.path_mtu(Client, PathId::ZERO), 1200);
 
