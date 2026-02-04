@@ -5,7 +5,7 @@ use std::{
     io::{self, Write},
     mem,
     net::{Ipv6Addr, SocketAddr, UdpSocket},
-    num::NonZeroUsize,
+    num::{NonZeroU32, NonZeroUsize},
     ops::RangeFrom,
     str,
     sync::{Arc, LazyLock, Mutex},
@@ -23,7 +23,7 @@ use tracing::{debug, info_span, trace};
 
 use super::crypto::rustls::{QuicClientConfig, QuicServerConfig, configured_provider};
 use super::*;
-use crate::{Duration, Instant};
+use crate::{Duration, Instant, congestion::Controller};
 
 pub(super) const DEFAULT_MTU: usize = 1452;
 
@@ -416,56 +416,302 @@ impl ConnPair {
         }
     }
 
-    pub(super) fn client_conn_mut(&mut self) -> &mut Connection {
-        self.pair.client_conn_mut(self.client_ch)
+    pub(super) fn conn(&self, side: Side) -> &Connection {
+        match side {
+            Side::Client => self.pair.client.connections.get(&self.client_ch).unwrap(),
+            Side::Server => self.pair.server.connections.get(&self.server_ch).unwrap(),
+        }
     }
 
-    pub(super) fn server_conn_mut(&mut self) -> &mut Connection {
-        self.pair.server_conn_mut(self.server_ch)
+    pub(super) fn conn_mut(&mut self, side: Side) -> &mut Connection {
+        match side {
+            Side::Client => self
+                .pair
+                .client
+                .connections
+                .get_mut(&self.client_ch)
+                .unwrap(),
+            Side::Server => self
+                .pair
+                .server
+                .connections
+                .get_mut(&self.server_ch)
+                .unwrap(),
+        }
     }
 
-    pub(super) fn client_streams(&mut self) -> Streams<'_> {
-        self.pair.client_streams(self.client_ch)
+    pub(super) fn poll_timeout(&mut self, side: Side) -> Option<Instant> {
+        self.conn_mut(side).poll_timeout()
     }
 
-    pub(super) fn server_streams(&mut self) -> Streams<'_> {
-        self.pair.server_streams(self.server_ch)
+    pub(super) fn poll(&mut self, side: Side) -> Option<Event> {
+        self.conn_mut(side).poll()
     }
 
-    pub(super) fn client_send(&mut self, s: StreamId) -> SendStream<'_> {
-        self.pair.client_send(self.client_ch, s)
+    pub(super) fn poll_endpoint_events(&mut self, side: Side) -> Option<EndpointEvent> {
+        self.conn_mut(side).poll_endpoint_events()
     }
 
-    pub(super) fn client_recv(&mut self, s: StreamId) -> RecvStream<'_> {
-        self.pair.client_recv(self.client_ch, s)
+    pub(super) fn streams(&mut self, side: Side) -> Streams<'_> {
+        self.conn_mut(side).streams()
     }
 
-    pub(super) fn client_datagrams(&mut self) -> Datagrams<'_> {
-        self.pair.client_datagrams(self.client_ch)
+    pub(super) fn recv_stream(&mut self, side: Side, id: StreamId) -> RecvStream<'_> {
+        self.conn_mut(side).recv_stream(id)
     }
 
-    pub(super) fn server_send(&mut self, s: StreamId) -> SendStream<'_> {
-        self.pair.server_send(self.server_ch, s)
+    pub(super) fn send_stream(&mut self, side: Side, id: StreamId) -> SendStream<'_> {
+        self.conn_mut(side).send_stream(id)
     }
 
-    pub(super) fn server_recv(&mut self, s: StreamId) -> RecvStream<'_> {
-        self.pair.server_recv(self.server_ch, s)
+    pub(super) fn open_path_ensure(
+        &mut self,
+        side: Side,
+        network_path: FourTuple,
+        initial_status: PathStatus,
+        now: Instant,
+    ) -> Result<(PathId, bool), PathError> {
+        self.conn_mut(side)
+            .open_path_ensure(network_path, initial_status, now)
     }
 
-    pub(super) fn server_datagrams(&mut self) -> Datagrams<'_> {
-        self.pair.server_datagrams(self.server_ch)
+    pub(super) fn open_path(
+        &mut self,
+        side: Side,
+        network_path: FourTuple,
+        initial_status: PathStatus,
+        now: Instant,
+    ) -> Result<PathId, PathError> {
+        self.conn_mut(side)
+            .open_path(network_path, initial_status, now)
     }
 
-    pub(super) fn drive(&mut self) {
-        self.pair.drive();
+    pub(super) fn close_path(
+        &mut self,
+        side: Side,
+        now: Instant,
+        path_id: PathId,
+        error_code: VarInt,
+    ) -> Result<(), ClosePathError> {
+        self.conn_mut(side).close_path(now, path_id, error_code)
     }
 
-    pub(super) fn drive_client(&mut self) {
-        self.pair.drive_client();
+    pub(super) fn paths(&self, side: Side) -> Vec<PathId> {
+        self.conn(side).paths()
     }
 
-    pub(super) fn drive_server(&mut self) {
-        self.pair.drive_server();
+    pub(super) fn path_status(
+        &self,
+        side: Side,
+        path_id: PathId,
+    ) -> Result<PathStatus, ClosedPath> {
+        self.conn(side).path_status(path_id)
+    }
+
+    pub(super) fn network_path(
+        &self,
+        side: Side,
+        path_id: PathId,
+    ) -> Result<FourTuple, ClosedPath> {
+        self.conn(side).network_path(path_id)
+    }
+
+    pub(super) fn set_path_status(
+        &mut self,
+        side: Side,
+        path_id: PathId,
+        status: PathStatus,
+    ) -> Result<PathStatus, SetPathStatusError> {
+        self.conn_mut(side).set_path_status(path_id, status)
+    }
+
+    pub(super) fn remote_path_status(&self, side: Side, path_id: PathId) -> Option<PathStatus> {
+        self.conn(side).remote_path_status(path_id)
+    }
+
+    pub(super) fn set_path_max_idle_timeout(
+        &mut self,
+        side: Side,
+        path_id: PathId,
+        timeout: Option<Duration>,
+    ) -> Result<Option<Duration>, ClosedPath> {
+        self.conn_mut(side)
+            .set_path_max_idle_timeout(path_id, timeout)
+    }
+
+    pub(super) fn set_path_keep_alive_interval(
+        &mut self,
+        side: Side,
+        path_id: PathId,
+        interval: Option<Duration>,
+    ) -> Result<Option<Duration>, ClosedPath> {
+        self.conn_mut(side)
+            .set_path_keep_alive_interval(path_id, interval)
+    }
+
+    pub(super) fn poll_transmit(
+        &mut self,
+        side: Side,
+        now: Instant,
+        max_datagrams: NonZeroUsize,
+        buf: &mut Vec<u8>,
+    ) -> Option<Transmit> {
+        self.conn_mut(side).poll_transmit(now, max_datagrams, buf)
+    }
+
+    pub(super) fn handle_event(&mut self, side: Side, event: ConnectionEvent) {
+        self.conn_mut(side).handle_event(event)
+    }
+
+    pub(super) fn handle_timeout(&mut self, side: Side, now: Instant) {
+        self.conn_mut(side).handle_timeout(now)
+    }
+
+    pub(super) fn close(&mut self, side: Side, now: Instant, error_code: VarInt, reason: Bytes) {
+        self.conn_mut(side).close(now, error_code, reason)
+    }
+
+    pub(super) fn datagrams(&mut self, side: Side) -> Datagrams<'_> {
+        self.conn_mut(side).datagrams()
+    }
+
+    pub(super) fn stats(&mut self, side: Side) -> ConnectionStats {
+        self.conn_mut(side).stats()
+    }
+
+    pub(super) fn path_stats(&mut self, side: Side, path_id: PathId) -> Option<PathStats> {
+        self.conn_mut(side).path_stats(path_id)
+    }
+
+    pub(super) fn ping(&mut self, side: Side) {
+        self.conn_mut(side).ping()
+    }
+
+    pub(super) fn ping_path(&mut self, side: Side, path: PathId) -> Result<(), ClosedPath> {
+        self.conn_mut(side).ping_path(path)
+    }
+
+    pub(super) fn force_key_update(&mut self, side: Side) {
+        self.conn_mut(side).force_key_update()
+    }
+
+    pub(super) fn crypto_session(&self, side: Side) -> &dyn crypto::Session {
+        self.conn(side).crypto_session()
+    }
+
+    pub(super) fn is_handshaking(&self, side: Side) -> bool {
+        self.conn(side).is_handshaking()
+    }
+
+    pub(super) fn is_closed(&self, side: Side) -> bool {
+        self.conn(side).is_closed()
+    }
+
+    pub(super) fn is_drained(&self, side: Side) -> bool {
+        self.conn(side).is_drained()
+    }
+
+    pub(super) fn accepted_0rtt(&self, side: Side) -> bool {
+        self.conn(side).accepted_0rtt()
+    }
+
+    pub(super) fn has_0rtt(&self, side: Side) -> bool {
+        self.conn(side).has_0rtt()
+    }
+
+    pub(super) fn has_pending_retransmits(&self, side: Side) -> bool {
+        self.conn(side).has_pending_retransmits()
+    }
+
+    pub(super) fn path_observed_address(
+        &self,
+        side: Side,
+        path_id: PathId,
+    ) -> Result<Option<SocketAddr>, ClosedPath> {
+        self.conn(side).path_observed_address(path_id)
+    }
+
+    pub(super) fn rtt(&self, side: Side, path_id: PathId) -> Option<Duration> {
+        self.conn(side).rtt(path_id)
+    }
+
+    pub(super) fn congestion_state(&self, side: Side, path_id: PathId) -> Option<&dyn Controller> {
+        self.conn(side).congestion_state(path_id)
+    }
+
+    pub(super) fn set_max_concurrent_streams(&mut self, side: Side, dir: Dir, count: VarInt) {
+        self.conn_mut(side).set_max_concurrent_streams(dir, count)
+    }
+
+    pub(super) fn set_max_concurrent_paths(
+        &mut self,
+        side: Side,
+        now: Instant,
+        count: NonZeroU32,
+    ) -> Result<(), MultipathNotNegotiated> {
+        self.conn_mut(side).set_max_concurrent_paths(now, count)
+    }
+
+    pub(super) fn max_concurrent_streams(&self, side: Side, dir: Dir) -> u64 {
+        self.conn(side).max_concurrent_streams(dir)
+    }
+
+    pub(super) fn set_send_window(&mut self, side: Side, send_window: u64) {
+        self.conn_mut(side).set_send_window(send_window)
+    }
+
+    pub(super) fn set_receive_window(&mut self, side: Side, receive_window: VarInt) {
+        self.conn_mut(side).set_receive_window(receive_window)
+    }
+
+    pub(super) fn is_multipath_negotiated(&self, side: Side) -> bool {
+        self.conn(side).is_multipath_negotiated()
+    }
+
+    pub(super) fn local_address_changed(&mut self, side: Side) {
+        self.conn_mut(side).local_address_changed()
+    }
+
+    pub(super) fn current_mtu(&self, side: Side) -> u16 {
+        self.conn(side).current_mtu()
+    }
+
+    pub(super) fn add_nat_traversal_address(
+        &mut self,
+        side: Side,
+        address: SocketAddr,
+    ) -> Result<(), iroh_hp::Error> {
+        self.conn_mut(side).add_nat_traversal_address(address)
+    }
+
+    pub(super) fn remove_nat_traversal_address(
+        &mut self,
+        side: Side,
+        address: SocketAddr,
+    ) -> Result<(), iroh_hp::Error> {
+        self.conn_mut(side).remove_nat_traversal_address(address)
+    }
+
+    pub(super) fn get_local_nat_traversal_addresses(
+        &self,
+        side: Side,
+    ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+        self.conn(side).get_local_nat_traversal_addresses()
+    }
+
+    pub(super) fn get_remote_nat_traversal_addresses(
+        &self,
+        side: Side,
+    ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+        self.conn(side).get_remote_nat_traversal_addresses()
+    }
+
+    pub(super) fn initiate_nat_traversal_round(
+        &mut self,
+        side: Side,
+        now: Instant,
+    ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+        self.conn_mut(side).initiate_nat_traversal_round(now)
     }
 }
 
