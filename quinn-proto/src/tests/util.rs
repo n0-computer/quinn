@@ -742,55 +742,6 @@ impl ConnPair {
         self.conn_mut(side).initiate_nat_traversal_round(now)
     }
 
-    // Test-only pub(crate) methods
-
-    pub(super) fn decode_packet(&self, side: Side, event: &ConnectionEvent) -> Option<Vec<u8>> {
-        self.conn(side).decode_packet(event)
-    }
-
-    pub(super) fn bytes_in_flight(&self, side: Side) -> u64 {
-        self.conn(side).bytes_in_flight()
-    }
-
-    pub(super) fn congestion_window(&self, side: Side) -> u64 {
-        self.conn(side).congestion_window()
-    }
-
-    pub(super) fn is_idle(&self, side: Side) -> bool {
-        self.conn(side).is_idle()
-    }
-
-    pub(super) fn using_ecn(&self, side: Side) -> bool {
-        self.conn(side).using_ecn()
-    }
-
-    pub(super) fn total_recvd(&self, side: Side) -> u64 {
-        self.conn(side).total_recvd()
-    }
-
-    pub(super) fn active_local_cid_seq(&self, side: Side) -> (u64, u64) {
-        self.conn(side).active_local_cid_seq()
-    }
-
-    pub(super) fn active_local_path_cid_seq(&self, side: Side, path_id: u32) -> (u64, u64) {
-        self.conn(side).active_local_path_cid_seq(path_id)
-    }
-
-    pub(super) fn rotate_local_cid(&mut self, side: Side, v: u64, now: Instant) {
-        self.conn_mut(side).rotate_local_cid(v, now)
-    }
-
-    pub(super) fn active_remote_cid_seq(&self, side: Side) -> u64 {
-        self.conn(side).active_remote_cid_seq()
-    }
-
-    pub(super) fn path_mtu(&self, side: Side, path_id: PathId) -> u16 {
-        self.conn(side).path_mtu(path_id)
-    }
-
-    pub(super) fn trigger_path_validation(&mut self, side: Side) {
-        self.conn_mut(side).trigger_path_validation()
-    }
 }
 
 impl std::ops::Deref for ConnPair {

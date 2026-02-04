@@ -717,7 +717,7 @@ fn mtud_on_two_paths() -> TestResult {
     pair.drive();
     info!("connected");
 
-    assert_eq!(pair.path_mtu(Client, PathId::ZERO), 1200);
+    assert_eq!(pair.conn(Client).path_mtu(PathId::ZERO), 1200);
 
     // Open a 2nd path.
     let server_addr = pair.addrs_to_server();
@@ -735,8 +735,8 @@ fn mtud_on_two_paths() -> TestResult {
     );
 
     // MTU should be 1200 for both paths.
-    assert_eq!(pair.path_mtu(Client, PathId::ZERO), 1200);
-    assert_eq!(pair.path_mtu(Client, path_id), 1200);
+    assert_eq!(pair.conn(Client).path_mtu(PathId::ZERO), 1200);
+    assert_eq!(pair.conn(Client).path_mtu(path_id), 1200);
 
     // The default MtuDiscoveryConfig::upper_bound is 1452, the default
     // MtuDiscoveryConfig::interval is 600s.
@@ -745,11 +745,15 @@ fn mtud_on_two_paths() -> TestResult {
     info!("Bumping MTU to: {}", pair.mtu);
     pair.drive();
 
-    info!("MTU Path 0: {}", pair.path_mtu(Client, PathId::ZERO));
-    info!("MTU Path {}: {}", path_id, pair.path_mtu(Client, path_id));
+    info!("MTU Path 0: {}", pair.conn(Client).path_mtu(PathId::ZERO));
+    info!(
+        "MTU Path {}: {}",
+        path_id,
+        pair.conn(Client).path_mtu(path_id)
+    );
 
     // Both paths should have found the new MTU.
-    assert_eq!(pair.path_mtu(Client, PathId::ZERO), 1452);
-    assert_eq!(pair.path_mtu(Client, path_id), 1452);
+    assert_eq!(pair.conn(Client).path_mtu(PathId::ZERO), 1452);
+    assert_eq!(pair.conn(Client).path_mtu(path_id), 1452);
     Ok(())
 }
