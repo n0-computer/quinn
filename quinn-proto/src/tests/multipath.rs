@@ -307,12 +307,10 @@ fn issue_max_path_id() -> TestResult {
         initial_rtt: Duration::from_millis(10),
         ..TransportConfig::default()
     });
-    let server_cfg = Arc::new(ServerConfig {
+    let server_cfg = ServerConfig {
         transport: multipath_transport_cfg.clone(),
         ..server_config()
-    });
-    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
-    let client = Endpoint::new(Default::default(), None, true);
+    };
 
     // The client is allowed to create more paths immediately.
     let client_multipath_transport_cfg = Arc::new(TransportConfig {
@@ -326,7 +324,7 @@ fn issue_max_path_id() -> TestResult {
         ..client_config()
     };
 
-    let mut pair = ConnPair::connect_with(Pair::new_from_endpoint(client, server), client_cfg);
+    let mut pair = ConnPair::with_default_endpoint(server_cfg, client_cfg);
 
     pair.drive();
     info!("connected");
@@ -379,12 +377,10 @@ fn issue_max_path_id_reordered() -> TestResult {
         initial_rtt: Duration::from_millis(10),
         ..TransportConfig::default()
     });
-    let server_cfg = Arc::new(ServerConfig {
+    let server_cfg = ServerConfig {
         transport: multipath_transport_cfg.clone(),
         ..server_config()
-    });
-    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
-    let client = Endpoint::new(Default::default(), None, true);
+    };
 
     // The client is allowed to create more paths immediately.
     let client_multipath_transport_cfg = Arc::new(TransportConfig {
@@ -397,7 +393,7 @@ fn issue_max_path_id_reordered() -> TestResult {
         transport: client_multipath_transport_cfg,
         ..client_config()
     };
-    let mut pair = ConnPair::connect_with(Pair::new_from_endpoint(client, server), client_cfg);
+    let mut pair = ConnPair::with_default_endpoint(server_cfg, client_cfg);
 
     pair.drive();
     info!("connected");
@@ -680,19 +676,17 @@ fn per_path_observed_address() -> TestResult {
         address_discovery_role: crate::address_discovery::Role::Both,
         ..TransportConfig::default()
     });
-    let server_cfg = Arc::new(ServerConfig {
+    let server_cfg = ServerConfig {
         transport: transport_cfg.clone(),
         ..server_config()
-    });
-    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
-    let client = Endpoint::new(Default::default(), None, true);
+    };
 
     let client_cfg = ClientConfig {
         transport: transport_cfg,
         ..client_config()
     };
 
-    let mut pair = ConnPair::connect_with(Pair::new_from_endpoint(client, server), client_cfg);
+    let mut pair = ConnPair::with_default_endpoint(server_cfg, client_cfg);
     info!("connected");
     pair.drive();
 
