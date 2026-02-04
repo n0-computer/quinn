@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use assert_matches::assert_matches;
+use testresult::TestResult;
 use tracing::info;
 
 use crate::tests::RoutingTable;
@@ -121,21 +122,19 @@ fn path_acks() {
 }
 
 #[test]
-fn path_status() {
+fn path_status() -> TestResult {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
-    let prev_status = pair
-        .set_path_status(Client, PathId::ZERO, PathStatus::Backup)
-        .unwrap();
+    let prev_status = pair.set_path_status(Client, PathId::ZERO, PathStatus::Backup)?;
     assert_eq!(prev_status, PathStatus::Available);
 
     // Send the frame to the server
     pair.drive();
 
     assert_eq!(
-        pair.remote_path_status(Server, PathId::ZERO).unwrap(),
-        PathStatus::Backup
+        pair.remote_path_status(Server, PathId::ZERO),
+        Some(PathStatus::Backup)
     );
 
     let client_stats = pair.stats(Client);
@@ -149,6 +148,7 @@ fn path_status() {
     assert_eq!(server_stats.frame_tx.path_status_backup, 0);
     assert_eq!(server_stats.frame_rx.path_status_available, 0);
     assert_eq!(server_stats.frame_rx.path_status_backup, 1);
+    Ok(())
 }
 
 #[test]
@@ -156,12 +156,10 @@ fn path_close_last_path() {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
-    let now = pair.time;
-    let err = pair
-        .close_path(Client, now, PathId::ZERO, 0u8.into())
-        .err()
-        .unwrap();
-    assert!(matches!(err, ClosePathError::LastOpenPath));
+    assert_matches!(
+        pair.close_path(Client, PathId::ZERO, 0u8.into()),
+        Err(ClosePathError::LastOpenPath)
+    );
 }
 
 #[test]
@@ -458,106 +456,97 @@ fn issue_max_path_id_reordered() {
 }
 
 #[test]
-fn open_path() {
+fn open_path() -> TestResult {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
-    let now = pair.time;
     let server_addr = pair.addrs_to_server();
-    let path_id = pair
-        .open_path(Client, server_addr, PathStatus::Available, now)
-        .unwrap();
+    let path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
     pair.drive();
     assert_matches!(
-        pair.poll(Client).unwrap(),
-        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+        pair.poll(Client),
+        Some(Event::Path(crate::PathEvent::Opened { id  })) if id == path_id
     );
 
     assert_matches!(
-        pair.poll(Server).unwrap(),
-        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+        pair.poll(Server),
+        Some(Event::Path(crate::PathEvent::Opened { id  })) if id == path_id
     );
+    Ok(())
 }
 
 #[test]
-fn open_path_key_update() {
+fn open_path_key_update() -> TestResult {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
-    let now = pair.time;
     let server_addr = pair.addrs_to_server();
-    let path_id = pair
-        .open_path(Client, server_addr, PathStatus::Available, now)
-        .unwrap();
+    let path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
 
     // Do a key-update at the same time as opening the new path.
     pair.force_key_update(Client);
 
     pair.drive();
     assert_matches!(
-        pair.poll(Client).unwrap(),
-        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+        pair.poll(Client),
+        Some(Event::Path(crate::PathEvent::Opened { id  })) if id == path_id
     );
 
     assert_matches!(
-        pair.poll(Server).unwrap(),
-        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+        pair.poll(Server),
+        Some(Event::Path(crate::PathEvent::Opened { id  })) if id == path_id
     );
+    Ok(())
 }
 
 /// Client starts opening a path but the server fails to validate the path
 ///
 /// The client should receive an event closing the path.
 #[test]
-fn open_path_validation_fails_server_side() {
+fn open_path_validation_fails_server_side() -> TestResult {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
     let different_addr = FourTuple {
         remote: SocketAddr::new(
             [9, 8, 7, 6].into(),
-            SERVER_PORTS.lock().unwrap().next().unwrap(),
+            SERVER_PORTS.lock()?.next().ok_or("no port")?,
         ),
         local_ip: None,
     };
-    let now = pair.time;
-    let path_id = pair
-        .open_path(Client, different_addr, PathStatus::Available, now)
-        .unwrap();
+    let path_id = pair.open_path(Client, different_addr, PathStatus::Available)?;
 
     // block the server from receiving anything
     while pair.blackhole_step(true, false) {}
     assert_matches!(
-        pair.poll(Client).unwrap(),
-        Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  }) if id == path_id
+        pair.poll(Client),
+        Some(Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  })) if id == path_id
     );
 
     assert!(pair.poll(Server).is_none());
+    Ok(())
 }
 
 /// Client starts opening a path but the client fails to validate the path
 ///
 /// The server should receive an event close the path
 #[test]
-fn open_path_validation_fails_client_side() {
+fn open_path_validation_fails_client_side() -> TestResult {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
     // make sure the new path cannot be validated using the existing path
     pair.client.addr = SocketAddr::new(
         [9, 8, 7, 6].into(),
-        CLIENT_PORTS.lock().unwrap().next().unwrap(),
+        CLIENT_PORTS.lock()?.next().ok_or("no port")?,
     );
 
-    let now = pair.time;
     let addr = pair.server.addr;
     let network_path = FourTuple {
         remote: addr,
         local_ip: None,
     };
-    let path_id = pair
-        .open_path(Client, network_path, PathStatus::Available, now)
-        .unwrap();
+    let path_id = pair.open_path(Client, network_path, PathStatus::Available)?;
 
     // Make sure the client's path open makes it through to the server and is processed.
     pair.drive_client();
@@ -570,16 +559,17 @@ fn open_path_validation_fails_client_side() {
     // - the server needs to decide to close the path on its own, because path abandons don't make it through.
     while pair.blackhole_step(true, true) {}
 
-    assert_matches!(pair.poll(Server).unwrap(),
-        Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  }) if id == path_id
+    assert_matches!(pair.poll(Server),
+        Some(Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  })) if id == path_id
     );
+    Ok(())
 }
 
 /// Client opens a path, then abandons, then calls open_path_ensure.
 ///
 /// In the end there should be an open path.
 #[test]
-fn open_path_ensure_after_abandon() {
+fn open_path_ensure_after_abandon() -> TestResult {
     let _guard = subscribe();
     let mut pair = multipath_pair();
     let mut second_client_addr = pair.client.addr;
@@ -597,69 +587,60 @@ fn open_path_ensure_after_abandon() {
     };
 
     info!("opening path 1");
-    let now = pair.time;
-    let path_id = pair
-        .open_path(Client, second_path, PathStatus::Available, now)
-        .unwrap();
+    let path_id = pair.open_path(Client, second_path, PathStatus::Available)?;
     pair.drive();
 
     assert_matches!(
-        pair.poll(Client).unwrap(),
-        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+        pair.poll(Client),
+        Some(Event::Path(crate::PathEvent::Opened { id  })) if id == path_id
     );
 
     assert_matches!(
-        pair.poll(Server).unwrap(),
-        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+        pair.poll(Server),
+        Some(Event::Path(crate::PathEvent::Opened { id  })) if id == path_id
     );
 
     info!("closing path {path_id}");
-    let now = pair.time;
-    pair.close_path(Client, now, path_id, 0u8.into()).unwrap();
+    pair.close_path(Client, path_id, 0u8.into())?;
     pair.drive();
 
     // The path should be closed:
     assert_matches!(
-        pair.poll(Client).unwrap(),
-        Event::Path(crate::PathEvent::Abandoned { id, .. }) if id == path_id
+        pair.poll(Client),
+        Some(Event::Path(crate::PathEvent::Abandoned { id, .. })) if id == path_id
     );
 
     assert_matches!(
-        pair.poll(Server).unwrap(),
-        Event::Path(crate::PathEvent::Abandoned { id, .. }) if id == path_id
+        pair.poll(Server),
+        Some(Event::Path(crate::PathEvent::Abandoned { id, .. })) if id == path_id
     );
 
     info!("opening path 2");
-    let now = pair.time;
-    let (path_id, existed) = pair
-        .open_path_ensure(Client, second_path, PathStatus::Available, now)
-        .unwrap();
+    let (path_id, existed) = pair.open_path_ensure(Client, second_path, PathStatus::Available)?;
     pair.drive();
 
     assert!(!existed);
 
     // The path should have been opened:
     assert_matches!(
-        pair.poll(Client).unwrap(),
-        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+        pair.poll(Client),
+        Some(Event::Path(crate::PathEvent::Opened { id  })) if id == path_id
     );
 
     assert_matches!(
-        pair.poll(Server).unwrap(),
-        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+        pair.poll(Server),
+        Some(Event::Path(crate::PathEvent::Opened { id  })) if id == path_id
     );
+    Ok(())
 }
 
 #[test]
-fn close_path() {
+fn close_path() -> TestResult {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
-    let now = pair.time;
     let server_addr = pair.addrs_to_server();
-    let path_id = pair
-        .open_path(Client, server_addr, PathStatus::Available, now)
-        .unwrap();
+    let path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
     pair.drive();
     assert_ne!(path_id, PathId::ZERO);
 
@@ -670,9 +651,7 @@ fn close_path() {
     assert_eq!(stats0.frame_rx.max_path_id, 0);
 
     info!("closing path 0");
-    let now = pair.time;
-    pair.close_path(Client, now, PathId::ZERO, 0u8.into())
-        .unwrap();
+    pair.close_path(Client, PathId::ZERO, 0u8.into())?;
     pair.drive();
 
     let stats1 = pair.stats(Client);
@@ -682,37 +661,34 @@ fn close_path() {
     assert_eq!(stats1.frame_rx.max_path_id, 1);
     assert!(stats1.frame_tx.path_new_connection_id > stats0.frame_tx.path_new_connection_id);
     assert!(stats1.frame_rx.path_new_connection_id > stats0.frame_rx.path_new_connection_id);
+    Ok(())
 }
 
 #[test]
-fn close_last_path() {
+fn close_last_path() -> TestResult {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
-    let now = pair.time;
     let server_addr = pair.addrs_to_server();
-    let path_id = pair
-        .open_path(Client, server_addr, PathStatus::Available, now)
-        .unwrap();
+    let path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
     pair.drive();
     assert_ne!(path_id, PathId::ZERO);
 
     info!("client closes path 0");
-    let now = pair.time;
-    pair.close_path(Client, now, PathId::ZERO, 0u8.into())
-        .unwrap();
+    pair.close_path(Client, PathId::ZERO, 0u8.into())?;
 
     info!("server closes path 1");
-    pair.close_path(Server, now, PathId(1), 0u8.into()).unwrap();
+    pair.close_path(Server, PathId(1), 0u8.into())?;
 
     pair.drive();
 
     assert!(pair.is_closed(Server));
     assert!(pair.is_closed(Client));
+    Ok(())
 }
 
 #[test]
-fn per_path_observed_address() {
+fn per_path_observed_address() -> TestResult {
     let _guard = subscribe();
     // create the endpoint pair with both address discovery and multipath enabled
     let mut pair = {
@@ -760,11 +736,8 @@ fn per_path_observed_address() {
     let our_addr = pair.client.addr;
 
     // open a second path
-    let now = pair.time;
     let network_path = pair.addrs_to_server();
-    let _new_path_id = pair
-        .open_path(Client, network_path, PathStatus::Available, now)
-        .unwrap();
+    let _new_path_id = pair.open_path(Client, network_path, PathStatus::Available)?;
 
     pair.drive();
     // check the migration related event
@@ -779,10 +752,11 @@ fn per_path_observed_address() {
     }
     assert!(opened);
     assert_matches!(pair.poll(Client), Some(Event::Path(PathEvent::ObservedAddr{id: PathId(1), addr})) if addr == our_addr);
+    Ok(())
 }
 
 #[test]
-fn mtud_on_two_paths() {
+fn mtud_on_two_paths() -> TestResult {
     let _guard = subscribe();
 
     // Manual pair setup because we need to disable the max_idle_timeout.
@@ -817,21 +791,18 @@ fn mtud_on_two_paths() {
     assert_eq!(pair.path_mtu(Client, PathId::ZERO), 1200);
 
     // Open a 2nd path.
-    let now = pair.time;
     let server_addr = pair.addrs_to_server();
-    let path_id = pair
-        .open_path(Client, server_addr, PathStatus::Available, now)
-        .unwrap();
+    let path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
     pair.drive();
 
     // Ensure the path opened correctly.
     assert_matches!(
-        pair.poll(Client).unwrap(),
-        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+        pair.poll(Client),
+        Some(Event::Path(crate::PathEvent::Opened { id  })) if id == path_id
     );
     assert_matches!(
-        pair.poll(Server).unwrap(),
-        Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
+        pair.poll(Server),
+        Some(Event::Path(crate::PathEvent::Opened { id  })) if id == path_id
     );
 
     // MTU should be 1200 for both paths.
@@ -851,4 +822,5 @@ fn mtud_on_two_paths() {
     // Both paths should have found the new MTU.
     assert_eq!(pair.path_mtu(Client, PathId::ZERO), 1452);
     assert_eq!(pair.path_mtu(Client, path_id), 1452);
+    Ok(())
 }

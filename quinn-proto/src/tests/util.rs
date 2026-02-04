@@ -469,8 +469,8 @@ impl ConnPair {
         side: Side,
         network_path: FourTuple,
         initial_status: PathStatus,
-        now: Instant,
     ) -> Result<(PathId, bool), PathError> {
+        let now = self.pair.time;
         self.conn_mut(side)
             .open_path_ensure(network_path, initial_status, now)
     }
@@ -480,8 +480,8 @@ impl ConnPair {
         side: Side,
         network_path: FourTuple,
         initial_status: PathStatus,
-        now: Instant,
     ) -> Result<PathId, PathError> {
+        let now = self.pair.time;
         self.conn_mut(side)
             .open_path(network_path, initial_status, now)
     }
@@ -489,10 +489,10 @@ impl ConnPair {
     pub(super) fn close_path(
         &mut self,
         side: Side,
-        now: Instant,
         path_id: PathId,
         error_code: VarInt,
     ) -> Result<(), ClosePathError> {
+        let now = self.pair.time;
         self.conn_mut(side).close_path(now, path_id, error_code)
     }
 
@@ -552,10 +552,10 @@ impl ConnPair {
     pub(super) fn poll_transmit(
         &mut self,
         side: Side,
-        now: Instant,
         max_datagrams: NonZeroUsize,
         buf: &mut Vec<u8>,
     ) -> Option<Transmit> {
+        let now = self.pair.time;
         self.conn_mut(side).poll_transmit(now, max_datagrams, buf)
     }
 
@@ -646,9 +646,9 @@ impl ConnPair {
     pub(super) fn set_max_concurrent_paths(
         &mut self,
         side: Side,
-        now: Instant,
         count: NonZeroU32,
     ) -> Result<(), MultipathNotNegotiated> {
+        let now = self.pair.time;
         self.conn_mut(side).set_max_concurrent_paths(now, count)
     }
 
@@ -709,8 +709,8 @@ impl ConnPair {
     pub(super) fn initiate_nat_traversal_round(
         &mut self,
         side: Side,
-        now: Instant,
     ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+        let now = self.pair.time;
         self.conn_mut(side).initiate_nat_traversal_round(now)
     }
 
