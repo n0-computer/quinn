@@ -15,58 +15,68 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, Arbitrary)]
 pub(super) enum TestOp {
-    Drive {
-        side: Side,
-    },
+    /// Drive the endpoint on the given `side`, processing all pending I/O.
+    Drive { side: Side },
+    /// Advance the simulated time forward, unless both endpoints are idle.
     AdvanceTime,
-    DropInbound {
-        side: Side,
-    },
-    ReorderInbound {
-        side: Side,
-    },
-    ForceKeyUpdate {
-        side: Side,
-    },
+    /// Drop all pending inbound packets for the endpoint on the given `side`.
+    DropInbound { side: Side },
+    /// Move the first inbound packet to the back of the queue, simulating reordering.
+    ReorderInbound { side: Side },
+    /// Force a TLS key update on the connection belonging to `side`.
+    ForceKeyUpdate { side: Side },
+    /// Simulate a passive address migration by changing the address at `addr_idx` in the routing
+    /// table for `side`.
     PassiveMigration {
         side: Side,
+        /// Index into the routing table's address list to migrate.
         #[strategy(0..3usize)]
         addr_idx: usize,
     },
+    /// Open a new network path from `side` to the remote's address at `addr_idx`.
     OpenPath {
         side: Side,
+        /// Initial status to assign to the newly opened path.
         status: PathStatus,
+        /// Index used to look up the remote address from the routing table.
         #[strategy(0..3usize)]
         addr_idx: usize,
     },
+    /// Close the path at `path_idx` on the connection belonging to `side`.
     ClosePath {
         side: Side,
+        /// Index into the connection's list of path IDs.
         #[strategy(0..3usize)]
         path_idx: usize,
+        /// Application-level error code sent with the path closure.
         error_code: u32,
     },
+    /// Update the status of an existing path on the connection belonging to `side`.
     PathSetStatus {
         side: Side,
+        /// Index into the connection's list of path IDs.
         #[strategy(0..3usize)]
         path_idx: usize,
+        /// New status to assign to the path.
         status: PathStatus,
     },
-    StreamOp {
-        side: Side,
-        stream_op: StreamOp,
-    },
+    /// Perform a stream-level operation on the connection belonging to `side`.
+    StreamOp { side: Side, stream_op: StreamOp },
+    /// Close the connection belonging to `side`.
     CloseConn {
         side: Side,
+        /// Application-level error code sent with the connection close.
         error_code: u32,
     },
+    /// Register a NAT traversal address for `side`'s own address at `addr_idx`.
     AddHpAddr {
         side: Side,
+        /// Index used to look up the address from the routing table.
         #[strategy(0..3usize)]
         addr_idx: usize,
     },
-    InitiateHpRound {
-        side: Side,
-    },
+    /// Initiate a NAT traversal round on the connection belonging to `side`.
+    InitiateHpRound { side: Side },
 }
 
 /// We *basically* only operate with 3 streams concurrently at the moment
