@@ -375,6 +375,113 @@ impl Pair {
     }
 }
 
+pub(super) struct ConnPair {
+    pub(super) pair: Pair,
+    pub(super) client_ch: ConnectionHandle,
+    pub(super) server_ch: ConnectionHandle,
+}
+
+impl ConnPair {
+    pub(super) fn default() -> Self {
+        let mut pair = Pair::default();
+        let (client_ch, server_ch) = pair.connect();
+        Self {
+            pair,
+            client_ch,
+            server_ch,
+        }
+    }
+
+    pub(super) fn new(endpoint_config: Arc<EndpointConfig>, server_config: ServerConfig) -> Self {
+        let mut pair = Pair::new(endpoint_config, server_config);
+        let (client_ch, server_ch) = pair.connect();
+        Self {
+            pair,
+            client_ch,
+            server_ch,
+        }
+    }
+
+    pub(super) fn new_with(
+        endpoint_config: Arc<EndpointConfig>,
+        server_config: ServerConfig,
+        client_config: ClientConfig,
+    ) -> Self {
+        let mut pair = Pair::new(endpoint_config, server_config);
+        let (client_ch, server_ch) = pair.connect_with(client_config);
+        Self {
+            pair,
+            client_ch,
+            server_ch,
+        }
+    }
+
+    pub(super) fn client_conn_mut(&mut self) -> &mut Connection {
+        self.pair.client_conn_mut(self.client_ch)
+    }
+
+    pub(super) fn server_conn_mut(&mut self) -> &mut Connection {
+        self.pair.server_conn_mut(self.server_ch)
+    }
+
+    pub(super) fn client_streams(&mut self) -> Streams<'_> {
+        self.pair.client_streams(self.client_ch)
+    }
+
+    pub(super) fn server_streams(&mut self) -> Streams<'_> {
+        self.pair.server_streams(self.server_ch)
+    }
+
+    pub(super) fn client_send(&mut self, s: StreamId) -> SendStream<'_> {
+        self.pair.client_send(self.client_ch, s)
+    }
+
+    pub(super) fn client_recv(&mut self, s: StreamId) -> RecvStream<'_> {
+        self.pair.client_recv(self.client_ch, s)
+    }
+
+    pub(super) fn client_datagrams(&mut self) -> Datagrams<'_> {
+        self.pair.client_datagrams(self.client_ch)
+    }
+
+    pub(super) fn server_send(&mut self, s: StreamId) -> SendStream<'_> {
+        self.pair.server_send(self.server_ch, s)
+    }
+
+    pub(super) fn server_recv(&mut self, s: StreamId) -> RecvStream<'_> {
+        self.pair.server_recv(self.server_ch, s)
+    }
+
+    pub(super) fn server_datagrams(&mut self) -> Datagrams<'_> {
+        self.pair.server_datagrams(self.server_ch)
+    }
+
+    pub(super) fn drive(&mut self) {
+        self.pair.drive();
+    }
+
+    pub(super) fn drive_client(&mut self) {
+        self.pair.drive_client();
+    }
+
+    pub(super) fn drive_server(&mut self) {
+        self.pair.drive_server();
+    }
+}
+
+impl std::ops::Deref for ConnPair {
+    type Target = Pair;
+    fn deref(&self) -> &Pair {
+        &self.pair
+    }
+}
+
+impl std::ops::DerefMut for ConnPair {
+    fn deref_mut(&mut self) -> &mut Pair {
+        &mut self.pair
+    }
+}
+
 impl Default for Pair {
     fn default() -> Self {
         Self::new(Default::default(), server_config())
