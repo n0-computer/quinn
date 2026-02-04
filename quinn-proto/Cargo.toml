@@ -80,6 +80,7 @@ proptest = { workspace = true }
 rand_pcg = "0.9"
 rcgen = { workspace = true }
 test-strategy = { workspace = true }
+testresult = "0.4.1"
 tracing-subscriber = { workspace = true }
 wasm-bindgen-test = { workspace = true }
 
