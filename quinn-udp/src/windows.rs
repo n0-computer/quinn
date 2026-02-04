@@ -109,6 +109,7 @@ impl UdpSocketState {
                 OPTION_ON,
             ) {
                 if is_unsupported_error(&e) {
+                    // This means we do not have the full 4 tuple, but can still operate
                     crate::log::warn!("IP_PKTINFO not supported, dst_ip will be unavailable");
                     pktinfo_v4_enabled = false;
                 } else {
@@ -153,6 +154,7 @@ impl UdpSocketState {
                 OPTION_ON,
             ) {
                 if is_unsupported_error(&e) {
+                    // This means we do not have the full 4 tuple, but can still operate
                     crate::log::warn!("IPV6_PKTINFO not supported, dst_ip will be unavailable");
                     pktinfo_v6_enabled = false;
                 } else {
