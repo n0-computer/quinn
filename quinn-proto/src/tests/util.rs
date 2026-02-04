@@ -643,12 +643,14 @@ impl ConnPair {
         self.conn_mut(side).set_max_concurrent_streams(dir, count)
     }
 
+    #[track_caller]
     pub(super) fn set_max_concurrent_paths(
         &mut self,
         side: Side,
-        count: NonZeroU32,
+        count: u32,
     ) -> Result<(), MultipathNotNegotiated> {
         let now = self.pair.time;
+        let count = NonZeroU32::new(count).unwrap();
         self.conn_mut(side).set_max_concurrent_paths(now, count)
     }
 
@@ -664,8 +666,31 @@ impl ConnPair {
         self.conn_mut(side).set_receive_window(receive_window)
     }
 
+    #[track_caller]
+    pub(super) fn reorder_inbound(&mut self, side: Side) {
+        let inbound = match side {
+            Side::Client => &mut self.pair.client.inbound,
+            Side::Server => &mut self.pair.server.inbound,
+        };
+        let p = inbound.pop_front().unwrap();
+        inbound.push_back(p);
+    }
+
     pub(super) fn is_multipath_negotiated(&self, side: Side) -> bool {
         self.conn(side).is_multipath_negotiated()
+    }
+
+    /// Simulate a passive migration by assigning a new port to the address.
+    #[track_caller]
+    pub(super) fn passive_migration(&mut self, side: Side) -> SocketAddr {
+        let address = match side {
+            Side::Client => &mut self.pair.client.addr,
+            Side::Server => &mut self.pair.server.addr,
+        };
+
+        let new_port = address.port().checked_add(1).unwrap();
+        address.set_port(new_port);
+        *address
     }
 
     pub(super) fn local_address_changed(&mut self, side: Side) {
