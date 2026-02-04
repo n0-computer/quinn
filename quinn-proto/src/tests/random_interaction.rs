@@ -15,19 +15,58 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, Arbitrary)]
 pub(super) enum TestOp {
-    Drive(Side),
+    Drive {
+        side: Side,
+    },
     AdvanceTime,
-    DropInbound(Side),
-    ReorderInbound(Side),
-    ForceKeyUpdate(Side),
-    PassiveMigration(Side, #[strategy(0..3usize)] usize),
-    OpenPath(Side, PathStatus, #[strategy(0..3usize)] usize),
-    ClosePath(Side, #[strategy(0..3usize)] usize, u32),
-    PathSetStatus(Side, #[strategy(0..3usize)] usize, PathStatus),
-    StreamOp(Side, StreamOp),
-    CloseConn(Side, u32),
-    AddHpAddr(Side, #[strategy(0..3usize)] usize),
-    InitiateHpRound(Side),
+    DropInbound {
+        side: Side,
+    },
+    ReorderInbound {
+        side: Side,
+    },
+    ForceKeyUpdate {
+        side: Side,
+    },
+    PassiveMigration {
+        side: Side,
+        #[strategy(0..3usize)]
+        addr_idx: usize,
+    },
+    OpenPath {
+        side: Side,
+        status: PathStatus,
+        #[strategy(0..3usize)]
+        addr_idx: usize,
+    },
+    ClosePath {
+        side: Side,
+        #[strategy(0..3usize)]
+        path_idx: usize,
+        error_code: u32,
+    },
+    PathSetStatus {
+        side: Side,
+        #[strategy(0..3usize)]
+        path_idx: usize,
+        status: PathStatus,
+    },
+    StreamOp {
+        side: Side,
+        stream_op: StreamOp,
+    },
+    CloseConn {
+        side: Side,
+        error_code: u32,
+    },
+    AddHpAddr {
+        side: Side,
+        #[strategy(0..3usize)]
+        addr_idx: usize,
+    },
+    InitiateHpRound {
+        side: Side,
+    },
 }
 
 /// We *basically* only operate with 3 streams concurrently at the moment
@@ -60,45 +99,55 @@ impl TestOp {
     fn run(self, pair: &mut Pair, client: &mut State, server: &mut State) -> Option<()> {
         let now = pair.time;
         match self {
-            Self::Drive(Side::Client) => pair.drive_client(),
-            Self::Drive(Side::Server) => pair.drive_server(),
+            Self::Drive { side: Side::Client } => pair.drive_client(),
+            Self::Drive { side: Side::Server } => pair.drive_server(),
             Self::AdvanceTime => {
                 // If we advance during idle, we just immediately hit the idle timeout
                 if !pair.client.is_idle() || !pair.server.is_idle() {
                     pair.advance_time();
                 }
             }
-            Self::DropInbound(Side::Client) => {
+            Self::DropInbound { side: Side::Client } => {
                 debug!(len = pair.client.inbound.len(), "dropping inbound");
                 pair.client.inbound.clear();
             }
-            Self::DropInbound(Side::Server) => {
+            Self::DropInbound { side: Side::Server } => {
                 debug!(len = pair.server.inbound.len(), "dropping inbound");
                 pair.server.inbound.clear();
             }
-            Self::ReorderInbound(Side::Client) => {
+            Self::ReorderInbound { side: Side::Client } => {
                 let item = pair.client.inbound.pop_front()?;
                 pair.client.inbound.push_back(item);
             }
-            Self::ReorderInbound(Side::Server) => {
+            Self::ReorderInbound { side: Side::Server } => {
                 let item = pair.server.inbound.pop_front()?;
                 pair.server.inbound.push_back(item);
             }
-            Self::ForceKeyUpdate(Side::Client) => client.conn(pair)?.force_key_update(),
-            Self::ForceKeyUpdate(Side::Server) => server.conn(pair)?.force_key_update(),
-            Self::PassiveMigration(Side::Client, addr_idx) => {
+            Self::ForceKeyUpdate { side: Side::Client } => client.conn(pair)?.force_key_update(),
+            Self::ForceKeyUpdate { side: Side::Server } => server.conn(pair)?.force_key_update(),
+            Self::PassiveMigration {
+                side: Side::Client,
+                addr_idx,
+            } => {
                 let routes = pair.routes.as_mut()?;
                 routes.sim_client_migration(addr_idx, inc_last_addr_octet);
             }
-            Self::PassiveMigration(Side::Server, addr_idx) => {
+            Self::PassiveMigration {
+                side: Side::Server,
+                addr_idx,
+            } => {
                 let routes = pair.routes.as_mut()?;
                 routes.sim_server_migration(addr_idx, inc_last_addr_octet);
             }
-            Self::OpenPath(side, initial_status, addr) => {
+            Self::OpenPath {
+                side,
+                status,
+                addr_idx,
+            } => {
                 let routes = pair.routes.as_ref()?;
                 let remote = match side {
-                    Side::Client => routes.server_addr(addr)?,
-                    Side::Server => routes.client_addr(addr)?,
+                    Side::Client => routes.server_addr(addr_idx)?,
+                    Side::Server => routes.client_addr(addr_idx)?,
                 };
                 let state = match side {
                     Side::Client => client,
@@ -109,9 +158,13 @@ impl TestOp {
                     remote,
                     local_ip: None,
                 };
-                conn.open_path(network_path, initial_status, now).ok();
+                conn.open_path(network_path, status, now).ok();
             }
-            Self::ClosePath(side, path_idx, error_code) => {
+            Self::ClosePath {
+                side,
+                path_idx,
+                error_code,
+            } => {
                 let state = match side {
                     Side::Client => client,
                     Side::Server => server,
@@ -120,7 +173,11 @@ impl TestOp {
                 let path_id = get_path_id(conn, path_idx)?;
                 conn.close_path(now, path_id, error_code.into()).ok();
             }
-            Self::PathSetStatus(side, path_idx, status) => {
+            Self::PathSetStatus {
+                side,
+                path_idx,
+                status,
+            } => {
                 let state = match side {
                     Side::Client => client,
                     Side::Server => server,
@@ -129,14 +186,14 @@ impl TestOp {
                 let path_id = get_path_id(conn, path_idx)?;
                 conn.set_path_status(path_id, status).ok();
             }
-            Self::StreamOp(side, stream_op) => {
+            Self::StreamOp { side, stream_op } => {
                 let state = match side {
                     Side::Client => client,
                     Side::Server => server,
                 };
                 stream_op.run(pair, state);
             }
-            Self::CloseConn(side, error_code) => {
+            Self::CloseConn { side, error_code } => {
                 let state = match side {
                     Side::Client => client,
                     Side::Server => server,
@@ -144,7 +201,7 @@ impl TestOp {
                 let conn = state.conn(pair)?;
                 conn.close(now, error_code.into(), Bytes::new());
             }
-            Self::AddHpAddr(side, addr_idx) => {
+            Self::AddHpAddr { side, addr_idx } => {
                 let routes = pair.routes.as_ref()?;
                 let address = match side {
                     Side::Client => routes.client_addr(addr_idx)?,
@@ -157,7 +214,7 @@ impl TestOp {
                 let conn = state.conn(pair)?;
                 conn.add_nat_traversal_address(address).ok();
             }
-            Self::InitiateHpRound(side) => {
+            Self::InitiateHpRound { side } => {
                 let state = match side {
                     Side::Client => client,
                     Side::Server => server,
