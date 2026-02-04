@@ -13,7 +13,7 @@ use crate::tests::util::{CLIENT_PORTS, ConnPair, SERVER_PORTS};
 use crate::{
     ClientConfig, ClosePathError, ConnectionId, ConnectionIdGenerator, Endpoint, EndpointConfig,
     FourTuple, LOCAL_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator, ServerConfig,
-    Side, TransportConfig, cid_queue::CidQueue,
+    Side::*, TransportConfig, cid_queue::CidQueue,
 };
 use crate::{Event, PathError, PathEvent};
 
@@ -115,7 +115,7 @@ fn path_acks() {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
-    let client_conn = pair.conn_mut(Side::Client);
+    let client_conn = pair.conn_mut(Client);
     assert!(client_conn.stats().frame_rx.path_acks > 0);
     assert!(client_conn.stats().frame_tx.path_acks > 0);
 }
@@ -126,7 +126,7 @@ fn path_status() {
     let mut pair = multipath_pair();
 
     let prev_status = pair
-        .set_path_status(Side::Client, PathId::ZERO, PathStatus::Backup)
+        .set_path_status(Client, PathId::ZERO, PathStatus::Backup)
         .unwrap();
     assert_eq!(prev_status, PathStatus::Available);
 
@@ -134,17 +134,17 @@ fn path_status() {
     pair.drive();
 
     assert_eq!(
-        pair.remote_path_status(Side::Server, PathId::ZERO).unwrap(),
+        pair.remote_path_status(Server, PathId::ZERO).unwrap(),
         PathStatus::Backup
     );
 
-    let client_stats = pair.stats(Side::Client);
+    let client_stats = pair.stats(Client);
     assert_eq!(client_stats.frame_tx.path_status_available, 0);
     assert_eq!(client_stats.frame_tx.path_status_backup, 1);
     assert_eq!(client_stats.frame_rx.path_status_available, 0);
     assert_eq!(client_stats.frame_rx.path_status_backup, 0);
 
-    let server_stats = pair.stats(Side::Server);
+    let server_stats = pair.stats(Server);
     assert_eq!(server_stats.frame_tx.path_status_available, 0);
     assert_eq!(server_stats.frame_tx.path_status_backup, 0);
     assert_eq!(server_stats.frame_rx.path_status_available, 0);
@@ -158,7 +158,7 @@ fn path_close_last_path() {
 
     let now = pair.time;
     let err = pair
-        .close_path(Side::Client, now, PathId::ZERO, 0u8.into())
+        .close_path(Client, now, PathId::ZERO, 0u8.into())
         .err()
         .unwrap();
     assert!(matches!(err, ClosePathError::LastOpenPath));
@@ -170,7 +170,7 @@ fn cid_issued_multipath() {
     const ACTIVE_CID_LIMIT: u64 = crate::cid_queue::CidQueue::LEN as _;
     let mut pair = multipath_pair();
 
-    let client_stats = pair.stats(Side::Client);
+    let client_stats = pair.stats(Client);
     dbg!(&client_stats);
 
     // The client does not send NEW_CONNECTION_ID frames when multipath is enabled as they
@@ -465,16 +465,16 @@ fn open_path() {
     let now = pair.time;
     let server_addr = pair.addrs_to_server();
     let path_id = pair
-        .open_path(Side::Client, server_addr, PathStatus::Available, now)
+        .open_path(Client, server_addr, PathStatus::Available, now)
         .unwrap();
     pair.drive();
     assert_matches!(
-        pair.poll(Side::Client).unwrap(),
+        pair.poll(Client).unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 
     assert_matches!(
-        pair.poll(Side::Server).unwrap(),
+        pair.poll(Server).unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 }
@@ -487,20 +487,20 @@ fn open_path_key_update() {
     let now = pair.time;
     let server_addr = pair.addrs_to_server();
     let path_id = pair
-        .open_path(Side::Client, server_addr, PathStatus::Available, now)
+        .open_path(Client, server_addr, PathStatus::Available, now)
         .unwrap();
 
     // Do a key-update at the same time as opening the new path.
-    pair.force_key_update(Side::Client);
+    pair.force_key_update(Client);
 
     pair.drive();
     assert_matches!(
-        pair.poll(Side::Client).unwrap(),
+        pair.poll(Client).unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 
     assert_matches!(
-        pair.poll(Side::Server).unwrap(),
+        pair.poll(Server).unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 }
@@ -522,17 +522,17 @@ fn open_path_validation_fails_server_side() {
     };
     let now = pair.time;
     let path_id = pair
-        .open_path(Side::Client, different_addr, PathStatus::Available, now)
+        .open_path(Client, different_addr, PathStatus::Available, now)
         .unwrap();
 
     // block the server from receiving anything
     while pair.blackhole_step(true, false) {}
     assert_matches!(
-        pair.poll(Side::Client).unwrap(),
+        pair.poll(Client).unwrap(),
         Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  }) if id == path_id
     );
 
-    assert!(pair.poll(Side::Server).is_none());
+    assert!(pair.poll(Server).is_none());
 }
 
 /// Client starts opening a path but the client fails to validate the path
@@ -556,7 +556,7 @@ fn open_path_validation_fails_client_side() {
         local_ip: None,
     };
     let path_id = pair
-        .open_path(Side::Client, network_path, PathStatus::Available, now)
+        .open_path(Client, network_path, PathStatus::Available, now)
         .unwrap();
 
     // Make sure the client's path open makes it through to the server and is processed.
@@ -570,7 +570,7 @@ fn open_path_validation_fails_client_side() {
     // - the server needs to decide to close the path on its own, because path abandons don't make it through.
     while pair.blackhole_step(true, true) {}
 
-    assert_matches!(pair.poll(Side::Server).unwrap(),
+    assert_matches!(pair.poll(Server).unwrap(),
         Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  }) if id == path_id
     );
 }
@@ -599,41 +599,40 @@ fn open_path_ensure_after_abandon() {
     info!("opening path 1");
     let now = pair.time;
     let path_id = pair
-        .open_path(Side::Client, second_path, PathStatus::Available, now)
+        .open_path(Client, second_path, PathStatus::Available, now)
         .unwrap();
     pair.drive();
 
     assert_matches!(
-        pair.poll(Side::Client).unwrap(),
+        pair.poll(Client).unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 
     assert_matches!(
-        pair.poll(Side::Server).unwrap(),
+        pair.poll(Server).unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 
     info!("closing path {path_id}");
     let now = pair.time;
-    pair.close_path(Side::Client, now, path_id, 0u8.into())
-        .unwrap();
+    pair.close_path(Client, now, path_id, 0u8.into()).unwrap();
     pair.drive();
 
     // The path should be closed:
     assert_matches!(
-        pair.poll(Side::Client).unwrap(),
+        pair.poll(Client).unwrap(),
         Event::Path(crate::PathEvent::Abandoned { id, .. }) if id == path_id
     );
 
     assert_matches!(
-        pair.poll(Side::Server).unwrap(),
+        pair.poll(Server).unwrap(),
         Event::Path(crate::PathEvent::Abandoned { id, .. }) if id == path_id
     );
 
     info!("opening path 2");
     let now = pair.time;
     let (path_id, existed) = pair
-        .open_path_ensure(Side::Client, second_path, PathStatus::Available, now)
+        .open_path_ensure(Client, second_path, PathStatus::Available, now)
         .unwrap();
     pair.drive();
 
@@ -641,12 +640,12 @@ fn open_path_ensure_after_abandon() {
 
     // The path should have been opened:
     assert_matches!(
-        pair.poll(Side::Client).unwrap(),
+        pair.poll(Client).unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 
     assert_matches!(
-        pair.poll(Side::Server).unwrap(),
+        pair.poll(Server).unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 }
@@ -659,12 +658,12 @@ fn close_path() {
     let now = pair.time;
     let server_addr = pair.addrs_to_server();
     let path_id = pair
-        .open_path(Side::Client, server_addr, PathStatus::Available, now)
+        .open_path(Client, server_addr, PathStatus::Available, now)
         .unwrap();
     pair.drive();
     assert_ne!(path_id, PathId::ZERO);
 
-    let stats0 = pair.stats(Side::Client);
+    let stats0 = pair.stats(Client);
     assert_eq!(stats0.frame_tx.path_abandon, 0);
     assert_eq!(stats0.frame_rx.path_abandon, 0);
     assert_eq!(stats0.frame_tx.max_path_id, 0);
@@ -672,11 +671,11 @@ fn close_path() {
 
     info!("closing path 0");
     let now = pair.time;
-    pair.close_path(Side::Client, now, PathId::ZERO, 0u8.into())
+    pair.close_path(Client, now, PathId::ZERO, 0u8.into())
         .unwrap();
     pair.drive();
 
-    let stats1 = pair.stats(Side::Client);
+    let stats1 = pair.stats(Client);
     assert_eq!(stats1.frame_tx.path_abandon, 1);
     assert_eq!(stats1.frame_rx.path_abandon, 1);
     assert_eq!(stats1.frame_tx.max_path_id, 1);
@@ -693,24 +692,23 @@ fn close_last_path() {
     let now = pair.time;
     let server_addr = pair.addrs_to_server();
     let path_id = pair
-        .open_path(Side::Client, server_addr, PathStatus::Available, now)
+        .open_path(Client, server_addr, PathStatus::Available, now)
         .unwrap();
     pair.drive();
     assert_ne!(path_id, PathId::ZERO);
 
     info!("client closes path 0");
     let now = pair.time;
-    pair.close_path(Side::Client, now, PathId::ZERO, 0u8.into())
+    pair.close_path(Client, now, PathId::ZERO, 0u8.into())
         .unwrap();
 
     info!("server closes path 1");
-    pair.close_path(Side::Server, now, PathId(1), 0u8.into())
-        .unwrap();
+    pair.close_path(Server, now, PathId(1), 0u8.into()).unwrap();
 
     pair.drive();
 
-    assert!(pair.is_closed(Side::Server));
-    assert!(pair.is_closed(Side::Client));
+    assert!(pair.is_closed(Server));
+    assert!(pair.is_closed(Client));
 }
 
 #[test]
@@ -747,16 +745,16 @@ fn per_path_observed_address() {
 
     // check that the client received the correct address
     let expected_addr = pair.client.addr;
-    assert_matches!(pair.poll(Side::Client), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
-    assert_matches!(pair.poll(Side::Client), None);
+    assert_matches!(pair.poll(Client), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
+    assert_matches!(pair.poll(Client), None);
 
     // check that the server received the correct address
     let expected_addr = pair.server.addr;
-    assert_matches!(pair.poll(Side::Server), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
-    assert_matches!(pair.poll(Side::Server), None);
+    assert_matches!(pair.poll(Server), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
+    assert_matches!(pair.poll(Server), None);
 
     // simulate a rebind on the client
-    pair.local_address_changed(Side::Client);
+    pair.local_address_changed(Client);
     let new_port = pair.client.addr.port().overflowing_add(1).0;
     pair.client.addr.set_port(new_port);
     let our_addr = pair.client.addr;
@@ -765,22 +763,22 @@ fn per_path_observed_address() {
     let now = pair.time;
     let network_path = pair.addrs_to_server();
     let _new_path_id = pair
-        .open_path(Side::Client, network_path, PathStatus::Available, now)
+        .open_path(Client, network_path, PathStatus::Available, now)
         .unwrap();
 
     pair.drive();
     // check the migration related event
-    assert_matches!(pair.poll(Side::Client), Some(Event::Path(PathEvent::ObservedAddr{ id: PathId::ZERO, addr })) if addr == our_addr);
+    assert_matches!(pair.poll(Client), Some(Event::Path(PathEvent::ObservedAddr{ id: PathId::ZERO, addr })) if addr == our_addr);
     // wait for the open event
     let mut opened = false;
-    while let Some(ev) = pair.poll(Side::Client) {
+    while let Some(ev) = pair.poll(Client) {
         if matches!(ev, Event::Path(PathEvent::Opened { id: PathId(1) })) {
             opened = true;
             break;
         }
     }
     assert!(opened);
-    assert_matches!(pair.poll(Side::Client), Some(Event::Path(PathEvent::ObservedAddr{id: PathId(1), addr})) if addr == our_addr);
+    assert_matches!(pair.poll(Client), Some(Event::Path(PathEvent::ObservedAddr{id: PathId(1), addr})) if addr == our_addr);
 }
 
 #[test]
@@ -816,29 +814,29 @@ fn mtud_on_two_paths() {
         server_ch,
     };
 
-    assert_eq!(pair.path_mtu(Side::Client, PathId::ZERO), 1200);
+    assert_eq!(pair.path_mtu(Client, PathId::ZERO), 1200);
 
     // Open a 2nd path.
     let now = pair.time;
     let server_addr = pair.addrs_to_server();
     let path_id = pair
-        .open_path(Side::Client, server_addr, PathStatus::Available, now)
+        .open_path(Client, server_addr, PathStatus::Available, now)
         .unwrap();
     pair.drive();
 
     // Ensure the path opened correctly.
     assert_matches!(
-        pair.poll(Side::Client).unwrap(),
+        pair.poll(Client).unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
     assert_matches!(
-        pair.poll(Side::Server).unwrap(),
+        pair.poll(Server).unwrap(),
         Event::Path(crate::PathEvent::Opened { id  }) if id == path_id
     );
 
     // MTU should be 1200 for both paths.
-    assert_eq!(pair.path_mtu(Side::Client, PathId::ZERO), 1200);
-    assert_eq!(pair.path_mtu(Side::Client, path_id), 1200);
+    assert_eq!(pair.path_mtu(Client, PathId::ZERO), 1200);
+    assert_eq!(pair.path_mtu(Client, path_id), 1200);
 
     // The default MtuDiscoveryConfig::upper_bound is 1452, the default
     // MtuDiscoveryConfig::interval is 600s.
@@ -847,17 +845,10 @@ fn mtud_on_two_paths() {
     info!("Bumping MTU to: {}", pair.mtu);
     pair.drive();
 
-    info!(
-        "MTU Path 0: {}",
-        pair.path_mtu(Side::Client, PathId::ZERO)
-    );
-    info!(
-        "MTU Path {}: {}",
-        path_id,
-        pair.path_mtu(Side::Client, path_id)
-    );
+    info!("MTU Path 0: {}", pair.path_mtu(Client, PathId::ZERO));
+    info!("MTU Path {}: {}", path_id, pair.path_mtu(Client, path_id));
 
     // Both paths should have found the new MTU.
-    assert_eq!(pair.path_mtu(Side::Client, PathId::ZERO), 1452);
-    assert_eq!(pair.path_mtu(Side::Client, path_id), 1452);
+    assert_eq!(pair.path_mtu(Client, PathId::ZERO), 1452);
+    assert_eq!(pair.path_mtu(Client, path_id), 1452);
 }

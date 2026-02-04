@@ -716,11 +716,7 @@ impl ConnPair {
 
     // Test-only pub(crate) methods
 
-    pub(super) fn decode_packet(
-        &self,
-        side: Side,
-        event: &ConnectionEvent,
-    ) -> Option<Vec<u8>> {
+    pub(super) fn decode_packet(&self, side: Side, event: &ConnectionEvent) -> Option<Vec<u8>> {
         self.conn(side).decode_packet(event)
     }
 
