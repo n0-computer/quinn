@@ -391,6 +391,14 @@ impl ConnPair {
         }
     }
 
+    pub(super) fn with_default_endpoint(
+        server_cfg: ServerConfig,
+        client_cfg: ClientConfig,
+    ) -> Self {
+        let pair = Pair::new(Default::default(), server_cfg);
+        Self::connect_with(pair, client_cfg)
+    }
+
     pub(super) fn conn(&self, side: Side) -> &Connection {
         match side {
             Side::Client => self.pair.client.connections.get(&self.client_ch).unwrap(),

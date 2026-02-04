@@ -33,18 +33,16 @@ fn multipath_pair() -> ConnPair {
     cfg.qlog_from_env("multipath_test");
 
     let multipath_transport_config = Arc::new(cfg);
-    let server_cfg = Arc::new(ServerConfig {
+    let server_cfg = ServerConfig {
         transport: multipath_transport_config.clone(),
         ..server_config()
-    });
-    let server = Endpoint::new(Default::default(), Some(server_cfg), true);
-    let client = Endpoint::new(Default::default(), None, true);
+    };
 
     let client_cfg = ClientConfig {
         transport: multipath_transport_config,
         ..client_config()
     };
-    let mut pair = ConnPair::connect_with(Pair::new_from_endpoint(client, server), client_cfg);
+    let mut pair = ConnPair::with_default_endpoint(server_cfg, client_cfg);
     pair.drive();
     info!("connected");
     pair
