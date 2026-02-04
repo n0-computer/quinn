@@ -741,7 +741,6 @@ impl ConnPair {
         let now = self.pair.time;
         self.conn_mut(side).initiate_nat_traversal_round(now)
     }
-
 }
 
 impl std::ops::Deref for ConnPair {
