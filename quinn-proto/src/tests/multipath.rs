@@ -116,9 +116,9 @@ fn path_acks() {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
-    let client_conn = pair.conn_mut(Client);
-    assert!(client_conn.stats().frame_rx.path_acks > 0);
-    assert!(client_conn.stats().frame_tx.path_acks > 0);
+    let stats = pair.stats(Client);
+    assert!(stats.frame_rx.path_acks > 0);
+    assert!(stats.frame_tx.path_acks > 0);
 }
 
 #[test]
