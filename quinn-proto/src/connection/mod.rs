@@ -6868,15 +6868,15 @@ pub enum PathError {
 /// Errors triggered when abandoning a path
 #[derive(Debug, Error, Clone, Eq, PartialEq)]
 pub enum ClosePathError {
+    /// Multipath is not negotiated
+    #[error("Multipath extension not negotiated")]
+    MultipathNotNegotiated,
     /// The path is already closed or was never opened
     #[error("closed path")]
     ClosedPath,
     /// This is the last path, which can not be abandoned
     #[error("last open path")]
     LastOpenPath,
-    /// Multipath is not negotiated
-    #[error("Multipath extension not negotiated")]
-    MultipathNotNegotiated,
 }
 
 /// Error when the multipath extension was not negotiated, but attempted to be used.
