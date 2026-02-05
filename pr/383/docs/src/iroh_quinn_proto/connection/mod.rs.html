@@ -6794,7 +6794,7 @@
 <a href=#6794 id=6794 data-nosnippet>6794</a>    ///
 <a href=#6795 id=6795 data-nosnippet>6795</a>    /// After network changes, paths may not be recoverable. In this case, waiting for the path to
 <a href=#6796 id=6796 data-nosnippet>6796</a>    /// become idle may take longer than what's desirable. If [`Self::is_path_recoverable`] returns
-<a href=#6797 id=6797 data-nosnippet>6797</a>    /// `True`, a multipath enabled connection will establish a new path to the same remote,
+<a href=#6797 id=6797 data-nosnippet>6797</a>    /// `false`, a multipath enabled connection will establish a new path to the same remote,
 <a href=#6798 id=6798 data-nosnippet>6798</a>    /// closing the current one, instead of migrating the path.
 <a href=#6799 id=6799 data-nosnippet>6799</a>    ///
 <a href=#6800 id=6800 data-nosnippet>6800</a>    /// Paths that are deemed recoverable will simply be sent a PING for a liveness check.
