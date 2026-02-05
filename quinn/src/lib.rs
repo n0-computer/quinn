@@ -40,6 +40,7 @@
 #![warn(missing_docs)]
 
 use std::pin::Pin;
+use std::sync::Arc;
 
 mod connection;
 mod endpoint;
@@ -51,6 +52,7 @@ mod runtime;
 mod send_stream;
 mod work_limiter;
 
+use proto::NetworkChangeHint;
 #[cfg(not(wasm_browser))]
 pub(crate) use std::time::{Duration, Instant};
 #[cfg(wasm_browser)]
@@ -103,7 +105,7 @@ enum ConnectionEvent {
     },
     Proto(proto::ConnectionEvent),
     Rebind(Pin<Box<dyn UdpSender>>),
-    LocalAddressChanged,
+    LocalAddressChanged(Option<Pin<Arc<dyn NetworkChangeHint>>>),
 }
 
 fn udp_transmit<'a>(t: &proto::Transmit, buffer: &'a [u8]) -> udp::Transmit<'a> {

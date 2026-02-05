@@ -1467,10 +1467,13 @@ impl State {
                     self.sender = sender;
                     self.inner.handle_network_change(self.runtime.now());
                 }
-                Poll::Ready(Some(ConnectionEvent::LocalAddressChanged)) => {
-                    // TODO(@divma): allow a hint
-                    self.inner.handle_network_change(self.runtime.now());
-                }
+                Poll::Ready(Some(ConnectionEvent::LocalAddressChanged(hint))) => match hint {
+                    Some(hint) => self.inner.handle_network_change_with_hint(
+                        hint.as_ref().get_ref(),
+                        self.runtime.now(),
+                    ),
+                    None => self.inner.handle_network_change(self.runtime.now()),
+                },
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
                     self.inner.handle_event(event);
                 }

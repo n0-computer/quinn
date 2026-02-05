@@ -27,7 +27,7 @@ use bytes::{Bytes, BytesMut};
 use pin_project_lite::pin_project;
 use proto::{
     self as proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent,
-    EndpointEvent, FourTuple, ServerConfig,
+    EndpointEvent, FourTuple, NetworkChangeHint, ServerConfig,
 };
 use rustc_hash::FxHashMap;
 #[cfg(all(
@@ -283,11 +283,11 @@ impl Endpoint {
     ///
     /// This informs all active connections that the local address may have changed (e.g., due to a
     /// network interface change).
-    pub fn local_address_changed(&self) {
+    pub fn local_address_changed(&self, hint: Option<Pin<Arc<dyn NetworkChangeHint>>>) {
         let mut inner = self.inner.state.lock().unwrap();
         for sender in inner.recv_state.connections.senders.values() {
             // Ignoring errors from dropped connections
-            let _ = sender.send(ConnectionEvent::LocalAddressChanged);
+            let _ = sender.send(ConnectionEvent::LocalAddressChanged(hint.clone()));
         }
         if let Some(driver) = inner.driver.take() {
             driver.wake();

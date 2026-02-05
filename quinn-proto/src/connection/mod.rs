@@ -5285,6 +5285,7 @@ impl Connection {
     /// If the caller believes *some* paths might be unaffected, use
     /// [`Self::handle_network_change_with_hint`] instead.
     pub fn handle_network_change(&mut self, now: Instant) {
+        #[derive(Debug)]
         struct NoHint;
         impl NetworkChangeHint for NoHint {
             fn is_path_recoverable(&self, _path_id: PathId, _network_path: FourTuple) -> bool {
@@ -5304,7 +5305,11 @@ impl Connection {
     ///
     /// Recoverable paths will instead perform a RFC9000 migration, as described in the
     /// non-multipath scenario.
-    pub fn handle_network_change_with_hint(&mut self, hint: &impl NetworkChangeHint, now: Instant) {
+    pub fn handle_network_change_with_hint(
+        &mut self,
+        hint: &(impl NetworkChangeHint + ?Sized),
+        now: Instant,
+    ) {
         if self.highest_space < SpaceId::Data {
             self.update_remote_cid(PathId::ZERO);
             self.ping();
@@ -6784,7 +6789,7 @@ impl Connection {
 }
 
 /// Hints when the caller identifies a network change.
-pub trait NetworkChangeHint {
+pub trait NetworkChangeHint: std::fmt::Debug + Sync + Send + 'static {
     /// Inform the connection if a path may recover after a network change.
     ///
     /// After network changes, paths may not be recoverable. In this case, waiting for the path to
