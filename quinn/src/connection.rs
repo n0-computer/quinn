@@ -1467,6 +1467,9 @@ impl State {
                     self.sender = sender;
                     self.inner.handle_network_change(&(), self.runtime.now());
                 }
+                Poll::Ready(Some(ConnectionEvent::LocalAddressChanged)) => {
+                    self.inner.handle_network_change(&(), self.runtime.now());
+                }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
                     self.inner.handle_event(event);
                 }

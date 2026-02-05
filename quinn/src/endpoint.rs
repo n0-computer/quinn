@@ -279,6 +279,21 @@ impl Endpoint {
         Ok(())
     }
 
+    /// Notify connections that the local network address has changed.
+    ///
+    /// This informs all active connections that the local address may have changed (e.g., due to a
+    /// network interface change).
+    pub fn local_address_changed(&self) {
+        let mut inner = self.inner.state.lock().unwrap();
+        for sender in inner.recv_state.connections.senders.values() {
+            // Ignoring errors from dropped connections
+            let _ = sender.send(ConnectionEvent::LocalAddressChanged);
+        }
+        if let Some(driver) = inner.driver.take() {
+            driver.wake();
+        }
+    }
+
     /// Replace the server configuration, affecting new incoming connections only
     ///
     /// Useful for e.g. refreshing TLS certificates without disrupting existing connections.
