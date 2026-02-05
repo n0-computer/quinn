@@ -375,7 +375,10 @@ impl Pair {
     }
 }
 
+#[derive(derive_more::Deref, derive_more::DerefMut)]
 pub(super) struct ConnPair {
+    #[deref]
+    #[deref_mut]
     pair: Pair,
     client_ch: ConnectionHandle,
     server_ch: ConnectionHandle,
@@ -740,19 +743,6 @@ impl ConnPair {
     ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
         let now = self.pair.time;
         self.conn_mut(side).initiate_nat_traversal_round(now)
-    }
-}
-
-impl std::ops::Deref for ConnPair {
-    type Target = Pair;
-    fn deref(&self) -> &Pair {
-        &self.pair
-    }
-}
-
-impl std::ops::DerefMut for ConnPair {
-    fn deref_mut(&mut self) -> &mut Pair {
-        &mut self.pair
     }
 }
 
