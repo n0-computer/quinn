@@ -745,7 +745,7 @@ impl ConnPair {
     pub(crate) fn handle_network_change(
         &mut self,
         side: Side,
-        hint: Option<&impl NetworkChangeHint>,
+        hint: Option<&dyn NetworkChangeHint>,
     ) {
         let now = self.pair.time;
         let conn = self.conn_mut(side);

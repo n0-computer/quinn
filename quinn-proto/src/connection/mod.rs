@@ -6794,7 +6794,7 @@ pub trait NetworkChangeHint: std::fmt::Debug + Sync + Send + 'static {
     ///
     /// After network changes, paths may not be recoverable. In this case, waiting for the path to
     /// become idle may take longer than what's desirable. If [`Self::is_path_recoverable`] returns
-    /// `True`, a multipath enabled connection will establish a new path to the same remote,
+    /// `false`, a multipath enabled connection will establish a new path to the same remote,
     /// closing the current one, instead of migrating the path.
     ///
     /// Paths that are deemed recoverable will simply be sent a PING for a liveness check.
