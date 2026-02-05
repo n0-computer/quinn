@@ -700,10 +700,6 @@ impl ConnPair {
         *address
     }
 
-    pub(super) fn local_address_changed(&mut self, side: Side) {
-        self.conn_mut(side).local_address_changed()
-    }
-
     pub(super) fn current_mtu(&self, side: Side) -> u16 {
         self.conn(side).current_mtu()
     }
@@ -746,9 +742,17 @@ impl ConnPair {
         self.conn_mut(side).initiate_nat_traversal_round(now)
     }
 
-    pub(crate) fn handle_network_change(&self, side: Side, hint: Option<&NetworkChangeHint>) {
+    pub(crate) fn handle_network_change(
+        &mut self,
+        side: Side,
+        hint: Option<&impl NetworkChangeHint>,
+    ) {
         let now = self.pair.time;
-        self.conn_mut(side).handle_network_change(now, hint)
+        let conn = self.conn_mut(side);
+        match hint {
+            Some(hint) => conn.handle_network_change_with_hint(hint, now),
+            None => conn.handle_network_change(now),
+        }
     }
 }
 

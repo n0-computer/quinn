@@ -1465,10 +1465,11 @@ impl State {
             match self.conn_events.poll_recv(cx) {
                 Poll::Ready(Some(ConnectionEvent::Rebind(sender))) => {
                     self.sender = sender;
-                    self.inner.handle_network_change(&(), self.runtime.now());
+                    self.inner.handle_network_change(self.runtime.now());
                 }
                 Poll::Ready(Some(ConnectionEvent::LocalAddressChanged)) => {
-                    self.inner.handle_network_change(&(), self.runtime.now());
+                    // TODO(@divma): allow a hint
+                    self.inner.handle_network_change(self.runtime.now());
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
                     self.inner.handle_event(event);
