@@ -6789,7 +6789,7 @@ impl Connection {
 }
 
 /// Hints when the caller identifies a network change.
-pub trait NetworkChangeHint: std::fmt::Debug + Sync + Send + 'static {
+pub trait NetworkChangeHint: std::fmt::Debug + Sync + Send {
     /// Inform the connection if a path may recover after a network change.
     ///
     /// After network changes, paths may not be recoverable. In this case, waiting for the path to

@@ -105,7 +105,7 @@ enum ConnectionEvent {
     },
     Proto(proto::ConnectionEvent),
     Rebind(Pin<Box<dyn UdpSender>>),
-    LocalAddressChanged(Option<Pin<Arc<dyn NetworkChangeHint>>>),
+    LocalAddressChanged(Option<Arc<dyn NetworkChangeHint>>),
 }
 
 fn udp_transmit<'a>(t: &proto::Transmit, buffer: &'a [u8]) -> udp::Transmit<'a> {

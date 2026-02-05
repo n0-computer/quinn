@@ -282,8 +282,18 @@ impl Endpoint {
     /// Notify connections that the local network address has changed.
     ///
     /// This informs all active connections that the local address may have changed (e.g., due to a
-    /// network interface change).
-    pub fn local_address_changed(&self, hint: Option<Pin<Arc<dyn NetworkChangeHint>>>) {
+    /// network interface change), triggering liveness checks and recovery procedures on each
+    /// connection without requiring a socket rebind.
+    ///
+    /// Unlike [`Self::rebind`], this does not change the underlying socket. Use this when the
+    /// network topology changes but the socket remains valid (e.g., switching from WiFi to
+    /// cellular, or when the local IP address changes).
+    ///
+    /// The optional `hint` allows callers to indicate which paths may still be recoverable after
+    /// the network change. If `None`, all paths are assumed to be affected. For multipath
+    /// connections, unrecoverable paths will be closed and replaced with new paths to the same
+    /// remote addresses.
+    pub fn local_address_changed(&self, hint: Option<Arc<dyn NetworkChangeHint>>) {
         let mut inner = self.inner.state.lock().unwrap();
         for sender in inner.recv_state.connections.senders.values() {
             // Ignoring errors from dropped connections
