@@ -5274,8 +5274,18 @@ impl Connection {
         );
     }
 
-    /// Handle a change in the local address, i.e. an active migration
-    pub fn handle_network_change(&mut self, hint: &impl NetworkChangeHint, now: Instant) {
+    /// Handle a change in the local address, i.e. an active migration.
+    ///
+    /// When multipath is enabled, paths that can't be recovered migrate to a new path, by closing
+    /// the current one and opening a new one to the same remote. If multipath is not enabled,
+    /// paths will attempt an active RFC9000 migration provided there are enough CIDs to do so.
+    /// Additionally, they will be pinged as a liveness check.
+    ///
+    /// A network change is likely to affect all paths, so all paths are assumed non-recoverable.
+    /// If the caller believes *some* paths might be unaffected, it can provide a `hint`.
+    /// Recoverable paths will instead perform a RFC9000 migration, as described in the
+    /// non-multipath scenario.
+    pub fn handle_network_change(&mut self, hint: Option<&impl NetworkChangeHint>, now: Instant) {
         if self.highest_space < SpaceId::Data {
             self.update_remote_cid(PathId::ZERO);
             self.ping();
@@ -5304,7 +5314,12 @@ impl Connection {
             let network_path = path.data.network_path;
             let remote = network_path.remote;
 
-            match hint.is_path_recoverable(*path_id, network_path) {
+            let hint_as_recoverable = match hint {
+                Some(hint) => hint.is_path_recoverable(*path_id, network_path),
+                None => false,
+            };
+
+            match hint_as_recoverable {
                 // Path is *not* recoverable.
                 false => match is_multipath_negotiated {
                     true => {
@@ -5319,7 +5334,6 @@ impl Connection {
                 true => recoverable_paths.push((*path_id, remote)),
             }
         }
-
         // Decide if we need to close first or open first in the multipath case.
         // - Opening first has a higher risk of getting limited by the negotiated MAX_PATH_ID.
         // - Closing first risks this being the only open path.
@@ -6766,13 +6780,6 @@ pub trait NetworkChangeHint {
     ///
     /// Paths that are deemed recoverable will simply be sent a PING for a liveness check.
     fn is_path_recoverable(&self, path_id: PathId, network_path: FourTuple) -> bool;
-}
-
-impl NetworkChangeHint for () {
-    fn is_path_recoverable(&self, _path_id: PathId, _network_path: FourTuple) -> bool {
-        // By default assume all paths are affected by the network change.
-        false
-    }
 }
 
 impl fmt::Debug for Connection {
