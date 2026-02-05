@@ -375,6 +375,7 @@ impl Pair {
     }
 }
 
+/// Wrapper to a [`Pair`] which keeps handles to the client and server connections.
 #[derive(derive_more::Deref, derive_more::DerefMut)]
 pub(super) struct ConnPair {
     #[deref]
