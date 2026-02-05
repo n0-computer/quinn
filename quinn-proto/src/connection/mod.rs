@@ -5281,33 +5281,12 @@ impl Connection {
     /// paths will attempt an active RFC9000 migration provided there are enough CIDs to do so.
     /// Additionally, they will be pinged as a liveness check.
     ///
-    /// A network change is likely to affect all paths, so all paths are assumed non-recoverable.
-    /// If the caller believes *some* paths might be unaffected, use
-    /// [`Self::handle_network_change_with_hint`] instead.
-    pub fn handle_network_change(&mut self, now: Instant) {
-        #[derive(Debug)]
-        struct NoHint;
-        impl NetworkChangeHint for NoHint {
-            fn is_path_recoverable(&self, _path_id: PathId, _network_path: FourTuple) -> bool {
-                false
-            }
-        }
-
-        self.handle_network_change_with_hint(&NoHint, now);
-    }
-
-    /// Handle a change in the local address, i.e. an active migration.
-    ///
-    /// When multipath is enabled, paths that can't be recovered migrate to a new path, by closing
-    /// the current one and opening a new one to the same remote. If multipath is not enabled,
-    /// paths will attempt an active RFC9000 migration provided there are enough CIDs to do so.
-    /// Additionally, they will be pinged as a liveness check.
-    ///
-    /// Recoverable paths will instead perform a RFC9000 migration, as described in the
-    /// non-multipath scenario.
-    pub fn handle_network_change_with_hint(
+    /// The optional `hint` allows callers to indicate which paths may still be recoverable after
+    /// the network change. If `None`, all paths are assumed to be affected. Recoverable paths
+    /// will perform a RFC9000 migration instead of being replaced.
+    pub fn handle_network_change(
         &mut self,
-        hint: &(impl NetworkChangeHint + ?Sized),
+        hint: Option<&dyn NetworkChangeHint>,
         now: Instant,
     ) {
         if self.highest_space < SpaceId::Data {
@@ -5338,14 +5317,15 @@ impl Connection {
             let network_path = path.data.network_path;
             let remote = network_path.remote;
 
-            match hint.is_path_recoverable(*path_id, network_path) {
+            let is_recoverable = hint.map_or(false, |h| h.is_path_recoverable(*path_id, network_path));
+            match is_recoverable {
                 // Path is *not* recoverable.
                 false => match is_multipath_negotiated {
                     true => {
                         non_recoverable_paths.push((*path_id, remote, path.data.local_status()))
                     }
                     // The path is believed to be not recoverable, but this is the only path, so
-                    // the Connection has no option but to attempt to recove it
+                    // the Connection has no option but to attempt to recover it
                     false => recoverable_paths.push((*path_id, remote)),
                 },
 

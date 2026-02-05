@@ -748,11 +748,7 @@ impl ConnPair {
         hint: Option<&dyn NetworkChangeHint>,
     ) {
         let now = self.pair.time;
-        let conn = self.conn_mut(side);
-        match hint {
-            Some(hint) => conn.handle_network_change_with_hint(hint, now),
-            None => conn.handle_network_change(now),
-        }
+        self.conn_mut(side).handle_network_change(hint, now);
     }
 }
 
