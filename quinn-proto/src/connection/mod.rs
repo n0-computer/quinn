@@ -5277,14 +5277,19 @@ impl Connection {
     /// Handle a change in the local address, i.e. an active migration
     pub fn handle_network_change(&mut self, hint: &impl NetworkChangeHint, now: Instant) {
         if self.highest_space < SpaceId::Data {
+            self.update_remote_cid(PathId::ZERO);
+            self.ping();
             return;
         }
-        let mut unrecoverable_paths = Vec::default();
+
+        // Paths that can't recover so a new path should be open instead. If multipath is not
+        // negotiated, this will be empty.
+        let mut non_recoverable_paths = Vec::default();
+        let mut recoverable_paths = Vec::default();
         let mut open_paths = 0;
 
         let is_multipath_negotiated = self.is_multipath_negotiated();
-
-        let space = &mut self.spaces[SpaceId::Data];
+        let immediate_ack_allowed = self.peer_supports_ack_frequency();
 
         for (path_id, path) in self.paths.iter_mut() {
             if self.abandoned_paths.contains(path_id) {
@@ -5292,7 +5297,8 @@ impl Connection {
             }
             open_paths += 1;
 
-            // Clear the local address for it to be obtained from the socket again.
+            // Clear the local address for it to be obtained from the socket again. This applies to
+            // all paths, regardless of being considered recoverable or not
             path.data.network_path.local_ip = None;
 
             let network_path = path.data.network_path;
@@ -5300,34 +5306,17 @@ impl Connection {
 
             match hint.is_path_recoverable(*path_id, network_path) {
                 // Path is *not* recoverable.
-                false => unrecoverable_paths.push((*path_id, remote, path.data.local_status())),
+                false => match is_multipath_negotiated {
+                    true => {
+                        non_recoverable_paths.push((*path_id, remote, path.data.local_status()))
+                    }
+                    // The path is believed to be not recoverable, but this is the only path, so
+                    // the Connection has no option but to attempt to recove it
+                    false => recoverable_paths.push((*path_id, remote)),
+                },
 
                 // Path is recoverable.
-                true => {
-                    // Schedule a Ping for a liveness check.
-                    if let Some(path_space) = space.number_spaces.get_mut(path_id) {
-                        path_space.ping_pending = true;
-                    }
-
-                    let Some((reset_token, retired)) =
-                        self.remote_cids.get_mut(path_id).and_then(CidQueue::next)
-                    else {
-                        continue;
-                    };
-
-                    // Retire the current remote CID and any CIDs we had to skip.
-                    space
-                        .pending
-                        .retire_cids
-                        .extend(retired.map(|seq| (*path_id, seq)));
-
-                    self.endpoint_events
-                        .push_back(EndpointEventInner::ResetToken(
-                            *path_id,
-                            remote,
-                            reset_token,
-                        ));
-                }
+                true => recoverable_paths.push((*path_id, remote)),
             }
         }
 
@@ -5335,13 +5324,11 @@ impl Connection {
         // - Opening first has a higher risk of getting limited by the negotiated MAX_PATH_ID.
         // - Closing first risks this being the only open path.
         // We prefer closing paths first unless we identify this is the last open path.
-        if !is_multipath_negotiated || unrecoverable_paths.is_empty() {
-            return;
-        }
+        let open_first = open_paths == non_recoverable_paths.len();
 
         let abandon_error = TransportErrorCode::PATH_UNSTABLE_OR_POOR.into();
-        let open_first = open_paths == unrecoverable_paths.len();
-        for (path_id, remote, status) in unrecoverable_paths.into_iter() {
+
+        for (path_id, remote, status) in non_recoverable_paths.into_iter() {
             let network_path = FourTuple {
                 remote,
                 local_ip: None, /* allow the local ip to be discovered */
@@ -5360,6 +5347,34 @@ impl Connection {
             if !open_first && let Err(e) = self.open_path(network_path, status, now) {
                 debug!(%e,"Failed to open new path for network change");
             }
+        }
+
+        for (path_id, remote) in recoverable_paths.into_iter() {
+            let space = &mut self.spaces[SpaceId::Data];
+
+            // Schedule a Ping for a liveness check.
+            if let Some(path_space) = space.number_spaces.get_mut(&path_id) {
+                path_space.ping_pending = true;
+
+                if immediate_ack_allowed {
+                    path_space.immediate_ack_pending = true;
+                }
+            }
+
+            let Some((reset_token, retired)) =
+                self.remote_cids.get_mut(&path_id).and_then(CidQueue::next)
+            else {
+                continue;
+            };
+
+            // Retire the current remote CID and any CIDs we had to skip.
+            space
+                .pending
+                .retire_cids
+                .extend(retired.map(|seq| (path_id, seq)));
+
+            self.endpoint_events
+                .push_back(EndpointEventInner::ResetToken(path_id, remote, reset_token));
         }
     }
 
