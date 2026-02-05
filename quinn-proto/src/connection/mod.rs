@@ -5284,11 +5284,7 @@ impl Connection {
     /// The optional `hint` allows callers to indicate which paths may still be recoverable after
     /// the network change. If `None`, all paths are assumed to be affected. Recoverable paths
     /// will perform a RFC9000 migration instead of being replaced.
-    pub fn handle_network_change(
-        &mut self,
-        hint: Option<&dyn NetworkChangeHint>,
-        now: Instant,
-    ) {
+    pub fn handle_network_change(&mut self, hint: Option<&dyn NetworkChangeHint>, now: Instant) {
         if self.highest_space < SpaceId::Data {
             self.update_remote_cid(PathId::ZERO);
             self.ping();
@@ -5317,7 +5313,8 @@ impl Connection {
             let network_path = path.data.network_path;
             let remote = network_path.remote;
 
-            let is_recoverable = hint.map_or(false, |h| h.is_path_recoverable(*path_id, network_path));
+            let is_recoverable =
+                hint.is_some_and(|h| h.is_path_recoverable(*path_id, network_path));
             match is_recoverable {
                 // Path is *not* recoverable.
                 false => match is_multipath_negotiated {
