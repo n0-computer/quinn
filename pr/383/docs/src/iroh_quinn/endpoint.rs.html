@@ -27,7 +27,7 @@
 <a href=#27 id=27 data-nosnippet>27</a><span class="kw">use </span>pin_project_lite::pin_project;
 <a href=#28 id=28 data-nosnippet>28</a><span class="kw">use </span>proto::{
 <a href=#29 id=29 data-nosnippet>29</a>    <span class="self">self </span><span class="kw">as </span>proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent,
-<a href=#30 id=30 data-nosnippet>30</a>    EndpointEvent, FourTuple, ServerConfig,
+<a href=#30 id=30 data-nosnippet>30</a>    EndpointEvent, FourTuple, NetworkChangeHint, ServerConfig,
 <a href=#31 id=31 data-nosnippet>31</a>};
 <a href=#32 id=32 data-nosnippet>32</a><span class="kw">use </span>rustc_hash::FxHashMap;
 <a href=#33 id=33 data-nosnippet>33</a><span class="attr">#[cfg(all(
@@ -283,11 +283,11 @@
 <a href=#283 id=283 data-nosnippet>283</a>    ///
 <a href=#284 id=284 data-nosnippet>284</a>    /// This informs all active connections that the local address may have changed (e.g., due to a
 <a href=#285 id=285 data-nosnippet>285</a>    /// network interface change).
-<a href=#286 id=286 data-nosnippet>286</a>    </span><span class="kw">pub fn </span>local_address_changed(<span class="kw-2">&amp;</span><span class="self">self</span>) {
+<a href=#286 id=286 data-nosnippet>286</a>    </span><span class="kw">pub fn </span>local_address_changed(<span class="kw-2">&amp;</span><span class="self">self</span>, hint: <span class="prelude-ty">Option</span>&lt;Pin&lt;Arc&lt;<span class="kw">dyn </span>NetworkChangeHint&gt;&gt;&gt;) {
 <a href=#287 id=287 data-nosnippet>287</a>        <span class="kw">let </span><span class="kw-2">mut </span>inner = <span class="self">self</span>.inner.state.lock().unwrap();
 <a href=#288 id=288 data-nosnippet>288</a>        <span class="kw">for </span>sender <span class="kw">in </span>inner.recv_state.connections.senders.values() {
 <a href=#289 id=289 data-nosnippet>289</a>            <span class="comment">// Ignoring errors from dropped connections
-<a href=#290 id=290 data-nosnippet>290</a>            </span><span class="kw">let _ </span>= sender.send(ConnectionEvent::LocalAddressChanged);
+<a href=#290 id=290 data-nosnippet>290</a>            </span><span class="kw">let _ </span>= sender.send(ConnectionEvent::LocalAddressChanged(hint.clone()));
 <a href=#291 id=291 data-nosnippet>291</a>        }
 <a href=#292 id=292 data-nosnippet>292</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(driver) = inner.driver.take() {
 <a href=#293 id=293 data-nosnippet>293</a>            driver.wake();

@@ -40,100 +40,102 @@
 <a href=#40 id=40 data-nosnippet>40</a></span><span class="attr">#![warn(missing_docs)]
 <a href=#41 id=41 data-nosnippet>41</a>
 <a href=#42 id=42 data-nosnippet>42</a></span><span class="kw">use </span>std::pin::Pin;
-<a href=#43 id=43 data-nosnippet>43</a>
-<a href=#44 id=44 data-nosnippet>44</a><span class="kw">mod </span>connection;
-<a href=#45 id=45 data-nosnippet>45</a><span class="kw">mod </span>endpoint;
-<a href=#46 id=46 data-nosnippet>46</a><span class="kw">mod </span>incoming;
-<a href=#47 id=47 data-nosnippet>47</a><span class="kw">mod </span>mutex;
-<a href=#48 id=48 data-nosnippet>48</a><span class="kw">mod </span>path;
-<a href=#49 id=49 data-nosnippet>49</a><span class="kw">mod </span>recv_stream;
-<a href=#50 id=50 data-nosnippet>50</a><span class="kw">mod </span>runtime;
-<a href=#51 id=51 data-nosnippet>51</a><span class="kw">mod </span>send_stream;
-<a href=#52 id=52 data-nosnippet>52</a><span class="kw">mod </span>work_limiter;
-<a href=#53 id=53 data-nosnippet>53</a>
-<a href=#54 id=54 data-nosnippet>54</a><span class="attr">#[cfg(not(wasm_browser))]
-<a href=#55 id=55 data-nosnippet>55</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use </span>std::time::{Duration, Instant};
-<a href=#56 id=56 data-nosnippet>56</a><span class="attr">#[cfg(wasm_browser)]
-<a href=#57 id=57 data-nosnippet>57</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use </span>web_time::{Duration, Instant};
-<a href=#58 id=58 data-nosnippet>58</a>
-<a href=#59 id=59 data-nosnippet>59</a><span class="attr">#[cfg(feature = <span class="string">"bloom"</span>)]
-<a href=#60 id=60 data-nosnippet>60</a></span><span class="kw">pub use </span>proto::BloomTokenLog;
-<a href=#61 id=61 data-nosnippet>61</a><span class="kw">pub use </span>proto::{
-<a href=#62 id=62 data-nosnippet>62</a>    AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ClosedStream, ConfigError,
-<a href=#63 id=63 data-nosnippet>63</a>    ConnectError, ConnectionClose, ConnectionError, ConnectionId, ConnectionIdGenerator,
-<a href=#64 id=64 data-nosnippet>64</a>    ConnectionStats, Dir, EcnCodepoint, EndpointConfig, FrameStats, FrameType, IdleTimeout,
-<a href=#65 id=65 data-nosnippet>65</a>    InvalidCid, MtuDiscoveryConfig, NoneTokenLog, NoneTokenStore, PathId, PathStats, ServerConfig,
-<a href=#66 id=66 data-nosnippet>66</a>    Side, StdSystemTime, StreamId, TimeSource, TokenLog, TokenMemoryCache, TokenReuseError,
-<a href=#67 id=67 data-nosnippet>67</a>    TokenStore, Transmit, TransportConfig, TransportErrorCode, UdpStats, ValidationTokenConfig,
-<a href=#68 id=68 data-nosnippet>68</a>    VarInt, VarIntBoundsExceeded, Written, congestion, crypto,
-<a href=#69 id=69 data-nosnippet>69</a>};
-<a href=#70 id=70 data-nosnippet>70</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#71 id=71 data-nosnippet>71</a></span><span class="kw">pub use </span>proto::{QlogConfig, QlogFactory, QlogFileFactory};
-<a href=#72 id=72 data-nosnippet>72</a><span class="attr">#[cfg(any(feature = <span class="string">"rustls-aws-lc-rs"</span>, feature = <span class="string">"rustls-ring"</span>))]
-<a href=#73 id=73 data-nosnippet>73</a></span><span class="kw">pub use </span>rustls;
-<a href=#74 id=74 data-nosnippet>74</a><span class="kw">pub use </span>udp;
-<a href=#75 id=75 data-nosnippet>75</a>
-<a href=#76 id=76 data-nosnippet>76</a><span class="kw">pub use </span><span class="kw">crate</span>::connection::{
-<a href=#77 id=77 data-nosnippet>77</a>    AcceptBi, AcceptUni, Connecting, Connection, OnClosed, OpenBi, OpenUni, ReadDatagram,
-<a href=#78 id=78 data-nosnippet>78</a>    SendDatagram, SendDatagramError, WeakConnectionHandle, ZeroRttAccepted,
-<a href=#79 id=79 data-nosnippet>79</a>};
-<a href=#80 id=80 data-nosnippet>80</a><span class="kw">pub use </span><span class="kw">crate</span>::endpoint::{Accept, Endpoint, EndpointStats};
-<a href=#81 id=81 data-nosnippet>81</a><span class="kw">pub use </span><span class="kw">crate</span>::incoming::{Incoming, IncomingFuture, RetryError};
-<a href=#82 id=82 data-nosnippet>82</a><span class="kw">pub use </span><span class="kw">crate</span>::path::{AddressDiscovery, ClosePath, OpenPath, Path};
-<a href=#83 id=83 data-nosnippet>83</a><span class="kw">pub use </span><span class="kw">crate</span>::recv_stream::{
-<a href=#84 id=84 data-nosnippet>84</a>    ReadError, ReadExactError, ReadToEndError, RecvStream, ResetError, UnorderedRecvStream,
-<a href=#85 id=85 data-nosnippet>85</a>};
-<a href=#86 id=86 data-nosnippet>86</a><span class="attr">#[cfg(feature = <span class="string">"runtime-smol"</span>)]
-<a href=#87 id=87 data-nosnippet>87</a></span><span class="kw">pub use </span><span class="kw">crate</span>::runtime::SmolRuntime;
-<a href=#88 id=88 data-nosnippet>88</a><span class="attr">#[cfg(feature = <span class="string">"runtime-tokio"</span>)]
-<a href=#89 id=89 data-nosnippet>89</a></span><span class="kw">pub use </span><span class="kw">crate</span>::runtime::TokioRuntime;
-<a href=#90 id=90 data-nosnippet>90</a><span class="attr">#[cfg(any(feature = <span class="string">"runtime-tokio"</span>, feature = <span class="string">"runtime-smol"</span>))]
-<a href=#91 id=91 data-nosnippet>91</a></span><span class="kw">pub use </span><span class="kw">crate</span>::runtime::default_runtime;
-<a href=#92 id=92 data-nosnippet>92</a><span class="kw">pub use </span><span class="kw">crate</span>::runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpSender};
-<a href=#93 id=93 data-nosnippet>93</a><span class="kw">pub use </span><span class="kw">crate</span>::send_stream::{SendStream, StoppedError, WriteError};
-<a href=#94 id=94 data-nosnippet>94</a>
-<a href=#95 id=95 data-nosnippet>95</a><span class="attr">#[cfg(test)]
-<a href=#96 id=96 data-nosnippet>96</a></span><span class="kw">mod </span>tests;
-<a href=#97 id=97 data-nosnippet>97</a>
-<a href=#98 id=98 data-nosnippet>98</a><span class="attr">#[derive(Debug)]
-<a href=#99 id=99 data-nosnippet>99</a></span><span class="kw">enum </span>ConnectionEvent {
-<a href=#100 id=100 data-nosnippet>100</a>    Close {
-<a href=#101 id=101 data-nosnippet>101</a>        error_code: VarInt,
-<a href=#102 id=102 data-nosnippet>102</a>        reason: bytes::Bytes,
-<a href=#103 id=103 data-nosnippet>103</a>    },
-<a href=#104 id=104 data-nosnippet>104</a>    Proto(proto::ConnectionEvent),
-<a href=#105 id=105 data-nosnippet>105</a>    Rebind(Pin&lt;Box&lt;<span class="kw">dyn </span>UdpSender&gt;&gt;),
-<a href=#106 id=106 data-nosnippet>106</a>    LocalAddressChanged,
-<a href=#107 id=107 data-nosnippet>107</a>}
-<a href=#108 id=108 data-nosnippet>108</a>
-<a href=#109 id=109 data-nosnippet>109</a><span class="kw">fn </span>udp_transmit&lt;<span class="lifetime">'a</span>&gt;(t: <span class="kw-2">&amp;</span>proto::Transmit, buffer: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[u8]) -&gt; udp::Transmit&lt;<span class="lifetime">'a</span>&gt; {
-<a href=#110 id=110 data-nosnippet>110</a>    udp::Transmit {
-<a href=#111 id=111 data-nosnippet>111</a>        destination: t.destination,
-<a href=#112 id=112 data-nosnippet>112</a>        ecn: t.ecn.map(udp_ecn),
-<a href=#113 id=113 data-nosnippet>113</a>        contents: buffer,
-<a href=#114 id=114 data-nosnippet>114</a>        segment_size: t.segment_size,
-<a href=#115 id=115 data-nosnippet>115</a>        src_ip: t.src_ip,
-<a href=#116 id=116 data-nosnippet>116</a>    }
-<a href=#117 id=117 data-nosnippet>117</a>}
-<a href=#118 id=118 data-nosnippet>118</a>
-<a href=#119 id=119 data-nosnippet>119</a><span class="kw">fn </span>udp_ecn(ecn: proto::EcnCodepoint) -&gt; udp::EcnCodepoint {
-<a href=#120 id=120 data-nosnippet>120</a>    <span class="kw">match </span>ecn {
-<a href=#121 id=121 data-nosnippet>121</a>        proto::EcnCodepoint::Ect0 =&gt; udp::EcnCodepoint::Ect0,
-<a href=#122 id=122 data-nosnippet>122</a>        proto::EcnCodepoint::Ect1 =&gt; udp::EcnCodepoint::Ect1,
-<a href=#123 id=123 data-nosnippet>123</a>        proto::EcnCodepoint::Ce =&gt; udp::EcnCodepoint::Ce,
-<a href=#124 id=124 data-nosnippet>124</a>    }
-<a href=#125 id=125 data-nosnippet>125</a>}
-<a href=#126 id=126 data-nosnippet>126</a>
-<a href=#127 id=127 data-nosnippet>127</a><span class="doccomment">/// Maximum number of datagrams processed in send/recv calls to make before moving on to other processing
-<a href=#128 id=128 data-nosnippet>128</a>///
-<a href=#129 id=129 data-nosnippet>129</a>/// This helps ensure we don't starve anything when the CPU is slower than the link.
-<a href=#130 id=130 data-nosnippet>130</a>/// Value is selected by picking a low number which didn't degrade throughput in benchmarks.
-<a href=#131 id=131 data-nosnippet>131</a></span><span class="kw">const </span>IO_LOOP_BOUND: usize = <span class="number">160</span>;
-<a href=#132 id=132 data-nosnippet>132</a>
-<a href=#133 id=133 data-nosnippet>133</a><span class="doccomment">/// The maximum amount of time that should be spent in `recvmsg()` calls per endpoint iteration
-<a href=#134 id=134 data-nosnippet>134</a>///
-<a href=#135 id=135 data-nosnippet>135</a>/// 50us are chosen so that an endpoint iteration with a 50us sendmsg limit blocks
-<a href=#136 id=136 data-nosnippet>136</a>/// the runtime for a maximum of about 100us.
-<a href=#137 id=137 data-nosnippet>137</a>/// Going much lower does not yield any noticeable difference, since a single `recvmmsg`
-<a href=#138 id=138 data-nosnippet>138</a>/// batch of size 32 was observed to take 30us on some systems.
-<a href=#139 id=139 data-nosnippet>139</a></span><span class="kw">const </span>RECV_TIME_BOUND: Duration = Duration::from_micros(<span class="number">50</span>);</code></pre></div></section></main></body></html>
+<a href=#43 id=43 data-nosnippet>43</a><span class="kw">use </span>std::sync::Arc;
+<a href=#44 id=44 data-nosnippet>44</a>
+<a href=#45 id=45 data-nosnippet>45</a><span class="kw">mod </span>connection;
+<a href=#46 id=46 data-nosnippet>46</a><span class="kw">mod </span>endpoint;
+<a href=#47 id=47 data-nosnippet>47</a><span class="kw">mod </span>incoming;
+<a href=#48 id=48 data-nosnippet>48</a><span class="kw">mod </span>mutex;
+<a href=#49 id=49 data-nosnippet>49</a><span class="kw">mod </span>path;
+<a href=#50 id=50 data-nosnippet>50</a><span class="kw">mod </span>recv_stream;
+<a href=#51 id=51 data-nosnippet>51</a><span class="kw">mod </span>runtime;
+<a href=#52 id=52 data-nosnippet>52</a><span class="kw">mod </span>send_stream;
+<a href=#53 id=53 data-nosnippet>53</a><span class="kw">mod </span>work_limiter;
+<a href=#54 id=54 data-nosnippet>54</a>
+<a href=#55 id=55 data-nosnippet>55</a><span class="kw">use </span>proto::NetworkChangeHint;
+<a href=#56 id=56 data-nosnippet>56</a><span class="attr">#[cfg(not(wasm_browser))]
+<a href=#57 id=57 data-nosnippet>57</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use </span>std::time::{Duration, Instant};
+<a href=#58 id=58 data-nosnippet>58</a><span class="attr">#[cfg(wasm_browser)]
+<a href=#59 id=59 data-nosnippet>59</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use </span>web_time::{Duration, Instant};
+<a href=#60 id=60 data-nosnippet>60</a>
+<a href=#61 id=61 data-nosnippet>61</a><span class="attr">#[cfg(feature = <span class="string">"bloom"</span>)]
+<a href=#62 id=62 data-nosnippet>62</a></span><span class="kw">pub use </span>proto::BloomTokenLog;
+<a href=#63 id=63 data-nosnippet>63</a><span class="kw">pub use </span>proto::{
+<a href=#64 id=64 data-nosnippet>64</a>    AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ClosedStream, ConfigError,
+<a href=#65 id=65 data-nosnippet>65</a>    ConnectError, ConnectionClose, ConnectionError, ConnectionId, ConnectionIdGenerator,
+<a href=#66 id=66 data-nosnippet>66</a>    ConnectionStats, Dir, EcnCodepoint, EndpointConfig, FrameStats, FrameType, IdleTimeout,
+<a href=#67 id=67 data-nosnippet>67</a>    InvalidCid, MtuDiscoveryConfig, NoneTokenLog, NoneTokenStore, PathId, PathStats, ServerConfig,
+<a href=#68 id=68 data-nosnippet>68</a>    Side, StdSystemTime, StreamId, TimeSource, TokenLog, TokenMemoryCache, TokenReuseError,
+<a href=#69 id=69 data-nosnippet>69</a>    TokenStore, Transmit, TransportConfig, TransportErrorCode, UdpStats, ValidationTokenConfig,
+<a href=#70 id=70 data-nosnippet>70</a>    VarInt, VarIntBoundsExceeded, Written, congestion, crypto,
+<a href=#71 id=71 data-nosnippet>71</a>};
+<a href=#72 id=72 data-nosnippet>72</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
+<a href=#73 id=73 data-nosnippet>73</a></span><span class="kw">pub use </span>proto::{QlogConfig, QlogFactory, QlogFileFactory};
+<a href=#74 id=74 data-nosnippet>74</a><span class="attr">#[cfg(any(feature = <span class="string">"rustls-aws-lc-rs"</span>, feature = <span class="string">"rustls-ring"</span>))]
+<a href=#75 id=75 data-nosnippet>75</a></span><span class="kw">pub use </span>rustls;
+<a href=#76 id=76 data-nosnippet>76</a><span class="kw">pub use </span>udp;
+<a href=#77 id=77 data-nosnippet>77</a>
+<a href=#78 id=78 data-nosnippet>78</a><span class="kw">pub use </span><span class="kw">crate</span>::connection::{
+<a href=#79 id=79 data-nosnippet>79</a>    AcceptBi, AcceptUni, Connecting, Connection, OnClosed, OpenBi, OpenUni, ReadDatagram,
+<a href=#80 id=80 data-nosnippet>80</a>    SendDatagram, SendDatagramError, WeakConnectionHandle, ZeroRttAccepted,
+<a href=#81 id=81 data-nosnippet>81</a>};
+<a href=#82 id=82 data-nosnippet>82</a><span class="kw">pub use </span><span class="kw">crate</span>::endpoint::{Accept, Endpoint, EndpointStats};
+<a href=#83 id=83 data-nosnippet>83</a><span class="kw">pub use </span><span class="kw">crate</span>::incoming::{Incoming, IncomingFuture, RetryError};
+<a href=#84 id=84 data-nosnippet>84</a><span class="kw">pub use </span><span class="kw">crate</span>::path::{AddressDiscovery, ClosePath, OpenPath, Path};
+<a href=#85 id=85 data-nosnippet>85</a><span class="kw">pub use </span><span class="kw">crate</span>::recv_stream::{
+<a href=#86 id=86 data-nosnippet>86</a>    ReadError, ReadExactError, ReadToEndError, RecvStream, ResetError, UnorderedRecvStream,
+<a href=#87 id=87 data-nosnippet>87</a>};
+<a href=#88 id=88 data-nosnippet>88</a><span class="attr">#[cfg(feature = <span class="string">"runtime-smol"</span>)]
+<a href=#89 id=89 data-nosnippet>89</a></span><span class="kw">pub use </span><span class="kw">crate</span>::runtime::SmolRuntime;
+<a href=#90 id=90 data-nosnippet>90</a><span class="attr">#[cfg(feature = <span class="string">"runtime-tokio"</span>)]
+<a href=#91 id=91 data-nosnippet>91</a></span><span class="kw">pub use </span><span class="kw">crate</span>::runtime::TokioRuntime;
+<a href=#92 id=92 data-nosnippet>92</a><span class="attr">#[cfg(any(feature = <span class="string">"runtime-tokio"</span>, feature = <span class="string">"runtime-smol"</span>))]
+<a href=#93 id=93 data-nosnippet>93</a></span><span class="kw">pub use </span><span class="kw">crate</span>::runtime::default_runtime;
+<a href=#94 id=94 data-nosnippet>94</a><span class="kw">pub use </span><span class="kw">crate</span>::runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpSender};
+<a href=#95 id=95 data-nosnippet>95</a><span class="kw">pub use </span><span class="kw">crate</span>::send_stream::{SendStream, StoppedError, WriteError};
+<a href=#96 id=96 data-nosnippet>96</a>
+<a href=#97 id=97 data-nosnippet>97</a><span class="attr">#[cfg(test)]
+<a href=#98 id=98 data-nosnippet>98</a></span><span class="kw">mod </span>tests;
+<a href=#99 id=99 data-nosnippet>99</a>
+<a href=#100 id=100 data-nosnippet>100</a><span class="attr">#[derive(Debug)]
+<a href=#101 id=101 data-nosnippet>101</a></span><span class="kw">enum </span>ConnectionEvent {
+<a href=#102 id=102 data-nosnippet>102</a>    Close {
+<a href=#103 id=103 data-nosnippet>103</a>        error_code: VarInt,
+<a href=#104 id=104 data-nosnippet>104</a>        reason: bytes::Bytes,
+<a href=#105 id=105 data-nosnippet>105</a>    },
+<a href=#106 id=106 data-nosnippet>106</a>    Proto(proto::ConnectionEvent),
+<a href=#107 id=107 data-nosnippet>107</a>    Rebind(Pin&lt;Box&lt;<span class="kw">dyn </span>UdpSender&gt;&gt;),
+<a href=#108 id=108 data-nosnippet>108</a>    LocalAddressChanged(<span class="prelude-ty">Option</span>&lt;Pin&lt;Arc&lt;<span class="kw">dyn </span>NetworkChangeHint&gt;&gt;&gt;),
+<a href=#109 id=109 data-nosnippet>109</a>}
+<a href=#110 id=110 data-nosnippet>110</a>
+<a href=#111 id=111 data-nosnippet>111</a><span class="kw">fn </span>udp_transmit&lt;<span class="lifetime">'a</span>&gt;(t: <span class="kw-2">&amp;</span>proto::Transmit, buffer: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[u8]) -&gt; udp::Transmit&lt;<span class="lifetime">'a</span>&gt; {
+<a href=#112 id=112 data-nosnippet>112</a>    udp::Transmit {
+<a href=#113 id=113 data-nosnippet>113</a>        destination: t.destination,
+<a href=#114 id=114 data-nosnippet>114</a>        ecn: t.ecn.map(udp_ecn),
+<a href=#115 id=115 data-nosnippet>115</a>        contents: buffer,
+<a href=#116 id=116 data-nosnippet>116</a>        segment_size: t.segment_size,
+<a href=#117 id=117 data-nosnippet>117</a>        src_ip: t.src_ip,
+<a href=#118 id=118 data-nosnippet>118</a>    }
+<a href=#119 id=119 data-nosnippet>119</a>}
+<a href=#120 id=120 data-nosnippet>120</a>
+<a href=#121 id=121 data-nosnippet>121</a><span class="kw">fn </span>udp_ecn(ecn: proto::EcnCodepoint) -&gt; udp::EcnCodepoint {
+<a href=#122 id=122 data-nosnippet>122</a>    <span class="kw">match </span>ecn {
+<a href=#123 id=123 data-nosnippet>123</a>        proto::EcnCodepoint::Ect0 =&gt; udp::EcnCodepoint::Ect0,
+<a href=#124 id=124 data-nosnippet>124</a>        proto::EcnCodepoint::Ect1 =&gt; udp::EcnCodepoint::Ect1,
+<a href=#125 id=125 data-nosnippet>125</a>        proto::EcnCodepoint::Ce =&gt; udp::EcnCodepoint::Ce,
+<a href=#126 id=126 data-nosnippet>126</a>    }
+<a href=#127 id=127 data-nosnippet>127</a>}
+<a href=#128 id=128 data-nosnippet>128</a>
+<a href=#129 id=129 data-nosnippet>129</a><span class="doccomment">/// Maximum number of datagrams processed in send/recv calls to make before moving on to other processing
+<a href=#130 id=130 data-nosnippet>130</a>///
+<a href=#131 id=131 data-nosnippet>131</a>/// This helps ensure we don't starve anything when the CPU is slower than the link.
+<a href=#132 id=132 data-nosnippet>132</a>/// Value is selected by picking a low number which didn't degrade throughput in benchmarks.
+<a href=#133 id=133 data-nosnippet>133</a></span><span class="kw">const </span>IO_LOOP_BOUND: usize = <span class="number">160</span>;
+<a href=#134 id=134 data-nosnippet>134</a>
+<a href=#135 id=135 data-nosnippet>135</a><span class="doccomment">/// The maximum amount of time that should be spent in `recvmsg()` calls per endpoint iteration
+<a href=#136 id=136 data-nosnippet>136</a>///
+<a href=#137 id=137 data-nosnippet>137</a>/// 50us are chosen so that an endpoint iteration with a 50us sendmsg limit blocks
+<a href=#138 id=138 data-nosnippet>138</a>/// the runtime for a maximum of about 100us.
+<a href=#139 id=139 data-nosnippet>139</a>/// Going much lower does not yield any noticeable difference, since a single `recvmmsg`
+<a href=#140 id=140 data-nosnippet>140</a>/// batch of size 32 was observed to take 30us on some systems.
+<a href=#141 id=141 data-nosnippet>141</a></span><span class="kw">const </span>RECV_TIME_BOUND: Duration = Duration::from_micros(<span class="number">50</span>);</code></pre></div></section></main></body></html>
