@@ -103,36 +103,37 @@
 <a href=#103 id=103 data-nosnippet>103</a>    },
 <a href=#104 id=104 data-nosnippet>104</a>    Proto(proto::ConnectionEvent),
 <a href=#105 id=105 data-nosnippet>105</a>    Rebind(Pin&lt;Box&lt;<span class="kw">dyn </span>UdpSender&gt;&gt;),
-<a href=#106 id=106 data-nosnippet>106</a>}
-<a href=#107 id=107 data-nosnippet>107</a>
-<a href=#108 id=108 data-nosnippet>108</a><span class="kw">fn </span>udp_transmit&lt;<span class="lifetime">'a</span>&gt;(t: <span class="kw-2">&amp;</span>proto::Transmit, buffer: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[u8]) -&gt; udp::Transmit&lt;<span class="lifetime">'a</span>&gt; {
-<a href=#109 id=109 data-nosnippet>109</a>    udp::Transmit {
-<a href=#110 id=110 data-nosnippet>110</a>        destination: t.destination,
-<a href=#111 id=111 data-nosnippet>111</a>        ecn: t.ecn.map(udp_ecn),
-<a href=#112 id=112 data-nosnippet>112</a>        contents: buffer,
-<a href=#113 id=113 data-nosnippet>113</a>        segment_size: t.segment_size,
-<a href=#114 id=114 data-nosnippet>114</a>        src_ip: t.src_ip,
-<a href=#115 id=115 data-nosnippet>115</a>    }
-<a href=#116 id=116 data-nosnippet>116</a>}
-<a href=#117 id=117 data-nosnippet>117</a>
-<a href=#118 id=118 data-nosnippet>118</a><span class="kw">fn </span>udp_ecn(ecn: proto::EcnCodepoint) -&gt; udp::EcnCodepoint {
-<a href=#119 id=119 data-nosnippet>119</a>    <span class="kw">match </span>ecn {
-<a href=#120 id=120 data-nosnippet>120</a>        proto::EcnCodepoint::Ect0 =&gt; udp::EcnCodepoint::Ect0,
-<a href=#121 id=121 data-nosnippet>121</a>        proto::EcnCodepoint::Ect1 =&gt; udp::EcnCodepoint::Ect1,
-<a href=#122 id=122 data-nosnippet>122</a>        proto::EcnCodepoint::Ce =&gt; udp::EcnCodepoint::Ce,
-<a href=#123 id=123 data-nosnippet>123</a>    }
-<a href=#124 id=124 data-nosnippet>124</a>}
-<a href=#125 id=125 data-nosnippet>125</a>
-<a href=#126 id=126 data-nosnippet>126</a><span class="doccomment">/// Maximum number of datagrams processed in send/recv calls to make before moving on to other processing
-<a href=#127 id=127 data-nosnippet>127</a>///
-<a href=#128 id=128 data-nosnippet>128</a>/// This helps ensure we don't starve anything when the CPU is slower than the link.
-<a href=#129 id=129 data-nosnippet>129</a>/// Value is selected by picking a low number which didn't degrade throughput in benchmarks.
-<a href=#130 id=130 data-nosnippet>130</a></span><span class="kw">const </span>IO_LOOP_BOUND: usize = <span class="number">160</span>;
-<a href=#131 id=131 data-nosnippet>131</a>
-<a href=#132 id=132 data-nosnippet>132</a><span class="doccomment">/// The maximum amount of time that should be spent in `recvmsg()` calls per endpoint iteration
-<a href=#133 id=133 data-nosnippet>133</a>///
-<a href=#134 id=134 data-nosnippet>134</a>/// 50us are chosen so that an endpoint iteration with a 50us sendmsg limit blocks
-<a href=#135 id=135 data-nosnippet>135</a>/// the runtime for a maximum of about 100us.
-<a href=#136 id=136 data-nosnippet>136</a>/// Going much lower does not yield any noticeable difference, since a single `recvmmsg`
-<a href=#137 id=137 data-nosnippet>137</a>/// batch of size 32 was observed to take 30us on some systems.
-<a href=#138 id=138 data-nosnippet>138</a></span><span class="kw">const </span>RECV_TIME_BOUND: Duration = Duration::from_micros(<span class="number">50</span>);</code></pre></div></section></main></body></html>
+<a href=#106 id=106 data-nosnippet>106</a>    LocalAddressChanged,
+<a href=#107 id=107 data-nosnippet>107</a>}
+<a href=#108 id=108 data-nosnippet>108</a>
+<a href=#109 id=109 data-nosnippet>109</a><span class="kw">fn </span>udp_transmit&lt;<span class="lifetime">'a</span>&gt;(t: <span class="kw-2">&amp;</span>proto::Transmit, buffer: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[u8]) -&gt; udp::Transmit&lt;<span class="lifetime">'a</span>&gt; {
+<a href=#110 id=110 data-nosnippet>110</a>    udp::Transmit {
+<a href=#111 id=111 data-nosnippet>111</a>        destination: t.destination,
+<a href=#112 id=112 data-nosnippet>112</a>        ecn: t.ecn.map(udp_ecn),
+<a href=#113 id=113 data-nosnippet>113</a>        contents: buffer,
+<a href=#114 id=114 data-nosnippet>114</a>        segment_size: t.segment_size,
+<a href=#115 id=115 data-nosnippet>115</a>        src_ip: t.src_ip,
+<a href=#116 id=116 data-nosnippet>116</a>    }
+<a href=#117 id=117 data-nosnippet>117</a>}
+<a href=#118 id=118 data-nosnippet>118</a>
+<a href=#119 id=119 data-nosnippet>119</a><span class="kw">fn </span>udp_ecn(ecn: proto::EcnCodepoint) -&gt; udp::EcnCodepoint {
+<a href=#120 id=120 data-nosnippet>120</a>    <span class="kw">match </span>ecn {
+<a href=#121 id=121 data-nosnippet>121</a>        proto::EcnCodepoint::Ect0 =&gt; udp::EcnCodepoint::Ect0,
+<a href=#122 id=122 data-nosnippet>122</a>        proto::EcnCodepoint::Ect1 =&gt; udp::EcnCodepoint::Ect1,
+<a href=#123 id=123 data-nosnippet>123</a>        proto::EcnCodepoint::Ce =&gt; udp::EcnCodepoint::Ce,
+<a href=#124 id=124 data-nosnippet>124</a>    }
+<a href=#125 id=125 data-nosnippet>125</a>}
+<a href=#126 id=126 data-nosnippet>126</a>
+<a href=#127 id=127 data-nosnippet>127</a><span class="doccomment">/// Maximum number of datagrams processed in send/recv calls to make before moving on to other processing
+<a href=#128 id=128 data-nosnippet>128</a>///
+<a href=#129 id=129 data-nosnippet>129</a>/// This helps ensure we don't starve anything when the CPU is slower than the link.
+<a href=#130 id=130 data-nosnippet>130</a>/// Value is selected by picking a low number which didn't degrade throughput in benchmarks.
+<a href=#131 id=131 data-nosnippet>131</a></span><span class="kw">const </span>IO_LOOP_BOUND: usize = <span class="number">160</span>;
+<a href=#132 id=132 data-nosnippet>132</a>
+<a href=#133 id=133 data-nosnippet>133</a><span class="doccomment">/// The maximum amount of time that should be spent in `recvmsg()` calls per endpoint iteration
+<a href=#134 id=134 data-nosnippet>134</a>///
+<a href=#135 id=135 data-nosnippet>135</a>/// 50us are chosen so that an endpoint iteration with a 50us sendmsg limit blocks
+<a href=#136 id=136 data-nosnippet>136</a>/// the runtime for a maximum of about 100us.
+<a href=#137 id=137 data-nosnippet>137</a>/// Going much lower does not yield any noticeable difference, since a single `recvmmsg`
+<a href=#138 id=138 data-nosnippet>138</a>/// batch of size 32 was observed to take 30us on some systems.
+<a href=#139 id=139 data-nosnippet>139</a></span><span class="kw">const </span>RECV_TIME_BOUND: Duration = Duration::from_micros(<span class="number">50</span>);</code></pre></div></section></main></body></html>
