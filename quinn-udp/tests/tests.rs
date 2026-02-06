@@ -7,6 +7,7 @@ use std::{
 };
 
 use iroh_quinn_udp::{EcnCodepoint, RecvMeta, Transmit, UdpSocketState};
+use socket2::Socket;
 
 /// Detect if running under Wine (test helper)
 #[cfg(windows)]
@@ -26,7 +27,6 @@ fn is_wine() -> bool {
 fn is_wine() -> bool {
     false
 }
-use socket2::Socket;
 
 #[test]
 fn basic() {
