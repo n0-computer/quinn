@@ -19,7 +19,7 @@ pub(super) fn unprotect_header(
     stateless_reset_token: Option<ResetToken>,
 ) -> Option<UnprotectHeaderResult> {
     let header_crypto = if partial_decode.is_0rtt() {
-        if let Some((header, _)) = crypto_state.remote_crypto(EncryptionLevel::ZeroRtt) {
+        if let Some((header, _)) = crypto_state.remote_crypto(CryptoLevel::ZeroRtt) {
             Some(header)
         } else {
             debug!("dropping unexpected 0-RTT packet");
@@ -102,9 +102,7 @@ pub(super) fn decrypt_packet_body(
 
     let mut crypto_update = false;
     let crypto = if packet.header.is_0rtt() {
-        let (_, packet) = crypto_state
-            .remote_crypto(EncryptionLevel::ZeroRtt)
-            .unwrap();
+        let (_, packet) = crypto_state.remote_crypto(CryptoLevel::ZeroRtt).unwrap();
         packet
     } else if packet_key_phase == conn_key_phase || space != SpaceId::Data {
         let (_, packet) = crypto_state
@@ -256,26 +254,51 @@ impl CryptoState {
     }
 
     /// Check if keys are available for the given encryption level.
-    pub(super) fn has_keys(&self, level: EncryptionLevel) -> bool {
+    pub(super) fn has_keys(&self, level: CryptoLevel) -> bool {
         match level {
-            EncryptionLevel::Initial => self.spaces[0].keys.is_some(),
-            EncryptionLevel::ZeroRtt => self.zero_rtt_crypto.is_some(),
-            EncryptionLevel::Handshake => self.spaces[1].keys.is_some(),
-            EncryptionLevel::OneRtt => self.spaces[2].keys.is_some(),
+            CryptoLevel::Initial => self.spaces[0].keys.is_some(),
+            CryptoLevel::ZeroRtt => self.zero_rtt_crypto.is_some(),
+            CryptoLevel::Handshake => self.spaces[1].keys.is_some(),
+            CryptoLevel::OneRtt => self.spaces[2].keys.is_some(),
         }
     }
 
     /// Discard temporary key state (0-RTT and previous keys).
-    #[allow(dead_code)]
     pub(super) fn discard_temporary_keys(&mut self) {
         self.zero_rtt_crypto = None;
         self.prev_crypto = None;
     }
 
+    /// Enable 0-RTT crypto with the given keys.
+    pub(super) fn enable_zero_rtt(
+        &mut self,
+        header: Box<dyn HeaderKey>,
+        packet: Box<dyn PacketKey>,
+    ) {
+        self.zero_rtt_enabled = true;
+        self.zero_rtt_crypto = Some(ZeroRttCrypto { header, packet });
+    }
+
+    /// Discard 0-RTT crypto keys.
+    pub(super) fn discard_zero_rtt(&mut self) {
+        self.zero_rtt_crypto = None;
+    }
+
+    /// Get the integrity limit for the given space's local packet keys.
+    pub(super) fn integrity_limit(&self, space: SpaceId) -> u64 {
+        self.spaces[space as usize]
+            .keys
+            .as_ref()
+            .unwrap()
+            .packet
+            .local
+            .integrity_limit()
+    }
+
     /// Get local (sending) crypto keys for the given space.
     ///
-    /// Returns header and packet keys used for encrypting outgoing packets.
-    /// For `SpaceId::Data`, returns 1-RTT keys if available, otherwise 0-RTT keys.
+    /// Returns header and packet keys used for encrypting outgoing packets. For `SpaceId::Data`,
+    /// returns 1-RTT keys if available, otherwise 0-RTT keys.
     pub(super) fn local_crypto(&self, space: SpaceId) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
         match space {
             SpaceId::Initial => {
@@ -329,23 +352,23 @@ impl CryptoState {
     /// Returns header and packet keys used for decrypting incoming packets.
     pub(super) fn remote_crypto(
         &self,
-        level: EncryptionLevel,
+        level: CryptoLevel,
     ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
         match level {
-            EncryptionLevel::Initial => {
+            CryptoLevel::Initial => {
                 let keys = self.spaces[0].keys.as_ref()?;
                 Some((&*keys.header.remote, &*keys.packet.remote))
             }
-            EncryptionLevel::ZeroRtt => {
+            CryptoLevel::ZeroRtt => {
                 // 0-RTT uses the same keys for both directions
                 let crypto = self.zero_rtt_crypto.as_ref()?;
                 Some((&*crypto.header, &*crypto.packet))
             }
-            EncryptionLevel::Handshake => {
+            CryptoLevel::Handshake => {
                 let keys = self.spaces[1].keys.as_ref()?;
                 Some((&*keys.header.remote, &*keys.packet.remote))
             }
-            EncryptionLevel::OneRtt => {
+            CryptoLevel::OneRtt => {
                 let keys = self.spaces[2].keys.as_ref()?;
                 Some((&*keys.header.remote, &*keys.packet.remote))
             }
@@ -366,7 +389,7 @@ pub(super) struct CryptoSpace {
 
 /// QUIC packet protection levels (RFC 9001).
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub(crate) enum EncryptionLevel {
+pub(crate) enum CryptoLevel {
     /// Initial packets (client and server).
     Initial,
     /// Early data (0-RTT), client only.
