@@ -80,15 +80,6 @@ mod log {
 #[cfg(not(wasm_browser))]
 pub use imp::UdpSocketState;
 
-/// Detect whether we are running under Wine.
-#[cfg(windows)]
-pub use imp::is_wine;
-/// Detect whether we are running under Wine (always returns false on non-Windows).
-#[cfg(not(windows))]
-pub fn is_wine() -> bool {
-    false
-}
-
 /// Number of UDP packets to send/receive at a time
 #[cfg(not(wasm_browser))]
 pub const BATCH_SIZE: usize = imp::BATCH_SIZE;
@@ -122,8 +113,8 @@ pub struct RecvMeta {
     pub ecn: Option<EcnCodepoint>,
     /// The destination IP address which was encoded in this datagram
     ///
-    /// Populated on platforms: Windows, Linux, Android (API level > 25),
-    /// FreeBSD, OpenBSD, NetBSD, macOS, and iOS.
+    /// Populated on platforms: Windows (except under Wine), Linux, Android
+    /// (API level > 25), FreeBSD, OpenBSD, NetBSD, macOS, and iOS.
     pub dst_ip: Option<IpAddr>,
     /// The interface index of the interface on which the datagram was received
     pub interface_index: Option<u32>,

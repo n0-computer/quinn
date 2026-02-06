@@ -6,7 +6,26 @@ use std::{
     slice,
 };
 
-use iroh_quinn_udp::{EcnCodepoint, RecvMeta, Transmit, UdpSocketState, is_wine};
+use iroh_quinn_udp::{EcnCodepoint, RecvMeta, Transmit, UdpSocketState};
+
+/// Detect if running under Wine (test helper)
+#[cfg(windows)]
+fn is_wine() -> bool {
+    use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+
+    unsafe {
+        let ntdll = GetModuleHandleA(b"ntdll.dll\0".as_ptr());
+        if ntdll.is_null() {
+            return false;
+        }
+        GetProcAddress(ntdll, b"wine_get_version\0".as_ptr()).is_some()
+    }
+}
+
+#[cfg(not(windows))]
+fn is_wine() -> bool {
+    false
+}
 use socket2::Socket;
 
 #[test]

@@ -86,7 +86,7 @@ impl UdpSocketState {
         let mut ecn_v6_enabled = true;
         // Disable IP_PKTINFO under Wine: Wine's pktinfo reports unreliable local addresses
         // on multi-homed hosts due to mapping Linux's `ipi_addr` instead of `ipi_spec_dst`.
-        // See `is_wine()` for details.
+        // See [`is_wine`] for details.
         let mut pktinfo_v4_enabled = !*IS_WINE;
         let mut pktinfo_v6_enabled = !*IS_WINE;
 
@@ -306,8 +306,9 @@ impl UdpSocketState {
             const UDP_COALESCED_INFO: i32 = WinSock::UDP_COALESCED_INFO as i32;
             // [header (len)][data][padding(len + sizeof(data))] -> [header][data][padding]
             match (cmsg.cmsg_level, cmsg.cmsg_type) {
-                // Guard: Wine may deliver pktinfo control messages even when the socket
-                // option was not enabled. Skip decoding when pktinfo is disabled.
+                // Guard: depending on the Wine version, pktinfo control messages may be
+                // delivered even when the socket option was not enabled.
+                // Skip decoding when pktinfo is disabled.
                 (WinSock::IPPROTO_IP, WinSock::IP_PKTINFO)
                     if self.pktinfo_v4_enabled.load(Ordering::Relaxed) =>
                 {
@@ -600,6 +601,7 @@ static WSARECVMSG_PTR: LazyLock<WinSock::LPFN_WSARECVMSG> = LazyLock::new(|| {
 
     wsa_recvmsg_ptr
 });
+
 /// Detect whether we are running under Wine.
 ///
 /// Wine's `IP_PKTINFO` implementation maps Linux's `ipi_addr` (the IP header destination
