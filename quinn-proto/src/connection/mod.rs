@@ -70,7 +70,7 @@ use packet_builder::{PacketBuilder, PadDatagram};
 
 mod packet_crypto;
 pub(crate) use packet_crypto::EncryptionLevel;
-use packet_crypto::{CryptoState, PrevCrypto, ZeroRttCrypto};
+use packet_crypto::{CryptoState, ZeroRttCrypto};
 
 mod paths;
 pub use paths::{ClosedPath, PathEvent, PathId, PathStatus, RttEstimator, SetPathStatusError};
@@ -6113,34 +6113,11 @@ impl Connection {
 
     fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) {
         trace!("executing key update");
-        // Generate keys for the key phase after the one we're switching to, store them in
-        // `next_crypto`, make the contents of `next_crypto` current, and move the current keys into
-        // `prev_crypto`.
-        let new = self
-            .crypto_state
-            .session
-            .next_1rtt_keys()
-            .expect("only called for `Data` packets");
-        self.key_phase_size = new
-            .local
-            .confidentiality_limit()
-            .saturating_sub(KEY_UPDATE_MARGIN);
-        let old = mem::replace(
-            &mut self.crypto_state.spaces[SpaceId::Data as usize]
-                .keys
-                .as_mut()
-                .unwrap() // safe because update_keys() can only be triggered by short packets
-                .packet,
-            mem::replace(self.crypto_state.next_crypto.as_mut().unwrap(), new),
-        );
+        let confidentiality_limit = self.crypto_state.update_keys(end_packet, remote);
+        self.key_phase_size = confidentiality_limit.saturating_sub(KEY_UPDATE_MARGIN);
         self.spaces[SpaceId::Data]
             .iter_paths_mut()
             .for_each(|s| s.sent_with_keys = 0);
-        self.crypto_state.prev_crypto = Some(PrevCrypto {
-            crypto: old,
-            end_packet,
-            update_unacked: remote,
-        });
         self.key_phase = !self.key_phase;
     }
 

@@ -1,3 +1,5 @@
+use std::mem;
+
 use tracing::{debug, trace};
 
 use crate::connection::assembler::Assembler;
@@ -100,10 +102,14 @@ pub(super) fn decrypt_packet_body(
 
     let mut crypto_update = false;
     let crypto = if packet.header.is_0rtt() {
-        let (_, packet) = crypto_state.remote_crypto(EncryptionLevel::ZeroRtt).unwrap();
+        let (_, packet) = crypto_state
+            .remote_crypto(EncryptionLevel::ZeroRtt)
+            .unwrap();
         packet
     } else if packet_key_phase == conn_key_phase || space != SpaceId::Data {
-        let (_, packet) = crypto_state.remote_crypto(space.encryption_level()).unwrap();
+        let (_, packet) = crypto_state
+            .remote_crypto(space.encryption_level())
+            .unwrap();
         packet
     } else if let Some(prev) = crypto_state.prev_crypto.as_ref().and_then(|crypto| {
         // If this packet comes prior to acknowledgment of the key update by the peer,
@@ -270,10 +276,7 @@ impl CryptoState {
     ///
     /// Returns header and packet keys used for encrypting outgoing packets.
     /// For `SpaceId::Data`, returns 1-RTT keys if available, otherwise 0-RTT keys.
-    pub(super) fn local_crypto(
-        &self,
-        space: SpaceId,
-    ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
+    pub(super) fn local_crypto(&self, space: SpaceId) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
         match space {
             SpaceId::Initial => {
                 let keys = self.spaces[0].keys.as_ref()?;
@@ -292,6 +295,33 @@ impl CryptoState {
                 }
             }
         }
+    }
+
+    /// Perform a 1-RTT key update.
+    ///
+    /// Generates the next set of keys, rotates current keys into previous, and installs the new
+    /// keys. Returns the confidentiality limit of the new local key (used to compute
+    /// `key_phase_size`).
+    pub(super) fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) -> u64 {
+        let new = self
+            .session
+            .next_1rtt_keys()
+            .expect("only called for `Data` packets");
+        let confidentiality_limit = new.local.confidentiality_limit();
+        let old = mem::replace(
+            &mut self.spaces[SpaceId::Data as usize]
+                .keys
+                .as_mut()
+                .unwrap() // safe because update_keys() can only be triggered by short packets
+                .packet,
+            mem::replace(self.next_crypto.as_mut().unwrap(), new),
+        );
+        self.prev_crypto = Some(PrevCrypto {
+            crypto: old,
+            end_packet,
+            update_unacked: remote,
+        });
+        confidentiality_limit
     }
 
     /// Get remote (receiving) crypto keys for the given encryption level.
