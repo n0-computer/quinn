@@ -665,27 +665,21 @@ fn per_path_observed_address() -> TestResult {
     assert_matches!(pair.poll(Server), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
     assert_matches!(pair.poll(Server), None);
 
-    // simulate a rebind on the client
+    // simulate a rebind on the client, this will close the current path and open a new one
     let our_addr = pair.passive_migration(Client);
-    pair.local_address_changed(Client);
-
-    // open a second path
-    let network_path = pair.addrs_to_server();
-    let _new_path_id = pair.open_path(Client, network_path, PathStatus::Available)?;
+    pair.handle_network_change(Client, None);
 
     pair.drive();
-    // check the migration related event
-    assert_matches!(pair.poll(Client), Some(Event::Path(PathEvent::ObservedAddr{ id: PathId::ZERO, addr })) if addr == our_addr);
-    // wait for the open event
-    let mut opened = false;
-    while let Some(ev) = pair.poll(Client) {
-        if matches!(ev, Event::Path(PathEvent::Opened { id: PathId(1) })) {
-            opened = true;
-            break;
-        }
-    }
-    assert!(opened);
-    assert_matches!(pair.poll(Client), Some(Event::Path(PathEvent::ObservedAddr{id: PathId(1), addr})) if addr == our_addr);
+
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Opened { id: PathId(1) }))
+    );
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::ObservedAddr{ id: PathId(1), addr })) if addr == our_addr
+    );
+
     Ok(())
 }
 

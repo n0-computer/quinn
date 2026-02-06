@@ -44,10 +44,10 @@ pub use bloom_token_log::BloomTokenLog;
 pub(crate) mod connection;
 pub use crate::connection::{
     Chunk, Chunks, ClosePathError, ClosedPath, ClosedStream, Connection, ConnectionError,
-    ConnectionStats, Datagrams, Event, FinishError, FrameStats, MultipathNotNegotiated, PathError,
-    PathEvent, PathId, PathStats, PathStatus, ReadError, ReadableError, RecvStream, RttEstimator,
-    SendDatagramError, SendStream, SetPathStatusError, ShouldTransmit, StreamEvent, Streams,
-    UdpStats, WriteError, Written,
+    ConnectionStats, Datagrams, Event, FinishError, FrameStats, MultipathNotNegotiated,
+    NetworkChangeHint, PathError, PathEvent, PathId, PathStats, PathStatus, ReadError,
+    ReadableError, RecvStream, RttEstimator, SendDatagramError, SendStream, SetPathStatusError,
+    ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError, Written,
 };
 #[cfg(test)]
 use test_strategy::Arbitrary;
