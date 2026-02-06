@@ -1,10 +1,10 @@
 use tracing::{debug, trace};
 
-use crate::{ConnectionId, Instant, Side};
 use crate::connection::assembler::Assembler;
 use crate::crypto::{self, HeaderKey, KeyPair, Keys, PacketKey};
 use crate::packet::{Packet, PartialDecode, SpaceId};
 use crate::token::ResetToken;
+use crate::{ConnectionId, Instant, Side};
 use crate::{RESET_TOKEN_SIZE, TransportError};
 
 use super::PathId;
@@ -90,9 +90,7 @@ pub(super) fn decrypt_packet_body(
     // Packets that do not belong to known path ids are valid as long as they can be decrypted.
     // If we didn't have a path, that's for the purposes of this function equivalent to not
     // having received packets on that path yet. So both of these cases are represented by `None`.
-    let rx_packet = spaces[space]
-        .path_space(path_id)
-        .and_then(|s| s.rx_packet);
+    let rx_packet = spaces[space].path_space(path_id).and_then(|s| s.rx_packet);
     let number = packet
         .header
         .number()
@@ -104,7 +102,12 @@ pub(super) fn decrypt_packet_body(
     let crypto = if packet.header.is_0rtt() {
         &crypto_state.zero_rtt_crypto.as_ref().unwrap().packet
     } else if packet_key_phase == conn_key_phase || space != SpaceId::Data {
-        &crypto_state.spaces[space as usize].keys.as_ref().unwrap().packet.remote
+        &crypto_state.spaces[space as usize]
+            .keys
+            .as_ref()
+            .unwrap()
+            .packet
+            .remote
     } else if let Some(prev) = crypto_state.prev_crypto.as_ref().and_then(|crypto| {
         // If this packet comes prior to acknowledgment of the key update by the peer,
         if crypto.end_packet.is_none_or(|(pn, _)| number < pn) {
@@ -153,7 +156,12 @@ pub(super) fn decrypt_packet_body(
         // any packets on this path yet. In that case, having the first packet be a crypto update
         // is fine.
         let invalid_packet_number = rx_packet.is_some_and(|rx_packet| number <= rx_packet);
-        if invalid_packet_number || crypto_state.prev_crypto.as_ref().is_some_and(|x| x.update_unacked) {
+        if invalid_packet_number
+            || crypto_state
+                .prev_crypto
+                .as_ref()
+                .is_some_and(|x| x.update_unacked)
+        {
             trace!(?number, ?rx_packet, %path_id, "crypto update failed");
             return Err(Some(TransportError::KEY_UPDATE_ERROR("")));
         }
@@ -223,7 +231,11 @@ pub(super) struct CryptoState {
 }
 
 impl CryptoState {
-    pub(super) fn new(session: Box<dyn crypto::Session>, init_cid: ConnectionId, side: Side) -> Self {
+    pub(super) fn new(
+        session: Box<dyn crypto::Session>,
+        init_cid: ConnectionId,
+        side: Side,
+    ) -> Self {
         let initial_keys = session.initial_keys(init_cid, side);
         let initial_space = CryptoSpace {
             keys: Some(initial_keys),
@@ -255,6 +267,61 @@ impl CryptoState {
     pub(super) fn discard_temporary_keys(&mut self) {
         self.zero_rtt_crypto = None;
         self.prev_crypto = None;
+    }
+
+    /// Get local (sending) crypto keys for the given encryption level.
+    ///
+    /// Returns header and packet keys used for encrypting outgoing packets.
+    pub(super) fn local_crypto(
+        &self,
+        level: EncryptionLevel,
+    ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
+        match level {
+            EncryptionLevel::Initial => {
+                let keys = self.spaces[0].keys.as_ref()?;
+                Some((&*keys.header.local, &*keys.packet.local))
+            }
+            EncryptionLevel::ZeroRtt => {
+                let crypto = self.zero_rtt_crypto.as_ref()?;
+                Some((&*crypto.header, &*crypto.packet))
+            }
+            EncryptionLevel::Handshake => {
+                let keys = self.spaces[1].keys.as_ref()?;
+                Some((&*keys.header.local, &*keys.packet.local))
+            }
+            EncryptionLevel::OneRtt => {
+                let keys = self.spaces[2].keys.as_ref()?;
+                Some((&*keys.header.local, &*keys.packet.local))
+            }
+        }
+    }
+
+    /// Get remote (receiving) crypto keys for the given encryption level.
+    ///
+    /// Returns header and packet keys used for decrypting incoming packets.
+    pub(super) fn remote_crypto(
+        &self,
+        level: EncryptionLevel,
+    ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
+        match level {
+            EncryptionLevel::Initial => {
+                let keys = self.spaces[0].keys.as_ref()?;
+                Some((&*keys.header.remote, &*keys.packet.remote))
+            }
+            EncryptionLevel::ZeroRtt => {
+                // 0-RTT uses the same keys for both directions
+                let crypto = self.zero_rtt_crypto.as_ref()?;
+                Some((&*crypto.header, &*crypto.packet))
+            }
+            EncryptionLevel::Handshake => {
+                let keys = self.spaces[1].keys.as_ref()?;
+                Some((&*keys.header.remote, &*keys.packet.remote))
+            }
+            EncryptionLevel::OneRtt => {
+                let keys = self.spaces[2].keys.as_ref()?;
+                Some((&*keys.header.remote, &*keys.packet.remote))
+            }
+        }
     }
 }
 
