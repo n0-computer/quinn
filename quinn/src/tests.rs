@@ -1231,8 +1231,13 @@ async fn path_clone_stats_after_abandon() {
         // This still works after the conn is dropped.
         drop(conn);
         let _stats = path_clone.stats();
+        // Upgrading the weak path still succeeds because we still have a `Path`,
+        // which keeps the conn alive.
+        let _stats = weak_path.upgrade().unwrap().stats();
 
-        // Upgrading a weak path fails after the connection is dropped.
+        // After dropping the path, upgrading fails after the endpoint cleared the connection.
+        drop(path_clone);
+        client.wait_idle().await;
         assert!(weak_path.upgrade().is_none());
     }
     .instrument(info_span!("client"));
