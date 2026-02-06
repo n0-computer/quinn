@@ -230,12 +230,20 @@ fn regression_unset_packet_acked() {
         89, 203, 28, 107, 123, 117, 6, 54, 215, 244, 47, 1,
     ];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
-        TestOp::ClosePath(Side::Client, 0, 0),
-        TestOp::Drive(Side::Client),
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::ClosePath {
+            side: Side::Client,
+            path_idx: 0,
+            error_code: 0,
+        },
+        TestOp::Drive { side: Side::Client },
         TestOp::AdvanceTime,
-        TestOp::Drive(Side::Server),
-        TestOp::DropInbound(Side::Client),
+        TestOp::Drive { side: Side::Server },
+        TestOp::DropInbound { side: Side::Client },
     ];
 
     let _guard = subscribe();
@@ -264,10 +272,18 @@ fn regression_invalid_key() {
         117, 84, 250, 190, 50, 237, 14, 167, 60, 5, 140, 149,
     ];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
         TestOp::AdvanceTime,
-        TestOp::Drive(Side::Client),
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
+        TestOp::Drive { side: Side::Client },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
     ];
 
     let _guard = subscribe();
@@ -293,9 +309,13 @@ fn regression_key_update_error() {
         208, 54, 158, 239, 190, 82, 198, 62, 91, 51, 53, 226,
     ];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
-        TestOp::Drive(Side::Client),
-        TestOp::ForceKeyUpdate(Side::Server),
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::Drive { side: Side::Client },
+        TestOp::ForceKeyUpdate { side: Side::Server },
     ];
 
     let _guard = subscribe();
@@ -318,9 +338,21 @@ fn regression_never_idle() {
     let prefix = "regression_never_idle";
     let seed = [0u8; 32];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
-        TestOp::PathSetStatus(Side::Server, 0, PathStatus::Backup),
-        TestOp::ClosePath(Side::Client, 0, 0),
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 1,
+        },
+        TestOp::PathSetStatus {
+            side: Side::Server,
+            path_idx: 0,
+            status: PathStatus::Backup,
+        },
+        TestOp::ClosePath {
+            side: Side::Client,
+            path_idx: 0,
+            error_code: 0,
+        },
     ];
 
     let _guard = subscribe();
@@ -343,11 +375,23 @@ fn regression_never_idle2() {
     let prefix = "regression_never_idle2";
     let seed = [0u8; 32];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathStatus::Backup, 1),
-        TestOp::ClosePath(Side::Client, 0, 0),
-        TestOp::Drive(Side::Client),
-        TestOp::DropInbound(Side::Server),
-        TestOp::PathSetStatus(Side::Client, 0, PathStatus::Available),
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Backup,
+            addr_idx: 1,
+        },
+        TestOp::ClosePath {
+            side: Side::Client,
+            path_idx: 0,
+            error_code: 0,
+        },
+        TestOp::Drive { side: Side::Client },
+        TestOp::DropInbound { side: Side::Server },
+        TestOp::PathSetStatus {
+            side: Side::Client,
+            path_idx: 0,
+            status: PathStatus::Available,
+        },
     ];
 
     let _guard = subscribe();
@@ -371,11 +415,23 @@ fn regression_packet_number_space_missing() {
     let prefix = "regression_packet_number_space_missing";
     let seed = [0u8; 32];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathStatus::Backup, 0),
-        TestOp::OpenPath(Side::Client, PathStatus::Backup, 0),
-        TestOp::Drive(Side::Client),
-        TestOp::DropInbound(Side::Server),
-        TestOp::ClosePath(Side::Client, 0, 0),
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Backup,
+            addr_idx: 0,
+        },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Backup,
+            addr_idx: 0,
+        },
+        TestOp::Drive { side: Side::Client },
+        TestOp::DropInbound { side: Side::Server },
+        TestOp::ClosePath {
+            side: Side::Client,
+            path_idx: 0,
+            error_code: 0,
+        },
     ];
 
     let _guard = subscribe();
@@ -398,8 +454,16 @@ fn regression_peer_failed_to_respond_with_path_abandon() {
     let prefix = "regression_peer_failed_to_respond_with_path_abandon";
     let seed = [0u8; 32];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
-        TestOp::ClosePath(Side::Client, 0, 0),
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 1,
+        },
+        TestOp::ClosePath {
+            side: Side::Client,
+            path_idx: 0,
+            error_code: 0,
+        },
     ];
 
     let _guard = subscribe();
@@ -422,15 +486,26 @@ fn regression_peer_failed_to_respond_with_path_abandon2() {
     let prefix = "regression_peer_failed_to_respond_with_path_abandon2";
     let seed = [0u8; 32];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
-        TestOp::Drive(Side::Client),
-        TestOp::CloseConn(Side::Server, 0),
-        TestOp::DropInbound(Side::Server),
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::Drive { side: Side::Client },
+        TestOp::CloseConn {
+            side: Side::Server,
+            error_code: 0,
+        },
+        TestOp::DropInbound { side: Side::Server },
         TestOp::AdvanceTime,
-        TestOp::Drive(Side::Server),
-        TestOp::ClosePath(Side::Client, 0, 0),
-        TestOp::Drive(Side::Server),
-        TestOp::DropInbound(Side::Client),
+        TestOp::Drive { side: Side::Server },
+        TestOp::ClosePath {
+            side: Side::Client,
+            path_idx: 0,
+            error_code: 0,
+        },
+        TestOp::Drive { side: Side::Server },
+        TestOp::DropInbound { side: Side::Client },
     ];
 
     let _guard = subscribe();
@@ -484,12 +559,24 @@ fn regression_path_validation() {
     let prefix = "regression_path_validation";
     let seed = [0u8; 32];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
-        TestOp::Drive(Side::Client),
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 1,
+        },
+        TestOp::Drive { side: Side::Client },
         TestOp::AdvanceTime,
-        TestOp::Drive(Side::Server),
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
-        TestOp::ClosePath(Side::Server, 0, 0),
+        TestOp::Drive { side: Side::Server },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 1,
+        },
+        TestOp::ClosePath {
+            side: Side::Server,
+            path_idx: 0,
+            error_code: 0,
+        },
     ];
     let routes = RoutingTable::from_routes(
         vec![("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0)],
@@ -534,11 +621,22 @@ fn regression_never_idle3() {
     let prefix = "regression_never_idle3";
     let seed = [0u8; 32];
     let interactions = vec![
-        TestOp::CloseConn(Side::Server, 0),
-        TestOp::Drive(Side::Server),
-        TestOp::DropInbound(Side::Client),
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
-        TestOp::ClosePath(Side::Client, 0, 0),
+        TestOp::CloseConn {
+            side: Side::Server,
+            error_code: 0,
+        },
+        TestOp::Drive { side: Side::Server },
+        TestOp::DropInbound { side: Side::Client },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::ClosePath {
+            side: Side::Client,
+            path_idx: 0,
+            error_code: 0,
+        },
         TestOp::AdvanceTime,
     ];
 
@@ -562,9 +660,21 @@ fn regression_frame_encoding_error() {
     let prefix = "regression_frame_encoding_error";
     let seed = [0u8; 32];
     let interactions = vec![
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
-        TestOp::ClosePath(Side::Client, 0, 0),
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 1,
+        },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::ClosePath {
+            side: Side::Client,
+            path_idx: 0,
+            error_code: 0,
+        },
     ];
 
     let _guard = subscribe();
@@ -587,8 +697,14 @@ fn regression_there_should_be_at_least_one_path() {
     let prefix = "regression_there_should_be_at_least_one_path";
     let seed = [0u8; 32];
     let interactions = vec![
-        TestOp::PassiveMigration(Side::Client, 0),
-        TestOp::CloseConn(Side::Client, 0),
+        TestOp::PassiveMigration {
+            side: Side::Client,
+            addr_idx: 0,
+        },
+        TestOp::CloseConn {
+            side: Side::Client,
+            error_code: 0,
+        },
     ];
 
     let _guard = subscribe();
@@ -616,11 +732,22 @@ fn remote_can_close_last_validated_path() {
     let prefix = "remote_can_close_last_validated_path";
     let seed = [0u8; 32];
     let interactions = vec![
-        TestOp::PassiveMigration(Side::Client, 0),
-        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
-        TestOp::Drive(Side::Client),
-        TestOp::ClosePath(Side::Client, 0, 0),
-        TestOp::Drive(Side::Client),
+        TestOp::PassiveMigration {
+            side: Side::Client,
+            addr_idx: 0,
+        },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::Drive { side: Side::Client },
+        TestOp::ClosePath {
+            side: Side::Client,
+            path_idx: 0,
+            error_code: 0,
+        },
+        TestOp::Drive { side: Side::Client },
     ];
 
     let _guard = subscribe();
