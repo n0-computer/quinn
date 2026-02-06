@@ -84,8 +84,11 @@ impl UdpSocketState {
         let mut may_fragment = false;
         let mut ecn_v4_enabled = true;
         let mut ecn_v6_enabled = true;
-        let mut pktinfo_v4_enabled = true;
-        let mut pktinfo_v6_enabled = true;
+        // Disable IP_PKTINFO under Wine: Wine's pktinfo reports unreliable local addresses
+        // on multi-homed hosts due to mapping Linux's `ipi_addr` instead of `ipi_spec_dst`.
+        // See [`is_wine`] for details.
+        let mut pktinfo_v4_enabled = !*IS_WINE;
+        let mut pktinfo_v6_enabled = !*IS_WINE;
 
         if is_ipv4 {
             if let Err(e) = set_socket_option(
@@ -303,7 +306,12 @@ impl UdpSocketState {
             const UDP_COALESCED_INFO: i32 = WinSock::UDP_COALESCED_INFO as i32;
             // [header (len)][data][padding(len + sizeof(data))] -> [header][data][padding]
             match (cmsg.cmsg_level, cmsg.cmsg_type) {
-                (WinSock::IPPROTO_IP, WinSock::IP_PKTINFO) => {
+                // Guard: depending on the Wine version, pktinfo control messages may be
+                // delivered even when the socket option was not enabled.
+                // Skip decoding when pktinfo is disabled.
+                (WinSock::IPPROTO_IP, WinSock::IP_PKTINFO)
+                    if self.pktinfo_v4_enabled.load(Ordering::Relaxed) =>
+                {
                     let pktinfo =
                         unsafe { cmsg::decode::<WinSock::IN_PKTINFO, WinSock::CMSGHDR>(cmsg) };
                     // Addr is stored in big endian format
@@ -311,13 +319,16 @@ impl UdpSocketState {
                     dst_ip = Some(ip4.into());
                     interface_index = Some(pktinfo.ipi_ifindex);
                 }
-                (WinSock::IPPROTO_IPV6, WinSock::IPV6_PKTINFO) => {
+                (WinSock::IPPROTO_IPV6, WinSock::IPV6_PKTINFO)
+                    if self.pktinfo_v6_enabled.load(Ordering::Relaxed) =>
+                {
                     let pktinfo =
                         unsafe { cmsg::decode::<WinSock::IN6_PKTINFO, WinSock::CMSGHDR>(cmsg) };
                     // Addr is stored in big endian format
                     dst_ip = Some(IpAddr::from(unsafe { pktinfo.ipi6_addr.u.Byte }));
                     interface_index = Some(pktinfo.ipi6_ifindex);
                 }
+
                 (WinSock::IPPROTO_IP, WinSock::IP_ECN) => {
                     // ECN is a C integer https://learn.microsoft.com/en-us/windows/win32/winsock/winsock-ecn
                     ecn_bits = unsafe { cmsg::decode::<c_int, WinSock::CMSGHDR>(cmsg) };
@@ -589,6 +600,48 @@ static WSARECVMSG_PTR: LazyLock<WinSock::LPFN_WSARECVMSG> = LazyLock::new(|| {
     }
 
     wsa_recvmsg_ptr
+});
+
+/// Detect whether we are running under Wine.
+///
+/// Wine's `IP_PKTINFO` implementation maps Linux's `ipi_addr` (the IP header destination
+/// address) to Windows' `IN_PKTINFO.ipi_addr`. However, on Linux, `ipi_addr` and
+/// `ipi_spec_dst` (the local address the packet was delivered to) can differ on multi-homed
+/// hosts. Windows applications expect `IN_PKTINFO.ipi_addr` to reflect the true destination
+/// address, but Wine's translation of `ipi_addr` can return a different interface's address
+/// (e.g. a Docker bridge IP instead of the external IP), causing QUIC to discard packets
+/// with "sent to incorrect interface".
+///
+/// Additionally, Wine may still deliver `IP_PKTINFO` control messages even after the socket
+/// option has been disabled via `setsockopt`, so both the send and recv paths must guard
+/// against this.
+///
+/// See:
+/// - Wine's `convert_control_headers()`: <https://github.com/wine-mirror/wine/blob/master/dlls/ntdll/unix/socket.c>
+/// - Linux `in_pktinfo` fields: <https://man7.org/linux/man-pages/man7/ip.7.html> (`ipi_spec_dst` vs `ipi_addr`)
+/// - Windows `IN_PKTINFO`: <https://learn.microsoft.com/en-us/windows/win32/api/ws2ipdef/ns-ws2ipdef-in_pktinfo>
+/// - Wine bug for original IP_PKTINFO impl: <https://bugs.winehq.org/show_bug.cgi?id=19493>
+pub(crate) fn is_wine() -> bool {
+    use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+
+    // Wine exposes a `wine_get_version` function in ntdll.dll
+    unsafe {
+        let ntdll = GetModuleHandleA(b"ntdll.dll\0".as_ptr());
+        if ntdll.is_null() {
+            return false;
+        }
+        GetProcAddress(ntdll, b"wine_get_version\0".as_ptr()).is_some()
+    }
+}
+
+static IS_WINE: LazyLock<bool> = LazyLock::new(|| {
+    let wine = is_wine();
+    if wine {
+        crate::log::warn!(
+            "Wine detected: disabling IP_PKTINFO due to unreliable local address reporting"
+        );
+    }
+    wine
 });
 
 static MAX_GSO_SEGMENTS: LazyLock<usize> = LazyLock::new(|| {
