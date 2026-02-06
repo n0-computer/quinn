@@ -100,7 +100,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             packet_number,
             space.for_path(path_id).largest_acked_packet.unwrap_or(0),
         );
-        let space_has_keys = conn.crypto_state.spaces[space_id as usize].keys.is_some();
+        let space_has_keys = conn.crypto_state.has_keys(space_id.encryption_level());
         let header = match space_id {
             SpaceId::Data if space_has_keys => Header::Short {
                 dst_cid,

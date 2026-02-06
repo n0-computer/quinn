@@ -222,7 +222,6 @@ pub(super) struct CryptoState {
     pub(super) zero_rtt_crypto: Option<ZeroRttCrypto>,
 }
 
-#[allow(dead_code)]
 impl CryptoState {
     pub(super) fn new(session: Box<dyn crypto::Session>, init_cid: ConnectionId, side: Side) -> Self {
         let initial_keys = session.initial_keys(init_cid, side);
@@ -252,6 +251,7 @@ impl CryptoState {
     }
 
     /// Discard temporary key state (0-RTT and previous keys).
+    #[allow(dead_code)]
     pub(super) fn discard_temporary_keys(&mut self) {
         self.zero_rtt_crypto = None;
         self.prev_crypto = None;
@@ -271,8 +271,7 @@ pub(super) struct CryptoSpace {
 
 /// QUIC packet protection levels (RFC 9001).
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[allow(dead_code)]
-pub(super) enum EncryptionLevel {
+pub(crate) enum EncryptionLevel {
     /// Initial packets (client and server).
     Initial,
     /// Early data (0-RTT), client only.
