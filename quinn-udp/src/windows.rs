@@ -621,7 +621,7 @@ static WSARECVMSG_PTR: LazyLock<WinSock::LPFN_WSARECVMSG> = LazyLock::new(|| {
 /// - Linux `in_pktinfo` fields: <https://man7.org/linux/man-pages/man7/ip.7.html> (`ipi_spec_dst` vs `ipi_addr`)
 /// - Windows `IN_PKTINFO`: <https://learn.microsoft.com/en-us/windows/win32/api/ws2ipdef/ns-ws2ipdef-in_pktinfo>
 /// - Wine bug for original IP_PKTINFO impl: <https://bugs.winehq.org/show_bug.cgi?id=19493>
-pub fn is_wine() -> bool {
+pub(crate) fn is_wine() -> bool {
     use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 
     // Wine exposes a `wine_get_version` function in ntdll.dll
