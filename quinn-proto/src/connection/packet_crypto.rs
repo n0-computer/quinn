@@ -266,29 +266,30 @@ impl CryptoState {
         self.prev_crypto = None;
     }
 
-    /// Get local (sending) crypto keys for the given encryption level.
+    /// Get local (sending) crypto keys for the given space.
     ///
     /// Returns header and packet keys used for encrypting outgoing packets.
+    /// For `SpaceId::Data`, returns 1-RTT keys if available, otherwise 0-RTT keys.
     pub(super) fn local_crypto(
         &self,
-        level: EncryptionLevel,
+        space: SpaceId,
     ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
-        match level {
-            EncryptionLevel::Initial => {
+        match space {
+            SpaceId::Initial => {
                 let keys = self.spaces[0].keys.as_ref()?;
                 Some((&*keys.header.local, &*keys.packet.local))
             }
-            EncryptionLevel::ZeroRtt => {
-                let crypto = self.zero_rtt_crypto.as_ref()?;
-                Some((&*crypto.header, &*crypto.packet))
-            }
-            EncryptionLevel::Handshake => {
+            SpaceId::Handshake => {
                 let keys = self.spaces[1].keys.as_ref()?;
                 Some((&*keys.header.local, &*keys.packet.local))
             }
-            EncryptionLevel::OneRtt => {
-                let keys = self.spaces[2].keys.as_ref()?;
-                Some((&*keys.header.local, &*keys.packet.local))
+            SpaceId::Data => {
+                if let Some(keys) = self.spaces[2].keys.as_ref() {
+                    Some((&*keys.header.local, &*keys.packet.local))
+                } else {
+                    let crypto = self.zero_rtt_crypto.as_ref()?;
+                    Some((&*crypto.header, &*crypto.packet))
+                }
             }
         }
     }
