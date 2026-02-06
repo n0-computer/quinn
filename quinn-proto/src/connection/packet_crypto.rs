@@ -17,15 +17,15 @@ pub(super) fn unprotect_header(
     stateless_reset_token: Option<ResetToken>,
 ) -> Option<UnprotectHeaderResult> {
     let header_crypto = if partial_decode.is_0rtt() {
-        if let Some(ref crypto) = crypto_state.zero_rtt_crypto {
-            Some(&*crypto.header)
+        if let Some((header, _)) = crypto_state.remote_crypto(EncryptionLevel::ZeroRtt) {
+            Some(header)
         } else {
             debug!("dropping unexpected 0-RTT packet");
             return None;
         }
     } else if let Some(space) = partial_decode.space() {
-        if let Some(ref keys) = crypto_state.spaces[space as usize].keys {
-            Some(&*keys.header.remote)
+        if let Some((header, _)) = crypto_state.remote_crypto(space.encryption_level()) {
+            Some(header)
         } else {
             debug!(
                 "discarding unexpected {:?} packet ({} bytes)",
@@ -100,14 +100,11 @@ pub(super) fn decrypt_packet_body(
 
     let mut crypto_update = false;
     let crypto = if packet.header.is_0rtt() {
-        &crypto_state.zero_rtt_crypto.as_ref().unwrap().packet
+        let (_, packet) = crypto_state.remote_crypto(EncryptionLevel::ZeroRtt).unwrap();
+        packet
     } else if packet_key_phase == conn_key_phase || space != SpaceId::Data {
-        &crypto_state.spaces[space as usize]
-            .keys
-            .as_ref()
-            .unwrap()
-            .packet
-            .remote
+        let (_, packet) = crypto_state.remote_crypto(space.encryption_level()).unwrap();
+        packet
     } else if let Some(prev) = crypto_state.prev_crypto.as_ref().and_then(|crypto| {
         // If this packet comes prior to acknowledgment of the key update by the peer,
         if crypto.end_packet.is_none_or(|(pn, _)| number < pn) {
@@ -119,14 +116,14 @@ pub(super) fn decrypt_packet_body(
             None
         }
     }) {
-        &prev.crypto.remote
+        &*prev.crypto.remote
     } else {
         // We're in the Data space with a key phase mismatch and either there is no locally
         // initiated key update or the locally initiated key update was acknowledged by a
         // lower-numbered packet. The key phase mismatch must therefore represent a new
         // remotely-initiated key update.
         crypto_update = true;
-        &crypto_state.next_crypto.as_ref().unwrap().remote
+        &*crypto_state.next_crypto.as_ref().unwrap().remote
     };
 
     crypto

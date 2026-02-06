@@ -6393,14 +6393,15 @@ impl Connection {
     }
 
     fn tag_len_1rtt(&self) -> usize {
-        let key = match self.crypto_state.spaces[SpaceId::Data as usize].keys.as_ref() {
-            Some(keys) => Some(&*keys.packet.local),
-            None => self.crypto_state.zero_rtt_crypto.as_ref().map(|x| &*x.packet),
-        };
+        let packet_crypto = self
+            .crypto_state
+            .local_crypto(EncryptionLevel::OneRtt)
+            .or_else(|| self.crypto_state.local_crypto(EncryptionLevel::ZeroRtt))
+            .map(|(_, packet)| packet);
         // If neither Data nor 0-RTT keys are available, make a reasonable tag length guess. As of
         // this writing, all QUIC cipher suites use 16-byte tags. We could return `None` instead,
         // but that would needlessly prevent sending datagrams during 0-RTT.
-        key.map_or(16, |x| x.tag_len())
+        packet_crypto.map_or(16, |x| x.tag_len())
     }
 
     /// Mark the path as validated, and enqueue NEW_TOKEN frames to be sent as appropriate

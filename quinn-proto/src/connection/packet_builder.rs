@@ -2,7 +2,7 @@ use bytes::{BufMut, Bytes};
 use rand::Rng;
 use tracing::{debug, trace, trace_span};
 
-use super::{Connection, PathId, SentFrames, TransmitBuf, spaces::SentPacket};
+use super::{Connection, EncryptionLevel, PathId, SentFrames, TransmitBuf, spaces::SentPacket};
 use crate::{
     ConnectionId, FrameStats, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
     coding::Encodable,
@@ -65,14 +65,9 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
                 conn.force_key_update();
             }
         } else {
-            let confidentiality_limit = conn.crypto_state.spaces[space_id as usize]
-                .keys
-                .as_ref()
-                .map_or_else(
-                    || &conn.crypto_state.zero_rtt_crypto.as_ref().unwrap().packet,
-                    |keys| &keys.packet.local,
-                )
-                .confidentiality_limit();
+            let level = space_id.encryption_level();
+            let (_, packet_crypto) = conn.crypto_state.local_crypto(level).unwrap();
+            let confidentiality_limit = packet_crypto.confidentiality_limit();
             if sent_with_keys.saturating_add(1) == confidentiality_limit {
                 // We still have time to attempt a graceful close
                 conn.close_inner(
@@ -143,17 +138,9 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             buffer.as_mut_slice()[partial_encode.start] ^= FIXED_BIT;
         }
 
-        let (sample_size, tag_len) = if let Some(ref keys) = conn.crypto_state.spaces[space_id as usize].keys {
-            (
-                keys.header.local.sample_size(),
-                keys.packet.local.tag_len(),
-            )
-        } else if space_id == SpaceId::Data {
-            let zero_rtt = conn.crypto_state.zero_rtt_crypto.as_ref().unwrap();
-            (zero_rtt.header.sample_size(), zero_rtt.packet.tag_len())
-        } else {
-            unreachable!();
-        };
+        let level = space_id.encryption_level();
+        let (header_crypto, packet_crypto) = conn.crypto_state.local_crypto(level).unwrap();
+        let (sample_size, tag_len) = (header_crypto.sample_size(), packet_crypto.tag_len());
 
         // Each packet must be large enough for header protection sampling, i.e. the combined
         // lengths of the encoded packet number and protected payload must be at least 4 bytes
@@ -350,14 +337,11 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             self.qlog.frame_padding(padding);
         }
 
-        let (header_crypto, packet_crypto) = if let Some(ref keys) = conn.crypto_state.spaces[self.space as usize].keys {
-            (&*keys.header.local, &*keys.packet.local)
-        } else if self.space == SpaceId::Data {
-            let zero_rtt = conn.crypto_state.zero_rtt_crypto.as_ref().unwrap();
-            (&*zero_rtt.header, &*zero_rtt.packet)
-        } else {
-            unreachable!("tried to send {:?} packet without keys", self.space);
-        };
+        let level = self.space.encryption_level();
+        let (header_crypto, packet_crypto) = conn
+            .crypto_state
+            .local_crypto(level)
+            .expect("tried to send packet without keys");
 
         debug_assert_eq!(
             packet_crypto.tag_len(),
