@@ -1,31 +1,31 @@
 use tracing::{debug, trace};
 
-use crate::Instant;
-use crate::connection::spaces::PacketSpace;
-use crate::crypto::{HeaderKey, KeyPair, PacketKey};
+use crate::{ConnectionId, Instant, Side};
+use crate::connection::assembler::Assembler;
+use crate::crypto::{self, HeaderKey, KeyPair, Keys, PacketKey};
 use crate::packet::{Packet, PartialDecode, SpaceId};
 use crate::token::ResetToken;
 use crate::{RESET_TOKEN_SIZE, TransportError};
 
 use super::PathId;
+use super::spaces::PacketSpace;
 
 /// Removes header protection of a packet, or returns `None` if the packet was dropped
 pub(super) fn unprotect_header(
     partial_decode: PartialDecode,
-    spaces: &[PacketSpace; 3],
-    zero_rtt_crypto: Option<&ZeroRttCrypto>,
+    crypto_state: &CryptoState,
     stateless_reset_token: Option<ResetToken>,
 ) -> Option<UnprotectHeaderResult> {
     let header_crypto = if partial_decode.is_0rtt() {
-        if let Some(crypto) = zero_rtt_crypto {
+        if let Some(ref crypto) = crypto_state.zero_rtt_crypto {
             Some(&*crypto.header)
         } else {
             debug!("dropping unexpected 0-RTT packet");
             return None;
         }
     } else if let Some(space) = partial_decode.space() {
-        if let Some(ref crypto) = spaces[space].crypto {
-            Some(&*crypto.header.remote)
+        if let Some(ref keys) = crypto_state.spaces[space as usize].keys {
+            Some(&*keys.header.remote)
         } else {
             debug!(
                 "discarding unexpected {:?} packet ({} bytes)",
@@ -72,10 +72,8 @@ pub(super) fn decrypt_packet_body(
     packet: &mut Packet,
     path_id: PathId,
     spaces: &[PacketSpace; 3],
-    zero_rtt_crypto: Option<&ZeroRttCrypto>,
+    crypto_state: &CryptoState,
     conn_key_phase: bool,
-    prev_crypto: Option<&PrevCrypto>,
-    next_crypto: Option<&KeyPair<Box<dyn PacketKey>>>,
 ) -> Result<Option<DecryptPacketResult>, Option<TransportError>> {
     if !packet.header.is_protected() {
         // Unprotected packets also don't have packet numbers
@@ -94,7 +92,7 @@ pub(super) fn decrypt_packet_body(
     // having received packets on that path yet. So both of these cases are represented by `None`.
     let rx_packet = spaces[space]
         .path_space(path_id)
-        .and_then(|space| space.rx_packet);
+        .and_then(|s| s.rx_packet);
     let number = packet
         .header
         .number()
@@ -104,10 +102,10 @@ pub(super) fn decrypt_packet_body(
 
     let mut crypto_update = false;
     let crypto = if packet.header.is_0rtt() {
-        &zero_rtt_crypto.unwrap().packet
+        &crypto_state.zero_rtt_crypto.as_ref().unwrap().packet
     } else if packet_key_phase == conn_key_phase || space != SpaceId::Data {
-        &spaces[space].crypto.as_ref().unwrap().packet.remote
-    } else if let Some(prev) = prev_crypto.and_then(|crypto| {
+        &crypto_state.spaces[space as usize].keys.as_ref().unwrap().packet.remote
+    } else if let Some(prev) = crypto_state.prev_crypto.as_ref().and_then(|crypto| {
         // If this packet comes prior to acknowledgment of the key update by the peer,
         if crypto.end_packet.is_none_or(|(pn, _)| number < pn) {
             // use the previous keys.
@@ -125,7 +123,7 @@ pub(super) fn decrypt_packet_body(
         // lower-numbered packet. The key phase mismatch must therefore represent a new
         // remotely-initiated key update.
         crypto_update = true;
-        &next_crypto.unwrap().remote
+        &crypto_state.next_crypto.as_ref().unwrap().remote
     };
 
     crypto
@@ -142,7 +140,7 @@ pub(super) fn decrypt_packet_body(
     }
 
     let mut outgoing_key_update_acked = false;
-    if let Some(prev) = prev_crypto
+    if let Some(ref prev) = crypto_state.prev_crypto
         && prev.end_packet.is_none()
         && packet_key_phase == conn_key_phase
     {
@@ -155,7 +153,7 @@ pub(super) fn decrypt_packet_body(
         // any packets on this path yet. In that case, having the first packet be a crypto update
         // is fine.
         let invalid_packet_number = rx_packet.is_some_and(|rx_packet| number <= rx_packet);
-        if invalid_packet_number || prev_crypto.is_some_and(|x| x.update_unacked) {
+        if invalid_packet_number || crypto_state.prev_crypto.as_ref().is_some_and(|x| x.update_unacked) {
             trace!(?number, ?rx_packet, %path_id, "crypto update failed");
             return Err(Some(TransportError::KEY_UPDATE_ERROR("")));
         }
@@ -195,4 +193,92 @@ pub(super) struct PrevCrypto {
 pub(super) struct ZeroRttCrypto {
     pub(super) header: Box<dyn HeaderKey>,
     pub(super) packet: Box<dyn PacketKey>,
+}
+
+/// Consolidated crypto state for a connection.
+///
+/// This struct groups all cryptographic state together, including:
+/// - The TLS session
+/// - Per-space keys and crypto streams
+/// - Key update state (prev/next keys)
+/// - 0-RTT state
+pub(super) struct CryptoState {
+    /// Per-space crypto data (Initial, Handshake, Data).
+    pub(super) spaces: [CryptoSpace; 3],
+    /// The TLS session.
+    pub(super) session: Box<dyn crypto::Session>,
+    /// 1-RTT keys to be used for the next key update.
+    ///
+    /// These are generated in advance to prevent timing attacks and/or DoS by third-party attackers
+    /// spoofing key updates.
+    pub(super) next_crypto: Option<KeyPair<Box<dyn PacketKey>>>,
+    /// 1-RTT keys used prior to a key update.
+    pub(super) prev_crypto: Option<PrevCrypto>,
+    /// Whether 0-RTT was accepted.
+    pub(super) accepted_0rtt: bool,
+    /// Whether or not 0-RTT was enabled during the handshake. Does not imply acceptance.
+    pub(super) zero_rtt_enabled: bool,
+    /// 0-RTT crypto state, cleared when no longer needed.
+    pub(super) zero_rtt_crypto: Option<ZeroRttCrypto>,
+}
+
+#[allow(dead_code)]
+impl CryptoState {
+    pub(super) fn new(session: Box<dyn crypto::Session>, init_cid: ConnectionId, side: Side) -> Self {
+        let initial_keys = session.initial_keys(init_cid, side);
+        let initial_space = CryptoSpace {
+            keys: Some(initial_keys),
+            ..Default::default()
+        };
+        Self {
+            spaces: [initial_space, Default::default(), Default::default()],
+            session,
+            next_crypto: None,
+            prev_crypto: None,
+            accepted_0rtt: false,
+            zero_rtt_enabled: false,
+            zero_rtt_crypto: None,
+        }
+    }
+
+    /// Check if keys are available for the given encryption level.
+    pub(super) fn has_keys(&self, level: EncryptionLevel) -> bool {
+        match level {
+            EncryptionLevel::Initial => self.spaces[0].keys.is_some(),
+            EncryptionLevel::ZeroRtt => self.zero_rtt_crypto.is_some(),
+            EncryptionLevel::Handshake => self.spaces[1].keys.is_some(),
+            EncryptionLevel::OneRtt => self.spaces[2].keys.is_some(),
+        }
+    }
+
+    /// Discard temporary key state (0-RTT and previous keys).
+    pub(super) fn discard_temporary_keys(&mut self) {
+        self.zero_rtt_crypto = None;
+        self.prev_crypto = None;
+    }
+}
+
+/// Per-space cryptographic state.
+#[derive(Default)]
+pub(super) struct CryptoSpace {
+    /// Packet protection keys for this space.
+    pub(super) keys: Option<Keys>,
+    /// Incoming cryptographic handshake stream.
+    pub(super) crypto_stream: Assembler,
+    /// Current offset of outgoing cryptographic handshake stream.
+    pub(super) crypto_offset: u64,
+}
+
+/// QUIC packet protection levels (RFC 9001).
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[allow(dead_code)]
+pub(super) enum EncryptionLevel {
+    /// Initial packets (client and server).
+    Initial,
+    /// Early data (0-RTT), client only.
+    ZeroRtt,
+    /// Handshake packets.
+    Handshake,
+    /// Application data (1-RTT).
+    OneRtt,
 }

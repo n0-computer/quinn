@@ -65,11 +65,11 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
                 conn.force_key_update();
             }
         } else {
-            let confidentiality_limit = conn.spaces[space_id]
-                .crypto
+            let confidentiality_limit = conn.crypto_state.spaces[space_id as usize]
+                .keys
                 .as_ref()
                 .map_or_else(
-                    || &conn.zero_rtt_crypto.as_ref().unwrap().packet,
+                    || &conn.crypto_state.zero_rtt_crypto.as_ref().unwrap().packet,
                     |keys| &keys.packet.local,
                 )
                 .confidentiality_limit();
@@ -100,8 +100,9 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             packet_number,
             space.for_path(path_id).largest_acked_packet.unwrap_or(0),
         );
+        let space_has_keys = conn.crypto_state.spaces[space_id as usize].keys.is_some();
         let header = match space_id {
-            SpaceId::Data if space.crypto.is_some() => Header::Short {
+            SpaceId::Data if space_has_keys => Header::Short {
                 dst_cid,
                 number,
                 spin: if conn.spin_enabled {
@@ -142,13 +143,13 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             buffer.as_mut_slice()[partial_encode.start] ^= FIXED_BIT;
         }
 
-        let (sample_size, tag_len) = if let Some(ref crypto) = space.crypto {
+        let (sample_size, tag_len) = if let Some(ref keys) = conn.crypto_state.spaces[space_id as usize].keys {
             (
-                crypto.header.local.sample_size(),
-                crypto.packet.local.tag_len(),
+                keys.header.local.sample_size(),
+                keys.packet.local.tag_len(),
             )
         } else if space_id == SpaceId::Data {
-            let zero_rtt = conn.zero_rtt_crypto.as_ref().unwrap();
+            let zero_rtt = conn.crypto_state.zero_rtt_crypto.as_ref().unwrap();
             (zero_rtt.header.sample_size(), zero_rtt.packet.tag_len())
         } else {
             unreachable!();
@@ -173,7 +174,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             &header,
             Some(packet_number),
             space_id,
-            space_id == SpaceId::Data && conn.spaces[SpaceId::Data].crypto.is_none(),
+            space_id == SpaceId::Data && !space_has_keys,
             path_id,
         );
 
@@ -349,11 +350,10 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             self.qlog.frame_padding(padding);
         }
 
-        let space = &conn.spaces[self.space];
-        let (header_crypto, packet_crypto) = if let Some(ref crypto) = space.crypto {
-            (&*crypto.header.local, &*crypto.packet.local)
+        let (header_crypto, packet_crypto) = if let Some(ref keys) = conn.crypto_state.spaces[self.space as usize].keys {
+            (&*keys.header.local, &*keys.packet.local)
         } else if self.space == SpaceId::Data {
-            let zero_rtt = conn.zero_rtt_crypto.as_ref().unwrap();
+            let zero_rtt = conn.crypto_state.zero_rtt_crypto.as_ref().unwrap();
             (&*zero_rtt.header, &*zero_rtt.packet)
         } else {
             unreachable!("tried to send {:?} packet without keys", self.space);
