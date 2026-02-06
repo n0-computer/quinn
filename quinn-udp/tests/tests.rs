@@ -9,6 +9,25 @@ use std::{
 use iroh_quinn_udp::{EcnCodepoint, RecvMeta, Transmit, UdpSocketState};
 use socket2::Socket;
 
+/// Detect if running under Wine (test helper)
+#[cfg(windows)]
+fn is_wine() -> bool {
+    use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+
+    unsafe {
+        let ntdll = GetModuleHandleA(b"ntdll.dll\0".as_ptr());
+        if ntdll == 0 {
+            return false;
+        }
+        GetProcAddress(ntdll, b"wine_get_version\0".as_ptr()).is_some()
+    }
+}
+
+#[cfg(not(windows))]
+fn is_wine() -> bool {
+    false
+}
+
 #[test]
 fn basic() {
     let send = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0))
@@ -56,6 +75,10 @@ fn basic_src_ip() {
 
 #[test]
 fn ecn_v6() {
+    if is_wine() {
+        eprintln!("Skipping ECN test on Wine (ECN not supported)");
+        return;
+    }
     let send = Socket::from(UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).unwrap());
     let recv = Socket::from(UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).unwrap());
     for codepoint in [EcnCodepoint::Ect0, EcnCodepoint::Ect1] {
@@ -76,6 +99,10 @@ fn ecn_v6() {
 #[test]
 #[cfg(not(any(target_os = "openbsd", target_os = "netbsd", solarish)))]
 fn ecn_v4() {
+    if is_wine() {
+        eprintln!("Skipping ECN test on Wine (ECN not supported)");
+        return;
+    }
     let send = Socket::from(UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap());
     let recv = Socket::from(UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap());
     for codepoint in [EcnCodepoint::Ect0, EcnCodepoint::Ect1] {
@@ -96,6 +123,10 @@ fn ecn_v4() {
 #[test]
 #[cfg(not(any(target_os = "openbsd", target_os = "netbsd", solarish)))]
 fn ecn_v6_dualstack() {
+    if is_wine() {
+        eprintln!("Skipping ECN test on Wine (ECN not supported)");
+        return;
+    }
     let recv = socket2::Socket::new(
         socket2::Domain::IPV6,
         socket2::Type::DGRAM,
@@ -142,6 +173,10 @@ fn ecn_v6_dualstack() {
 #[test]
 #[cfg(not(any(target_os = "openbsd", target_os = "netbsd", solarish)))]
 fn ecn_v4_mapped_v6() {
+    if is_wine() {
+        eprintln!("Skipping ECN test on Wine (ECN not supported)");
+        return;
+    }
     let send = socket2::Socket::new(
         socket2::Domain::IPV6,
         socket2::Type::DGRAM,
