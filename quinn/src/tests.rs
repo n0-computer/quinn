@@ -549,7 +549,7 @@ fn run_echo(args: EchoArgs) {
                 || cfg!(target_os = "openbsd")
                 || cfg!(target_os = "netbsd")
                 || cfg!(target_os = "macos")
-                || cfg!(target_os = "windows")
+                || (cfg!(target_os = "windows") && !udp::is_wine())
             {
                 let local_ip = incoming.local_ip().expect("Local IP must be available");
                 assert!(local_ip.is_loopback());

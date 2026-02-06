@@ -35,9 +35,6 @@ windows-sys = { workspace = true }
 criterion = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net"] }
 
-[target.'cfg(windows)'.dev-dependencies]
-windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
-
 [build-dependencies]
 cfg_aliases = { workspace = true }
 

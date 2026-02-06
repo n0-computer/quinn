@@ -80,6 +80,15 @@ mod log {
 #[cfg(not(wasm_browser))]
 pub use imp::UdpSocketState;
 
+/// Detect whether we are running under Wine.
+#[cfg(windows)]
+pub use imp::is_wine;
+/// Detect whether we are running under Wine (always returns false on non-Windows).
+#[cfg(not(windows))]
+pub fn is_wine() -> bool {
+    false
+}
+
 /// Number of UDP packets to send/receive at a time
 #[cfg(not(wasm_browser))]
 pub const BATCH_SIZE: usize = imp::BATCH_SIZE;
