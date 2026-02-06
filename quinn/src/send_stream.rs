@@ -247,6 +247,8 @@ impl SendStream {
     /// may introduce more latency than using an application-level response of some sort.
     pub fn stopped(&self) -> Stopped {
         let notified = {
+            // Create an `OwnedNotified` to move into the future. By creating it before the first poll,
+            // we make sure that we don't miss any notifications.
             let mut conn = self.conn.state.lock("SendStream::stopped");
             conn.stopped
                 .entry(self.stream)
@@ -459,10 +461,22 @@ impl Future for Stopped {
         let mut this = self.project();
         loop {
             let mut conn = this.conn.state.lock("SendStream::stopped");
+            // Check if the stream is stopped before polling the notify. This makes sure that
+            // no wakeups are missed.
             if let Some(output) = send_stream_stopped(&mut conn, *this.stream, *this.is_0rtt) {
                 return Poll::Ready(output);
             }
             std::task::ready!(this.notified.as_mut().poll(cx));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    fn check_is_send_sync<A: Send + Sync>() {}
+
+    #[allow(dead_code)]
+    fn test_bounds() {
+        check_is_send_sync::<super::Stopped>();
     }
 }
