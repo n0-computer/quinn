@@ -1343,6 +1343,7 @@ pub(crate) struct State {
     /// Tracks reference counts for paths, i.e. how many [`Path`] and [`WeakPathHandle`] structs are alive for a path
     pub(crate) path_refs: FxHashMap<PathId, usize>,
     /// Final path stats for discarded paths.
+    ///
     /// We only insert entries if the discarded path has a non-zero reference count in [`Self::path_refs`].
     /// When the last reference to a path is dropped via [`Self::decrement_path_refs`] its value is cleared.
     pub(crate) final_path_stats: FxHashMap<PathId, PathStats>,
