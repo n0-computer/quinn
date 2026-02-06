@@ -293,6 +293,12 @@ impl Path {
     }
 }
 
+impl PartialEq for Path {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && self.conn.stable_id() == other.conn.stable_id()
+    }
+}
+
 /// Weak handle for a [`Path`] that does not keep the connection alive.
 ///
 /// As long as a [`WeakPathHandle`] for a path exists, that path's final stats will not be dropped even if
@@ -323,7 +329,7 @@ impl Clone for WeakPathHandle {
 
 impl PartialEq for WeakPathHandle {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id && self.conn.ptr_eq(&other.conn)
+        self.id == other.id && self.conn.is_same_connection(&other.conn)
     }
 }
 

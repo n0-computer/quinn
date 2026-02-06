@@ -1234,7 +1234,7 @@ impl ConnectionRef {
         Self(inner)
     }
 
-    fn stable_id(&self) -> usize {
+    pub(crate) fn stable_id(&self) -> usize {
         &*self.0 as *const _ as usize
     }
 
@@ -1301,7 +1301,7 @@ impl WeakConnectionHandle {
     }
 
     /// Returns `true` if the two [`WeakConnectionHandle`] point at the same connection.
-    pub fn ptr_eq(&self, other: &Self) -> bool {
+    pub fn is_same_connection(&self, other: &Self) -> bool {
         self.0.ptr_eq(&other.0)
     }
 }
@@ -1340,10 +1340,11 @@ pub(crate) struct State {
     open_path: FxHashMap<PathId, watch::Sender<Result<(), PathError>>>,
     /// Tracks paths being closed
     pub(crate) close_path: FxHashMap<PathId, oneshot::Sender<VarInt>>,
-    /// Tracks reference counts for paths, i.e. how many [`Path`] structs are alive for a path
+    /// Tracks reference counts for paths, i.e. how many [`Path`] and [`WeakPathHandle`] structs are alive for a path
     pub(crate) path_refs: FxHashMap<PathId, usize>,
     /// Final path stats for discarded paths.
-    /// Are only populated for paths that have a refcount higher than 0.
+    /// We only insert entries if the discarded path has a non-zero reference count in [`Self::path_refs`].
+    /// When the last reference to a path is dropped via [`Self::decrement_path_refs`] its value is cleared.
     pub(crate) final_path_stats: FxHashMap<PathId, PathStats>,
     pub(crate) path_events: tokio::sync::broadcast::Sender<PathEvent>,
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
@@ -1711,15 +1712,15 @@ impl State {
             .or_else(|| self.final_path_stats.get(&path_id).copied())
     }
 
-    /// Increment the application-level reference counter for a path.
+    /// Increment the reference counter for a path in this connection.
     ///
     /// This counts how many [`Path`] or [`WeakPathHandle`] structs exist for a path.
-    /// Currently only is used to determine whether to store the final stats after a path is abandoned.
+    /// Currently this is used to determine whether to store the final stats after a path is abandoned.
     pub(crate) fn increment_path_refs(&mut self, path_id: PathId) {
         *self.path_refs.entry(path_id).or_default() += 1;
     }
 
-    /// Decrement application-level reference counter for a path.
+    /// Decrement the reference counter for a path in this connection.
     pub(crate) fn decrement_path_refs(&mut self, path_id: PathId) {
         if let Some(refs) = self.path_refs.get_mut(&path_id) {
             *refs = refs.saturating_sub(1);
