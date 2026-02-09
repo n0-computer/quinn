@@ -16,7 +16,7 @@ use crate::{
     FourTuple, LOCAL_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator, ServerConfig,
     Side::*, TransportConfig, cid_queue::CidQueue,
 };
-use crate::{Event, PathError, PathEvent};
+use crate::{Dir, Event, PathError, PathEvent, StreamEvent};
 
 use super::util::{min_opt, subscribe};
 use super::{Pair, client_config, server_config};
@@ -779,6 +779,61 @@ fn remote_can_close_last_validated_path() -> TestResult {
         }
         assert_eq!(close, None);
     }
+
+    Ok(())
+}
+
+/// With multipath and hint=None, the client defaults to non-recoverable: the old path is closed
+/// with PATH_UNSTABLE_OR_POOR and a new path is opened. Data still flows on the new path.
+#[test]
+fn network_change_multipath_no_hint_replaces_path() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    // Simulate a passive migration + network change with no hint
+    pair.passive_migration(Client);
+    pair.handle_network_change(Client, None);
+
+    pair.drive();
+
+    // A new path should be opened and the old one should be closed
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Opened { id: PathId(1) }))
+    );
+
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Opened { id: PathId(1) }))
+    );
+    // The server sees the old path closed with PATH_UNSTABLE_OR_POOR
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Abandoned {
+            id: PathId::ZERO,
+            ..
+        }))
+    );
+
+    // Data should flow on the new path
+    let s = pair.streams(Client).open(Dir::Uni).unwrap();
+    const MSG: &[u8] = b"after network change";
+    pair.send_stream(Client, s).write(MSG).unwrap();
+    pair.send_stream(Client, s).finish().unwrap();
+    pair.drive();
+
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
+    );
+    assert_matches!(pair.streams(Server).accept(Dir::Uni), Some(stream) if stream == s);
+    let mut recv = pair.recv_stream(Server, s);
+    let mut chunks = recv.read(false).unwrap();
+    assert_matches!(
+        chunks.next(usize::MAX),
+        Ok(Some(chunk)) if chunk.bytes == MSG
+    );
+    let _ = chunks.finalize();
 
     Ok(())
 }
