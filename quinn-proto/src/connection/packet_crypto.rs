@@ -1,4 +1,5 @@
 use std::mem;
+use std::ops::{Index, IndexMut};
 
 use tracing::{debug, trace};
 
@@ -391,4 +392,28 @@ pub(crate) enum EncryptionLevel {
     Handshake,
     /// Application data (1-RTT).
     OneRtt,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub(crate) enum SpaceKind {
+    /// Initial packets (client and server).
+    Initial = 0,
+    /// Handshake packets.
+    Handshake = 1,
+    /// Data (1-RTT and 0-RTT)
+    Data = 2,
+}
+
+impl IndexMut<SpaceKind> for [CryptoSpace; 3] {
+    fn index_mut(&mut self, index: SpaceKind) -> &mut Self::Output {
+        &mut self[index as usize]
+    }
+}
+
+impl Index<SpaceKind> for [CryptoSpace; 3] {
+    type Output = CryptoSpace;
+
+    fn index(&self, index: SpaceKind) -> &Self::Output {
+        &self[index as usize]
+    }
 }
