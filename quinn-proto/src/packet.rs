@@ -969,6 +969,16 @@ impl SpaceId {
             Self::Data => EncryptionLevel::OneRtt,
         }
     }
+
+    /// Returns the [`SpaceKind`](crate::connection::SpaceKind) for this packet space.
+    pub(crate) fn kind(self) -> crate::connection::SpaceKind {
+        use crate::connection::SpaceKind;
+        match self {
+            Self::Initial => SpaceKind::Initial,
+            Self::Handshake => SpaceKind::Handshake,
+            Self::Data => SpaceKind::Data,
+        }
+    }
 }
 
 #[cfg(test)]

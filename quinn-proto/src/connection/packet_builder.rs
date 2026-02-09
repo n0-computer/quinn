@@ -65,7 +65,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
                 conn.force_key_update();
             }
         } else {
-            let (_, packet_crypto) = conn.crypto_state.local_crypto(space_id).unwrap();
+            let (_, packet_crypto) = conn.crypto_state.local_crypto(space_id.kind()).unwrap();
             let confidentiality_limit = packet_crypto.confidentiality_limit();
             if sent_with_keys.saturating_add(1) == confidentiality_limit {
                 // We still have time to attempt a graceful close
@@ -137,7 +137,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             buffer.as_mut_slice()[partial_encode.start] ^= FIXED_BIT;
         }
 
-        let (header_crypto, packet_crypto) = conn.crypto_state.local_crypto(space_id).unwrap();
+        let (header_crypto, packet_crypto) = conn.crypto_state.local_crypto(space_id.kind()).unwrap();
         let (sample_size, tag_len) = (header_crypto.sample_size(), packet_crypto.tag_len());
 
         // Each packet must be large enough for header protection sampling, i.e. the combined
@@ -337,7 +337,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
 
         let (header_crypto, packet_crypto) = conn
             .crypto_state
-            .local_crypto(self.space)
+            .local_crypto(self.space.kind())
             .expect("tried to send packet without keys");
 
         debug_assert_eq!(

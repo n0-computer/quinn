@@ -5,7 +5,7 @@ use tracing::{debug, trace};
 
 use crate::connection::assembler::Assembler;
 use crate::crypto::{self, HeaderKey, KeyPair, Keys, PacketKey};
-use crate::packet::{Packet, PartialDecode, SpaceId};
+use crate::packet::{Packet, PartialDecode};
 use crate::token::ResetToken;
 use crate::{ConnectionId, Instant, Side};
 use crate::{RESET_TOKEN_SIZE, TransportError};
@@ -84,7 +84,7 @@ pub(super) fn decrypt_packet_body(
     }
     let space = packet.header.space();
 
-    if path_id != PathId::ZERO && space != SpaceId::Data {
+    if path_id != PathId::ZERO && space.kind() != SpaceKind::Data {
         // do not try to decrypt illegal multipath packets
         return Err(Some(TransportError::PROTOCOL_VIOLATION(
             "multipath packet on non Data packet number space",
@@ -107,7 +107,7 @@ pub(super) fn decrypt_packet_body(
             .remote_crypto(EncryptionLevel::ZeroRtt)
             .unwrap();
         packet
-    } else if packet_key_phase == conn_key_phase || space != SpaceId::Data {
+    } else if packet_key_phase == conn_key_phase || space.kind() != SpaceKind::Data {
         let (_, packet) = crypto_state
             .remote_crypto(space.encryption_level())
             .unwrap();
@@ -294,8 +294,8 @@ impl CryptoState {
     }
 
     /// Get the integrity limit for the given space's local packet keys.
-    pub(super) fn integrity_limit(&self, space: SpaceId) -> u64 {
-        self.spaces[space as usize]
+    pub(super) fn integrity_limit(&self, space: SpaceKind) -> u64 {
+        self.spaces[space]
             .keys
             .as_ref()
             .unwrap()
@@ -306,13 +306,13 @@ impl CryptoState {
 
     /// Get local (sending) crypto keys for the given space.
     ///
-    /// Returns header and packet keys used for encrypting outgoing packets. For `SpaceId::Data`,
+    /// Returns header and packet keys used for encrypting outgoing packets. For `SpaceKind::Data`,
     /// returns 1-RTT keys if available, otherwise 0-RTT keys.
-    pub(super) fn local_crypto(&self, space: SpaceId) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
+    pub(super) fn local_crypto(&self, space: SpaceKind) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
         match space {
-            SpaceId::Initial => self.spaces[0].keys.as_ref().map(Keys::local),
-            SpaceId::Handshake => self.spaces[1].keys.as_ref().map(Keys::local),
-            SpaceId::Data => {
+            SpaceKind::Initial => self.spaces[0].keys.as_ref().map(Keys::local),
+            SpaceKind::Handshake => self.spaces[1].keys.as_ref().map(Keys::local),
+            SpaceKind::Data => {
                 if let Some(keys) = self.spaces[2].keys.as_ref() {
                     Some(keys.local())
                 } else {
@@ -335,7 +335,7 @@ impl CryptoState {
             .expect("only called for `Data` packets");
         let confidentiality_limit = new.local.confidentiality_limit();
         let old = mem::replace(
-            &mut self.spaces[SpaceId::Data as usize]
+            &mut self.spaces[SpaceKind::Data]
                 .keys
                 .as_mut()
                 .unwrap() // safe because update_keys() can only be triggered by short packets
