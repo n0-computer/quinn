@@ -216,7 +216,7 @@
 <a href=#216 id=216 data-nosnippet>216</a>    <span class="doccomment">/// Closes this path.
 <a href=#217 id=217 data-nosnippet>217</a>    ///
 <a href=#218 id=218 data-nosnippet>218</a>    /// The path is immediately considered closed by the local endpoint. Once the state is removed,
-<a href=#219 id=219 data-nosnippet>219</a>    /// after a short period ot time for any in-flight packets, a [`PathEvent::Abandoned`] is
+<a href=#219 id=219 data-nosnippet>219</a>    /// after a short period of time for any in-flight packets, a [`PathEvent::Abandoned`] is
 <a href=#220 id=220 data-nosnippet>220</a>    /// returned.
 <a href=#221 id=221 data-nosnippet>221</a>    </span><span class="kw">pub fn </span>close(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;(), ClosePathError&gt; {
 <a href=#222 id=222 data-nosnippet>222</a>        <span class="kw">let </span><span class="kw-2">mut </span>state = <span class="self">self</span>.conn.state.lock(<span class="string">"close_path"</span>);
