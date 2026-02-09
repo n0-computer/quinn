@@ -84,6 +84,7 @@ jobs:
           copyback: false
           prepare: |
             echo "nameserver 1.1.1.1" > /etc/resolv.conf
+            /usr/sbin/cp /etc/nsswitch.dns /etc/nsswitch.conf
             pkg install gcc14 curl pkg-config glib2
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           run: |
