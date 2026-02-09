@@ -293,7 +293,7 @@ impl Endpoint {
     /// the network change. If `None`, all paths are assumed to be non-recoverable. For client-side
     /// multipath connections, unrecoverable paths will be closed and replaced with new paths to
     /// the same remote addresses.
-    pub fn local_address_changed(&self, hint: Option<Arc<dyn NetworkChangeHint>>) {
+    pub fn handle_network_change(&self, hint: Option<Arc<dyn NetworkChangeHint>>) {
         let mut inner = self.inner.state.lock().unwrap();
         for sender in inner.recv_state.connections.senders.values() {
             // Ignoring errors from dropped connections
