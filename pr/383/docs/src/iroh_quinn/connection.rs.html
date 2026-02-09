@@ -1484,7 +1484,7 @@
 <a href=#1484 id=1484 data-nosnippet>1484</a>                }
 <a href=#1485 id=1485 data-nosnippet>1485</a>                Poll::Ready(<span class="prelude-val">Some</span>(ConnectionEvent::LocalAddressChanged(hint))) =&gt; {
 <a href=#1486 id=1486 data-nosnippet>1486</a>                    <span class="self">self</span>.inner
-<a href=#1487 id=1487 data-nosnippet>1487</a>                        .handle_network_change(hint.as_deref(), <span class="self">self</span>.runtime.now());
+<a href=#1487 id=1487 data-nosnippet>1487</a>                        .handle_network_change(hint.as_deref().map(|x| x <span class="kw">as _</span>), <span class="self">self</span>.runtime.now());
 <a href=#1488 id=1488 data-nosnippet>1488</a>                }
 <a href=#1489 id=1489 data-nosnippet>1489</a>                Poll::Ready(<span class="prelude-val">Some</span>(ConnectionEvent::Proto(event))) =&gt; {
 <a href=#1490 id=1490 data-nosnippet>1490</a>                    <span class="self">self</span>.inner.handle_event(event);
