@@ -6,8 +6,10 @@ use std::{
 };
 
 use bytes::Bytes;
+use pin_project_lite::pin_project;
 use proto::{ClosedStream, ConnectionError, FinishError, StreamId, Written};
 use thiserror::Error;
+use tokio::sync::futures::OwnedNotified;
 
 use crate::{
     VarInt,
@@ -243,32 +245,22 @@ impl SendStream {
     /// For a variety of reasons, the peer may not send acknowledgements immediately upon receiving
     /// data. As such, relying on `stopped` to know when the peer has read a stream to completion
     /// may introduce more latency than using an application-level response of some sort.
-    pub fn stopped(
-        &self,
-    ) -> impl Future<Output = Result<Option<VarInt>, StoppedError>> + Send + Sync + 'static {
-        let conn = self.conn.clone();
-        let stream = self.stream;
-        let is_0rtt = self.is_0rtt;
-        async move {
-            loop {
-                // The `Notify::notified` future needs to be created while the lock is being held,
-                // otherwise a wakeup could be missed if triggered in between releasing the lock
-                // and creating the future.
-                // The lock may only be held in a block without `await`s, otherwise the future
-                // becomes `!Send`. `Notify::notified` is lifetime-bound to `Notify`, therefore
-                // we need to declare `notify` outside of the block, and initialize it inside.
-                let notify;
-                {
-                    let mut conn = conn.state.lock("SendStream::stopped");
-                    if let Some(output) = send_stream_stopped(&mut conn, stream, is_0rtt) {
-                        return output;
-                    }
-
-                    notify = conn.stopped.entry(stream).or_default().clone();
-                    notify.notified()
-                }
-                .await
-            }
+    pub fn stopped(&self) -> Stopped {
+        let notified = {
+            // Create an `OwnedNotified` to move into the future. By creating it before the first poll,
+            // we make sure that we don't miss any notifications.
+            let mut conn = self.conn.state.lock("SendStream::stopped");
+            conn.stopped
+                .entry(self.stream)
+                .or_default()
+                .clone()
+                .notified_owned()
+        };
+        Stopped {
+            conn: self.conn.clone(),
+            stream: self.stream,
+            is_0rtt: self.is_0rtt,
+            notified,
         }
     }
 
@@ -447,5 +439,44 @@ impl From<StoppedError> for io::Error {
             ConnectionLost(_) => io::ErrorKind::NotConnected,
         };
         Self::new(kind, x)
+    }
+}
+
+pin_project! {
+    /// Future returned from [`SendStream::stopped`].
+    #[derive(Debug)]
+    pub struct Stopped {
+        conn: ConnectionRef,
+        stream: StreamId,
+        is_0rtt: bool,
+        #[pin]
+        notified: OwnedNotified,
+    }
+}
+
+impl Future for Stopped {
+    type Output = Result<Option<VarInt>, StoppedError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut this = self.project();
+        loop {
+            let mut conn = this.conn.state.lock("SendStream::stopped");
+            // Check if the stream is stopped before polling the notify. This makes sure that
+            // no wakeups are missed.
+            if let Some(output) = send_stream_stopped(&mut conn, *this.stream, *this.is_0rtt) {
+                return Poll::Ready(output);
+            }
+            std::task::ready!(this.notified.as_mut().poll(cx));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    fn check_is_send_sync<A: Send + Sync>() {}
+
+    #[allow(dead_code)]
+    fn test_bounds() {
+        check_is_send_sync::<super::Stopped>();
     }
 }

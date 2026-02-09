@@ -757,3 +757,34 @@ fn mtud_on_two_paths() -> TestResult {
     assert_eq!(pair.conn(Client).path_mtu(path_id), 1452);
     Ok(())
 }
+
+/// Closing a path locally may be rejected if this leaves the endpoint without validated paths. For
+/// paths closed by the remote, however, a `PATH_ABANDON` frame must be accepted. In
+/// particular, it should not kill the connection.
+///
+/// This is a regression test.
+#[test]
+fn remote_can_close_last_validated_path() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    pair.passive_migration(Client);
+    let route = pair.addrs_to_server();
+    pair.open_path(Client, route, PathStatus::Available)?;
+    pair.drive_client();
+    pair.close_path(Client, PathId::ZERO, 0u8.into())?;
+    pair.drive();
+
+    // Neither side of the connection should error on close
+    let mut close = None;
+    for side in [Client, Server] {
+        while let Some(event) = pair.poll(side) {
+            if let Event::ConnectionLost { reason } = event {
+                close = Some(reason);
+            }
+        }
+        assert_eq!(close, None);
+    }
+
+    Ok(())
+}
