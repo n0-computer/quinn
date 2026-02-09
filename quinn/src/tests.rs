@@ -4,6 +4,7 @@
 use rustls::crypto::aws_lc_rs::default_provider;
 #[cfg(feature = "rustls-ring")]
 use rustls::crypto::ring::default_provider;
+use testresult::TestResult;
 use tokio_stream::StreamExt;
 
 use std::{
@@ -1250,4 +1251,90 @@ async fn path_clone_stats_after_abandon() {
     .instrument(info_span!("client"));
 
     tokio::join!(server_task, client_task);
+}
+
+/// Tests the [`Path::close`] api.
+///
+/// It should:
+/// - Immediately finish for the local endpoint.
+/// - Return an error if called more than once.
+/// - Events should reflect the path abandon.
+#[tokio::test]
+async fn close_path() -> TestResult {
+    let _logging = subscribe();
+    let factory = EndpointFactory::new();
+
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_concurrent_multipath_paths(2);
+    let server = factory.endpoint_with_config("server", transport_config);
+    let server_addr = server.local_addr()?;
+
+    let server_task = async move {
+        let conn = server.accept().await.ok_or("closed conn?")?.await?;
+        let mut path_events = conn.path_events();
+
+        // The server learns the path ID from the Opened event
+        let path_id = loop {
+            match path_events.recv().await? {
+                proto::PathEvent::Opened { id } => break id,
+                _ => continue,
+            }
+        };
+
+        // Wait for the server to see the Abandoned event for the same path
+        loop {
+            match path_events.recv().await? {
+                proto::PathEvent::Abandoned { id, .. } if id == path_id => break,
+                _ => continue,
+            }
+        }
+
+        TestResult::Ok(())
+    }
+    .instrument(info_span!("server"));
+
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_concurrent_multipath_paths(2);
+    let client = factory.endpoint_with_config("client", transport_config);
+
+    let client_task = async move {
+        let conn = client.connect(server_addr, "localhost")?.await?;
+        let mut path_events = conn.path_events();
+
+        // Open a second path, retrying until remote CIDs are available
+        let path = loop {
+            match conn
+                .open_path(server_addr, proto::PathStatus::Available)
+                .await
+            {
+                Ok(path) => break path,
+                Err(proto::PathError::RemoteCidsExhausted) => {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                Err(err) => Err(err)?,
+            }
+        };
+        let path_id = path.id();
+
+        // First close succeeds
+        path.close()?;
+        // Second close returns ClosedPath error
+        assert_eq!(path.close(), Err(proto::ClosePathError::ClosedPath));
+
+        // Wait for the client to see its own Abandoned event
+        loop {
+            match path_events.recv().await? {
+                proto::PathEvent::Abandoned { id, .. } if id == path_id => break,
+                _ => continue,
+            }
+        }
+
+        TestResult::Ok(())
+    }
+    .instrument(info_span!("client"));
+
+    let (server_res, client_res) = tokio::join!(server_task, client_task);
+    server_res?;
+    client_res?;
+    Ok(())
 }
