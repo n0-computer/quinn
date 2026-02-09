@@ -5355,6 +5355,11 @@ impl Connection {
                 non_recoverable_paths.push((*path_id, remote, path.data.local_status()))
             }
         }
+
+        /* NON RECOVERABLE PATHS */
+        // This are handled first, so that in case the treatment intended for these fails, we can
+        // go the recoverable route instead.
+
         // Decide if we need to close first or open first in the multipath case.
         // - Opening first has a higher risk of getting limited by the negotiated MAX_PATH_ID.
         // - Closing first risks this being the only open path.
@@ -5368,21 +5373,29 @@ impl Connection {
                 remote,
                 local_ip: None, /* allow the local ip to be discovered */
             };
+
             if open_first && let Err(e) = self.open_path(network_path, status, now) {
                 debug!(%e,"Failed to open new path for network change");
                 // if this fails, let the path try to recover itself
+                recoverable_paths.push((path_id, remote));
                 continue;
             }
 
             if let Err(e) = self.close_path(now, path_id, abandon_error) {
                 debug!(%e,"Failed to close unrecoverable path after network change");
+                recoverable_paths.push((path_id, remote));
                 continue;
             }
 
             if !open_first && let Err(e) = self.open_path(network_path, status, now) {
+                // Path has already been closed if we got here. Since the path was not recoverable,
+                // this might be desirable in any case, because other paths exist (!open_first) and
+                // this was is considered non recoverable
                 debug!(%e,"Failed to open new path for network change");
             }
         }
+
+        /* RECOVERABLE PATHS */
 
         for (path_id, remote) in recoverable_paths.into_iter() {
             let space = &mut self.spaces[SpaceId::Data];
