@@ -52,7 +52,6 @@ mod runtime;
 mod send_stream;
 mod work_limiter;
 
-use proto::NetworkChangeHint;
 #[cfg(not(wasm_browser))]
 pub(crate) use std::time::{Duration, Instant};
 #[cfg(wasm_browser)]
@@ -64,10 +63,10 @@ pub use proto::{
     AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ClosedStream, ConfigError,
     ConnectError, ConnectionClose, ConnectionError, ConnectionId, ConnectionIdGenerator,
     ConnectionStats, Dir, EcnCodepoint, EndpointConfig, FrameStats, FrameType, IdleTimeout,
-    InvalidCid, MtuDiscoveryConfig, NoneTokenLog, NoneTokenStore, PathId, PathStats, ServerConfig,
-    Side, StdSystemTime, StreamId, TimeSource, TokenLog, TokenMemoryCache, TokenReuseError,
-    TokenStore, Transmit, TransportConfig, TransportErrorCode, UdpStats, ValidationTokenConfig,
-    VarInt, VarIntBoundsExceeded, Written, congestion, crypto,
+    InvalidCid, MtuDiscoveryConfig, NetworkChangeHint, NoneTokenLog, NoneTokenStore, PathId,
+    PathStats, ServerConfig, Side, StdSystemTime, StreamId, TimeSource, TokenLog, TokenMemoryCache,
+    TokenReuseError, TokenStore, Transmit, TransportConfig, TransportErrorCode, UdpStats,
+    ValidationTokenConfig, VarInt, VarIntBoundsExceeded, Written, congestion, crypto,
 };
 #[cfg(feature = "qlog")]
 pub use proto::{QlogConfig, QlogFactory, QlogFileFactory};
