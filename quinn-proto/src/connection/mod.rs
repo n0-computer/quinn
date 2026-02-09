@@ -704,6 +704,9 @@ impl Connection {
         error_code: VarInt,
         locally_initiated: bool,
     ) -> Result<(), ClosePathError> {
+        if !self.is_multipath_negotiated() {
+            return Err(ClosePathError::MultipathNotNegotiated);
+        }
         if self.abandoned_paths.contains(&path_id)
             || Some(path_id) > self.max_path_id()
             || !self.paths.contains_key(&path_id)
@@ -3110,10 +3113,13 @@ impl Connection {
                 size_of_lost_packets,
             );
         }
+        // Before removing the path, we fetch the final path stats via `Self::path_stats`.
+        // This updates some values for the last time.
+        let path_stats = self.path_stats(path_id).unwrap_or_default();
+        self.path_stats.remove(&path_id);
         self.paths.remove(&path_id);
         self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
 
-        let path_stats = self.path_stats.remove(&path_id).unwrap_or_default();
         self.events.push_back(
             PathEvent::Abandoned {
                 id: path_id,
@@ -4977,6 +4983,11 @@ impl Connection {
                         }
                         Err(ClosePathError::ClosedPath) => {
                             trace!("peer abandoned already closed path");
+                        }
+                        Err(ClosePathError::MultipathNotNegotiated) => {
+                            return Err(TransportError::PROTOCOL_VIOLATION(
+                                "received PATH_ABANDON frame when multipath was not negotiated",
+                            ));
                         }
                     };
                     // If we receive a retransmit of PATH_ABANDON then we may already have
@@ -6980,6 +6991,9 @@ pub enum PathError {
 /// Errors triggered when abandoning a path
 #[derive(Debug, Error, Clone, Eq, PartialEq)]
 pub enum ClosePathError {
+    /// Multipath is not negotiated
+    #[error("Multipath extension not negotiated")]
+    MultipathNotNegotiated,
     /// The path is already closed or was never opened
     #[error("closed path")]
     ClosedPath,

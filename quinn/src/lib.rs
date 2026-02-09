@@ -81,7 +81,7 @@ pub use crate::connection::{
 };
 pub use crate::endpoint::{Accept, Endpoint, EndpointStats};
 pub use crate::incoming::{Incoming, IncomingFuture, RetryError};
-pub use crate::path::{AddressDiscovery, ClosePath, OpenPath, Path};
+pub use crate::path::{AddressDiscovery, ClosePath, OpenPath, Path, WeakPathHandle};
 pub use crate::recv_stream::{
     ReadError, ReadExactError, ReadToEndError, RecvStream, ResetError, UnorderedRecvStream,
 };
@@ -92,7 +92,7 @@ pub use crate::runtime::TokioRuntime;
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub use crate::runtime::default_runtime;
 pub use crate::runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpSender};
-pub use crate::send_stream::{SendStream, StoppedError, WriteError};
+pub use crate::send_stream::{SendStream, Stopped, StoppedError, WriteError};
 
 #[cfg(test)]
 mod tests;

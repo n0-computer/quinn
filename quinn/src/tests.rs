@@ -30,6 +30,13 @@ use tracing_subscriber::EnvFilter;
 
 use super::{ClientConfig, Endpoint, EndpointConfig, RecvStream, SendStream, TransportConfig};
 
+/// Detect if running under Wine (test helper).
+///
+/// Uses environment variables to avoid pulling in `windows-sys` as a dev-dependency.
+fn is_wine() -> bool {
+    std::env::var_os("WINELOADER").is_some() || std::env::var_os("WINEPREFIX").is_some()
+}
+
 #[test]
 fn handshake_timeout() {
     let _guard = subscribe();
@@ -549,7 +556,7 @@ fn run_echo(args: EchoArgs) {
                 || cfg!(target_os = "openbsd")
                 || cfg!(target_os = "netbsd")
                 || cfg!(target_os = "macos")
-                || cfg!(target_os = "windows")
+                || (cfg!(target_os = "windows") && !is_wine())
             {
                 let local_ip = incoming.local_ip().expect("Local IP must be available");
                 assert!(local_ip.is_loopback());
@@ -1150,4 +1157,97 @@ async fn weak_connection_handle() {
     let (server_res, client_res) = tokio::join!(server_task, client_task);
     server_res.expect("server task panicked");
     client_res.expect("client task panicked");
+}
+
+/// Test that accessing stats from `Path` works as expected.
+#[tokio::test]
+async fn path_clone_stats_after_abandon() {
+    let _logging = subscribe();
+    let factory = EndpointFactory::new();
+
+    // Set up multipath endpoints
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_concurrent_multipath_paths(2);
+    let server = factory.endpoint_with_config("server", transport_config);
+    let server_addr = server.local_addr().unwrap();
+
+    let server_task = async move {
+        let conn = server.accept().await.unwrap().await.unwrap();
+        conn.closed().await;
+    }
+    .instrument(info_span!("server"));
+
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_concurrent_multipath_paths(2);
+    let client = factory.endpoint_with_config("client", transport_config);
+
+    let client_task = async move {
+        let conn = client
+            .connect(server_addr, "localhost")
+            .unwrap()
+            .await
+            .unwrap();
+
+        // Open a second path, while giving the remote some time to issue cids.
+        let path = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                match conn
+                    .open_path(server_addr, proto::PathStatus::Available)
+                    .await
+                {
+                    Ok(path) => break path,
+                    Err(proto::PathError::RemoteCidsExhausted) => {
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    }
+                    Err(err) => panic!("Unexpected path error: {err:#}"),
+                }
+            }
+        })
+        .await
+        .expect("timeout");
+        let path_id = path.id();
+
+        // Subscribe to path events before doing anything
+        let mut path_events = conn.path_events();
+
+        // Create a clone to further check our refcounting, and drop the original `Path`
+        let path_clone = path.clone();
+        drop(path);
+
+        // Close the path to wtrigger abandonment
+        let _ = path_clone.close();
+
+        // Wait for the Abandoned event
+        loop {
+            match path_events.recv().await {
+                Ok(proto::PathEvent::Abandoned { id, .. }) if id == path_id => {
+                    break;
+                }
+                Ok(_) => continue,
+                Err(e) => panic!("path_events error: {e}"),
+            }
+        }
+
+        // Now try to get stats from the cloned path and ensure this doesn't panic.
+        let _stats = path_clone.stats();
+
+        // Also create a weak handle and again check that stats are available.
+        let weak_path = path_clone.weak_handle();
+        let _stats = weak_path.upgrade().unwrap().stats();
+
+        // This still works after the conn is dropped.
+        drop(conn);
+        let _stats = path_clone.stats();
+        // Upgrading the weak path still succeeds because we still have a `Path`,
+        // which keeps the conn alive.
+        let _stats = weak_path.upgrade().unwrap().stats();
+
+        // After dropping the path, upgrading fails after the endpoint cleared the connection.
+        drop(path_clone);
+        client.wait_idle().await;
+        assert!(weak_path.upgrade().is_none());
+    }
+    .instrument(info_span!("client"));
+
+    tokio::join!(server_task, client_task);
 }
