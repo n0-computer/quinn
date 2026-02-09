@@ -27,17 +27,17 @@ args = [
      "imports_granularity=Crate,group_imports=Preserve,reorder_imports=false,format_code_in_doc_comments=true",
 ]
 
-[tasks.proptests]
+[tasks.proptests-long]
 # Run proptests with high case count (runs for ~10 minutes)
-# Usage: cargo make proptests
+# Usage: cargo make proptests-long
 workspace = false
 command = "cargo"
 args = ["nextest", "run", "-P", "proptests", "--no-fail-fast"]
 env = { "PROPTEST_CASES" = "100000" }
 
-[tasks.proptests-ci]
+[tasks.proptests-light]
 # Run proptests for CI (~1 minute)
-# Usage: cargo make proptests-ci
+# Usage: cargo make proptests-light
 workspace = false
 command = "cargo"
 args = ["nextest", "run", "-P", "proptests", "--no-fail-fast"]
