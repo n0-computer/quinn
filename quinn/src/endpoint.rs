@@ -286,13 +286,13 @@ impl Endpoint {
     /// connection without requiring a socket rebind.
     ///
     /// Unlike [`Self::rebind`], this does not change the underlying socket. Use this when the
-    /// network topology changes but the socket remains valid (e.g., switching from WiFi to
-    /// cellular, or when the local IP address changes).
+    /// network topology changes but the socket remains valid (e.g., if bound to the unspecified
+    /// address and switching from WiFi to cellular, or when the local IP address changes).
     ///
     /// The optional `hint` allows callers to indicate which paths may still be recoverable after
-    /// the network change. If `None`, all paths are assumed to be affected. For multipath
-    /// connections, unrecoverable paths will be closed and replaced with new paths to the same
-    /// remote addresses.
+    /// the network change. If `None`, all paths are assumed to be non-recoverable. For client-side
+    /// multipath connections, unrecoverable paths will be closed and replaced with new paths to
+    /// the same remote addresses.
     pub fn local_address_changed(&self, hint: Option<Arc<dyn NetworkChangeHint>>) {
         let mut inner = self.inner.state.lock().unwrap();
         for sender in inner.recv_state.connections.senders.values() {
