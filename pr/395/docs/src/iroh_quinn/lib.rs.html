@@ -79,7 +79,7 @@
 <a href=#79 id=79 data-nosnippet>79</a>};
 <a href=#80 id=80 data-nosnippet>80</a><span class="kw">pub use </span><span class="kw">crate</span>::endpoint::{Accept, Endpoint, EndpointStats};
 <a href=#81 id=81 data-nosnippet>81</a><span class="kw">pub use </span><span class="kw">crate</span>::incoming::{Incoming, IncomingFuture, RetryError};
-<a href=#82 id=82 data-nosnippet>82</a><span class="kw">pub use </span><span class="kw">crate</span>::path::{AddressDiscovery, ClosePath, OpenPath, Path};
+<a href=#82 id=82 data-nosnippet>82</a><span class="kw">pub use </span><span class="kw">crate</span>::path::{AddressDiscovery, ClosePath, OpenPath, Path, WeakPathHandle};
 <a href=#83 id=83 data-nosnippet>83</a><span class="kw">pub use </span><span class="kw">crate</span>::recv_stream::{
 <a href=#84 id=84 data-nosnippet>84</a>    ReadError, ReadExactError, ReadToEndError, RecvStream, ResetError, UnorderedRecvStream,
 <a href=#85 id=85 data-nosnippet>85</a>};
@@ -90,7 +90,7 @@
 <a href=#90 id=90 data-nosnippet>90</a><span class="attr">#[cfg(any(feature = <span class="string">"runtime-tokio"</span>, feature = <span class="string">"runtime-smol"</span>))]
 <a href=#91 id=91 data-nosnippet>91</a></span><span class="kw">pub use </span><span class="kw">crate</span>::runtime::default_runtime;
 <a href=#92 id=92 data-nosnippet>92</a><span class="kw">pub use </span><span class="kw">crate</span>::runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpSender};
-<a href=#93 id=93 data-nosnippet>93</a><span class="kw">pub use </span><span class="kw">crate</span>::send_stream::{SendStream, StoppedError, WriteError};
+<a href=#93 id=93 data-nosnippet>93</a><span class="kw">pub use </span><span class="kw">crate</span>::send_stream::{SendStream, Stopped, StoppedError, WriteError};
 <a href=#94 id=94 data-nosnippet>94</a>
 <a href=#95 id=95 data-nosnippet>95</a><span class="attr">#[cfg(test)]
 <a href=#96 id=96 data-nosnippet>96</a></span><span class="kw">mod </span>tests;
