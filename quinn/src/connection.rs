@@ -1484,7 +1484,7 @@ impl State {
                 }
                 Poll::Ready(Some(ConnectionEvent::LocalAddressChanged(hint))) => {
                     self.inner
-                        .handle_network_change(hint.as_deref(), self.runtime.now());
+                        .handle_network_change(hint.as_deref().map(|x| x as _), self.runtime.now());
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
                     self.inner.handle_event(event);
