@@ -77,14 +77,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: test on Illumos
-        uses: vmactions/omnios-vm@v1
+        # pinned: v1 tag moves and builder v2.0.3+ ships a VM with broken DNS
+        uses: vmactions/omnios-vm@4f4fcbf0847b079a6e0eafe6ff06b3d15510f0b0
         with:
           usesh: true
           mem: 4096
           copyback: false
           prepare: |
-            echo "nameserver 1.1.1.1" > /etc/resolv.conf
-            cp /etc/nsswitch.dns /etc/nsswitch.conf
             pkg install gcc14 curl pkg-config glib2
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           run: |
