@@ -2397,7 +2397,10 @@ impl Connection {
     pub fn ping(&mut self) {
         // TODO(flub): This is very brute-force: it pings *all* the paths.  Instead it would
         //    be nice if we could only send a single packet for this.
-        for path_data in self.spaces[self.highest_space as usize].number_spaces.values_mut() {
+        for path_data in self.spaces[self.highest_space as usize]
+            .number_spaces
+            .values_mut()
+        {
             path_data.ping_pending = true;
         }
     }
@@ -2629,7 +2632,11 @@ impl Connection {
             trace!("silently ignoring PATH_ACK on abandoned path");
             return Ok(());
         }
-        if ack.largest >= self.spaces[space as usize].for_path(path).next_packet_number {
+        if ack.largest
+            >= self.spaces[space as usize]
+                .for_path(path)
+                .next_packet_number
+        {
             return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
         }
         let new_largest = {
@@ -2657,7 +2664,9 @@ impl Connection {
         // Avoid DoS from unreasonably huge ack ranges by filtering out just the new acks.
         let mut newly_acked = ArrayRangeSet::new();
         for range in ack.iter() {
-            self.spaces[space as usize].for_path(path).check_ack(range.clone())?;
+            self.spaces[space as usize]
+                .for_path(path)
+                .check_ack(range.clone())?;
             for (pn, _) in self.spaces[space as usize]
                 .for_path(path)
                 .sent_packets
@@ -2688,7 +2697,9 @@ impl Connection {
 
                 // Notify MTU discovery that a packet was acked, because it might be an MTU probe
                 let path_data = self.path_data_mut(path);
-                let mtu_updated = path_data.mtud.on_acked(SpaceId::from(space), packet, info.size);
+                let mtu_updated = path_data
+                    .mtud
+                    .on_acked(SpaceId::from(space), packet, info.size);
                 if mtu_updated {
                     path_data
                         .congestion
@@ -2702,7 +2713,9 @@ impl Connection {
             }
         }
 
-        let largest_ackd = self.spaces[space as usize].for_path(path).largest_acked_packet;
+        let largest_ackd = self.spaces[space as usize]
+            .for_path(path)
+            .largest_acked_packet;
         let app_limited = self.app_limited;
         let path_data = self.path_data_mut(path);
         let in_flight = path_data.in_flight.bytes;
@@ -2721,10 +2734,14 @@ impl Connection {
                 )
             };
             let rtt = now.saturating_duration_since(
-                self.spaces[space as usize].for_path(path).largest_acked_packet_sent,
+                self.spaces[space as usize]
+                    .for_path(path)
+                    .largest_acked_packet_sent,
             );
 
-            let next_pn = self.spaces[space as usize].for_path(path).next_packet_number;
+            let next_pn = self.spaces[space as usize]
+                .for_path(path)
+                .next_packet_number;
             let path_data = self.path_data_mut(path);
             // TODO(@divma): should be a method of path, should be contained in a single place
             path_data.rtt.update(ack_delay, rtt);
@@ -2751,8 +2768,17 @@ impl Connection {
                 // of newly acked packets that remains well-defined in the presence of arbitrary packet
                 // reordering.
                 if new_largest {
-                    let sent = self.spaces[space as usize].for_path(path).largest_acked_packet_sent;
-                    self.process_ecn(now, SpaceId::from(space), path, newly_acked.len() as u64, ecn, sent);
+                    let sent = self.spaces[space as usize]
+                        .for_path(path)
+                        .largest_acked_packet_sent;
+                    self.process_ecn(
+                        now,
+                        SpaceId::from(space),
+                        path,
+                        newly_acked.len() as u64,
+                        ecn,
+                        sent,
+                    );
                 }
             } else {
                 // We always start out sending ECN, so any ack that doesn't acknowledge it disables it.
@@ -3673,12 +3699,7 @@ impl Connection {
         debug_assert!(space <= expected, "received out-of-order CRYPTO data");
 
         let end = crypto.offset + crypto.data.len() as u64;
-        if space < expected
-            && end
-                > self.crypto_state.spaces[space]
-                    .crypto_stream
-                    .bytes_read()
-        {
+        if space < expected && end > self.crypto_state.spaces[space].crypto_stream.bytes_read() {
             warn!(
                 "received new {:?} CRYPTO data when expecting {:?}",
                 space, expected
@@ -3741,10 +3762,13 @@ impl Connection {
             }
             self.crypto_state.spaces[space as usize].crypto_offset += outgoing.len() as u64;
             trace!("wrote {} {:?} CRYPTO bytes", outgoing.len(), space);
-            self.spaces[space as usize].pending.crypto.push_back(frame::Crypto {
-                offset,
-                data: outgoing,
-            });
+            self.spaces[space as usize]
+                .pending
+                .crypto
+                .push_back(frame::Crypto {
+                    offset,
+                    data: outgoing,
+                });
         }
     }
 
@@ -3843,11 +3867,10 @@ impl Connection {
         partial_decode: PartialDecode,
     ) {
         let qlog = QlogRecvPacket::new(partial_decode.len());
-        if let Some(decoded) = packet_crypto::unprotect_header(
-            partial_decode,
-            &self.crypto_state,
-            self.peer_params.stateless_reset_token,
-        ) {
+        if let Some(decoded) = self
+            .crypto_state
+            .unprotect_header(partial_decode, self.peer_params.stateless_reset_token)
+        {
             self.handle_packet(
                 now,
                 network_path,
@@ -6094,13 +6117,9 @@ impl Connection {
         path_id: PathId,
         packet: &mut Packet,
     ) -> Result<Option<u64>, Option<TransportError>> {
-        let result = packet_crypto::decrypt_packet_body(
-            packet,
-            path_id,
-            &self.spaces,
-            &self.crypto_state,
-            self.key_phase,
-        )?;
+        let result =
+            self.crypto_state
+                .decrypt_packet_body(packet, path_id, &self.spaces, self.key_phase)?;
 
         let result = match result {
             Some(r) => r,
@@ -6169,21 +6188,14 @@ impl Connection {
             panic!("Packets should never be coalesced in tests");
         }
 
-        let decrypted_header = packet_crypto::unprotect_header(
-            first_decode.clone(),
-            &self.crypto_state,
-            self.peer_params.stateless_reset_token,
-        )?;
+        let decrypted_header = self
+            .crypto_state
+            .unprotect_header(first_decode.clone(), self.peer_params.stateless_reset_token)?;
 
         let mut packet = decrypted_header.packet?;
-        packet_crypto::decrypt_packet_body(
-            &mut packet,
-            *path_id,
-            &self.spaces,
-            &self.crypto_state,
-            self.key_phase,
-        )
-        .ok()?;
+        self.crypto_state
+            .decrypt_packet_body(&mut packet, *path_id, &self.spaces, self.key_phase)
+            .ok()?;
 
         Some(packet.payload.to_vec())
     }
