@@ -5285,16 +5285,22 @@ impl Connection {
         );
     }
 
-    /// Handle a change in the local address, i.e. an active migration.
+    /// Handle a change in the local address, i.e. an active migration
     ///
-    /// When multipath is enabled, paths that can't be recovered migrate to a new path, by closing
-    /// the current one and opening a new one to the same remote. If multipath is not enabled,
-    /// paths will attempt an active RFC9000 migration provided there are enough CIDs to do so.
-    /// Additionally, they will be pinged as a liveness check.
+    /// In the general (non-multipath) case, paths will perform a RFC9000 migration and be pinged
+    /// for a liveness check. This is the behaviour of a path assumed to be recoverable, even if
+    /// this is not the case.
     ///
-    /// The optional `hint` allows callers to indicate which paths may still be recoverable after
-    /// the network change. If `None`, all paths are assumed to be affected. Recoverable paths
-    /// will perform a RFC9000 migration instead of being replaced.
+    /// Clients in a connection in which multipath has been negotiated should migrate paths to new
+    /// [`PathId`]s. For paths that are known to be non-recoverable can be migrated to a new
+    /// [`PathId`] by closing the current path, and opening a new one to the same remote. Treating
+    /// paths as non recoverable when necessary accelerates connectivity re-establishment, or might
+    /// allow it altogether.
+    ///
+    /// The optional `hint` allows callers to indicate when paths are non-recoverable and should be
+    /// migrated to new a [`PathId`].
+    // NOTE: only clients are allowed to migrate, but generally dealing with RFC9000 migrations is
+    // lacking <https://github.com/n0-computer/quinn/issues/364>
     pub fn handle_network_change(&mut self, hint: Option<&dyn NetworkChangeHint>, now: Instant) {
         if self.highest_space < SpaceId::Data {
             self.update_remote_cid(PathId::ZERO);
@@ -5309,6 +5315,7 @@ impl Connection {
         let mut open_paths = 0;
 
         let is_multipath_negotiated = self.is_multipath_negotiated();
+        let is_client = self.side().is_client();
         let immediate_ack_allowed = self.peer_supports_ack_frequency();
 
         for (path_id, path) in self.paths.iter_mut() {
@@ -5324,21 +5331,28 @@ impl Connection {
             let network_path = path.data.network_path;
             let remote = network_path.remote;
 
-            let is_recoverable =
-                hint.is_some_and(|h| h.is_path_recoverable(*path_id, network_path));
-            match is_recoverable {
-                // Path is *not* recoverable.
-                false => match is_multipath_negotiated {
-                    true => {
-                        non_recoverable_paths.push((*path_id, remote, path.data.local_status()))
-                    }
-                    // The path is believed to be not recoverable, but this is the only path, so
-                    // the Connection has no option but to attempt to recover it
-                    false => recoverable_paths.push((*path_id, remote)),
-                },
+            // Without multipath, the connection tries to recover the single path, whereas with
+            // multipath, even in a single-path scenario, we attempt to migrate the path to a new
+            // PathId.
+            let attempt_to_recover = if is_multipath_negotiated {
+                if is_client {
+                    hint.map(|h| h.is_path_recoverable(*path_id, network_path))
+                        .unwrap_or(false)
+                } else {
+                    // Servers should have stable addresses so this scenario is generally discouraged.
+                    // There is no way to prevent this, so the best hope is to attempt to recover the
+                    // path
+                    true
+                }
+            } else {
+                // In the non multipath case, we try to recover the single active path
+                true
+            };
 
-                // Path is recoverable.
-                true => recoverable_paths.push((*path_id, remote)),
+            if attempt_to_recover {
+                recoverable_paths.push((*path_id, remote));
+            } else {
+                non_recoverable_paths.push((*path_id, remote, path.data.local_status()))
             }
         }
         // Decide if we need to close first or open first in the multipath case.
@@ -6777,13 +6791,13 @@ impl Connection {
 }
 
 /// Hints when the caller identifies a network change.
-pub trait NetworkChangeHint: std::fmt::Debug + Sync + Send {
+pub trait NetworkChangeHint: std::fmt::Debug + 'static {
     /// Inform the connection if a path may recover after a network change.
     ///
     /// After network changes, paths may not be recoverable. In this case, waiting for the path to
-    /// become idle may take longer than what's desirable. If [`Self::is_path_recoverable`] returns
-    /// `false`, a multipath enabled connection will establish a new path to the same remote,
-    /// closing the current one, instead of migrating the path.
+    /// become idle may take longer than what is desirable. If [`Self::is_path_recoverable`]
+    /// returns `false`, a multipath-enabled, client-side connection will establish a new path to
+    /// the same remote, closing the current one, instead of migrating the path.
     ///
     /// Paths that are deemed recoverable will simply be sent a PING for a liveness check.
     fn is_path_recoverable(&self, path_id: PathId, network_path: FourTuple) -> bool;
