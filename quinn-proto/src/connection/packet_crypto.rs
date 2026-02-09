@@ -64,14 +64,14 @@ impl ZeroRttCrypto {
 /// - Key update state (prev/next keys)
 /// - 0-RTT state
 pub(super) struct CryptoState {
-    /// Per-space crypto data (Initial, Handshake, Data).
+    /// Per encryption level crypto data (Initial, Handshake, Data).
     pub(super) spaces: [CryptoSpace; 3],
     /// The TLS session.
     pub(super) session: Box<dyn crypto::Session>,
     /// 1-RTT keys to be used for the next key update.
     ///
-    /// These are generated in advance to prevent timing attacks and/or DoS by third-party attackers
-    /// spoofing key updates.
+    /// These are generated in advance to prevent timing attacks and/or DoS by third-party
+    /// attackers spoofing key updates.
     pub(super) next_crypto: Option<KeyPair<Box<dyn PacketKey>>>,
     /// 1-RTT keys used prior to a key update.
     pub(super) prev_crypto: Option<PrevCrypto>,
@@ -105,7 +105,7 @@ impl CryptoState {
         }
     }
 
-    /// Removes header protection of a packet, or returns `None` if the packet was dropped
+    /// Removes header protection of a packet, or returns `None` if the packet was dropped.
     pub(super) fn unprotect_header(
         &self,
         partial_decode: PartialDecode,
@@ -145,7 +145,7 @@ impl CryptoState {
         }
     }
 
-    /// Decrypts a packet's body in-place
+    /// Decrypts a packet's body in-place.
     pub(super) fn decrypt_packet_body(
         &self,
         packet: &mut Packet,
@@ -279,14 +279,9 @@ impl CryptoState {
     }
 
     /// Get the integrity limit for the given space's local packet keys.
-    pub(super) fn integrity_limit(&self, space: SpaceKind) -> u64 {
-        self.spaces[space]
-            .keys
-            .as_ref()
-            .unwrap()
-            .packet
-            .local
-            .integrity_limit()
+    pub(super) fn integrity_limit(&self, space: SpaceKind) -> Option<u64> {
+        let keys = self.spaces[space].keys.as_ref()?;
+        Some(keys.packet.local.integrity_limit())
     }
 
     /// Get local (sending) crypto keys for the given space.
@@ -297,17 +292,28 @@ impl CryptoState {
         &self,
         space: SpaceKind,
     ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
-        match space {
-            SpaceKind::Initial => self.spaces[0].keys.as_ref().map(Keys::local),
-            SpaceKind::Handshake => self.spaces[1].keys.as_ref().map(Keys::local),
-            SpaceKind::Data => {
-                if let Some(keys) = self.spaces[2].keys.as_ref() {
-                    Some(keys.local())
-                } else {
-                    let crypto = self.zero_rtt_crypto.as_ref()?;
-                    Some(crypto.keys())
-                }
-            }
+        let keys = self.spaces[space].keys.as_ref().map(Keys::local);
+        if keys.is_none() && space == SpaceKind::Data {
+            let zero_rtt_keys = self.zero_rtt_crypto.as_ref().map(ZeroRttCrypto::keys);
+            return keys.or(zero_rtt_keys);
+        }
+
+        keys
+    }
+
+    /// Get remote (receiving) crypto keys for the given encryption level.
+    ///
+    /// Returns header and packet keys used for decrypting incoming packets.
+    pub(super) fn remote_crypto(
+        &self,
+        level: EncryptionLevel,
+    ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
+        match level {
+            EncryptionLevel::Initial => self.spaces[0].keys.as_ref().map(Keys::remote),
+            EncryptionLevel::Handshake => self.spaces[1].keys.as_ref().map(Keys::remote),
+            EncryptionLevel::OneRtt => self.spaces[2].keys.as_ref().map(Keys::remote),
+            // 0-RTT uses the same keys for both directions
+            EncryptionLevel::ZeroRtt => self.zero_rtt_crypto.as_ref().map(ZeroRttCrypto::keys),
         }
     }
 
@@ -316,6 +322,8 @@ impl CryptoState {
     /// Generates the next set of keys, rotates current keys into previous, and installs the new
     /// keys. Returns the confidentiality limit of the new local key (used to compute
     /// `key_phase_size`).
+    ///
+    /// PANICS: If 1rtt keys are missing.
     pub(super) fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) -> u64 {
         let new = self
             .session
@@ -335,30 +343,12 @@ impl CryptoState {
             end_packet,
             update_unacked: remote,
         });
-        confidentiality_limit
-    }
 
-    /// Get remote (receiving) crypto keys for the given encryption level.
-    ///
-    /// Returns header and packet keys used for decrypting incoming packets.
-    pub(super) fn remote_crypto(
-        &self,
-        level: EncryptionLevel,
-    ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
-        match level {
-            EncryptionLevel::Initial => self.spaces[0].keys.as_ref().map(Keys::remote),
-            EncryptionLevel::ZeroRtt => {
-                // 0-RTT uses the same keys for both directions
-                let crypto = self.zero_rtt_crypto.as_ref()?;
-                Some(crypto.keys())
-            }
-            EncryptionLevel::Handshake => self.spaces[1].keys.as_ref().map(Keys::remote),
-            EncryptionLevel::OneRtt => self.spaces[2].keys.as_ref().map(Keys::remote),
-        }
+        confidentiality_limit
     }
 }
 
-/// Per-space cryptographic state.
+/// Per space kind cryptographic state.
 #[derive(Default)]
 pub(super) struct CryptoSpace {
     /// Packet protection keys for this space.

@@ -3949,7 +3949,11 @@ impl Connection {
             Err(None) => {
                 debug!("failed to authenticate packet");
                 self.authentication_failures += 1;
-                let integrity_limit = self.crypto_state.integrity_limit(self.highest_space);
+                let integrity_limit = self
+                    .crypto_state
+                    .integrity_limit(self.highest_space)
+                    .expect("supposedly verified");
+                // TODO(@divma): wut wut
                 if self.authentication_failures > integrity_limit {
                     Err(TransportError::AEAD_LIMIT_REACHED("integrity limit violated").into())
                 } else {
