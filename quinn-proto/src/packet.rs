@@ -961,12 +961,12 @@ impl SpaceId {
     }
 
     /// Returns the encryption level for this packet space.
-    pub(crate) fn encryption_level(self) -> crate::connection::CryptoLevel {
-        use crate::connection::CryptoLevel;
+    pub(crate) fn encryption_level(self) -> crate::connection::EncryptionLevel {
+        use crate::connection::EncryptionLevel;
         match self {
-            Self::Initial => CryptoLevel::Initial,
-            Self::Handshake => CryptoLevel::Handshake,
-            Self::Data => CryptoLevel::OneRtt,
+            Self::Initial => EncryptionLevel::Initial,
+            Self::Handshake => EncryptionLevel::Handshake,
+            Self::Data => EncryptionLevel::OneRtt,
         }
     }
 }

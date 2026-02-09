@@ -69,8 +69,8 @@ mod packet_builder;
 use packet_builder::{PacketBuilder, PadDatagram};
 
 mod packet_crypto;
-pub(crate) use packet_crypto::CryptoLevel;
 use packet_crypto::CryptoState;
+pub(crate) use packet_crypto::EncryptionLevel;
 
 mod paths;
 pub use paths::{ClosedPath, PathEvent, PathId, PathStatus, RttEstimator, SetPathStatusError};
@@ -1391,7 +1391,7 @@ impl Connection {
                         // Only log for spaces which have crypto.
                         if self.crypto_state.has_keys(space_id.encryption_level())
                             || (space_id == SpaceId::Data
-                                && self.crypto_state.has_keys(CryptoLevel::ZeroRtt))
+                                && self.crypto_state.has_keys(EncryptionLevel::ZeroRtt))
                         {
                             trace!(?space_id, %path_id, "nothing to send in space");
                         }
@@ -1482,7 +1482,7 @@ impl Connection {
             // From here on, we've determined that a packet will definitely be sent.
             //
 
-            if self.crypto_state.has_keys(CryptoLevel::Initial)
+            if self.crypto_state.has_keys(EncryptionLevel::Initial)
                 && space_id == SpaceId::Handshake
                 && self.side.is_client()
             {
@@ -1994,7 +1994,7 @@ impl Connection {
 
         if !space_has_crypto
             && (space_id != SpaceId::Data
-                || !self.crypto_state.has_keys(CryptoLevel::ZeroRtt)
+                || !self.crypto_state.has_keys(EncryptionLevel::ZeroRtt)
                 || self.side.is_server())
         {
             // Nothing to send in this space
@@ -2867,7 +2867,7 @@ impl Connection {
     }
 
     fn set_key_discard_timer(&mut self, now: Instant, space: SpaceId) {
-        let start = if self.crypto_state.has_keys(CryptoLevel::ZeroRtt) {
+        let start = if self.crypto_state.has_keys(EncryptionLevel::ZeroRtt) {
             now
         } else {
             self.crypto_state
@@ -3320,8 +3320,8 @@ impl Connection {
                 .path_space(path)
                 .and_then(|pns| pns.largest_acked_packet)
                 .is_some()
-            || (self.crypto_state.has_keys(CryptoLevel::OneRtt)
-                && !self.crypto_state.has_keys(CryptoLevel::Handshake))
+            || (self.crypto_state.has_keys(EncryptionLevel::OneRtt)
+                && !self.crypto_state.has_keys(EncryptionLevel::Handshake))
     }
 
     /// Resets the the [`PathTimer::LossDetection`] timer to the next instant it may be needed
@@ -3451,13 +3451,13 @@ impl Connection {
                 }
             }
             ConnectionSide::Server { .. } => {
-                if self.crypto_state.has_keys(CryptoLevel::Initial)
+                if self.crypto_state.has_keys(EncryptionLevel::Initial)
                     && space_id == SpaceId::Handshake
                 {
                     // A server stops sending and processing Initial packets when it receives its first Handshake packet.
                     self.discard_space(now, SpaceId::Initial);
                 }
-                if self.crypto_state.has_keys(CryptoLevel::ZeroRtt) && is_1rtt {
+                if self.crypto_state.has_keys(EncryptionLevel::ZeroRtt) && is_1rtt {
                     // Discard 0-RTT keys soon after receiving a 1-RTT packet
                     self.set_key_discard_timer(now, space_id)
                 }
@@ -4912,7 +4912,7 @@ impl Connection {
                             "client sent HANDSHAKE_DONE",
                         ));
                     }
-                    if self.crypto_state.has_keys(CryptoLevel::Handshake) {
+                    if self.crypto_state.has_keys(EncryptionLevel::Handshake) {
                         self.discard_space(now, SpaceId::Handshake);
                     }
                     self.events.push_back(Event::HandshakeConfirmed);
