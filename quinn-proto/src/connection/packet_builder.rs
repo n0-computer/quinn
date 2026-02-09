@@ -137,7 +137,8 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             buffer.as_mut_slice()[partial_encode.start] ^= FIXED_BIT;
         }
 
-        let (header_crypto, packet_crypto) = conn.crypto_state.local_crypto(space_id.kind()).unwrap();
+        let (header_crypto, packet_crypto) =
+            conn.crypto_state.local_crypto(space_id.kind()).unwrap();
         let (sample_size, tag_len) = (header_crypto.sample_size(), packet_crypto.tag_len());
 
         // Each packet must be large enough for header protection sampling, i.e. the combined
