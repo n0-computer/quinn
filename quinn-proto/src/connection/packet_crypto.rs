@@ -19,27 +19,18 @@ pub(super) fn unprotect_header(
     crypto_state: &CryptoState,
     stateless_reset_token: Option<ResetToken>,
 ) -> Option<UnprotectHeaderResult> {
-    let header_crypto = if partial_decode.is_0rtt() {
-        if let Some((header, _)) = crypto_state.remote_crypto(EncryptionLevel::ZeroRtt) {
-            Some(header)
-        } else {
-            debug!("dropping unexpected 0-RTT packet");
-            return None;
-        }
-    } else if let Some(space) = partial_decode.space() {
-        if let Some((header, _)) = crypto_state.remote_crypto(space.encryption_level()) {
-            Some(header)
-        } else {
-            debug!(
-                "discarding unexpected {:?} packet ({} bytes)",
-                space,
-                partial_decode.len(),
-            );
-            return None;
-        }
-    } else {
+    let encryption_level = partial_decode.encryption_level();
+    let header_crypto = match encryption_level {
+        Some(level) => match crypto_state.remote_crypto(level) {
+            Some(crypto) => Some(crypto.0),
+            None => {
+                let bytes = partial_decode.len();
+                debug!(?encryption_level, bytes, "dropping unexpected packet");
+                return None;
+            }
+        },
         // Unprotected packet
-        None
+        None => None,
     };
 
     let packet = partial_decode.data();
@@ -93,7 +84,9 @@ pub(super) fn decrypt_packet_body(
     // Packets that do not belong to known path ids are valid as long as they can be decrypted.
     // If we didn't have a path, that's for the purposes of this function equivalent to not
     // having received packets on that path yet. So both of these cases are represented by `None`.
-    let rx_packet = spaces[space as usize].path_space(path_id).and_then(|s| s.rx_packet);
+    let rx_packet = spaces[space as usize]
+        .path_space(path_id)
+        .and_then(|s| s.rx_packet);
     let number = packet
         .header
         .number()
@@ -308,7 +301,10 @@ impl CryptoState {
     ///
     /// Returns header and packet keys used for encrypting outgoing packets. For `SpaceKind::Data`,
     /// returns 1-RTT keys if available, otherwise 0-RTT keys.
-    pub(super) fn local_crypto(&self, space: SpaceKind) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
+    pub(super) fn local_crypto(
+        &self,
+        space: SpaceKind,
+    ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
         match space {
             SpaceKind::Initial => self.spaces[0].keys.as_ref().map(Keys::local),
             SpaceKind::Handshake => self.spaces[1].keys.as_ref().map(Keys::local),

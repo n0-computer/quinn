@@ -6,6 +6,7 @@ use thiserror::Error;
 use crate::{
     ConnectionId, PathId,
     coding::{self, BufExt, BufMutExt},
+    connection::EncryptionLevel,
     crypto,
 };
 
@@ -71,24 +72,18 @@ impl PartialDecode {
     }
 
     pub(crate) fn is_initial(&self) -> bool {
-        use crate::connection::SpaceKind;
-        self.space() == Some(SpaceKind::Initial)
+        self.encryption_level() == Some(EncryptionLevel::Initial)
     }
 
-    pub(crate) fn space(&self) -> Option<crate::connection::SpaceKind> {
-        use crate::connection::SpaceKind;
+    pub(crate) fn encryption_level(&self) -> Option<EncryptionLevel> {
         use ProtectedHeader::*;
         match self.plain_header {
-            Initial { .. } => Some(SpaceKind::Initial),
-            Long {
-                ty: LongType::Handshake,
-                ..
-            } => Some(SpaceKind::Handshake),
-            Long {
-                ty: LongType::ZeroRtt,
-                ..
-            } => Some(SpaceKind::Data),
-            Short { .. } => Some(SpaceKind::Data),
+            Initial { .. } => Some(EncryptionLevel::Initial),
+            Long { ty, .. } => Some(match ty {
+                LongType::Handshake => EncryptionLevel::Handshake,
+                LongType::ZeroRtt => EncryptionLevel::ZeroRtt,
+            }),
+            Short { .. } => Some(EncryptionLevel::OneRtt),
             _ => None,
         }
     }
