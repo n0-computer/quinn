@@ -1214,7 +1214,7 @@ async fn path_clone_stats_after_abandon() {
         let path_clone = path.clone();
         drop(path);
 
-        // Close the path to wtrigger abandonment
+        // Close the path to trigger abandonment
         let _ = path_clone.close();
 
         // Wait for the Abandoned event
