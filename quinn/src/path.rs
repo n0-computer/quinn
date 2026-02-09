@@ -6,10 +6,10 @@ use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
 use proto::{
-    ClosePathError, ClosedPath, ConnectionError, PathError, PathEvent, PathId, PathStats,
-    PathStatus, SetPathStatusError, TransportErrorCode, VarInt,
+    ClosePathError, ClosedPath, PathError, PathEvent, PathId, PathStats, PathStatus,
+    SetPathStatusError,
 };
-use tokio::sync::{oneshot, watch};
+use tokio::sync::watch;
 use tokio_stream::{Stream, wrappers::WatchStream};
 
 use crate::connection::ConnectionRef;
@@ -223,7 +223,7 @@ impl Path {
         state.inner.close_path(
             crate::Instant::now(),
             self.id,
-            TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
+            proto::TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
         )
     }
 
@@ -349,23 +349,6 @@ impl WeakPathHandle {
     pub fn upgrade(&self) -> Option<Path> {
         let conn = self.conn.upgrade_to_ref()?;
         Some(Path::new_unchecked(conn, self.id))
-    }
-}
-
-/// Future produced by [`Path::close`]
-pub struct ClosePath {
-    closed: oneshot::Receiver<VarInt>,
-}
-
-impl Future for ClosePath {
-    type Output = Result<VarInt, ConnectionError>;
-    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
-        // TODO: thread through errors
-        let res = ready!(Pin::new(&mut self.closed).poll(ctx));
-        match res {
-            Ok(code) => Poll::Ready(Ok(code)),
-            Err(_err) => todo!(), // TODO: appropriate error
-        }
     }
 }
 
