@@ -83,6 +83,7 @@ jobs:
           mem: 4096
           copyback: false
           prepare: |
+            echo "nameserver 1.1.1.1" > /etc/resolv.conf
             pkg install gcc14 curl pkg-config glib2
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           run: |
