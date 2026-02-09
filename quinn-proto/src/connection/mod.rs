@@ -4508,6 +4508,7 @@ impl Connection {
         packet: Packet,
         #[allow(unused)] qlog: &mut QlogRecvPacket,
     ) -> Result<(), TransportError> {
+        let is_multipath_negotiated = self.is_multipath_negotiated();
         let payload = packet.payload.freeze();
         let mut is_probing_packet = true;
         let mut close = None;
@@ -4649,8 +4650,10 @@ impl Connection {
                             );
 
                             if !was_open {
-                                self.events
-                                    .push_back(Event::Path(PathEvent::Opened { id: path_id }));
+                                if is_multipath_negotiated {
+                                    self.events
+                                        .push_back(Event::Path(PathEvent::Opened { id: path_id }));
+                                }
                                 if let Some(observed) = path.data.last_observed_addr_report.as_ref()
                                 {
                                     self.events.push_back(Event::Path(PathEvent::ObservedAddr {
