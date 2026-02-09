@@ -216,7 +216,7 @@ impl Path {
     /// Closes this path.
     ///
     /// The path is immediately considered closed by the local endpoint. Once the state is removed,
-    /// after a short period ot time for any in-flight packets, a [`PathEvent::Abandoned`] is
+    /// after a short period of time for any in-flight packets, a [`PathEvent::Abandoned`] is
     /// returned.
     pub fn close(&self) -> Result<(), ClosePathError> {
         let mut state = self.conn.state.lock("close_path");
