@@ -27,6 +27,7 @@ use tracing::info;
 use super::*;
 use crate::{
     Duration, FourTuple, Instant,
+    Side::*,
     cid_generator::{ConnectionIdGenerator, RandomConnectionIdGenerator},
     crypto::rustls::QuicServerConfig,
     frame::FrameStruct,
@@ -3819,6 +3820,54 @@ fn address_discovery_rebind_retransmission() {
     let conn = pair.client_conn_mut(client_ch);
     assert_matches!(conn.poll(), Some(Event::HandshakeConfirmed));
     assert_matches!(conn.poll(), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == pair.client.addr);
+}
+
+/// Non-multipath: handle_network_change pings for liveness and rotates the CID
+/// without closing/replacing paths. Data still flows after recovery.
+#[test]
+fn network_change_single_path_recovery() {
+    let _guard = subscribe();
+    let mut pair =
+        ConnPair::with_transport_cfg(TransportConfig::default(), TransportConfig::default());
+    pair.drive();
+
+    // Record the CID sequence before the network change
+    let cid_seq_before = pair.conn(Client).active_remote_cid_seq();
+
+    // Simulate a passive migration (port change) + network change notification
+    pair.passive_migration(Client);
+    pair.handle_network_change(Client, None);
+
+    // The path should NOT be closed — there should be no path events
+    pair.drive();
+    assert_matches!(pair.poll(Client), None);
+
+    // CID should have been rotated
+    let cid_seq_after = pair.conn(Client).active_remote_cid_seq();
+    assert!(
+        cid_seq_after > cid_seq_before,
+        "CID should have been rotated: before={cid_seq_before}, after={cid_seq_after}"
+    );
+
+    // Data should still flow
+    let s = pair.streams(Client).open(Dir::Uni).unwrap();
+    const MSG: &[u8] = b"after network change";
+    pair.send_stream(Client, s).write(MSG).unwrap();
+    pair.send_stream(Client, s).finish().unwrap();
+    pair.drive();
+
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
+    );
+    assert_matches!(pair.streams(Server).accept(Dir::Uni), Some(stream) if stream == s);
+    let mut recv = pair.recv_stream(Server, s);
+    let mut chunks = recv.read(false).unwrap();
+    assert_matches!(
+        chunks.next(usize::MAX),
+        Ok(Some(chunk)) if chunk.bytes == MSG
+    );
+    let _ = chunks.finalize();
 }
 
 /// Verify that dropping oversized datagrams will trigger a DatagramsUnblocked event.
