@@ -84,7 +84,7 @@ pub(super) fn decrypt_packet_body(
     }
     let space = packet.header.space();
 
-    if path_id != PathId::ZERO && space.kind() != SpaceKind::Data {
+    if path_id != PathId::ZERO && space != SpaceKind::Data {
         // do not try to decrypt illegal multipath packets
         return Err(Some(TransportError::PROTOCOL_VIOLATION(
             "multipath packet on non Data packet number space",
@@ -93,7 +93,7 @@ pub(super) fn decrypt_packet_body(
     // Packets that do not belong to known path ids are valid as long as they can be decrypted.
     // If we didn't have a path, that's for the purposes of this function equivalent to not
     // having received packets on that path yet. So both of these cases are represented by `None`.
-    let rx_packet = spaces[space].path_space(path_id).and_then(|s| s.rx_packet);
+    let rx_packet = spaces[space as usize].path_space(path_id).and_then(|s| s.rx_packet);
     let number = packet
         .header
         .number()
@@ -107,7 +107,7 @@ pub(super) fn decrypt_packet_body(
             .remote_crypto(EncryptionLevel::ZeroRtt)
             .unwrap();
         packet
-    } else if packet_key_phase == conn_key_phase || space.kind() != SpaceKind::Data {
+    } else if packet_key_phase == conn_key_phase || space != SpaceKind::Data {
         let (_, packet) = crypto_state
             .remote_crypto(space.encryption_level())
             .unwrap();
@@ -402,6 +402,27 @@ pub(crate) enum SpaceKind {
     Handshake = 1,
     /// Data (1-RTT and 0-RTT)
     Data = 2,
+}
+
+impl SpaceKind {
+    /// Returns the encryption level for this space kind.
+    pub(crate) fn encryption_level(self) -> EncryptionLevel {
+        match self {
+            Self::Initial => EncryptionLevel::Initial,
+            Self::Handshake => EncryptionLevel::Handshake,
+            Self::Data => EncryptionLevel::OneRtt,
+        }
+    }
+}
+
+impl From<SpaceKind> for crate::packet::SpaceId {
+    fn from(kind: SpaceKind) -> Self {
+        match kind {
+            SpaceKind::Initial => Self::Initial,
+            SpaceKind::Handshake => Self::Handshake,
+            SpaceKind::Data => Self::Data,
+        }
+    }
 }
 
 impl IndexMut<SpaceKind> for [CryptoSpace; 3] {

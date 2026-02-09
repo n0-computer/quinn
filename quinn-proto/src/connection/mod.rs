@@ -2597,7 +2597,7 @@ impl Connection {
     fn on_ack_received(
         &mut self,
         now: Instant,
-        space: SpaceId,
+        space: SpaceKind,
         ack: frame::Ack,
     ) -> Result<(), TransportError> {
         // All ACKs are referencing path 0
@@ -2608,7 +2608,7 @@ impl Connection {
     fn on_path_ack_received(
         &mut self,
         now: Instant,
-        space: SpaceId,
+        space: SpaceKind,
         path_ack: frame::PathAck,
     ) -> Result<(), TransportError> {
         let (ack, path) = path_ack.into_ack();
@@ -2619,7 +2619,7 @@ impl Connection {
     fn inner_on_ack_received(
         &mut self,
         now: Instant,
-        space: SpaceId,
+        space: SpaceKind,
         path: PathId,
         ack: frame::Ack,
     ) -> Result<(), TransportError> {
@@ -2629,11 +2629,11 @@ impl Connection {
             trace!("silently ignoring PATH_ACK on abandoned path");
             return Ok(());
         }
-        if ack.largest >= self.spaces[space].for_path(path).next_packet_number {
+        if ack.largest >= self.spaces[space as usize].for_path(path).next_packet_number {
             return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
         }
         let new_largest = {
-            let space = &mut self.spaces[space].for_path(path);
+            let space = &mut self.spaces[space as usize].for_path(path);
             if space.largest_acked_packet.is_none_or(|pn| ack.largest > pn) {
                 space.largest_acked_packet = Some(ack.largest);
                 if let Some(info) = space.sent_packets.get(ack.largest) {
@@ -2648,7 +2648,7 @@ impl Connection {
             }
         };
 
-        if self.detect_spurious_loss(&ack, space, path) {
+        if self.detect_spurious_loss(&ack, SpaceId::from(space), path) {
             self.path_data_mut(path)
                 .congestion
                 .on_spurious_congestion_event();
@@ -2657,8 +2657,8 @@ impl Connection {
         // Avoid DoS from unreasonably huge ack ranges by filtering out just the new acks.
         let mut newly_acked = ArrayRangeSet::new();
         for range in ack.iter() {
-            self.spaces[space].for_path(path).check_ack(range.clone())?;
-            for (pn, _) in self.spaces[space]
+            self.spaces[space as usize].for_path(path).check_ack(range.clone())?;
+            for (pn, _) in self.spaces[space as usize]
                 .for_path(path)
                 .sent_packets
                 .iter_range(range)
@@ -2673,14 +2673,14 @@ impl Connection {
 
         let mut ack_eliciting_acked = false;
         for packet in newly_acked.elts() {
-            if let Some(info) = self.spaces[space].for_path(path).take(packet) {
+            if let Some(info) = self.spaces[space as usize].for_path(path).take(packet) {
                 for (acked_path_id, acked_pn) in info.largest_acked.iter() {
                     // Assume ACKs for all packets below the largest acknowledged in
                     // `packet` have been received. This can cause the peer to spuriously
                     // retransmit if some of our earlier ACKs were lost, but allows for
                     // simpler state tracking. See discussion at
                     // https://www.rfc-editor.org/rfc/rfc9000.html#name-limiting-ranges-by-tracking
-                    if let Some(pns) = self.spaces[space].path_space_mut(*acked_path_id) {
+                    if let Some(pns) = self.spaces[space as usize].path_space_mut(*acked_path_id) {
                         pns.pending_acks.subtract_below(*acked_pn);
                     }
                 }
@@ -2688,7 +2688,7 @@ impl Connection {
 
                 // Notify MTU discovery that a packet was acked, because it might be an MTU probe
                 let path_data = self.path_data_mut(path);
-                let mtu_updated = path_data.mtud.on_acked(space, packet, info.size);
+                let mtu_updated = path_data.mtud.on_acked(SpaceId::from(space), packet, info.size);
                 if mtu_updated {
                     path_data
                         .congestion
@@ -2702,7 +2702,7 @@ impl Connection {
             }
         }
 
-        let largest_ackd = self.spaces[space].for_path(path).largest_acked_packet;
+        let largest_ackd = self.spaces[space as usize].for_path(path).largest_acked_packet;
         let app_limited = self.app_limited;
         let path_data = self.path_data_mut(path);
         let in_flight = path_data.in_flight.bytes;
@@ -2712,7 +2712,7 @@ impl Connection {
             .on_end_acks(now, in_flight, app_limited, largest_ackd);
 
         if new_largest && ack_eliciting_acked {
-            let ack_delay = if space != SpaceId::Data {
+            let ack_delay = if space != SpaceKind::Data {
                 Duration::from_micros(0)
             } else {
                 cmp::min(
@@ -2721,20 +2721,20 @@ impl Connection {
                 )
             };
             let rtt = now.saturating_duration_since(
-                self.spaces[space].for_path(path).largest_acked_packet_sent,
+                self.spaces[space as usize].for_path(path).largest_acked_packet_sent,
             );
 
-            let next_pn = self.spaces[space].for_path(path).next_packet_number;
+            let next_pn = self.spaces[space as usize].for_path(path).next_packet_number;
             let path_data = self.path_data_mut(path);
             // TODO(@divma): should be a method of path, should be contained in a single place
             path_data.rtt.update(ack_delay, rtt);
             if path_data.first_packet_after_rtt_sample.is_none() {
-                path_data.first_packet_after_rtt_sample = Some((space, next_pn));
+                path_data.first_packet_after_rtt_sample = Some((SpaceId::from(space), next_pn));
             }
         }
 
         // Must be called before crypto/pto_count are clobbered
-        self.detect_lost_packets(now, space, path, true);
+        self.detect_lost_packets(now, SpaceId::from(space), path, true);
 
         if self.peer_completed_address_validation(path) {
             self.path_data_mut(path).pto_count = 0;
@@ -2751,8 +2751,8 @@ impl Connection {
                 // of newly acked packets that remains well-defined in the presence of arbitrary packet
                 // reordering.
                 if new_largest {
-                    let sent = self.spaces[space].for_path(path).largest_acked_packet_sent;
-                    self.process_ecn(now, space, path, newly_acked.len() as u64, ecn, sent);
+                    let sent = self.spaces[space as usize].for_path(path).largest_acked_packet_sent;
+                    self.process_ecn(now, SpaceId::from(space), path, newly_acked.len() as u64, ecn, sent);
                 }
             } else {
                 // We always start out sending ECN, so any ack that doesn't acknowledge it disables it.
@@ -2866,7 +2866,7 @@ impl Connection {
         }
     }
 
-    fn set_key_discard_timer(&mut self, now: Instant, space: SpaceId) {
+    fn set_key_discard_timer(&mut self, now: Instant, space: SpaceKind) {
         let start = if self.crypto_state.has_keys(EncryptionLevel::ZeroRtt) {
             now
         } else {
@@ -2883,7 +2883,7 @@ impl Connection {
         // QUIC-MULTIPATH § 2.5 Key Phase Update Process: use largest PTO of all paths.
         self.timers.set(
             Timer::Conn(ConnTimer::KeyDiscard),
-            start + self.max_pto_all_paths(space.kind()) * 3,
+            start + self.max_pto_all_paths(space) * 3,
             self.qlog.with_time(now),
         );
     }
@@ -3391,7 +3391,7 @@ impl Connection {
     fn on_packet_authenticated(
         &mut self,
         now: Instant,
-        space_id: SpaceId,
+        space_id: SpaceKind,
         path_id: PathId,
         ecn: Option<EcnCodepoint>,
         packet: Option<u64>,
@@ -3424,7 +3424,7 @@ impl Connection {
         self.permit_idle_reset = true;
         self.receiving_ecn |= ecn.is_some();
         if let Some(x) = ecn {
-            let space = &mut self.spaces[space_id];
+            let space = &mut self.spaces[space_id as usize];
             space.for_path(path_id).ecn_counters += x;
 
             if x.is_ce() {
@@ -3444,7 +3444,7 @@ impl Connection {
                 // If we received a handshake packet that authenticated, then we're talking to
                 // the real server.  From now on we should no longer allow the server to migrate
                 // its address.
-                if space_id == SpaceId::Handshake
+                if space_id == SpaceKind::Handshake
                     && let Some(hs) = self.state.as_handshake_mut()
                 {
                     hs.allow_server_migration = false;
@@ -3452,7 +3452,7 @@ impl Connection {
             }
             ConnectionSide::Server { .. } => {
                 if self.crypto_state.has_keys(EncryptionLevel::Initial)
-                    && space_id == SpaceId::Handshake
+                    && space_id == SpaceKind::Handshake
                 {
                     // A server stops sending and processing Initial packets when it receives its first Handshake packet.
                     self.discard_space(now, SpaceId::Initial);
@@ -3463,7 +3463,7 @@ impl Connection {
                 }
             }
         }
-        let space = self.spaces[space_id].for_path(path_id);
+        let space = self.spaces[space_id as usize].for_path(path_id);
         space.pending_acks.insert_one(packet, now);
         if packet >= space.rx_packet.unwrap_or_default() {
             space.rx_packet = Some(packet);
@@ -3476,14 +3476,14 @@ impl Connection {
     ///
     /// Without multipath there is only the connection-wide idle timeout. When multipath is
     /// enabled there is an additional per-path idle timeout.
-    fn reset_idle_timeout(&mut self, now: Instant, space: SpaceId, path_id: PathId) {
+    fn reset_idle_timeout(&mut self, now: Instant, space: SpaceKind, path_id: PathId) {
         // First reset the global idle timeout.
         if let Some(timeout) = self.idle_timeout {
             if self.state.is_closed() {
                 self.timers
                     .stop(Timer::Conn(ConnTimer::Idle), self.qlog.with_time(now));
             } else {
-                let dt = cmp::max(timeout, 3 * self.max_pto_all_paths(space.kind()));
+                let dt = cmp::max(timeout, 3 * self.max_pto_all_paths(space));
                 self.timers.set(
                     Timer::Conn(ConnTimer::Idle),
                     now + dt,
@@ -3500,7 +3500,7 @@ impl Connection {
                     self.qlog.with_time(now),
                 );
             } else {
-                let dt = cmp::max(timeout, 3 * self.pto(space.kind(), path_id));
+                let dt = cmp::max(timeout, 3 * self.pto(space, path_id));
                 self.timers.set(
                     Timer::PerPath(path_id, PathTimer::PathIdle),
                     now + dt,
@@ -3581,7 +3581,7 @@ impl Connection {
         // The first packet is always on PathId::ZERO
         self.on_packet_authenticated(
             now,
-            SpaceId::Initial,
+            SpaceKind::Initial,
             path_id,
             ecn,
             Some(packet_number),
@@ -3654,18 +3654,18 @@ impl Connection {
 
     fn read_crypto(
         &mut self,
-        space: SpaceId,
+        space: SpaceKind,
         crypto: &frame::Crypto,
         payload_len: usize,
     ) -> Result<(), TransportError> {
         let expected = if !self.state.is_handshake() {
-            SpaceId::Data
+            SpaceKind::Data
         } else if self.highest_space == SpaceKind::Initial {
-            SpaceId::Initial
+            SpaceKind::Initial
         } else {
             // On the server, self.highest_space can be Data after receiving the client's first
             // flight, but we expect Handshake CRYPTO until the handshake is complete.
-            SpaceId::Handshake
+            SpaceKind::Handshake
         };
         // We can't decrypt Handshake packets when highest_space is Initial, CRYPTO frames in 0-RTT
         // packets are illegal, and we don't process 1-RTT packets until the handshake is
@@ -3675,7 +3675,7 @@ impl Connection {
         let end = crypto.offset + crypto.data.len() as u64;
         if space < expected
             && end
-                > self.crypto_state.spaces[space as usize]
+                > self.crypto_state.spaces[space]
                     .crypto_stream
                     .bytes_read()
         {
@@ -3688,7 +3688,7 @@ impl Connection {
             ));
         }
 
-        let crypto_space = &mut self.crypto_state.spaces[space as usize];
+        let crypto_space = &mut self.crypto_state.spaces[space];
         let max = end.saturating_sub(crypto_space.crypto_stream.bytes_read());
         if max > self.config.crypto_buffer_size as u64 {
             return Err(TransportError::CRYPTO_BUFFER_EXCEEDED(""));
@@ -3941,7 +3941,7 @@ impl Connection {
                 };
                 let _guard = span.enter();
 
-                let dedup = self.spaces[packet.header.space()]
+                let dedup = self.spaces[packet.header.space() as usize]
                     .path_space_mut(path_id)
                     .map(|pns| &mut pns.dedup);
                 if number.zip(dedup).is_some_and(|(n, d)| d.insert(n)) {
@@ -4104,7 +4104,7 @@ impl Connection {
         let state = match self.state.as_type() {
             StateType::Established => {
                 match packet.header.space() {
-                    SpaceId::Data => self.process_payload(
+                    SpaceKind::Data => self.process_payload(
                         now,
                         network_path,
                         path_id,
@@ -4426,7 +4426,7 @@ impl Connection {
         packet: Packet,
         #[allow(unused)] qlog: &mut QlogRecvPacket,
     ) -> Result<(), TransportError> {
-        debug_assert_ne!(packet.header.space(), SpaceId::Data);
+        debug_assert_ne!(packet.header.space(), SpaceKind::Data);
         debug_assert_eq!(path_id, PathId::ZERO);
         let payload_len = packet.payload.len();
         let mut ack_eliciting = false;
@@ -4444,7 +4444,7 @@ impl Connection {
             ack_eliciting |= frame.is_ack_eliciting();
 
             // Process frames
-            if frame.is_1rtt() && packet.header.space() != SpaceId::Data {
+            if frame.is_1rtt() && packet.header.space() != SpaceKind::Data {
                 return Err(TransportError::PROTOCOL_VIOLATION(
                     "illegal frame type in handshake",
                 ));
@@ -4478,7 +4478,7 @@ impl Connection {
 
         if ack_eliciting {
             // In the initial and handshake spaces, ACKs must be sent immediately
-            self.spaces[packet.header.space()]
+            self.spaces[packet.header.space() as usize]
                 .for_path(path_id)
                 .pending_acks
                 .set_immediate_ack_required();
@@ -4565,7 +4565,7 @@ impl Connection {
 
             match frame {
                 Frame::Crypto(frame) => {
-                    self.read_crypto(SpaceId::Data, &frame, payload_len)?;
+                    self.read_crypto(SpaceKind::Data, &frame, payload_len)?;
                 }
                 Frame::Stream(frame) => {
                     if self.streams.received(frame, payload_len)?.should_transmit() {
@@ -4573,11 +4573,11 @@ impl Connection {
                     }
                 }
                 Frame::Ack(ack) => {
-                    self.on_ack_received(now, SpaceId::Data, ack)?;
+                    self.on_ack_received(now, SpaceKind::Data, ack)?;
                 }
                 Frame::PathAck(ack) => {
                     span.record("path", tracing::field::debug(&ack.path_id));
-                    self.on_path_ack_received(now, SpaceId::Data, ack)?;
+                    self.on_path_ack_received(now, SpaceKind::Data, ack)?;
                 }
                 Frame::Padding | Frame::Ping => {}
                 Frame::Close(reason) => {
@@ -4931,7 +4931,7 @@ impl Connection {
                         ));
                     }
                     // must only be sent in data space
-                    if packet.header.space() != SpaceId::Data {
+                    if packet.header.space() != SpaceKind::Data {
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "OBSERVED_ADDRESS frame outside data space",
                         ));

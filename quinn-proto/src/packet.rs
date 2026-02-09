@@ -71,22 +71,24 @@ impl PartialDecode {
     }
 
     pub(crate) fn is_initial(&self) -> bool {
-        self.space() == Some(SpaceId::Initial)
+        use crate::connection::SpaceKind;
+        self.space() == Some(SpaceKind::Initial)
     }
 
-    pub(crate) fn space(&self) -> Option<SpaceId> {
+    pub(crate) fn space(&self) -> Option<crate::connection::SpaceKind> {
+        use crate::connection::SpaceKind;
         use ProtectedHeader::*;
         match self.plain_header {
-            Initial { .. } => Some(SpaceId::Initial),
+            Initial { .. } => Some(SpaceKind::Initial),
             Long {
                 ty: LongType::Handshake,
                 ..
-            } => Some(SpaceId::Handshake),
+            } => Some(SpaceKind::Handshake),
             Long {
                 ty: LongType::ZeroRtt,
                 ..
-            } => Some(SpaceId::Data),
-            Short { .. } => Some(SpaceId::Data),
+            } => Some(SpaceKind::Data),
+            Short { .. } => Some(SpaceKind::Data),
             _ => None,
         }
     }
@@ -412,19 +414,20 @@ impl Header {
         })
     }
 
-    pub(crate) fn space(&self) -> SpaceId {
+    pub(crate) fn space(&self) -> crate::connection::SpaceKind {
+        use crate::connection::SpaceKind;
         use Header::*;
         match *self {
-            Short { .. } => SpaceId::Data,
+            Short { .. } => SpaceKind::Data,
             Long {
                 ty: LongType::ZeroRtt,
                 ..
-            } => SpaceId::Data,
+            } => SpaceKind::Data,
             Long {
                 ty: LongType::Handshake,
                 ..
-            } => SpaceId::Handshake,
-            _ => SpaceId::Initial,
+            } => SpaceKind::Handshake,
+            _ => SpaceKind::Initial,
         }
     }
 

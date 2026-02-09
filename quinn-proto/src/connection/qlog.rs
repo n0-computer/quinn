@@ -511,7 +511,7 @@ impl QlogRecvPacket {
             self.inner.header.scid = header.src_cid().map(stringify_cid);
             self.inner.header.dcid = Some(stringify_cid(header.dst_cid()));
             self.inner.header.packet_number = pn;
-            self.inner.header.packet_type = packet_type(header.space(), is_0rtt);
+            self.inner.header.packet_type = packet_type(header.space().into(), is_0rtt);
             self.inner.header.path_id = Some(path_id.as_u32() as u64);
         }
     }
