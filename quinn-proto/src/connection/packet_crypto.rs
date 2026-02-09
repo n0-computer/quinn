@@ -206,6 +206,12 @@ pub(super) struct ZeroRttCrypto {
     pub(super) packet: Box<dyn PacketKey>,
 }
 
+impl ZeroRttCrypto {
+    fn keys(&self) -> (&dyn HeaderKey, &dyn PacketKey) {
+        (self.header.as_ref(), self.packet.as_ref())
+    }
+}
+
 /// Consolidated crypto state for a connection.
 ///
 /// This struct groups all cryptographic state together, including:
@@ -303,20 +309,14 @@ impl CryptoState {
     /// returns 1-RTT keys if available, otherwise 0-RTT keys.
     pub(super) fn local_crypto(&self, space: SpaceId) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
         match space {
-            SpaceId::Initial => {
-                let keys = self.spaces[0].keys.as_ref()?;
-                Some((&*keys.header.local, &*keys.packet.local))
-            }
-            SpaceId::Handshake => {
-                let keys = self.spaces[1].keys.as_ref()?;
-                Some((&*keys.header.local, &*keys.packet.local))
-            }
+            SpaceId::Initial => self.spaces[0].keys.as_ref().map(Keys::local),
+            SpaceId::Handshake => self.spaces[1].keys.as_ref().map(Keys::local),
             SpaceId::Data => {
                 if let Some(keys) = self.spaces[2].keys.as_ref() {
-                    Some((&*keys.header.local, &*keys.packet.local))
+                    Some(keys.local())
                 } else {
                     let crypto = self.zero_rtt_crypto.as_ref()?;
-                    Some((&*crypto.header, &*crypto.packet))
+                    Some(crypto.keys())
                 }
             }
         }
@@ -357,23 +357,14 @@ impl CryptoState {
         level: EncryptionLevel,
     ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
         match level {
-            EncryptionLevel::Initial => {
-                let keys = self.spaces[0].keys.as_ref()?;
-                Some((&*keys.header.remote, &*keys.packet.remote))
-            }
+            EncryptionLevel::Initial => self.spaces[0].keys.as_ref().map(Keys::remote),
             EncryptionLevel::ZeroRtt => {
                 // 0-RTT uses the same keys for both directions
                 let crypto = self.zero_rtt_crypto.as_ref()?;
-                Some((&*crypto.header, &*crypto.packet))
+                Some(crypto.keys())
             }
-            EncryptionLevel::Handshake => {
-                let keys = self.spaces[1].keys.as_ref()?;
-                Some((&*keys.header.remote, &*keys.packet.remote))
-            }
-            EncryptionLevel::OneRtt => {
-                let keys = self.spaces[2].keys.as_ref()?;
-                Some((&*keys.header.remote, &*keys.packet.remote))
-            }
+            EncryptionLevel::Handshake => self.spaces[1].keys.as_ref().map(Keys::remote),
+            EncryptionLevel::OneRtt => self.spaces[2].keys.as_ref().map(Keys::remote),
         }
     }
 }

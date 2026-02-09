@@ -109,6 +109,16 @@ pub struct Keys {
     pub packet: KeyPair<Box<dyn PacketKey>>,
 }
 
+impl Keys {
+    pub(crate) fn local(&self) -> (&dyn HeaderKey, &dyn PacketKey) {
+        (self.header.local.as_ref(), self.packet.local.as_ref())
+    }
+
+    pub(crate) fn remote(&self) -> (&dyn HeaderKey, &dyn PacketKey) {
+        (self.header.remote.as_ref(), self.packet.remote.as_ref())
+    }
+}
+
 /// Client-side configuration for the crypto protocol
 pub trait ClientConfig: Send + Sync {
     /// Start a client session with this configuration
