@@ -6,10 +6,10 @@ use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
 use proto::{
-    ClosePathError, ClosedPath, ConnectionError, PathError, PathEvent, PathId, PathStats,
-    PathStatus, SetPathStatusError, TransportErrorCode, VarInt,
+    ClosePathError, ClosedPath, PathError, PathEvent, PathId, PathStats, PathStatus,
+    SetPathStatusError,
 };
-use tokio::sync::{oneshot, watch};
+use tokio::sync::watch;
 use tokio_stream::{Stream, wrappers::WatchStream};
 
 use crate::connection::ConnectionRef;
@@ -213,26 +213,18 @@ impl Path {
             .expect("either path stats or discarded path stats are always set as long as Path is not dropped")
     }
 
-    /// Closes this path
+    /// Closes this path.
     ///
-    /// The future will resolve when all the path state is dropped.  This only happens after
-    /// the remote has confirmed the path as closed **and** after an additional timeout to
-    /// give any in-flight packets the time to arrive.
-    pub fn close(&self) -> Result<ClosePath, ClosePathError> {
-        let (on_path_close_send, on_path_close_recv) = oneshot::channel();
-        {
-            let mut state = self.conn.state.lock("close_path");
-            state.inner.close_path(
-                crate::Instant::now(),
-                self.id,
-                TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
-            )?;
-            state.close_path.insert(self.id, on_path_close_send);
-        }
-
-        Ok(ClosePath {
-            closed: on_path_close_recv,
-        })
+    /// The path is immediately considered closed by the local endpoint. Once the state is removed,
+    /// after a short period of time for any in-flight packets, a [`PathEvent::Abandoned`] is
+    /// returned.
+    pub fn close(&self) -> Result<(), ClosePathError> {
+        let mut state = self.conn.state.lock("close_path");
+        state.inner.close_path(
+            crate::Instant::now(),
+            self.id,
+            proto::TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
+        )
     }
 
     /// Sets the keep_alive_interval for a specific path
@@ -357,23 +349,6 @@ impl WeakPathHandle {
     pub fn upgrade(&self) -> Option<Path> {
         let conn = self.conn.upgrade_to_ref()?;
         Some(Path::new_unchecked(conn, self.id))
-    }
-}
-
-/// Future produced by [`Path::close`]
-pub struct ClosePath {
-    closed: oneshot::Receiver<VarInt>,
-}
-
-impl Future for ClosePath {
-    type Output = Result<VarInt, ConnectionError>;
-    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
-        // TODO: thread through errors
-        let res = ready!(Pin::new(&mut self.closed).poll(ctx));
-        match res {
-            Ok(code) => Poll::Ready(Ok(code)),
-            Err(_err) => todo!(), // TODO: appropriate error
-        }
     }
 }
 

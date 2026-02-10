@@ -1338,8 +1338,6 @@ pub(crate) struct State {
     pub(crate) error: Option<ConnectionError>,
     /// Tracks paths being opened
     open_path: FxHashMap<PathId, watch::Sender<Result<(), PathError>>>,
-    /// Tracks paths being closed
-    pub(crate) close_path: FxHashMap<PathId, oneshot::Sender<VarInt>>,
     /// Tracks reference counts for paths, i.e. how many [`Path`] and [`WeakPathHandle`] structs are alive for a path
     pub(crate) path_refs: FxHashMap<PathId, usize>,
     /// Final path stats for discarded paths.
@@ -1390,7 +1388,6 @@ impl State {
             blocked_readers: FxHashMap::default(),
             stopped: FxHashMap::default(),
             open_path: FxHashMap::default(),
-            close_path: FxHashMap::default(),
             error: None,
             ref_count: 0,
             sender,
@@ -1565,12 +1562,6 @@ impl State {
                     self.path_events.send(evt.clone()).ok();
                     if let Some(sender) = self.open_path.remove(&id) {
                         sender.send_modify(|value| *value = Ok(()));
-                    }
-                }
-                Path(ref evt @ PathEvent::Closed { id, error_code }) => {
-                    self.path_events.send(evt.clone()).ok();
-                    if let Some(sender) = self.close_path.remove(&id) {
-                        let _ = sender.send(error_code);
                     }
                 }
                 Path(evt @ PathEvent::Abandoned { id, path_stats }) => {

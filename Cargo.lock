@@ -1459,6 +1459,7 @@ dependencies = [
  "sharded-slab",
  "smol",
  "socket2",
+ "testresult",
  "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
