@@ -60,7 +60,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         // Initiate key update if we're approaching the confidentiality limit
         let sent_with_keys = conn.spaces[space_id].sent_with_keys();
         if space_id == SpaceId::Data {
-            if sent_with_keys >= conn.key_phase_size {
+            if sent_with_keys >= conn.crypto_state.key_phase_size {
                 debug!("routine key update due to phase exhaustion");
                 conn.force_key_update();
             }
@@ -104,7 +104,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
                 } else {
                     conn.rng.random()
                 },
-                key_phase: conn.key_phase,
+                key_phase: conn.crypto_state.key_phase,
             },
             SpaceId::Data => Header::Long {
                 ty: LongType::ZeroRtt,

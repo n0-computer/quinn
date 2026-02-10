@@ -7,11 +7,18 @@ use crate::connection::assembler::Assembler;
 use crate::crypto::{self, HeaderKey, KeyPair, Keys, PacketKey};
 use crate::packet::{Packet, PartialDecode};
 use crate::token::ResetToken;
+use rand::Rng;
+
 use crate::{ConnectionId, Instant, Side};
 use crate::{RESET_TOKEN_SIZE, TransportError};
 
 use super::PathId;
 use super::spaces::PacketSpace;
+
+/// Perform key updates this many packets before the AEAD confidentiality limit.
+///
+/// Chosen arbitrarily, intended to be large enough to prevent spurious connection loss.
+const KEY_UPDATE_MARGIN: u64 = 10_000;
 
 pub(super) struct UnprotectHeaderResult {
     /// The packet with the now unprotected header (`None` in the case of stateless reset packets
@@ -81,6 +88,10 @@ pub(super) struct CryptoState {
     pub(super) zero_rtt_enabled: bool,
     /// 0-RTT crypto state, cleared when no longer needed.
     pub(super) zero_rtt_crypto: Option<ZeroRttCrypto>,
+    /// Current key phase, toggled on each key update.
+    pub(super) key_phase: bool,
+    /// How many packets are in the current key phase. Used only for `Data` space.
+    pub(super) key_phase_size: u64,
 }
 
 impl CryptoState {
@@ -88,6 +99,7 @@ impl CryptoState {
         session: Box<dyn crypto::Session>,
         init_cid: ConnectionId,
         side: Side,
+        rng: &mut impl Rng,
     ) -> Self {
         let initial_keys = session.initial_keys(init_cid, side);
         let initial_space = CryptoSpace {
@@ -102,6 +114,14 @@ impl CryptoState {
             accepted_0rtt: false,
             zero_rtt_enabled: false,
             zero_rtt_crypto: None,
+            key_phase: false,
+            // A small initial key phase size ensures peers that don't handle key updates correctly
+            // fail sooner rather than later. It's okay for both peers to do this, as the first one
+            // to perform an update will reset the other's key phase size in `update_keys`, and a
+            // simultaneous key update by both is just like a regular key update with a really fast
+            // response. Inspired by quic-go's similar behavior of performing the first key update
+            // at the 100th short-header packet.
+            key_phase_size: rng.random_range(10..1000),
         }
     }
 
@@ -151,8 +171,8 @@ impl CryptoState {
         packet: &mut Packet,
         path_id: PathId,
         spaces: &[PacketSpace; 3],
-        conn_key_phase: bool,
     ) -> Result<Option<DecryptPacketResult>, Option<TransportError>> {
+        let conn_key_phase = self.key_phase;
         if !packet.header.is_protected() {
             // Unprotected packets also don't have packet numbers
             return Ok(None);
@@ -320,11 +340,10 @@ impl CryptoState {
     /// Perform a 1-RTT key update.
     ///
     /// Generates the next set of keys, rotates current keys into previous, and installs the new
-    /// keys. Returns the confidentiality limit of the new local key (used to compute
-    /// `key_phase_size`).
+    /// keys. Updates `key_phase` and `key_phase_size` accordingly.
     ///
     /// PANICS: If 1rtt keys are missing.
-    pub(super) fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) -> u64 {
+    pub(super) fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) {
         let new = self
             .session
             .next_1rtt_keys()
@@ -344,7 +363,8 @@ impl CryptoState {
             update_unacked: remote,
         });
 
-        confidentiality_limit
+        self.key_phase_size = confidentiality_limit.saturating_sub(KEY_UPDATE_MARGIN);
+        self.key_phase = !self.key_phase;
     }
 }
 

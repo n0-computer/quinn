@@ -183,9 +183,6 @@ pub struct Connection {
     allow_mtud: bool,
     state: State,
     side: ConnectionSide,
-    key_phase: bool,
-    /// How many packets are in the current key phase. Used only for `Data` space.
-    key_phase_size: u64,
     /// Transport parameters set by the peer
     peer_params: TransportParameters,
     /// Source ConnectionId of the first packet received from the peer
@@ -417,7 +414,7 @@ impl Connection {
         path.open = true;
         let mut this = Self {
             endpoint_config,
-            crypto_state: CryptoState::new(crypto, init_cid, side),
+            crypto_state: CryptoState::new(crypto, init_cid, side, &mut rng),
             handshake_cid: local_cid,
             remote_handshake_cid: remote_cid,
             local_cid_state,
@@ -432,14 +429,6 @@ impl Connection {
             allow_mtud,
             state,
             side: connection_side,
-            key_phase: false,
-            // A small initial key phase size ensures peers that don't handle key updates correctly
-            // fail sooner rather than later. It's okay for both peers to do this, as the first one
-            // to perform an update will reset the other's key phase size in `update_keys`, and a
-            // simultaneous key update by both is just like a regular key update with a really fast
-            // response. Inspired by quic-go's similar behavior of performing the first key update
-            // at the 100th short-header packet.
-            key_phase_size: rng.random_range(10..1000),
             peer_params: TransportParameters::default(),
             original_remote_cid: remote_cid,
             initial_dst_cid: init_cid,
@@ -6278,7 +6267,7 @@ impl Connection {
     ) -> Result<Option<u64>, Option<TransportError>> {
         let result =
             self.crypto_state
-                .decrypt_packet_body(packet, path_id, &self.spaces, self.key_phase)?;
+                .decrypt_packet_body(packet, path_id, &self.spaces)?;
 
         let result = match result {
             Some(r) => r,
@@ -6303,12 +6292,10 @@ impl Connection {
 
     fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) {
         trace!("executing key update");
-        let confidentiality_limit = self.crypto_state.update_keys(end_packet, remote);
-        self.key_phase_size = confidentiality_limit.saturating_sub(KEY_UPDATE_MARGIN);
+        self.crypto_state.update_keys(end_packet, remote);
         self.spaces[SpaceId::Data]
             .iter_paths_mut()
             .for_each(|s| s.sent_with_keys = 0);
-        self.key_phase = !self.key_phase;
     }
 
     fn peer_supports_ack_frequency(&self) -> bool {
@@ -6353,7 +6340,7 @@ impl Connection {
 
         let mut packet = decrypted_header.packet?;
         self.crypto_state
-            .decrypt_packet_body(&mut packet, *path_id, &self.spaces, self.key_phase)
+            .decrypt_packet_body(&mut packet, *path_id, &self.spaces)
             .ok()?;
 
         Some(packet.payload.to_vec())
@@ -7096,10 +7083,6 @@ const MIN_PACKET_SPACE: usize = MAX_HANDSHAKE_OR_0RTT_HEADER_SIZE + 32;
 const MAX_HANDSHAKE_OR_0RTT_HEADER_SIZE: usize =
     1 + 4 + 1 + MAX_CID_SIZE + 1 + MAX_CID_SIZE + VarInt::from_u32(u16::MAX as u32).size() + 4;
 
-/// Perform key updates this many packets before the AEAD confidentiality limit.
-///
-/// Chosen arbitrarily, intended to be large enough to prevent spurious connection loss.
-const KEY_UPDATE_MARGIN: u64 = 10_000;
 
 #[derive(Default)]
 struct SentFrames {
