@@ -40,6 +40,7 @@
 #![warn(missing_docs)]
 
 use std::pin::Pin;
+use std::sync::Arc;
 
 mod connection;
 mod endpoint;
@@ -62,10 +63,10 @@ pub use proto::{
     AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ClosedStream, ConfigError,
     ConnectError, ConnectionClose, ConnectionError, ConnectionId, ConnectionIdGenerator,
     ConnectionStats, Dir, EcnCodepoint, EndpointConfig, FrameStats, FrameType, IdleTimeout,
-    InvalidCid, MtuDiscoveryConfig, NoneTokenLog, NoneTokenStore, PathId, PathStats, ServerConfig,
-    Side, StdSystemTime, StreamId, TimeSource, TokenLog, TokenMemoryCache, TokenReuseError,
-    TokenStore, Transmit, TransportConfig, TransportErrorCode, UdpStats, ValidationTokenConfig,
-    VarInt, VarIntBoundsExceeded, Written, congestion, crypto,
+    InvalidCid, MtuDiscoveryConfig, NetworkChangeHint, NoneTokenLog, NoneTokenStore, PathId,
+    PathStats, ServerConfig, Side, StdSystemTime, StreamId, TimeSource, TokenLog, TokenMemoryCache,
+    TokenReuseError, TokenStore, Transmit, TransportConfig, TransportErrorCode, UdpStats,
+    ValidationTokenConfig, VarInt, VarIntBoundsExceeded, Written, congestion, crypto,
 };
 #[cfg(feature = "qlog")]
 pub use proto::{QlogConfig, QlogFactory, QlogFileFactory};
@@ -103,6 +104,7 @@ enum ConnectionEvent {
     },
     Proto(proto::ConnectionEvent),
     Rebind(Pin<Box<dyn UdpSender>>),
+    LocalAddressChanged(Option<Arc<dyn NetworkChangeHint + Sync + Send>>),
 }
 
 fn udp_transmit<'a>(t: &proto::Transmit, buffer: &'a [u8]) -> udp::Transmit<'a> {
