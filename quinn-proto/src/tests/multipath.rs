@@ -13,8 +13,8 @@ use crate::tests::RoutingTable;
 use crate::tests::util::{CLIENT_PORTS, ConnPair, SERVER_PORTS};
 use crate::{
     ClientConfig, ClosePathError, ConnectionId, ConnectionIdGenerator, Endpoint, EndpointConfig,
-    FourTuple, LOCAL_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator, ServerConfig,
-    Side::*, TransportConfig, cid_queue::CidQueue,
+    FourTuple, LOCAL_CID_COUNT, NetworkChangeHint, PathId, PathStatus, RandomConnectionIdGenerator,
+    ServerConfig, Side::*, TransportConfig, cid_queue::CidQueue,
 };
 use crate::{Dir, Event, PathError, PathEvent, StreamEvent};
 
@@ -834,6 +834,71 @@ fn network_change_multipath_no_hint_replaces_path() -> TestResult {
         Ok(Some(chunk)) if chunk.bytes == MSG
     );
     let _ = chunks.finalize();
+
+    Ok(())
+}
+
+/// With two paths open and a selective hint, only the non-recoverable path gets replaced.
+/// The recoverable path is kept and pinged for liveness.
+#[test]
+fn network_change_selective_hint() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    // Open a second path
+    let server_addr = pair.addrs_to_server();
+    let second_path = pair.open_path(Client, server_addr, PathStatus::Available)?;
+    pair.drive();
+
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Opened { id })) if id == second_path
+    );
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Opened { id })) if id == second_path
+    );
+
+    // A hint that says PathId::ZERO is recoverable but the second path is not
+    #[derive(Debug)]
+    struct SelectiveHint(PathId);
+    impl NetworkChangeHint for SelectiveHint {
+        fn is_path_recoverable(&self, path_id: PathId, _network_path: FourTuple) -> bool {
+            path_id == self.0
+        }
+    }
+    let hint = SelectiveHint(PathId::ZERO);
+
+    pair.passive_migration(Client);
+    pair.handle_network_change(Client, Some(&hint));
+
+    pair.drive();
+
+    // The second path (non-recoverable) should be replaced: a new path opens
+    // PathId::ZERO (recoverable) should stay open (no Closed event for it)
+    let mut client_events = Vec::new();
+    while let Some(event) = pair.poll(Client) {
+        client_events.push(event);
+    }
+
+    // There should be an Opened event for the replacement path
+    assert!(
+        client_events
+            .iter()
+            .any(|e| matches!(e, Event::Path(PathEvent::Opened { .. }))),
+        "expected an Opened event for the replacement path, got: {client_events:?}"
+    );
+    // PathId::ZERO should NOT have been closed
+    assert!(
+        !client_events.iter().any(|e| matches!(
+            e,
+            Event::Path(PathEvent::Abandoned {
+                id: PathId::ZERO,
+                ..
+            })
+        )),
+        "PathId::ZERO should not have been closed: {client_events:?}"
+    );
 
     Ok(())
 }
