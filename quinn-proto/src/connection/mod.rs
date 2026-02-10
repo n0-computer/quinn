@@ -685,6 +685,9 @@ impl Connection {
         error_code: VarInt,
         locally_initiated: bool,
     ) -> Result<(), ClosePathError> {
+        if !self.is_multipath_negotiated() {
+            return Err(ClosePathError::MultipathNotNegotiated);
+        }
         if self.abandoned_paths.contains(&path_id)
             || Some(path_id) > self.max_path_id()
             || !self.paths.contains_key(&path_id)
@@ -3119,10 +3122,13 @@ impl Connection {
                 size_of_lost_packets,
             );
         }
+        // Before removing the path, we fetch the final path stats via `Self::path_stats`.
+        // This updates some values for the last time.
+        let path_stats = self.path_stats(path_id).unwrap_or_default();
+        self.path_stats.remove(&path_id);
         self.paths.remove(&path_id);
         self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
 
-        let path_stats = self.path_stats.remove(&path_id).unwrap_or_default();
         self.events.push_back(
             PathEvent::Abandoned {
                 id: path_id,
@@ -4525,6 +4531,7 @@ impl Connection {
         packet: Packet,
         #[allow(unused)] qlog: &mut QlogRecvPacket,
     ) -> Result<(), TransportError> {
+        let is_multipath_negotiated = self.is_multipath_negotiated();
         let payload = packet.payload.freeze();
         let mut is_probing_packet = true;
         let mut close = None;
@@ -4666,8 +4673,10 @@ impl Connection {
                             );
 
                             if !was_open {
-                                self.events
-                                    .push_back(Event::Path(PathEvent::Opened { id: path_id }));
+                                if is_multipath_negotiated {
+                                    self.events
+                                        .push_back(Event::Path(PathEvent::Opened { id: path_id }));
+                                }
                                 if let Some(observed) = path.data.last_observed_addr_report.as_ref()
                                 {
                                     self.events.push_back(Event::Path(PathEvent::ObservedAddr {
@@ -5001,6 +5010,11 @@ impl Connection {
                         Err(ClosePathError::ClosedPath) => {
                             trace!("peer abandoned already closed path");
                         }
+                        Err(ClosePathError::MultipathNotNegotiated) => {
+                            return Err(TransportError::PROTOCOL_VIOLATION(
+                                "received PATH_ABANDON frame when multipath was not negotiated",
+                            ));
+                        }
                     };
                     // If we receive a retransmit of PATH_ABANDON then we may already have
                     // abandoned this path locally.  In that case the DiscardPath timer
@@ -5298,10 +5312,151 @@ impl Connection {
     }
 
     /// Handle a change in the local address, i.e. an active migration
-    pub fn local_address_changed(&mut self) {
-        // TODO(flub): if multipath is enabled this needs to create a new path entirely.
-        self.update_remote_cid(PathId::ZERO);
-        self.ping();
+    ///
+    /// In the general (non-multipath) case, paths will perform a RFC9000 migration and be pinged
+    /// for a liveness check. This is the behaviour of a path assumed to be recoverable, even if
+    /// this is not the case.
+    ///
+    /// Clients in a connection in which multipath has been negotiated should migrate paths to new
+    /// [`PathId`]s. For paths that are known to be non-recoverable can be migrated to a new
+    /// [`PathId`] by closing the current path, and opening a new one to the same remote. Treating
+    /// paths as non recoverable when necessary accelerates connectivity re-establishment, or might
+    /// allow it altogether.
+    ///
+    /// The optional `hint` allows callers to indicate when paths are non-recoverable and should be
+    /// migrated to new a [`PathId`].
+    // NOTE: only clients are allowed to migrate, but generally dealing with RFC9000 migrations is
+    // lacking <https://github.com/n0-computer/quinn/issues/364>
+    pub fn handle_network_change(&mut self, hint: Option<&dyn NetworkChangeHint>, now: Instant) {
+        debug!("network changed");
+        if self.highest_space < SpaceId::Data {
+            for path in self.paths.values_mut() {
+                // Clear the local address for it to be obtained from the socket again.
+                path.data.network_path.local_ip = None;
+            }
+
+            self.update_remote_cid(PathId::ZERO);
+            self.ping();
+
+            return;
+        }
+
+        // Paths that can't recover so a new path should be open instead. If multipath is not
+        // negotiated, this will be empty.
+        let mut non_recoverable_paths = Vec::default();
+        let mut recoverable_paths = Vec::default();
+        let mut open_paths = 0;
+
+        let is_multipath_negotiated = self.is_multipath_negotiated();
+        let is_client = self.side().is_client();
+        let immediate_ack_allowed = self.peer_supports_ack_frequency();
+
+        for (path_id, path) in self.paths.iter_mut() {
+            if self.abandoned_paths.contains(path_id) {
+                continue;
+            }
+            open_paths += 1;
+
+            // Clear the local address for it to be obtained from the socket again. This applies to
+            // all paths, regardless of being considered recoverable or not
+            path.data.network_path.local_ip = None;
+
+            let network_path = path.data.network_path;
+            let remote = network_path.remote;
+
+            // Without multipath, the connection tries to recover the single path, whereas with
+            // multipath, even in a single-path scenario, we attempt to migrate the path to a new
+            // PathId.
+            let attempt_to_recover = if is_multipath_negotiated {
+                if is_client {
+                    hint.map(|h| h.is_path_recoverable(*path_id, network_path))
+                        .unwrap_or(false)
+                } else {
+                    // Servers should have stable addresses so this scenario is generally discouraged.
+                    // There is no way to prevent this, so the best hope is to attempt to recover the
+                    // path
+                    true
+                }
+            } else {
+                // In the non multipath case, we try to recover the single active path
+                true
+            };
+
+            if attempt_to_recover {
+                recoverable_paths.push((*path_id, remote));
+            } else {
+                non_recoverable_paths.push((*path_id, remote, path.data.local_status()))
+            }
+        }
+
+        /* NON RECOVERABLE PATHS */
+        // This are handled first, so that in case the treatment intended for these fails, we can
+        // go the recoverable route instead.
+
+        // Decide if we need to close first or open first in the multipath case.
+        // - Opening first has a higher risk of getting limited by the negotiated MAX_PATH_ID.
+        // - Closing first risks this being the only open path.
+        // We prefer closing paths first unless we identify this is the last open path.
+        let open_first = open_paths == non_recoverable_paths.len();
+
+        let abandon_error = TransportErrorCode::PATH_UNSTABLE_OR_POOR.into();
+
+        for (path_id, remote, status) in non_recoverable_paths.into_iter() {
+            let network_path = FourTuple {
+                remote,
+                local_ip: None, /* allow the local ip to be discovered */
+            };
+
+            if open_first && let Err(e) = self.open_path(network_path, status, now) {
+                debug!(%e,"Failed to open new path for network change");
+                // if this fails, let the path try to recover itself
+                recoverable_paths.push((path_id, remote));
+                continue;
+            }
+
+            if let Err(e) = self.close_path(now, path_id, abandon_error) {
+                debug!(%e,"Failed to close unrecoverable path after network change");
+                recoverable_paths.push((path_id, remote));
+                continue;
+            }
+
+            if !open_first && let Err(e) = self.open_path(network_path, status, now) {
+                // Path has already been closed if we got here. Since the path was not recoverable,
+                // this might be desirable in any case, because other paths exist (!open_first) and
+                // this was is considered non recoverable
+                debug!(%e,"Failed to open new path for network change");
+            }
+        }
+
+        /* RECOVERABLE PATHS */
+
+        for (path_id, remote) in recoverable_paths.into_iter() {
+            let space = &mut self.spaces[SpaceId::Data];
+
+            // Schedule a Ping for a liveness check.
+            if let Some(path_space) = space.number_spaces.get_mut(&path_id) {
+                path_space.ping_pending = true;
+
+                if immediate_ack_allowed {
+                    path_space.immediate_ack_pending = true;
+                }
+            }
+
+            let Some((reset_token, retired)) =
+                self.remote_cids.get_mut(&path_id).and_then(CidQueue::next)
+            else {
+                continue;
+            };
+
+            // Retire the current remote CID and any CIDs we had to skip.
+            space
+                .pending
+                .retire_cids
+                .extend(retired.map(|seq| (path_id, seq)));
+
+            self.endpoint_events
+                .push_back(EndpointEventInner::ResetToken(path_id, remote, reset_token));
+        }
     }
 
     /// Switch to a previously unused remote connection ID, if possible
@@ -6559,6 +6714,9 @@ impl Connection {
             prev_round_path_ids,
         } = client_state.initiate_nat_traversal_round(ipv6)?;
 
+        trace!(%new_round, reach_out=reach_out_at.len(), to_probe=addresses_to_probe.len(),
+            "initiating nat traversal round");
+
         self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
 
         for path_id in prev_round_path_ids {
@@ -6645,6 +6803,19 @@ impl Connection {
             }
         }
     }
+}
+
+/// Hints when the caller identifies a network change.
+pub trait NetworkChangeHint: std::fmt::Debug + 'static {
+    /// Inform the connection if a path may recover after a network change.
+    ///
+    /// After network changes, paths may not be recoverable. In this case, waiting for the path to
+    /// become idle may take longer than what is desirable. If [`Self::is_path_recoverable`]
+    /// returns `false`, a multipath-enabled, client-side connection will establish a new path to
+    /// the same remote, closing the current one, instead of migrating the path.
+    ///
+    /// Paths that are deemed recoverable will simply be sent a PING for a liveness check.
+    fn is_path_recoverable(&self, path_id: PathId, network_path: FourTuple) -> bool;
 }
 
 impl fmt::Debug for Connection {
@@ -6849,6 +7020,9 @@ pub enum PathError {
 /// Errors triggered when abandoning a path
 #[derive(Debug, Error, Clone, Eq, PartialEq)]
 pub enum ClosePathError {
+    /// Multipath is not negotiated
+    #[error("Multipath extension not negotiated")]
+    MultipathNotNegotiated,
     /// The path is already closed or was never opened
     #[error("closed path")]
     ClosedPath,

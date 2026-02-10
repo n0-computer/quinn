@@ -13,10 +13,10 @@ use crate::tests::RoutingTable;
 use crate::tests::util::{CLIENT_PORTS, ConnPair, SERVER_PORTS};
 use crate::{
     ClientConfig, ClosePathError, ConnectionId, ConnectionIdGenerator, Endpoint, EndpointConfig,
-    FourTuple, LOCAL_CID_COUNT, PathId, PathStatus, RandomConnectionIdGenerator, ServerConfig,
-    Side::*, TransportConfig, cid_queue::CidQueue,
+    FourTuple, LOCAL_CID_COUNT, NetworkChangeHint, PathId, PathStatus, RandomConnectionIdGenerator,
+    ServerConfig, Side::*, TransportConfig, cid_queue::CidQueue,
 };
-use crate::{Event, PathError, PathEvent};
+use crate::{Dir, Event, PathError, PathEvent, StreamEvent};
 
 use super::util::{min_opt, subscribe};
 use super::{Pair, client_config, server_config};
@@ -665,27 +665,21 @@ fn per_path_observed_address() -> TestResult {
     assert_matches!(pair.poll(Server), Some(Event::Path(PathEvent::ObservedAddr{id: PathId::ZERO, addr})) if addr == expected_addr);
     assert_matches!(pair.poll(Server), None);
 
-    // simulate a rebind on the client
+    // simulate a rebind on the client, this will close the current path and open a new one
     let our_addr = pair.passive_migration(Client);
-    pair.local_address_changed(Client);
-
-    // open a second path
-    let network_path = pair.addrs_to_server();
-    let _new_path_id = pair.open_path(Client, network_path, PathStatus::Available)?;
+    pair.handle_network_change(Client, None);
 
     pair.drive();
-    // check the migration related event
-    assert_matches!(pair.poll(Client), Some(Event::Path(PathEvent::ObservedAddr{ id: PathId::ZERO, addr })) if addr == our_addr);
-    // wait for the open event
-    let mut opened = false;
-    while let Some(ev) = pair.poll(Client) {
-        if matches!(ev, Event::Path(PathEvent::Opened { id: PathId(1) })) {
-            opened = true;
-            break;
-        }
-    }
-    assert!(opened);
-    assert_matches!(pair.poll(Client), Some(Event::Path(PathEvent::ObservedAddr{id: PathId(1), addr})) if addr == our_addr);
+
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Opened { id: PathId(1) }))
+    );
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::ObservedAddr{ id: PathId(1), addr })) if addr == our_addr
+    );
+
     Ok(())
 }
 
@@ -755,5 +749,156 @@ fn mtud_on_two_paths() -> TestResult {
     // Both paths should have found the new MTU.
     assert_eq!(pair.conn(Client).path_mtu(PathId::ZERO), 1452);
     assert_eq!(pair.conn(Client).path_mtu(path_id), 1452);
+    Ok(())
+}
+
+/// Closing a path locally may be rejected if this leaves the endpoint without validated paths. For
+/// paths closed by the remote, however, a `PATH_ABANDON` frame must be accepted. In
+/// particular, it should not kill the connection.
+///
+/// This is a regression test.
+#[test]
+fn remote_can_close_last_validated_path() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    pair.passive_migration(Client);
+    let route = pair.addrs_to_server();
+    pair.open_path(Client, route, PathStatus::Available)?;
+    pair.drive_client();
+    pair.close_path(Client, PathId::ZERO, 0u8.into())?;
+    pair.drive();
+
+    // Neither side of the connection should error on close
+    let mut close = None;
+    for side in [Client, Server] {
+        while let Some(event) = pair.poll(side) {
+            if let Event::ConnectionLost { reason } = event {
+                close = Some(reason);
+            }
+        }
+        assert_eq!(close, None);
+    }
+
+    Ok(())
+}
+
+/// With multipath and hint=None, the client defaults to non-recoverable: the old path is closed
+/// with PATH_UNSTABLE_OR_POOR and a new path is opened. Data still flows on the new path.
+#[test]
+fn network_change_multipath_no_hint_replaces_path() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    // Simulate a passive migration + network change with no hint
+    pair.passive_migration(Client);
+    pair.handle_network_change(Client, None);
+
+    pair.drive();
+
+    // A new path should be opened and the old one should be closed
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Opened { id: PathId(1) }))
+    );
+
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Opened { id: PathId(1) }))
+    );
+    // The server sees the old path closed with PATH_UNSTABLE_OR_POOR
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Abandoned {
+            id: PathId::ZERO,
+            ..
+        }))
+    );
+
+    // Data should flow on the new path
+    let s = pair.streams(Client).open(Dir::Uni).unwrap();
+    const MSG: &[u8] = b"after network change";
+    pair.send_stream(Client, s).write(MSG).unwrap();
+    pair.send_stream(Client, s).finish().unwrap();
+    pair.drive();
+
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
+    );
+    assert_matches!(pair.streams(Server).accept(Dir::Uni), Some(stream) if stream == s);
+    let mut recv = pair.recv_stream(Server, s);
+    let mut chunks = recv.read(false).unwrap();
+    assert_matches!(
+        chunks.next(usize::MAX),
+        Ok(Some(chunk)) if chunk.bytes == MSG
+    );
+    let _ = chunks.finalize();
+
+    Ok(())
+}
+
+/// With two paths open and a selective hint, only the non-recoverable path gets replaced.
+/// The recoverable path is kept and pinged for liveness.
+#[test]
+fn network_change_selective_hint() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    // Open a second path
+    let server_addr = pair.addrs_to_server();
+    let second_path = pair.open_path(Client, server_addr, PathStatus::Available)?;
+    pair.drive();
+
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Opened { id })) if id == second_path
+    );
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Opened { id })) if id == second_path
+    );
+
+    // A hint that says PathId::ZERO is recoverable but the second path is not
+    #[derive(Debug)]
+    struct SelectiveHint(PathId);
+    impl NetworkChangeHint for SelectiveHint {
+        fn is_path_recoverable(&self, path_id: PathId, _network_path: FourTuple) -> bool {
+            path_id == self.0
+        }
+    }
+    let hint = SelectiveHint(PathId::ZERO);
+
+    pair.passive_migration(Client);
+    pair.handle_network_change(Client, Some(&hint));
+
+    pair.drive();
+
+    // The second path (non-recoverable) should be replaced: a new path opens
+    // PathId::ZERO (recoverable) should stay open (no Closed event for it)
+    let mut client_events = Vec::new();
+    while let Some(event) = pair.poll(Client) {
+        client_events.push(event);
+    }
+
+    // There should be an Opened event for the replacement path
+    assert!(
+        client_events
+            .iter()
+            .any(|e| matches!(e, Event::Path(PathEvent::Opened { .. }))),
+        "expected an Opened event for the replacement path, got: {client_events:?}"
+    );
+    // PathId::ZERO should NOT have been closed
+    assert!(
+        !client_events.iter().any(|e| matches!(
+            e,
+            Event::Path(PathEvent::Abandoned {
+                id: PathId::ZERO,
+                ..
+            })
+        )),
+        "PathId::ZERO should not have been closed: {client_events:?}"
+    );
+
     Ok(())
 }

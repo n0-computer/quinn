@@ -700,10 +700,6 @@ impl ConnPair {
         *address
     }
 
-    pub(super) fn local_address_changed(&mut self, side: Side) {
-        self.conn_mut(side).local_address_changed()
-    }
-
     pub(super) fn current_mtu(&self, side: Side) -> u16 {
         self.conn(side).current_mtu()
     }
@@ -744,6 +740,15 @@ impl ConnPair {
     ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
         let now = self.pair.time;
         self.conn_mut(side).initiate_nat_traversal_round(now)
+    }
+
+    pub(crate) fn handle_network_change(
+        &mut self,
+        side: Side,
+        hint: Option<&dyn NetworkChangeHint>,
+    ) {
+        let now = self.pair.time;
+        self.conn_mut(side).handle_network_change(hint, now);
     }
 }
 

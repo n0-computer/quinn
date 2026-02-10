@@ -312,7 +312,7 @@ pub struct Connection(ConnectionRef);
 impl Connection {
     /// Returns a weak reference to the inner connection struct.
     pub fn weak_handle(&self) -> WeakConnectionHandle {
-        WeakConnectionHandle(Arc::downgrade(&self.0.0))
+        self.0.weak_handle()
     }
 
     /// Initiate a new outgoing unidirectional stream.
@@ -502,12 +502,7 @@ impl Connection {
 
     /// Returns the [`Path`] structure of an open path
     pub fn path(&self, id: PathId) -> Option<Path> {
-        // TODO(flub): Using this to know if the path still exists is... hacky.
-        self.0.state.lock("path").inner.path_status(id).ok()?;
-        Some(Path {
-            id,
-            conn: self.0.clone(),
-        })
+        Path::new(&self.0, id)
     }
 
     /// A broadcast receiver of [`PathEvent`]s for all paths in this connection
@@ -789,7 +784,7 @@ impl Connection {
 
     /// Returns path statistics
     pub fn path_stats(&self, path_id: PathId) -> Option<PathStats> {
-        self.0.state.lock("path_stats").inner.path_stats(path_id)
+        self.0.state.lock("path_stats").path_stats(path_id)
     }
 
     /// Current state of the congestion control algorithm, for debugging purposes
@@ -1239,8 +1234,12 @@ impl ConnectionRef {
         Self(inner)
     }
 
-    fn stable_id(&self) -> usize {
+    pub(crate) fn stable_id(&self) -> usize {
         &*self.0 as *const _ as usize
+    }
+
+    pub(crate) fn weak_handle(&self) -> WeakConnectionHandle {
+        WeakConnectionHandle(Arc::downgrade(&self.0))
     }
 }
 
@@ -1294,9 +1293,16 @@ impl WeakConnectionHandle {
 
     /// Upgrade the handle to a full `Connection`
     pub fn upgrade(&self) -> Option<Connection> {
-        self.0
-            .upgrade()
-            .map(|inner| Connection(ConnectionRef::from_arc(inner)))
+        self.upgrade_to_ref().map(Connection)
+    }
+
+    pub(crate) fn upgrade_to_ref(&self) -> Option<ConnectionRef> {
+        self.0.upgrade().map(ConnectionRef::from_arc)
+    }
+
+    /// Returns `true` if the two [`WeakConnectionHandle`] point at the same connection.
+    pub fn is_same_connection(&self, other: &Self) -> bool {
+        self.0.ptr_eq(&other.0)
     }
 }
 
@@ -1332,8 +1338,13 @@ pub(crate) struct State {
     pub(crate) error: Option<ConnectionError>,
     /// Tracks paths being opened
     open_path: FxHashMap<PathId, watch::Sender<Result<(), PathError>>>,
-    /// Tracks paths being closed
-    pub(crate) close_path: FxHashMap<PathId, oneshot::Sender<VarInt>>,
+    /// Tracks reference counts for paths, i.e. how many [`Path`] and [`WeakPathHandle`] structs are alive for a path
+    pub(crate) path_refs: FxHashMap<PathId, usize>,
+    /// Final path stats for discarded paths.
+    ///
+    /// We only insert entries if the discarded path has a non-zero reference count in [`Self::path_refs`].
+    /// When the last reference to a path is dropped via [`Self::decrement_path_refs`] its value is cleared.
+    pub(crate) final_path_stats: FxHashMap<PathId, PathStats>,
     pub(crate) path_events: tokio::sync::broadcast::Sender<PathEvent>,
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
     ref_count: usize,
@@ -1377,7 +1388,6 @@ impl State {
             blocked_readers: FxHashMap::default(),
             stopped: FxHashMap::default(),
             open_path: FxHashMap::default(),
-            close_path: FxHashMap::default(),
             error: None,
             ref_count: 0,
             sender,
@@ -1388,6 +1398,8 @@ impl State {
             observed_external_addr: watch::Sender::new(None),
             nat_traversal_updates: tokio::sync::broadcast::channel(32).0,
             on_closed: Vec::new(),
+            final_path_stats: Default::default(),
+            path_refs: Default::default(),
         }
     }
 
@@ -1465,7 +1477,11 @@ impl State {
             match self.conn_events.poll_recv(cx) {
                 Poll::Ready(Some(ConnectionEvent::Rebind(sender))) => {
                     self.sender = sender;
-                    self.inner.local_address_changed();
+                    self.inner.handle_network_change(None, self.runtime.now());
+                }
+                Poll::Ready(Some(ConnectionEvent::LocalAddressChanged(hint))) => {
+                    self.inner
+                        .handle_network_change(hint.as_deref().map(|x| x as _), self.runtime.now());
                 }
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
                     self.inner.handle_event(event);
@@ -1552,13 +1568,10 @@ impl State {
                         sender.send_modify(|value| *value = Ok(()));
                     }
                 }
-                Path(ref evt @ PathEvent::Closed { id, error_code }) => {
-                    self.path_events.send(evt.clone()).ok();
-                    if let Some(sender) = self.close_path.remove(&id) {
-                        let _ = sender.send(error_code);
+                Path(evt @ PathEvent::Abandoned { id, path_stats }) => {
+                    if self.path_refs.contains_key(&id) {
+                        self.final_path_stats.insert(id, path_stats);
                     }
-                }
-                Path(evt @ PathEvent::Abandoned { .. }) => {
                     self.path_events.send(evt).ok();
                 }
                 Path(ref evt @ PathEvent::LocallyClosed { id, error }) => {
@@ -1682,6 +1695,35 @@ impl State {
             Ok(())
         } else {
             Err(())
+        }
+    }
+
+    /// Returns [`PathStats`] for a path, if available.
+    ///
+    /// This gets the stats from [`proto::Connection`]. If that returns `None`
+    /// it gets them from `Self::final_path_stats` instead.
+    pub(crate) fn path_stats(&mut self, path_id: PathId) -> Option<PathStats> {
+        self.inner
+            .path_stats(path_id)
+            .or_else(|| self.final_path_stats.get(&path_id).copied())
+    }
+
+    /// Increment the reference counter for a path in this connection.
+    ///
+    /// This counts how many [`Path`] or [`WeakPathHandle`] structs exist for a path.
+    /// Currently this is used to determine whether to store the final stats after a path is abandoned.
+    pub(crate) fn increment_path_refs(&mut self, path_id: PathId) {
+        *self.path_refs.entry(path_id).or_default() += 1;
+    }
+
+    /// Decrement the reference counter for a path in this connection.
+    pub(crate) fn decrement_path_refs(&mut self, path_id: PathId) {
+        if let Some(refs) = self.path_refs.get_mut(&path_id) {
+            *refs = refs.saturating_sub(1);
+            if *refs == 0 {
+                self.path_refs.remove(&path_id);
+                self.final_path_stats.remove(&path_id);
+            }
         }
     }
 }
