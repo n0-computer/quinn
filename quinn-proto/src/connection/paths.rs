@@ -910,18 +910,7 @@ pub enum PathEvent {
         /// Which path is now open
         id: PathId,
     },
-    /// A path has been closed
-    Closed {
-        /// Which path has been closed
-        id: PathId,
-        /// Error code supplied by the peer
-        /// See <https://www.ietf.org/archive/id/draft-ietf-quic-multipath-14.html#name-error-codes>
-        /// for a list of known errors.
-        error_code: VarInt,
-    },
-    /// All remaining state for a path has been removed
-    ///
-    /// The [`PathEvent::Closed`] would have been emitted for this path earlier.
+    /// The path was abandoned and all remaining state for it has been removed.
     Abandoned {
         /// Which path had its state dropped
         id: PathId,

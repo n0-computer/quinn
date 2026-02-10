@@ -80,7 +80,7 @@ pub use crate::connection::{
 };
 pub use crate::endpoint::{Accept, Endpoint, EndpointStats};
 pub use crate::incoming::{Incoming, IncomingFuture, RetryError};
-pub use crate::path::{AddressDiscovery, ClosePath, OpenPath, Path, WeakPathHandle};
+pub use crate::path::{AddressDiscovery, OpenPath, Path, WeakPathHandle};
 pub use crate::recv_stream::{
     ReadError, ReadExactError, ReadToEndError, RecvStream, ResetError, UnorderedRecvStream,
 };
