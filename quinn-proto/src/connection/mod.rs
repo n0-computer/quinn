@@ -5305,9 +5305,16 @@ impl Connection {
     // NOTE: only clients are allowed to migrate, but generally dealing with RFC9000 migrations is
     // lacking <https://github.com/n0-computer/quinn/issues/364>
     pub fn handle_network_change(&mut self, hint: Option<&dyn NetworkChangeHint>, now: Instant) {
+        debug!("network changed");
         if self.highest_space < SpaceId::Data {
+            for path in self.paths.values_mut() {
+                // Clear the local address for it to be obtained from the socket again.
+                path.data.network_path.local_ip = None;
+            }
+
             self.update_remote_cid(PathId::ZERO);
             self.ping();
+
             return;
         }
 
@@ -6717,6 +6724,9 @@ impl Connection {
             addresses_to_probe,
             prev_round_path_ids,
         } = client_state.initiate_nat_traversal_round(ipv6)?;
+
+        trace!(%new_round, reach_out=reach_out_at.len(), to_probe=addresses_to_probe.len(),
+            "initiating nat traversal round");
 
         self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
 
