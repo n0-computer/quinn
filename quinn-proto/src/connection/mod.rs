@@ -5329,7 +5329,7 @@ impl Connection {
     // lacking <https://github.com/n0-computer/quinn/issues/364>
     pub fn handle_network_change(&mut self, hint: Option<&dyn NetworkChangeHint>, now: Instant) {
         debug!("network changed");
-        if self.highest_space < SpaceId::Data {
+        if self.highest_space < SpaceKind::Data {
             for path in self.paths.values_mut() {
                 // Clear the local address for it to be obtained from the socket again.
                 path.data.network_path.local_ip = None;
