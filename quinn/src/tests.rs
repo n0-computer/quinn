@@ -1269,6 +1269,8 @@ async fn close_path() -> TestResult {
     let server = factory.endpoint_with_config("server", transport_config);
     let server_addr = server.local_addr()?;
 
+    let (test_done_tx, test_done_rx) = tokio::sync::oneshot::channel();
+
     let server_task = async move {
         let conn = server.accept().await.ok_or("closed conn?")?.await?;
         let mut path_events = conn.path_events();
@@ -1288,6 +1290,10 @@ async fn close_path() -> TestResult {
                 _ => continue,
             }
         }
+
+        test_done_tx.send(()).expect("not dropped");
+
+        server.wait_idle().await;
 
         TestResult::Ok(())
     }
@@ -1328,6 +1334,11 @@ async fn close_path() -> TestResult {
                 _ => continue,
             }
         }
+
+        test_done_rx.await.expect("not dropped");
+
+        client.close(0u8.into(), b"test finished");
+        client.wait_idle().await;
 
         TestResult::Ok(())
     }
