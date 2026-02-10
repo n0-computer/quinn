@@ -201,8 +201,8 @@ pub struct Connection {
     spin: bool,
     /// Packet number spaces: initial, handshake, 1-RTT
     spaces: [PacketSpace; 3],
-    /// Highest usable [`SpaceKind`]
-    highest_space: SpaceKind,
+    /// Highest usable [`SpaceId`]
+    highest_space: SpaceId,
     /// Whether the idle timer should be reset the next time an ack-eliciting packet is transmitted.
     permit_idle_reset: bool,
     /// Negotiated idle timeout
@@ -438,7 +438,7 @@ impl Connection {
             spin_enabled: config.allow_spin && rng.random_ratio(7, 8),
             spin: false,
             spaces: [initial_space, handshake_space, data_space],
-            highest_space: SpaceKind::Initial,
+            highest_space: SpaceId::Initial,
             permit_idle_reset: true,
             idle_timeout: match config.max_idle_timeout {
                 None | Some(VarInt(0)) => None,
@@ -1042,7 +1042,7 @@ impl Connection {
             self.spaces[SpaceId::Data].pending.ack_frequency = self
                 .ack_frequency
                 .should_send_ack_frequency(rtt, config, &self.peer_params)
-                && self.highest_space == SpaceKind::Data
+                && self.highest_space == SpaceId::Data
                 && self.peer_supports_ack_frequency();
         }
 
@@ -1575,7 +1575,7 @@ impl Connection {
                 }
                 let last_pn = builder.packet_number;
                 builder.finish_and_track(now, self, path_id, pad_datagram);
-                if space_id.kind() == self.highest_space {
+                if space_id == self.highest_space {
                     // Don't send another close packet. Even with multipath we only send
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
                     self.connection_close_pending = false;
@@ -1886,7 +1886,7 @@ impl Connection {
         prev_path.challenges_sent.insert(token, info);
         debug_assert_eq!(
             self.highest_space,
-            SpaceKind::Data,
+            SpaceId::Data,
             "PATH_CHALLENGE queued without 1-RTT keys"
         );
         let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
@@ -2389,10 +2389,7 @@ impl Connection {
     pub fn ping(&mut self) {
         // TODO(flub): This is very brute-force: it pings *all* the paths.  Instead it would
         //    be nice if we could only send a single packet for this.
-        for path_data in self.spaces[self.highest_space as usize]
-            .number_spaces
-            .values_mut()
-        {
+        for path_data in self.spaces[self.highest_space].number_spaces.values_mut() {
             path_data.ping_pending = true;
         }
     }
@@ -2401,7 +2398,7 @@ impl Connection {
     ///
     /// Causes an ACK-eliciting packet to be transmitted on the path.
     pub fn ping_path(&mut self, path: PathId) -> Result<(), ClosedPath> {
-        let path_data = self.spaces[self.highest_space as usize]
+        let path_data = self.spaces[self.highest_space]
             .number_spaces
             .get_mut(&path)
             .ok_or(ClosedPath { _private: () })?;
@@ -3283,7 +3280,7 @@ impl Connection {
             // server can not send more due to its anti-amplification limit the client must
             // send another packet on PTO.
             let space = match self.highest_space {
-                SpaceKind::Handshake => SpaceId::Handshake,
+                SpaceId::Handshake => SpaceId::Handshake,
                 _ => SpaceId::Initial,
             };
 
@@ -3681,7 +3678,7 @@ impl Connection {
     ) -> Result<(), TransportError> {
         let expected = if !self.state.is_handshake() {
             SpaceKind::Data
-        } else if self.highest_space == SpaceKind::Initial {
+        } else if self.highest_space == SpaceId::Initial {
             SpaceKind::Initial
         } else {
             // On the server, self.highest_space can be Data after receiving the client's first
@@ -3729,13 +3726,13 @@ impl Connection {
             let mut outgoing = Vec::new();
             if let Some(crypto) = self.crypto_state.session.write_handshake(&mut outgoing) {
                 match space {
-                    SpaceKind::Initial => {
+                    SpaceId::Initial => {
                         self.upgrade_crypto(SpaceId::Handshake, crypto);
                     }
-                    SpaceKind::Handshake => {
+                    SpaceId::Handshake => {
                         self.upgrade_crypto(SpaceId::Data, crypto);
                     }
-                    SpaceKind::Data => unreachable!("got updated secrets during 1-RTT"),
+                    SpaceId::Data => unreachable!("got updated secrets during 1-RTT"),
                 }
             }
             if outgoing.is_empty() {
@@ -3749,7 +3746,7 @@ impl Connection {
             let offset = self.crypto_state.spaces[space as usize].crypto_offset;
             let outgoing = Bytes::from(outgoing);
             if let Some(hs) = self.state.as_handshake_mut()
-                && space == SpaceKind::Initial
+                && space == SpaceId::Initial
                 && offset == 0
                 && self.side.is_client()
             {
@@ -3786,7 +3783,7 @@ impl Connection {
 
         self.crypto_state.spaces[space as usize].keys = Some(crypto);
         debug_assert!(space as usize > self.highest_space as usize);
-        self.highest_space = space.kind();
+        self.highest_space = space;
         if space == SpaceId::Data && self.side.is_client() {
             // Discard 0-RTT keys because 1-RTT keys are available.
             self.crypto_state.discard_zero_rtt();
@@ -3946,7 +3943,7 @@ impl Connection {
                 self.authentication_failures += 1;
                 let integrity_limit = self
                     .crypto_state
-                    .integrity_limit(self.highest_space)
+                    .integrity_limit(self.highest_space.kind())
                     .expect("supposedly verified");
                 // TODO(@divma): wut wut
                 if self.authentication_failures > integrity_limit {
@@ -4391,8 +4388,8 @@ impl Connection {
                 self.process_early_payload(now, path_id, packet, qlog)?;
 
                 if self.side.is_server()
-                    && starting_space == SpaceKind::Initial
-                    && self.highest_space != SpaceKind::Initial
+                    && starting_space == SpaceId::Initial
+                    && self.highest_space != SpaceId::Initial
                 {
                     let params = self
                         .crypto_state
@@ -5318,7 +5315,7 @@ impl Connection {
     // lacking <https://github.com/n0-computer/quinn/issues/364>
     pub fn handle_network_change(&mut self, hint: Option<&dyn NetworkChangeHint>, now: Instant) {
         debug!("network changed");
-        if self.highest_space < SpaceKind::Data {
+        if self.highest_space < SpaceId::Data {
             for path in self.paths.values_mut() {
                 // Clear the local address for it to be obtained from the socket again.
                 path.data.network_path.local_ip = None;
@@ -6131,7 +6128,7 @@ impl Connection {
     fn set_close_timer(&mut self, now: Instant) {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO using the max PTO of
         // all paths.
-        let pto_max = self.max_pto_all_paths(self.highest_space);
+        let pto_max = self.max_pto_all_paths(self.highest_space.kind());
         self.timers.set(
             Timer::Conn(ConnTimer::Close),
             now + 3 * pto_max,
@@ -6309,7 +6306,7 @@ impl Connection {
     pub(crate) fn immediate_ack(&mut self, path_id: PathId) {
         debug_assert_eq!(
             self.highest_space,
-            SpaceKind::Data,
+            SpaceId::Data,
             "immediate ack must be written in the data space"
         );
         self.spaces[self.highest_space as usize]
