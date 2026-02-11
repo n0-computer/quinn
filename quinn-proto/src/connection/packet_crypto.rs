@@ -349,8 +349,10 @@ impl CryptoState {
     /// Generates the next set of keys, rotates current keys into previous, and installs the new
     /// keys. Updates `key_phase` and `key_phase_size` accordingly.
     ///
-    /// PANICS: If 1rtt keys are missing.
+    /// PANICS: If 1-RTT keys are missing.
     pub(super) fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) {
+        trace!("executing key update");
+
         let new = self
             .session
             .next_1rtt_keys()

@@ -2475,7 +2475,7 @@ impl Connection {
             debug!("ignoring redundant forced key update");
             return;
         }
-        self.update_keys(None, false);
+        self.crypto_state.update_keys(None, false);
     }
 
     /// Get a session reference
@@ -6314,16 +6314,12 @@ impl Connection {
 
         if result.incoming_key_update {
             trace!("key update authenticated");
-            self.update_keys(Some((result.number, now)), true);
+            self.crypto_state
+                .update_keys(Some((result.number, now)), true);
             self.set_key_discard_timer(now, packet.header.space());
         }
 
         Ok(Some(result.number))
-    }
-
-    fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) {
-        trace!("executing key update");
-        self.crypto_state.update_keys(end_packet, remote);
     }
 
     fn peer_supports_ack_frequency(&self) -> bool {
