@@ -402,7 +402,6 @@ pub(crate) enum SpaceKind {
     Data = 2,
 }
 
-
 impl From<SpaceKind> for crate::packet::SpaceId {
     fn from(kind: SpaceKind) -> Self {
         match kind {
