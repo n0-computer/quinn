@@ -5,7 +5,7 @@ use tracing::{debug, trace};
 
 use crate::connection::assembler::Assembler;
 use crate::crypto::{self, HeaderKey, KeyPair, Keys, PacketKey};
-use crate::packet::{Packet, PartialDecode};
+use crate::packet::{Packet, PartialDecode, SpaceId};
 use crate::token::ResetToken;
 use rand::Rng;
 
@@ -179,7 +179,7 @@ impl CryptoState {
         }
         let space = packet.header.space();
 
-        if path_id != PathId::ZERO && space != SpaceKind::Data {
+        if path_id != PathId::ZERO && space != SpaceId::Data {
             // do not try to decrypt illegal multipath packets
             return Err(Some(TransportError::PROTOCOL_VIOLATION(
                 "multipath packet on non Data packet number space",
@@ -202,7 +202,7 @@ impl CryptoState {
         let crypto = if packet.header.is_0rtt() {
             let (_, packet) = self.remote_crypto(EncryptionLevel::ZeroRtt).unwrap();
             packet
-        } else if packet_key_phase == conn_key_phase || space != SpaceKind::Data {
+        } else if packet_key_phase == conn_key_phase || space != SpaceId::Data {
             let (_, packet) = self.remote_crypto(space.encryption_level()).unwrap();
             packet
         } else if let Some(prev) = self.prev_crypto.as_ref().and_then(|crypto| {
@@ -402,16 +402,6 @@ pub(crate) enum SpaceKind {
     Data = 2,
 }
 
-impl SpaceKind {
-    /// Returns the encryption level for this space kind.
-    pub(crate) fn encryption_level(self) -> EncryptionLevel {
-        match self {
-            Self::Initial => EncryptionLevel::Initial,
-            Self::Handshake => EncryptionLevel::Handshake,
-            Self::Data => EncryptionLevel::OneRtt,
-        }
-    }
-}
 
 impl From<SpaceKind> for crate::packet::SpaceId {
     fn from(kind: SpaceKind) -> Self {

@@ -409,20 +409,19 @@ impl Header {
         })
     }
 
-    pub(crate) fn space(&self) -> crate::connection::SpaceKind {
-        use crate::connection::SpaceKind;
+    pub(crate) fn space(&self) -> SpaceId {
         use Header::*;
         match *self {
-            Short { .. } => SpaceKind::Data,
+            Short { .. } => SpaceId::Data,
             Long {
                 ty: LongType::ZeroRtt,
                 ..
-            } => SpaceKind::Data,
+            } => SpaceId::Data,
             Long {
                 ty: LongType::Handshake,
                 ..
-            } => SpaceKind::Handshake,
-            _ => SpaceKind::Initial,
+            } => SpaceId::Handshake,
+            _ => SpaceId::Initial,
         }
     }
 
