@@ -2425,7 +2425,7 @@
 <a href=#2425 id=2425 data-nosnippet>2425</a>
 <a href=#2426 id=2426 data-nosnippet>2426</a>    <span class="doccomment">/// Get a session reference
 <a href=#2427 id=2427 data-nosnippet>2427</a>    </span><span class="kw">pub fn </span>crypto_session(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="kw">dyn </span>crypto::Session {
-<a href=#2428 id=2428 data-nosnippet>2428</a>        <span class="kw-2">&amp;*</span><span class="self">self</span>.crypto_state.session
+<a href=#2428 id=2428 data-nosnippet>2428</a>        <span class="self">self</span>.crypto_state.session.as_ref()
 <a href=#2429 id=2429 data-nosnippet>2429</a>    }
 <a href=#2430 id=2430 data-nosnippet>2430</a>
 <a href=#2431 id=2431 data-nosnippet>2431</a>    <span class="doccomment">/// Whether the connection is in the process of being established
@@ -3923,302 +3923,302 @@
 <a href=#3923 id=3923 data-nosnippet>3923</a>                <span class="kw">let </span>integrity_limit = <span class="self">self
 <a href=#3924 id=3924 data-nosnippet>3924</a>                    </span>.crypto_state
 <a href=#3925 id=3925 data-nosnippet>3925</a>                    .integrity_limit(<span class="self">self</span>.highest_space.kind())
-<a href=#3926 id=3926 data-nosnippet>3926</a>                    .expect(<span class="string">"supposedly verified"</span>);
-<a href=#3927 id=3927 data-nosnippet>3927</a>                <span class="comment">// TODO(@divma): wut wut
-<a href=#3928 id=3928 data-nosnippet>3928</a>                </span><span class="kw">if </span><span class="self">self</span>.authentication_failures &gt; integrity_limit {
-<a href=#3929 id=3929 data-nosnippet>3929</a>                    <span class="prelude-val">Err</span>(TransportError::AEAD_LIMIT_REACHED(<span class="string">"integrity limit violated"</span>).into())
-<a href=#3930 id=3930 data-nosnippet>3930</a>                } <span class="kw">else </span>{
-<a href=#3931 id=3931 data-nosnippet>3931</a>                    <span class="kw">return</span>;
-<a href=#3932 id=3932 data-nosnippet>3932</a>                }
-<a href=#3933 id=3933 data-nosnippet>3933</a>            }
-<a href=#3934 id=3934 data-nosnippet>3934</a>            <span class="prelude-val">Ok</span>((packet, number)) =&gt; {
-<a href=#3935 id=3935 data-nosnippet>3935</a>                qlog.header(<span class="kw-2">&amp;</span>packet.header, number, path_id);
-<a href=#3936 id=3936 data-nosnippet>3936</a>                <span class="kw">let </span>span = <span class="kw">match </span>number {
-<a href=#3937 id=3937 data-nosnippet>3937</a>                    <span class="prelude-val">Some</span>(pn) =&gt; <span class="macro">trace_span!</span>(<span class="string">"recv"</span>, space = <span class="question-mark">?</span>packet.header.space(), pn),
-<a href=#3938 id=3938 data-nosnippet>3938</a>                    <span class="prelude-val">None </span>=&gt; <span class="macro">trace_span!</span>(<span class="string">"recv"</span>, space = <span class="question-mark">?</span>packet.header.space()),
-<a href=#3939 id=3939 data-nosnippet>3939</a>                };
-<a href=#3940 id=3940 data-nosnippet>3940</a>                <span class="kw">let </span>_guard = span.enter();
-<a href=#3941 id=3941 data-nosnippet>3941</a>
-<a href=#3942 id=3942 data-nosnippet>3942</a>                <span class="kw">let </span>dedup = <span class="self">self</span>.spaces[packet.header.space()]
-<a href=#3943 id=3943 data-nosnippet>3943</a>                    .path_space_mut(path_id)
-<a href=#3944 id=3944 data-nosnippet>3944</a>                    .map(|pns| <span class="kw-2">&amp;mut </span>pns.dedup);
-<a href=#3945 id=3945 data-nosnippet>3945</a>                <span class="kw">if </span>number.zip(dedup).is_some_and(|(n, d)| d.insert(n)) {
-<a href=#3946 id=3946 data-nosnippet>3946</a>                    <span class="macro">debug!</span>(<span class="string">"discarding possible duplicate packet"</span>);
-<a href=#3947 id=3947 data-nosnippet>3947</a>                    <span class="self">self</span>.qlog.emit_packet_received(qlog, now);
-<a href=#3948 id=3948 data-nosnippet>3948</a>                    <span class="kw">return</span>;
-<a href=#3949 id=3949 data-nosnippet>3949</a>                } <span class="kw">else if </span><span class="self">self</span>.state.is_handshake() &amp;&amp; packet.header.is_short() {
-<a href=#3950 id=3950 data-nosnippet>3950</a>                    <span class="comment">// TODO: SHOULD buffer these to improve reordering tolerance.
-<a href=#3951 id=3951 data-nosnippet>3951</a>                    </span><span class="macro">trace!</span>(<span class="string">"dropping short packet during handshake"</span>);
-<a href=#3952 id=3952 data-nosnippet>3952</a>                    <span class="self">self</span>.qlog.emit_packet_received(qlog, now);
-<a href=#3953 id=3953 data-nosnippet>3953</a>                    <span class="kw">return</span>;
-<a href=#3954 id=3954 data-nosnippet>3954</a>                } <span class="kw">else </span>{
-<a href=#3955 id=3955 data-nosnippet>3955</a>                    <span class="kw">if let </span>Header::Initial(InitialHeader { <span class="kw-2">ref </span>token, .. }) = packet.header
-<a href=#3956 id=3956 data-nosnippet>3956</a>                        &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(hs) = <span class="self">self</span>.state.as_handshake()
-<a href=#3957 id=3957 data-nosnippet>3957</a>                        &amp;&amp; <span class="self">self</span>.side.is_server()
-<a href=#3958 id=3958 data-nosnippet>3958</a>                        &amp;&amp; token != <span class="kw-2">&amp;</span>hs.expected_token
-<a href=#3959 id=3959 data-nosnippet>3959</a>                    {
-<a href=#3960 id=3960 data-nosnippet>3960</a>                        <span class="comment">// Clients must send the same retry token in every Initial. Initial
-<a href=#3961 id=3961 data-nosnippet>3961</a>                        // packets can be spoofed, so we discard rather than killing the
-<a href=#3962 id=3962 data-nosnippet>3962</a>                        // connection.
-<a href=#3963 id=3963 data-nosnippet>3963</a>                        </span><span class="macro">warn!</span>(<span class="string">"discarding Initial with invalid retry token"</span>);
-<a href=#3964 id=3964 data-nosnippet>3964</a>                        <span class="self">self</span>.qlog.emit_packet_received(qlog, now);
-<a href=#3965 id=3965 data-nosnippet>3965</a>                        <span class="kw">return</span>;
-<a href=#3966 id=3966 data-nosnippet>3966</a>                    }
-<a href=#3967 id=3967 data-nosnippet>3967</a>
-<a href=#3968 id=3968 data-nosnippet>3968</a>                    <span class="kw">if </span>!<span class="self">self</span>.state.is_closed() {
-<a href=#3969 id=3969 data-nosnippet>3969</a>                        <span class="kw">let </span>spin = <span class="kw">match </span>packet.header {
-<a href=#3970 id=3970 data-nosnippet>3970</a>                            Header::Short { spin, .. } =&gt; spin,
-<a href=#3971 id=3971 data-nosnippet>3971</a>                            <span class="kw">_ </span>=&gt; <span class="bool-val">false</span>,
-<a href=#3972 id=3972 data-nosnippet>3972</a>                        };
-<a href=#3973 id=3973 data-nosnippet>3973</a>
-<a href=#3974 id=3974 data-nosnippet>3974</a>                        <span class="kw">if </span><span class="self">self</span>.side().is_server() &amp;&amp; !<span class="self">self</span>.abandoned_paths.contains(<span class="kw-2">&amp;</span>path_id) {
-<a href=#3975 id=3975 data-nosnippet>3975</a>                            <span class="comment">// Only the client is allowed to open paths
-<a href=#3976 id=3976 data-nosnippet>3976</a>                            </span><span class="self">self</span>.ensure_path(path_id, network_path, now, number);
-<a href=#3977 id=3977 data-nosnippet>3977</a>                        }
-<a href=#3978 id=3978 data-nosnippet>3978</a>                        <span class="kw">if </span><span class="self">self</span>.paths.contains_key(<span class="kw-2">&amp;</span>path_id) {
-<a href=#3979 id=3979 data-nosnippet>3979</a>                            <span class="self">self</span>.on_packet_authenticated(
-<a href=#3980 id=3980 data-nosnippet>3980</a>                                now,
-<a href=#3981 id=3981 data-nosnippet>3981</a>                                packet.header.space(),
-<a href=#3982 id=3982 data-nosnippet>3982</a>                                path_id,
-<a href=#3983 id=3983 data-nosnippet>3983</a>                                ecn,
-<a href=#3984 id=3984 data-nosnippet>3984</a>                                number,
-<a href=#3985 id=3985 data-nosnippet>3985</a>                                spin,
-<a href=#3986 id=3986 data-nosnippet>3986</a>                                packet.header.is_1rtt(),
-<a href=#3987 id=3987 data-nosnippet>3987</a>                            );
-<a href=#3988 id=3988 data-nosnippet>3988</a>                        }
-<a href=#3989 id=3989 data-nosnippet>3989</a>                    }
-<a href=#3990 id=3990 data-nosnippet>3990</a>
-<a href=#3991 id=3991 data-nosnippet>3991</a>                    <span class="kw">let </span>res = <span class="self">self</span>.process_decrypted_packet(
-<a href=#3992 id=3992 data-nosnippet>3992</a>                        now,
-<a href=#3993 id=3993 data-nosnippet>3993</a>                        network_path,
-<a href=#3994 id=3994 data-nosnippet>3994</a>                        path_id,
-<a href=#3995 id=3995 data-nosnippet>3995</a>                        number,
-<a href=#3996 id=3996 data-nosnippet>3996</a>                        packet,
-<a href=#3997 id=3997 data-nosnippet>3997</a>                        <span class="kw-2">&amp;mut </span>qlog,
-<a href=#3998 id=3998 data-nosnippet>3998</a>                    );
-<a href=#3999 id=3999 data-nosnippet>3999</a>
-<a href=#4000 id=4000 data-nosnippet>4000</a>                    <span class="self">self</span>.qlog.emit_packet_received(qlog, now);
-<a href=#4001 id=4001 data-nosnippet>4001</a>                    res
-<a href=#4002 id=4002 data-nosnippet>4002</a>                }
-<a href=#4003 id=4003 data-nosnippet>4003</a>            }
-<a href=#4004 id=4004 data-nosnippet>4004</a>        };
-<a href=#4005 id=4005 data-nosnippet>4005</a>
-<a href=#4006 id=4006 data-nosnippet>4006</a>        <span class="comment">// State transitions for error cases
-<a href=#4007 id=4007 data-nosnippet>4007</a>        </span><span class="kw">if let </span><span class="prelude-val">Err</span>(conn_err) = result {
-<a href=#4008 id=4008 data-nosnippet>4008</a>            <span class="kw">match </span>conn_err {
-<a href=#4009 id=4009 data-nosnippet>4009</a>                ConnectionError::ApplicationClosed(reason) =&gt; <span class="self">self</span>.state.move_to_closed(reason),
-<a href=#4010 id=4010 data-nosnippet>4010</a>                ConnectionError::ConnectionClosed(reason) =&gt; <span class="self">self</span>.state.move_to_closed(reason),
-<a href=#4011 id=4011 data-nosnippet>4011</a>                ConnectionError::Reset
-<a href=#4012 id=4012 data-nosnippet>4012</a>                | ConnectionError::TransportError(TransportError {
-<a href=#4013 id=4013 data-nosnippet>4013</a>                    code: TransportErrorCode::AEAD_LIMIT_REACHED,
-<a href=#4014 id=4014 data-nosnippet>4014</a>                    ..
-<a href=#4015 id=4015 data-nosnippet>4015</a>                }) =&gt; {
-<a href=#4016 id=4016 data-nosnippet>4016</a>                    <span class="self">self</span>.state.move_to_drained(<span class="prelude-val">Some</span>(conn_err));
-<a href=#4017 id=4017 data-nosnippet>4017</a>                }
-<a href=#4018 id=4018 data-nosnippet>4018</a>                ConnectionError::TimedOut =&gt; {
-<a href=#4019 id=4019 data-nosnippet>4019</a>                    <span class="macro">unreachable!</span>(<span class="string">"timeouts aren't generated by packet processing"</span>);
-<a href=#4020 id=4020 data-nosnippet>4020</a>                }
-<a href=#4021 id=4021 data-nosnippet>4021</a>                ConnectionError::TransportError(err) =&gt; {
-<a href=#4022 id=4022 data-nosnippet>4022</a>                    <span class="macro">debug!</span>(<span class="string">"closing connection due to transport error: {}"</span>, err);
-<a href=#4023 id=4023 data-nosnippet>4023</a>                    <span class="self">self</span>.state.move_to_closed(err);
-<a href=#4024 id=4024 data-nosnippet>4024</a>                }
-<a href=#4025 id=4025 data-nosnippet>4025</a>                ConnectionError::VersionMismatch =&gt; {
-<a href=#4026 id=4026 data-nosnippet>4026</a>                    <span class="self">self</span>.state.move_to_draining(<span class="prelude-val">Some</span>(conn_err));
-<a href=#4027 id=4027 data-nosnippet>4027</a>                }
-<a href=#4028 id=4028 data-nosnippet>4028</a>                ConnectionError::LocallyClosed =&gt; {
-<a href=#4029 id=4029 data-nosnippet>4029</a>                    <span class="macro">unreachable!</span>(<span class="string">"LocallyClosed isn't generated by packet processing"</span>);
-<a href=#4030 id=4030 data-nosnippet>4030</a>                }
-<a href=#4031 id=4031 data-nosnippet>4031</a>                ConnectionError::CidsExhausted =&gt; {
-<a href=#4032 id=4032 data-nosnippet>4032</a>                    <span class="macro">unreachable!</span>(<span class="string">"CidsExhausted isn't generated by packet processing"</span>);
-<a href=#4033 id=4033 data-nosnippet>4033</a>                }
-<a href=#4034 id=4034 data-nosnippet>4034</a>            };
-<a href=#4035 id=4035 data-nosnippet>4035</a>        }
-<a href=#4036 id=4036 data-nosnippet>4036</a>
-<a href=#4037 id=4037 data-nosnippet>4037</a>        <span class="kw">if </span>!was_closed &amp;&amp; <span class="self">self</span>.state.is_closed() {
-<a href=#4038 id=4038 data-nosnippet>4038</a>            <span class="self">self</span>.close_common();
-<a href=#4039 id=4039 data-nosnippet>4039</a>            <span class="kw">if </span>!<span class="self">self</span>.state.is_drained() {
-<a href=#4040 id=4040 data-nosnippet>4040</a>                <span class="self">self</span>.set_close_timer(now);
-<a href=#4041 id=4041 data-nosnippet>4041</a>            }
-<a href=#4042 id=4042 data-nosnippet>4042</a>        }
-<a href=#4043 id=4043 data-nosnippet>4043</a>        <span class="kw">if </span>!was_drained &amp;&amp; <span class="self">self</span>.state.is_drained() {
-<a href=#4044 id=4044 data-nosnippet>4044</a>            <span class="self">self</span>.endpoint_events.push_back(EndpointEventInner::Drained);
-<a href=#4045 id=4045 data-nosnippet>4045</a>            <span class="comment">// Close timer may have been started previously, e.g. if we sent a close and got a
-<a href=#4046 id=4046 data-nosnippet>4046</a>            // stateless reset in response
-<a href=#4047 id=4047 data-nosnippet>4047</a>            </span><span class="self">self</span>.timers
-<a href=#4048 id=4048 data-nosnippet>4048</a>                .stop(Timer::Conn(ConnTimer::Close), <span class="self">self</span>.qlog.with_time(now));
-<a href=#4049 id=4049 data-nosnippet>4049</a>        }
-<a href=#4050 id=4050 data-nosnippet>4050</a>
-<a href=#4051 id=4051 data-nosnippet>4051</a>        <span class="comment">// Transmit CONNECTION_CLOSE if necessary.
-<a href=#4052 id=4052 data-nosnippet>4052</a>        //
-<a href=#4053 id=4053 data-nosnippet>4053</a>        // If we received a valid packet and we are in the closed state we should respond
-<a href=#4054 id=4054 data-nosnippet>4054</a>        // with a CONNECTION_CLOSE frame.
-<a href=#4055 id=4055 data-nosnippet>4055</a>        // TODO: This SHOULD be rate-limited according to §10.2.1 of QUIC-TRANSPORT, but
-<a href=#4056 id=4056 data-nosnippet>4056</a>        //    that does not yet happen. This is triggered by each received packet.
-<a href=#4057 id=4057 data-nosnippet>4057</a>        </span><span class="kw">if </span><span class="macro">matches!</span>(<span class="self">self</span>.state.as_type(), StateType::Closed) {
-<a href=#4058 id=4058 data-nosnippet>4058</a>            <span class="comment">// From https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2.1-7
-<a href=#4059 id=4059 data-nosnippet>4059</a>            //
-<a href=#4060 id=4060 data-nosnippet>4060</a>            // While in the closing state we must either:
-<a href=#4061 id=4061 data-nosnippet>4061</a>            // - discard packets coming from an un-validated remote OR
-<a href=#4062 id=4062 data-nosnippet>4062</a>            // - ensure we do not send more than 3 times the received data
-<a href=#4063 id=4063 data-nosnippet>4063</a>            //
-<a href=#4064 id=4064 data-nosnippet>4064</a>            // Doing the 2nd would mean we would be able to send CONNECTION_CLOSE to a peer
-<a href=#4065 id=4065 data-nosnippet>4065</a>            // who was (involuntary) migrated just at the time we initiated immediate
-<a href=#4066 id=4066 data-nosnippet>4066</a>            // close. It is a lot more work though. So while we would like to do this for
-<a href=#4067 id=4067 data-nosnippet>4067</a>            // now we only do 1.
-<a href=#4068 id=4068 data-nosnippet>4068</a>            //
-<a href=#4069 id=4069 data-nosnippet>4069</a>            // Another shortcoming of the current implementation is that when we have a
-<a href=#4070 id=4070 data-nosnippet>4070</a>            // previous PathData which is validated and the remote matches that path, we
-<a href=#4071 id=4071 data-nosnippet>4071</a>            // should schedule CONNECTION_CLOSE on that path. However currently we can not
-<a href=#4072 id=4072 data-nosnippet>4072</a>            // schedule such a packet. We should also fix this some day. This makes us
-<a href=#4073 id=4073 data-nosnippet>4073</a>            // vulnerable to an attacker faking a migration at the right time and then we'd
-<a href=#4074 id=4074 data-nosnippet>4074</a>            // be unable to send the CONNECTION_CLOSE to the real remote.
-<a href=#4075 id=4075 data-nosnippet>4075</a>            </span><span class="kw">if </span><span class="self">self
-<a href=#4076 id=4076 data-nosnippet>4076</a>                </span>.paths
-<a href=#4077 id=4077 data-nosnippet>4077</a>                .get(<span class="kw-2">&amp;</span>path_id)
-<a href=#4078 id=4078 data-nosnippet>4078</a>                .map(|p| p.data.validated &amp;&amp; p.data.network_path == network_path)
-<a href=#4079 id=4079 data-nosnippet>4079</a>                .unwrap_or(<span class="bool-val">false</span>)
-<a href=#4080 id=4080 data-nosnippet>4080</a>            {
-<a href=#4081 id=4081 data-nosnippet>4081</a>                <span class="self">self</span>.connection_close_pending = <span class="bool-val">true</span>;
-<a href=#4082 id=4082 data-nosnippet>4082</a>            }
-<a href=#4083 id=4083 data-nosnippet>4083</a>        }
-<a href=#4084 id=4084 data-nosnippet>4084</a>    }
-<a href=#4085 id=4085 data-nosnippet>4085</a>
-<a href=#4086 id=4086 data-nosnippet>4086</a>    <span class="kw">fn </span>process_decrypted_packet(
-<a href=#4087 id=4087 data-nosnippet>4087</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#4088 id=4088 data-nosnippet>4088</a>        now: Instant,
-<a href=#4089 id=4089 data-nosnippet>4089</a>        network_path: FourTuple,
-<a href=#4090 id=4090 data-nosnippet>4090</a>        path_id: PathId,
-<a href=#4091 id=4091 data-nosnippet>4091</a>        number: <span class="prelude-ty">Option</span>&lt;u64&gt;,
-<a href=#4092 id=4092 data-nosnippet>4092</a>        packet: Packet,
-<a href=#4093 id=4093 data-nosnippet>4093</a>        qlog: <span class="kw-2">&amp;mut </span>QlogRecvPacket,
-<a href=#4094 id=4094 data-nosnippet>4094</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), ConnectionError&gt; {
-<a href=#4095 id=4095 data-nosnippet>4095</a>        <span class="kw">if </span>!<span class="self">self</span>.paths.contains_key(<span class="kw-2">&amp;</span>path_id) {
-<a href=#4096 id=4096 data-nosnippet>4096</a>            <span class="comment">// There is a chance this is a server side, first (for this path) packet, which would
-<a href=#4097 id=4097 data-nosnippet>4097</a>            // be a protocol violation. It's more likely, however, that this is a packet of a
-<a href=#4098 id=4098 data-nosnippet>4098</a>            // pruned path
-<a href=#4099 id=4099 data-nosnippet>4099</a>            </span><span class="macro">trace!</span>(%path_id, <span class="question-mark">?</span>number, <span class="string">"discarding packet for unknown path"</span>);
-<a href=#4100 id=4100 data-nosnippet>4100</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#4101 id=4101 data-nosnippet>4101</a>        }
-<a href=#4102 id=4102 data-nosnippet>4102</a>        <span class="kw">let </span>state = <span class="kw">match </span><span class="self">self</span>.state.as_type() {
-<a href=#4103 id=4103 data-nosnippet>4103</a>            StateType::Established =&gt; {
-<a href=#4104 id=4104 data-nosnippet>4104</a>                <span class="kw">match </span>packet.header.space() {
-<a href=#4105 id=4105 data-nosnippet>4105</a>                    SpaceId::Data =&gt; <span class="self">self</span>.process_payload(
-<a href=#4106 id=4106 data-nosnippet>4106</a>                        now,
-<a href=#4107 id=4107 data-nosnippet>4107</a>                        network_path,
-<a href=#4108 id=4108 data-nosnippet>4108</a>                        path_id,
-<a href=#4109 id=4109 data-nosnippet>4109</a>                        number.unwrap(),
-<a href=#4110 id=4110 data-nosnippet>4110</a>                        packet,
-<a href=#4111 id=4111 data-nosnippet>4111</a>                        qlog,
-<a href=#4112 id=4112 data-nosnippet>4112</a>                    )<span class="question-mark">?</span>,
-<a href=#4113 id=4113 data-nosnippet>4113</a>                    <span class="kw">_ if </span>packet.header.has_frames() =&gt; {
-<a href=#4114 id=4114 data-nosnippet>4114</a>                        <span class="self">self</span>.process_early_payload(now, path_id, packet, qlog)<span class="question-mark">?
-<a href=#4115 id=4115 data-nosnippet>4115</a>                    </span>}
-<a href=#4116 id=4116 data-nosnippet>4116</a>                    <span class="kw">_ </span>=&gt; {
-<a href=#4117 id=4117 data-nosnippet>4117</a>                        <span class="macro">trace!</span>(<span class="string">"discarding unexpected pre-handshake packet"</span>);
-<a href=#4118 id=4118 data-nosnippet>4118</a>                    }
-<a href=#4119 id=4119 data-nosnippet>4119</a>                }
-<a href=#4120 id=4120 data-nosnippet>4120</a>                <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#4121 id=4121 data-nosnippet>4121</a>            }
-<a href=#4122 id=4122 data-nosnippet>4122</a>            StateType::Closed =&gt; {
-<a href=#4123 id=4123 data-nosnippet>4123</a>                <span class="kw">for </span>result <span class="kw">in </span>frame::Iter::new(packet.payload.freeze())<span class="question-mark">? </span>{
-<a href=#4124 id=4124 data-nosnippet>4124</a>                    <span class="kw">let </span>frame = <span class="kw">match </span>result {
-<a href=#4125 id=4125 data-nosnippet>4125</a>                        <span class="prelude-val">Ok</span>(frame) =&gt; frame,
-<a href=#4126 id=4126 data-nosnippet>4126</a>                        <span class="prelude-val">Err</span>(err) =&gt; {
-<a href=#4127 id=4127 data-nosnippet>4127</a>                            <span class="macro">debug!</span>(<span class="string">"frame decoding error: {err:?}"</span>);
-<a href=#4128 id=4128 data-nosnippet>4128</a>                            <span class="kw">continue</span>;
-<a href=#4129 id=4129 data-nosnippet>4129</a>                        }
-<a href=#4130 id=4130 data-nosnippet>4130</a>                    };
-<a href=#4131 id=4131 data-nosnippet>4131</a>                    qlog.frame(<span class="kw-2">&amp;</span>frame);
-<a href=#4132 id=4132 data-nosnippet>4132</a>
-<a href=#4133 id=4133 data-nosnippet>4133</a>                    <span class="kw">if let </span>Frame::Padding = frame {
-<a href=#4134 id=4134 data-nosnippet>4134</a>                        <span class="kw">continue</span>;
-<a href=#4135 id=4135 data-nosnippet>4135</a>                    };
-<a href=#4136 id=4136 data-nosnippet>4136</a>
-<a href=#4137 id=4137 data-nosnippet>4137</a>                    <span class="self">self</span>.stats.frame_rx.record(frame.ty());
-<a href=#4138 id=4138 data-nosnippet>4138</a>
-<a href=#4139 id=4139 data-nosnippet>4139</a>                    <span class="kw">if let </span>Frame::Close(_error) = frame {
-<a href=#4140 id=4140 data-nosnippet>4140</a>                        <span class="self">self</span>.state.move_to_draining(<span class="prelude-val">None</span>);
-<a href=#4141 id=4141 data-nosnippet>4141</a>                        <span class="kw">break</span>;
-<a href=#4142 id=4142 data-nosnippet>4142</a>                    }
-<a href=#4143 id=4143 data-nosnippet>4143</a>                }
-<a href=#4144 id=4144 data-nosnippet>4144</a>                <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#4145 id=4145 data-nosnippet>4145</a>            }
-<a href=#4146 id=4146 data-nosnippet>4146</a>            StateType::Draining | StateType::Drained =&gt; <span class="kw">return </span><span class="prelude-val">Ok</span>(()),
-<a href=#4147 id=4147 data-nosnippet>4147</a>            StateType::Handshake =&gt; <span class="self">self</span>.state.as_handshake_mut().expect(<span class="string">"checked"</span>),
-<a href=#4148 id=4148 data-nosnippet>4148</a>        };
-<a href=#4149 id=4149 data-nosnippet>4149</a>
-<a href=#4150 id=4150 data-nosnippet>4150</a>        <span class="kw">match </span>packet.header {
-<a href=#4151 id=4151 data-nosnippet>4151</a>            Header::Retry {
-<a href=#4152 id=4152 data-nosnippet>4152</a>                src_cid: remote_cid,
-<a href=#4153 id=4153 data-nosnippet>4153</a>                ..
-<a href=#4154 id=4154 data-nosnippet>4154</a>            } =&gt; {
-<a href=#4155 id=4155 data-nosnippet>4155</a>                <span class="macro">debug_assert_eq!</span>(path_id, PathId::ZERO);
-<a href=#4156 id=4156 data-nosnippet>4156</a>                <span class="kw">if </span><span class="self">self</span>.side.is_server() {
-<a href=#4157 id=4157 data-nosnippet>4157</a>                    <span class="kw">return </span><span class="prelude-val">Err</span>(TransportError::PROTOCOL_VIOLATION(<span class="string">"client sent Retry"</span>).into());
-<a href=#4158 id=4158 data-nosnippet>4158</a>                }
-<a href=#4159 id=4159 data-nosnippet>4159</a>
-<a href=#4160 id=4160 data-nosnippet>4160</a>                <span class="kw">let </span>is_valid_retry = <span class="self">self
-<a href=#4161 id=4161 data-nosnippet>4161</a>                    </span>.remote_cids
-<a href=#4162 id=4162 data-nosnippet>4162</a>                    .get(<span class="kw-2">&amp;</span>path_id)
-<a href=#4163 id=4163 data-nosnippet>4163</a>                    .map(|cids| cids.active())
-<a href=#4164 id=4164 data-nosnippet>4164</a>                    .map(|orig_dst_cid| {
-<a href=#4165 id=4165 data-nosnippet>4165</a>                        <span class="self">self</span>.crypto_state.session.is_valid_retry(
-<a href=#4166 id=4166 data-nosnippet>4166</a>                            orig_dst_cid,
-<a href=#4167 id=4167 data-nosnippet>4167</a>                            <span class="kw-2">&amp;</span>packet.header_data,
-<a href=#4168 id=4168 data-nosnippet>4168</a>                            <span class="kw-2">&amp;</span>packet.payload,
-<a href=#4169 id=4169 data-nosnippet>4169</a>                        )
-<a href=#4170 id=4170 data-nosnippet>4170</a>                    })
-<a href=#4171 id=4171 data-nosnippet>4171</a>                    .unwrap_or_default();
-<a href=#4172 id=4172 data-nosnippet>4172</a>                <span class="kw">if </span><span class="self">self</span>.total_authed_packets &gt; <span class="number">1
-<a href=#4173 id=4173 data-nosnippet>4173</a>                            </span>|| packet.payload.len() &lt;= <span class="number">16 </span><span class="comment">// token + 16 byte tag
-<a href=#4174 id=4174 data-nosnippet>4174</a>                            </span>|| !is_valid_retry
-<a href=#4175 id=4175 data-nosnippet>4175</a>                {
-<a href=#4176 id=4176 data-nosnippet>4176</a>                    <span class="macro">trace!</span>(<span class="string">"discarding invalid Retry"</span>);
-<a href=#4177 id=4177 data-nosnippet>4177</a>                    <span class="comment">// - After the client has received and processed an Initial or Retry
-<a href=#4178 id=4178 data-nosnippet>4178</a>                    //   packet from the server, it MUST discard any subsequent Retry
-<a href=#4179 id=4179 data-nosnippet>4179</a>                    //   packets that it receives.
-<a href=#4180 id=4180 data-nosnippet>4180</a>                    // - A client MUST discard a Retry packet with a zero-length Retry Token
-<a href=#4181 id=4181 data-nosnippet>4181</a>                    //   field.
-<a href=#4182 id=4182 data-nosnippet>4182</a>                    // - Clients MUST discard Retry packets that have a Retry Integrity Tag
-<a href=#4183 id=4183 data-nosnippet>4183</a>                    //   that cannot be validated
-<a href=#4184 id=4184 data-nosnippet>4184</a>                    </span><span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#4185 id=4185 data-nosnippet>4185</a>                }
-<a href=#4186 id=4186 data-nosnippet>4186</a>
-<a href=#4187 id=4187 data-nosnippet>4187</a>                <span class="macro">trace!</span>(<span class="string">"retrying with CID {}"</span>, remote_cid);
-<a href=#4188 id=4188 data-nosnippet>4188</a>                <span class="kw">let </span>client_hello = state.client_hello.take().unwrap();
-<a href=#4189 id=4189 data-nosnippet>4189</a>                <span class="self">self</span>.retry_src_cid = <span class="prelude-val">Some</span>(remote_cid);
-<a href=#4190 id=4190 data-nosnippet>4190</a>                <span class="self">self</span>.remote_cids
-<a href=#4191 id=4191 data-nosnippet>4191</a>                    .get_mut(<span class="kw-2">&amp;</span>path_id)
-<a href=#4192 id=4192 data-nosnippet>4192</a>                    .expect(<span class="string">"PathId::ZERO not yet abandoned, is_valid_retry would have been false"</span>)
-<a href=#4193 id=4193 data-nosnippet>4193</a>                    .update_initial_cid(remote_cid);
-<a href=#4194 id=4194 data-nosnippet>4194</a>                <span class="self">self</span>.remote_handshake_cid = remote_cid;
-<a href=#4195 id=4195 data-nosnippet>4195</a>
-<a href=#4196 id=4196 data-nosnippet>4196</a>                <span class="kw">let </span>space = <span class="kw-2">&amp;mut </span><span class="self">self</span>.spaces[SpaceId::Initial];
-<a href=#4197 id=4197 data-nosnippet>4197</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(info) = space.for_path(PathId::ZERO).take(<span class="number">0</span>) {
-<a href=#4198 id=4198 data-nosnippet>4198</a>                    <span class="self">self</span>.on_packet_acked(now, PathId::ZERO, info);
-<a href=#4199 id=4199 data-nosnippet>4199</a>                };
-<a href=#4200 id=4200 data-nosnippet>4200</a>
-<a href=#4201 id=4201 data-nosnippet>4201</a>                <span class="self">self</span>.discard_space(now, SpaceId::Initial); <span class="comment">// Make sure we clean up after
-<a href=#4202 id=4202 data-nosnippet>4202</a>                // any retransmitted Initials
-<a href=#4203 id=4203 data-nosnippet>4203</a>                </span><span class="kw">let </span>next_pn = <span class="self">self</span>.spaces[SpaceId::Initial]
-<a href=#4204 id=4204 data-nosnippet>4204</a>                    .for_path(path_id)
-<a href=#4205 id=4205 data-nosnippet>4205</a>                    .next_packet_number;
-<a href=#4206 id=4206 data-nosnippet>4206</a>                <span class="self">self</span>.spaces[SpaceId::Initial] = {
-<a href=#4207 id=4207 data-nosnippet>4207</a>                    <span class="kw">let </span><span class="kw-2">mut </span>space = PacketSpace::new(now, SpaceId::Initial, <span class="kw-2">&amp;mut </span><span class="self">self</span>.rng);
-<a href=#4208 id=4208 data-nosnippet>4208</a>                    space.for_path(path_id).next_packet_number = next_pn;
-<a href=#4209 id=4209 data-nosnippet>4209</a>                    space.pending.crypto.push_back(frame::Crypto {
-<a href=#4210 id=4210 data-nosnippet>4210</a>                        offset: <span class="number">0</span>,
-<a href=#4211 id=4211 data-nosnippet>4211</a>                        data: client_hello.clone(),
-<a href=#4212 id=4212 data-nosnippet>4212</a>                    });
-<a href=#4213 id=4213 data-nosnippet>4213</a>                    space
-<a href=#4214 id=4214 data-nosnippet>4214</a>                };
-<a href=#4215 id=4215 data-nosnippet>4215</a>                <span class="self">self</span>.crypto_state.spaces[SpaceId::Initial <span class="kw">as </span>usize].keys = <span class="prelude-val">Some</span>(
-<a href=#4216 id=4216 data-nosnippet>4216</a>                    <span class="self">self</span>.crypto_state
-<a href=#4217 id=4217 data-nosnippet>4217</a>                        .session
-<a href=#4218 id=4218 data-nosnippet>4218</a>                        .initial_keys(remote_cid, <span class="self">self</span>.side.side()),
-<a href=#4219 id=4219 data-nosnippet>4219</a>                );
-<a href=#4220 id=4220 data-nosnippet>4220</a>                <span class="self">self</span>.crypto_state.spaces[SpaceId::Initial <span class="kw">as </span>usize].crypto_offset =
-<a href=#4221 id=4221 data-nosnippet>4221</a>                    client_hello.len() <span class="kw">as </span>u64;
+<a href=#3926 id=3926 data-nosnippet>3926</a>                    .unwrap();
+<a href=#3927 id=3927 data-nosnippet>3927</a>                <span class="kw">if </span><span class="self">self</span>.authentication_failures &gt; integrity_limit {
+<a href=#3928 id=3928 data-nosnippet>3928</a>                    <span class="prelude-val">Err</span>(TransportError::AEAD_LIMIT_REACHED(<span class="string">"integrity limit violated"</span>).into())
+<a href=#3929 id=3929 data-nosnippet>3929</a>                } <span class="kw">else </span>{
+<a href=#3930 id=3930 data-nosnippet>3930</a>                    <span class="kw">return</span>;
+<a href=#3931 id=3931 data-nosnippet>3931</a>                }
+<a href=#3932 id=3932 data-nosnippet>3932</a>            }
+<a href=#3933 id=3933 data-nosnippet>3933</a>            <span class="prelude-val">Ok</span>((packet, number)) =&gt; {
+<a href=#3934 id=3934 data-nosnippet>3934</a>                qlog.header(<span class="kw-2">&amp;</span>packet.header, number, path_id);
+<a href=#3935 id=3935 data-nosnippet>3935</a>                <span class="kw">let </span>span = <span class="kw">match </span>number {
+<a href=#3936 id=3936 data-nosnippet>3936</a>                    <span class="prelude-val">Some</span>(pn) =&gt; <span class="macro">trace_span!</span>(<span class="string">"recv"</span>, space = <span class="question-mark">?</span>packet.header.space(), pn),
+<a href=#3937 id=3937 data-nosnippet>3937</a>                    <span class="prelude-val">None </span>=&gt; <span class="macro">trace_span!</span>(<span class="string">"recv"</span>, space = <span class="question-mark">?</span>packet.header.space()),
+<a href=#3938 id=3938 data-nosnippet>3938</a>                };
+<a href=#3939 id=3939 data-nosnippet>3939</a>                <span class="kw">let </span>_guard = span.enter();
+<a href=#3940 id=3940 data-nosnippet>3940</a>
+<a href=#3941 id=3941 data-nosnippet>3941</a>                <span class="kw">let </span>dedup = <span class="self">self</span>.spaces[packet.header.space()]
+<a href=#3942 id=3942 data-nosnippet>3942</a>                    .path_space_mut(path_id)
+<a href=#3943 id=3943 data-nosnippet>3943</a>                    .map(|pns| <span class="kw-2">&amp;mut </span>pns.dedup);
+<a href=#3944 id=3944 data-nosnippet>3944</a>                <span class="kw">if </span>number.zip(dedup).is_some_and(|(n, d)| d.insert(n)) {
+<a href=#3945 id=3945 data-nosnippet>3945</a>                    <span class="macro">debug!</span>(<span class="string">"discarding possible duplicate packet"</span>);
+<a href=#3946 id=3946 data-nosnippet>3946</a>                    <span class="self">self</span>.qlog.emit_packet_received(qlog, now);
+<a href=#3947 id=3947 data-nosnippet>3947</a>                    <span class="kw">return</span>;
+<a href=#3948 id=3948 data-nosnippet>3948</a>                } <span class="kw">else if </span><span class="self">self</span>.state.is_handshake() &amp;&amp; packet.header.is_short() {
+<a href=#3949 id=3949 data-nosnippet>3949</a>                    <span class="comment">// TODO: SHOULD buffer these to improve reordering tolerance.
+<a href=#3950 id=3950 data-nosnippet>3950</a>                    </span><span class="macro">trace!</span>(<span class="string">"dropping short packet during handshake"</span>);
+<a href=#3951 id=3951 data-nosnippet>3951</a>                    <span class="self">self</span>.qlog.emit_packet_received(qlog, now);
+<a href=#3952 id=3952 data-nosnippet>3952</a>                    <span class="kw">return</span>;
+<a href=#3953 id=3953 data-nosnippet>3953</a>                } <span class="kw">else </span>{
+<a href=#3954 id=3954 data-nosnippet>3954</a>                    <span class="kw">if let </span>Header::Initial(InitialHeader { <span class="kw-2">ref </span>token, .. }) = packet.header
+<a href=#3955 id=3955 data-nosnippet>3955</a>                        &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(hs) = <span class="self">self</span>.state.as_handshake()
+<a href=#3956 id=3956 data-nosnippet>3956</a>                        &amp;&amp; <span class="self">self</span>.side.is_server()
+<a href=#3957 id=3957 data-nosnippet>3957</a>                        &amp;&amp; token != <span class="kw-2">&amp;</span>hs.expected_token
+<a href=#3958 id=3958 data-nosnippet>3958</a>                    {
+<a href=#3959 id=3959 data-nosnippet>3959</a>                        <span class="comment">// Clients must send the same retry token in every Initial. Initial
+<a href=#3960 id=3960 data-nosnippet>3960</a>                        // packets can be spoofed, so we discard rather than killing the
+<a href=#3961 id=3961 data-nosnippet>3961</a>                        // connection.
+<a href=#3962 id=3962 data-nosnippet>3962</a>                        </span><span class="macro">warn!</span>(<span class="string">"discarding Initial with invalid retry token"</span>);
+<a href=#3963 id=3963 data-nosnippet>3963</a>                        <span class="self">self</span>.qlog.emit_packet_received(qlog, now);
+<a href=#3964 id=3964 data-nosnippet>3964</a>                        <span class="kw">return</span>;
+<a href=#3965 id=3965 data-nosnippet>3965</a>                    }
+<a href=#3966 id=3966 data-nosnippet>3966</a>
+<a href=#3967 id=3967 data-nosnippet>3967</a>                    <span class="kw">if </span>!<span class="self">self</span>.state.is_closed() {
+<a href=#3968 id=3968 data-nosnippet>3968</a>                        <span class="kw">let </span>spin = <span class="kw">match </span>packet.header {
+<a href=#3969 id=3969 data-nosnippet>3969</a>                            Header::Short { spin, .. } =&gt; spin,
+<a href=#3970 id=3970 data-nosnippet>3970</a>                            <span class="kw">_ </span>=&gt; <span class="bool-val">false</span>,
+<a href=#3971 id=3971 data-nosnippet>3971</a>                        };
+<a href=#3972 id=3972 data-nosnippet>3972</a>
+<a href=#3973 id=3973 data-nosnippet>3973</a>                        <span class="kw">if </span><span class="self">self</span>.side().is_server() &amp;&amp; !<span class="self">self</span>.abandoned_paths.contains(<span class="kw-2">&amp;</span>path_id) {
+<a href=#3974 id=3974 data-nosnippet>3974</a>                            <span class="comment">// Only the client is allowed to open paths
+<a href=#3975 id=3975 data-nosnippet>3975</a>                            </span><span class="self">self</span>.ensure_path(path_id, network_path, now, number);
+<a href=#3976 id=3976 data-nosnippet>3976</a>                        }
+<a href=#3977 id=3977 data-nosnippet>3977</a>                        <span class="kw">if </span><span class="self">self</span>.paths.contains_key(<span class="kw-2">&amp;</span>path_id) {
+<a href=#3978 id=3978 data-nosnippet>3978</a>                            <span class="self">self</span>.on_packet_authenticated(
+<a href=#3979 id=3979 data-nosnippet>3979</a>                                now,
+<a href=#3980 id=3980 data-nosnippet>3980</a>                                packet.header.space(),
+<a href=#3981 id=3981 data-nosnippet>3981</a>                                path_id,
+<a href=#3982 id=3982 data-nosnippet>3982</a>                                ecn,
+<a href=#3983 id=3983 data-nosnippet>3983</a>                                number,
+<a href=#3984 id=3984 data-nosnippet>3984</a>                                spin,
+<a href=#3985 id=3985 data-nosnippet>3985</a>                                packet.header.is_1rtt(),
+<a href=#3986 id=3986 data-nosnippet>3986</a>                            );
+<a href=#3987 id=3987 data-nosnippet>3987</a>                        }
+<a href=#3988 id=3988 data-nosnippet>3988</a>                    }
+<a href=#3989 id=3989 data-nosnippet>3989</a>
+<a href=#3990 id=3990 data-nosnippet>3990</a>                    <span class="kw">let </span>res = <span class="self">self</span>.process_decrypted_packet(
+<a href=#3991 id=3991 data-nosnippet>3991</a>                        now,
+<a href=#3992 id=3992 data-nosnippet>3992</a>                        network_path,
+<a href=#3993 id=3993 data-nosnippet>3993</a>                        path_id,
+<a href=#3994 id=3994 data-nosnippet>3994</a>                        number,
+<a href=#3995 id=3995 data-nosnippet>3995</a>                        packet,
+<a href=#3996 id=3996 data-nosnippet>3996</a>                        <span class="kw-2">&amp;mut </span>qlog,
+<a href=#3997 id=3997 data-nosnippet>3997</a>                    );
+<a href=#3998 id=3998 data-nosnippet>3998</a>
+<a href=#3999 id=3999 data-nosnippet>3999</a>                    <span class="self">self</span>.qlog.emit_packet_received(qlog, now);
+<a href=#4000 id=4000 data-nosnippet>4000</a>                    res
+<a href=#4001 id=4001 data-nosnippet>4001</a>                }
+<a href=#4002 id=4002 data-nosnippet>4002</a>            }
+<a href=#4003 id=4003 data-nosnippet>4003</a>        };
+<a href=#4004 id=4004 data-nosnippet>4004</a>
+<a href=#4005 id=4005 data-nosnippet>4005</a>        <span class="comment">// State transitions for error cases
+<a href=#4006 id=4006 data-nosnippet>4006</a>        </span><span class="kw">if let </span><span class="prelude-val">Err</span>(conn_err) = result {
+<a href=#4007 id=4007 data-nosnippet>4007</a>            <span class="kw">match </span>conn_err {
+<a href=#4008 id=4008 data-nosnippet>4008</a>                ConnectionError::ApplicationClosed(reason) =&gt; <span class="self">self</span>.state.move_to_closed(reason),
+<a href=#4009 id=4009 data-nosnippet>4009</a>                ConnectionError::ConnectionClosed(reason) =&gt; <span class="self">self</span>.state.move_to_closed(reason),
+<a href=#4010 id=4010 data-nosnippet>4010</a>                ConnectionError::Reset
+<a href=#4011 id=4011 data-nosnippet>4011</a>                | ConnectionError::TransportError(TransportError {
+<a href=#4012 id=4012 data-nosnippet>4012</a>                    code: TransportErrorCode::AEAD_LIMIT_REACHED,
+<a href=#4013 id=4013 data-nosnippet>4013</a>                    ..
+<a href=#4014 id=4014 data-nosnippet>4014</a>                }) =&gt; {
+<a href=#4015 id=4015 data-nosnippet>4015</a>                    <span class="self">self</span>.state.move_to_drained(<span class="prelude-val">Some</span>(conn_err));
+<a href=#4016 id=4016 data-nosnippet>4016</a>                }
+<a href=#4017 id=4017 data-nosnippet>4017</a>                ConnectionError::TimedOut =&gt; {
+<a href=#4018 id=4018 data-nosnippet>4018</a>                    <span class="macro">unreachable!</span>(<span class="string">"timeouts aren't generated by packet processing"</span>);
+<a href=#4019 id=4019 data-nosnippet>4019</a>                }
+<a href=#4020 id=4020 data-nosnippet>4020</a>                ConnectionError::TransportError(err) =&gt; {
+<a href=#4021 id=4021 data-nosnippet>4021</a>                    <span class="macro">debug!</span>(<span class="string">"closing connection due to transport error: {}"</span>, err);
+<a href=#4022 id=4022 data-nosnippet>4022</a>                    <span class="self">self</span>.state.move_to_closed(err);
+<a href=#4023 id=4023 data-nosnippet>4023</a>                }
+<a href=#4024 id=4024 data-nosnippet>4024</a>                ConnectionError::VersionMismatch =&gt; {
+<a href=#4025 id=4025 data-nosnippet>4025</a>                    <span class="self">self</span>.state.move_to_draining(<span class="prelude-val">Some</span>(conn_err));
+<a href=#4026 id=4026 data-nosnippet>4026</a>                }
+<a href=#4027 id=4027 data-nosnippet>4027</a>                ConnectionError::LocallyClosed =&gt; {
+<a href=#4028 id=4028 data-nosnippet>4028</a>                    <span class="macro">unreachable!</span>(<span class="string">"LocallyClosed isn't generated by packet processing"</span>);
+<a href=#4029 id=4029 data-nosnippet>4029</a>                }
+<a href=#4030 id=4030 data-nosnippet>4030</a>                ConnectionError::CidsExhausted =&gt; {
+<a href=#4031 id=4031 data-nosnippet>4031</a>                    <span class="macro">unreachable!</span>(<span class="string">"CidsExhausted isn't generated by packet processing"</span>);
+<a href=#4032 id=4032 data-nosnippet>4032</a>                }
+<a href=#4033 id=4033 data-nosnippet>4033</a>            };
+<a href=#4034 id=4034 data-nosnippet>4034</a>        }
+<a href=#4035 id=4035 data-nosnippet>4035</a>
+<a href=#4036 id=4036 data-nosnippet>4036</a>        <span class="kw">if </span>!was_closed &amp;&amp; <span class="self">self</span>.state.is_closed() {
+<a href=#4037 id=4037 data-nosnippet>4037</a>            <span class="self">self</span>.close_common();
+<a href=#4038 id=4038 data-nosnippet>4038</a>            <span class="kw">if </span>!<span class="self">self</span>.state.is_drained() {
+<a href=#4039 id=4039 data-nosnippet>4039</a>                <span class="self">self</span>.set_close_timer(now);
+<a href=#4040 id=4040 data-nosnippet>4040</a>            }
+<a href=#4041 id=4041 data-nosnippet>4041</a>        }
+<a href=#4042 id=4042 data-nosnippet>4042</a>        <span class="kw">if </span>!was_drained &amp;&amp; <span class="self">self</span>.state.is_drained() {
+<a href=#4043 id=4043 data-nosnippet>4043</a>            <span class="self">self</span>.endpoint_events.push_back(EndpointEventInner::Drained);
+<a href=#4044 id=4044 data-nosnippet>4044</a>            <span class="comment">// Close timer may have been started previously, e.g. if we sent a close and got a
+<a href=#4045 id=4045 data-nosnippet>4045</a>            // stateless reset in response
+<a href=#4046 id=4046 data-nosnippet>4046</a>            </span><span class="self">self</span>.timers
+<a href=#4047 id=4047 data-nosnippet>4047</a>                .stop(Timer::Conn(ConnTimer::Close), <span class="self">self</span>.qlog.with_time(now));
+<a href=#4048 id=4048 data-nosnippet>4048</a>        }
+<a href=#4049 id=4049 data-nosnippet>4049</a>
+<a href=#4050 id=4050 data-nosnippet>4050</a>        <span class="comment">// Transmit CONNECTION_CLOSE if necessary.
+<a href=#4051 id=4051 data-nosnippet>4051</a>        //
+<a href=#4052 id=4052 data-nosnippet>4052</a>        // If we received a valid packet and we are in the closed state we should respond
+<a href=#4053 id=4053 data-nosnippet>4053</a>        // with a CONNECTION_CLOSE frame.
+<a href=#4054 id=4054 data-nosnippet>4054</a>        // TODO: This SHOULD be rate-limited according to §10.2.1 of QUIC-TRANSPORT, but
+<a href=#4055 id=4055 data-nosnippet>4055</a>        //    that does not yet happen. This is triggered by each received packet.
+<a href=#4056 id=4056 data-nosnippet>4056</a>        </span><span class="kw">if </span><span class="macro">matches!</span>(<span class="self">self</span>.state.as_type(), StateType::Closed) {
+<a href=#4057 id=4057 data-nosnippet>4057</a>            <span class="comment">// From https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2.1-7
+<a href=#4058 id=4058 data-nosnippet>4058</a>            //
+<a href=#4059 id=4059 data-nosnippet>4059</a>            // While in the closing state we must either:
+<a href=#4060 id=4060 data-nosnippet>4060</a>            // - discard packets coming from an un-validated remote OR
+<a href=#4061 id=4061 data-nosnippet>4061</a>            // - ensure we do not send more than 3 times the received data
+<a href=#4062 id=4062 data-nosnippet>4062</a>            //
+<a href=#4063 id=4063 data-nosnippet>4063</a>            // Doing the 2nd would mean we would be able to send CONNECTION_CLOSE to a peer
+<a href=#4064 id=4064 data-nosnippet>4064</a>            // who was (involuntary) migrated just at the time we initiated immediate
+<a href=#4065 id=4065 data-nosnippet>4065</a>            // close. It is a lot more work though. So while we would like to do this for
+<a href=#4066 id=4066 data-nosnippet>4066</a>            // now we only do 1.
+<a href=#4067 id=4067 data-nosnippet>4067</a>            //
+<a href=#4068 id=4068 data-nosnippet>4068</a>            // Another shortcoming of the current implementation is that when we have a
+<a href=#4069 id=4069 data-nosnippet>4069</a>            // previous PathData which is validated and the remote matches that path, we
+<a href=#4070 id=4070 data-nosnippet>4070</a>            // should schedule CONNECTION_CLOSE on that path. However currently we can not
+<a href=#4071 id=4071 data-nosnippet>4071</a>            // schedule such a packet. We should also fix this some day. This makes us
+<a href=#4072 id=4072 data-nosnippet>4072</a>            // vulnerable to an attacker faking a migration at the right time and then we'd
+<a href=#4073 id=4073 data-nosnippet>4073</a>            // be unable to send the CONNECTION_CLOSE to the real remote.
+<a href=#4074 id=4074 data-nosnippet>4074</a>            </span><span class="kw">if </span><span class="self">self
+<a href=#4075 id=4075 data-nosnippet>4075</a>                </span>.paths
+<a href=#4076 id=4076 data-nosnippet>4076</a>                .get(<span class="kw-2">&amp;</span>path_id)
+<a href=#4077 id=4077 data-nosnippet>4077</a>                .map(|p| p.data.validated &amp;&amp; p.data.network_path == network_path)
+<a href=#4078 id=4078 data-nosnippet>4078</a>                .unwrap_or(<span class="bool-val">false</span>)
+<a href=#4079 id=4079 data-nosnippet>4079</a>            {
+<a href=#4080 id=4080 data-nosnippet>4080</a>                <span class="self">self</span>.connection_close_pending = <span class="bool-val">true</span>;
+<a href=#4081 id=4081 data-nosnippet>4081</a>            }
+<a href=#4082 id=4082 data-nosnippet>4082</a>        }
+<a href=#4083 id=4083 data-nosnippet>4083</a>    }
+<a href=#4084 id=4084 data-nosnippet>4084</a>
+<a href=#4085 id=4085 data-nosnippet>4085</a>    <span class="kw">fn </span>process_decrypted_packet(
+<a href=#4086 id=4086 data-nosnippet>4086</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#4087 id=4087 data-nosnippet>4087</a>        now: Instant,
+<a href=#4088 id=4088 data-nosnippet>4088</a>        network_path: FourTuple,
+<a href=#4089 id=4089 data-nosnippet>4089</a>        path_id: PathId,
+<a href=#4090 id=4090 data-nosnippet>4090</a>        number: <span class="prelude-ty">Option</span>&lt;u64&gt;,
+<a href=#4091 id=4091 data-nosnippet>4091</a>        packet: Packet,
+<a href=#4092 id=4092 data-nosnippet>4092</a>        qlog: <span class="kw-2">&amp;mut </span>QlogRecvPacket,
+<a href=#4093 id=4093 data-nosnippet>4093</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), ConnectionError&gt; {
+<a href=#4094 id=4094 data-nosnippet>4094</a>        <span class="kw">if </span>!<span class="self">self</span>.paths.contains_key(<span class="kw-2">&amp;</span>path_id) {
+<a href=#4095 id=4095 data-nosnippet>4095</a>            <span class="comment">// There is a chance this is a server side, first (for this path) packet, which would
+<a href=#4096 id=4096 data-nosnippet>4096</a>            // be a protocol violation. It's more likely, however, that this is a packet of a
+<a href=#4097 id=4097 data-nosnippet>4097</a>            // pruned path
+<a href=#4098 id=4098 data-nosnippet>4098</a>            </span><span class="macro">trace!</span>(%path_id, <span class="question-mark">?</span>number, <span class="string">"discarding packet for unknown path"</span>);
+<a href=#4099 id=4099 data-nosnippet>4099</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#4100 id=4100 data-nosnippet>4100</a>        }
+<a href=#4101 id=4101 data-nosnippet>4101</a>        <span class="kw">let </span>state = <span class="kw">match </span><span class="self">self</span>.state.as_type() {
+<a href=#4102 id=4102 data-nosnippet>4102</a>            StateType::Established =&gt; {
+<a href=#4103 id=4103 data-nosnippet>4103</a>                <span class="kw">match </span>packet.header.space() {
+<a href=#4104 id=4104 data-nosnippet>4104</a>                    SpaceId::Data =&gt; <span class="self">self</span>.process_payload(
+<a href=#4105 id=4105 data-nosnippet>4105</a>                        now,
+<a href=#4106 id=4106 data-nosnippet>4106</a>                        network_path,
+<a href=#4107 id=4107 data-nosnippet>4107</a>                        path_id,
+<a href=#4108 id=4108 data-nosnippet>4108</a>                        number.unwrap(),
+<a href=#4109 id=4109 data-nosnippet>4109</a>                        packet,
+<a href=#4110 id=4110 data-nosnippet>4110</a>                        qlog,
+<a href=#4111 id=4111 data-nosnippet>4111</a>                    )<span class="question-mark">?</span>,
+<a href=#4112 id=4112 data-nosnippet>4112</a>                    <span class="kw">_ if </span>packet.header.has_frames() =&gt; {
+<a href=#4113 id=4113 data-nosnippet>4113</a>                        <span class="self">self</span>.process_early_payload(now, path_id, packet, qlog)<span class="question-mark">?
+<a href=#4114 id=4114 data-nosnippet>4114</a>                    </span>}
+<a href=#4115 id=4115 data-nosnippet>4115</a>                    <span class="kw">_ </span>=&gt; {
+<a href=#4116 id=4116 data-nosnippet>4116</a>                        <span class="macro">trace!</span>(<span class="string">"discarding unexpected pre-handshake packet"</span>);
+<a href=#4117 id=4117 data-nosnippet>4117</a>                    }
+<a href=#4118 id=4118 data-nosnippet>4118</a>                }
+<a href=#4119 id=4119 data-nosnippet>4119</a>                <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#4120 id=4120 data-nosnippet>4120</a>            }
+<a href=#4121 id=4121 data-nosnippet>4121</a>            StateType::Closed =&gt; {
+<a href=#4122 id=4122 data-nosnippet>4122</a>                <span class="kw">for </span>result <span class="kw">in </span>frame::Iter::new(packet.payload.freeze())<span class="question-mark">? </span>{
+<a href=#4123 id=4123 data-nosnippet>4123</a>                    <span class="kw">let </span>frame = <span class="kw">match </span>result {
+<a href=#4124 id=4124 data-nosnippet>4124</a>                        <span class="prelude-val">Ok</span>(frame) =&gt; frame,
+<a href=#4125 id=4125 data-nosnippet>4125</a>                        <span class="prelude-val">Err</span>(err) =&gt; {
+<a href=#4126 id=4126 data-nosnippet>4126</a>                            <span class="macro">debug!</span>(<span class="string">"frame decoding error: {err:?}"</span>);
+<a href=#4127 id=4127 data-nosnippet>4127</a>                            <span class="kw">continue</span>;
+<a href=#4128 id=4128 data-nosnippet>4128</a>                        }
+<a href=#4129 id=4129 data-nosnippet>4129</a>                    };
+<a href=#4130 id=4130 data-nosnippet>4130</a>                    qlog.frame(<span class="kw-2">&amp;</span>frame);
+<a href=#4131 id=4131 data-nosnippet>4131</a>
+<a href=#4132 id=4132 data-nosnippet>4132</a>                    <span class="kw">if let </span>Frame::Padding = frame {
+<a href=#4133 id=4133 data-nosnippet>4133</a>                        <span class="kw">continue</span>;
+<a href=#4134 id=4134 data-nosnippet>4134</a>                    };
+<a href=#4135 id=4135 data-nosnippet>4135</a>
+<a href=#4136 id=4136 data-nosnippet>4136</a>                    <span class="self">self</span>.stats.frame_rx.record(frame.ty());
+<a href=#4137 id=4137 data-nosnippet>4137</a>
+<a href=#4138 id=4138 data-nosnippet>4138</a>                    <span class="kw">if let </span>Frame::Close(_error) = frame {
+<a href=#4139 id=4139 data-nosnippet>4139</a>                        <span class="self">self</span>.state.move_to_draining(<span class="prelude-val">None</span>);
+<a href=#4140 id=4140 data-nosnippet>4140</a>                        <span class="kw">break</span>;
+<a href=#4141 id=4141 data-nosnippet>4141</a>                    }
+<a href=#4142 id=4142 data-nosnippet>4142</a>                }
+<a href=#4143 id=4143 data-nosnippet>4143</a>                <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#4144 id=4144 data-nosnippet>4144</a>            }
+<a href=#4145 id=4145 data-nosnippet>4145</a>            StateType::Draining | StateType::Drained =&gt; <span class="kw">return </span><span class="prelude-val">Ok</span>(()),
+<a href=#4146 id=4146 data-nosnippet>4146</a>            StateType::Handshake =&gt; <span class="self">self</span>.state.as_handshake_mut().expect(<span class="string">"checked"</span>),
+<a href=#4147 id=4147 data-nosnippet>4147</a>        };
+<a href=#4148 id=4148 data-nosnippet>4148</a>
+<a href=#4149 id=4149 data-nosnippet>4149</a>        <span class="kw">match </span>packet.header {
+<a href=#4150 id=4150 data-nosnippet>4150</a>            Header::Retry {
+<a href=#4151 id=4151 data-nosnippet>4151</a>                src_cid: remote_cid,
+<a href=#4152 id=4152 data-nosnippet>4152</a>                ..
+<a href=#4153 id=4153 data-nosnippet>4153</a>            } =&gt; {
+<a href=#4154 id=4154 data-nosnippet>4154</a>                <span class="macro">debug_assert_eq!</span>(path_id, PathId::ZERO);
+<a href=#4155 id=4155 data-nosnippet>4155</a>                <span class="kw">if </span><span class="self">self</span>.side.is_server() {
+<a href=#4156 id=4156 data-nosnippet>4156</a>                    <span class="kw">return </span><span class="prelude-val">Err</span>(TransportError::PROTOCOL_VIOLATION(<span class="string">"client sent Retry"</span>).into());
+<a href=#4157 id=4157 data-nosnippet>4157</a>                }
+<a href=#4158 id=4158 data-nosnippet>4158</a>
+<a href=#4159 id=4159 data-nosnippet>4159</a>                <span class="kw">let </span>is_valid_retry = <span class="self">self
+<a href=#4160 id=4160 data-nosnippet>4160</a>                    </span>.remote_cids
+<a href=#4161 id=4161 data-nosnippet>4161</a>                    .get(<span class="kw-2">&amp;</span>path_id)
+<a href=#4162 id=4162 data-nosnippet>4162</a>                    .map(|cids| cids.active())
+<a href=#4163 id=4163 data-nosnippet>4163</a>                    .map(|orig_dst_cid| {
+<a href=#4164 id=4164 data-nosnippet>4164</a>                        <span class="self">self</span>.crypto_state.session.is_valid_retry(
+<a href=#4165 id=4165 data-nosnippet>4165</a>                            orig_dst_cid,
+<a href=#4166 id=4166 data-nosnippet>4166</a>                            <span class="kw-2">&amp;</span>packet.header_data,
+<a href=#4167 id=4167 data-nosnippet>4167</a>                            <span class="kw-2">&amp;</span>packet.payload,
+<a href=#4168 id=4168 data-nosnippet>4168</a>                        )
+<a href=#4169 id=4169 data-nosnippet>4169</a>                    })
+<a href=#4170 id=4170 data-nosnippet>4170</a>                    .unwrap_or_default();
+<a href=#4171 id=4171 data-nosnippet>4171</a>                <span class="kw">if </span><span class="self">self</span>.total_authed_packets &gt; <span class="number">1
+<a href=#4172 id=4172 data-nosnippet>4172</a>                            </span>|| packet.payload.len() &lt;= <span class="number">16 </span><span class="comment">// token + 16 byte tag
+<a href=#4173 id=4173 data-nosnippet>4173</a>                            </span>|| !is_valid_retry
+<a href=#4174 id=4174 data-nosnippet>4174</a>                {
+<a href=#4175 id=4175 data-nosnippet>4175</a>                    <span class="macro">trace!</span>(<span class="string">"discarding invalid Retry"</span>);
+<a href=#4176 id=4176 data-nosnippet>4176</a>                    <span class="comment">// - After the client has received and processed an Initial or Retry
+<a href=#4177 id=4177 data-nosnippet>4177</a>                    //   packet from the server, it MUST discard any subsequent Retry
+<a href=#4178 id=4178 data-nosnippet>4178</a>                    //   packets that it receives.
+<a href=#4179 id=4179 data-nosnippet>4179</a>                    // - A client MUST discard a Retry packet with a zero-length Retry Token
+<a href=#4180 id=4180 data-nosnippet>4180</a>                    //   field.
+<a href=#4181 id=4181 data-nosnippet>4181</a>                    // - Clients MUST discard Retry packets that have a Retry Integrity Tag
+<a href=#4182 id=4182 data-nosnippet>4182</a>                    //   that cannot be validated
+<a href=#4183 id=4183 data-nosnippet>4183</a>                    </span><span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#4184 id=4184 data-nosnippet>4184</a>                }
+<a href=#4185 id=4185 data-nosnippet>4185</a>
+<a href=#4186 id=4186 data-nosnippet>4186</a>                <span class="macro">trace!</span>(<span class="string">"retrying with CID {}"</span>, remote_cid);
+<a href=#4187 id=4187 data-nosnippet>4187</a>                <span class="kw">let </span>client_hello = state.client_hello.take().unwrap();
+<a href=#4188 id=4188 data-nosnippet>4188</a>                <span class="self">self</span>.retry_src_cid = <span class="prelude-val">Some</span>(remote_cid);
+<a href=#4189 id=4189 data-nosnippet>4189</a>                <span class="self">self</span>.remote_cids
+<a href=#4190 id=4190 data-nosnippet>4190</a>                    .get_mut(<span class="kw-2">&amp;</span>path_id)
+<a href=#4191 id=4191 data-nosnippet>4191</a>                    .expect(<span class="string">"PathId::ZERO not yet abandoned, is_valid_retry would have been false"</span>)
+<a href=#4192 id=4192 data-nosnippet>4192</a>                    .update_initial_cid(remote_cid);
+<a href=#4193 id=4193 data-nosnippet>4193</a>                <span class="self">self</span>.remote_handshake_cid = remote_cid;
+<a href=#4194 id=4194 data-nosnippet>4194</a>
+<a href=#4195 id=4195 data-nosnippet>4195</a>                <span class="kw">let </span>space = <span class="kw-2">&amp;mut </span><span class="self">self</span>.spaces[SpaceId::Initial];
+<a href=#4196 id=4196 data-nosnippet>4196</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(info) = space.for_path(PathId::ZERO).take(<span class="number">0</span>) {
+<a href=#4197 id=4197 data-nosnippet>4197</a>                    <span class="self">self</span>.on_packet_acked(now, PathId::ZERO, info);
+<a href=#4198 id=4198 data-nosnippet>4198</a>                };
+<a href=#4199 id=4199 data-nosnippet>4199</a>
+<a href=#4200 id=4200 data-nosnippet>4200</a>                <span class="self">self</span>.discard_space(now, SpaceId::Initial); <span class="comment">// Make sure we clean up after
+<a href=#4201 id=4201 data-nosnippet>4201</a>                // any retransmitted Initials
+<a href=#4202 id=4202 data-nosnippet>4202</a>                </span><span class="kw">let </span>crypto_space = <span class="kw-2">&amp;mut </span><span class="self">self</span>.crypto_state.spaces[SpaceKind::Initial];
+<a href=#4203 id=4203 data-nosnippet>4203</a>                crypto_space.keys = <span class="prelude-val">Some</span>(
+<a href=#4204 id=4204 data-nosnippet>4204</a>                    <span class="self">self</span>.crypto_state
+<a href=#4205 id=4205 data-nosnippet>4205</a>                        .session
+<a href=#4206 id=4206 data-nosnippet>4206</a>                        .initial_keys(remote_cid, <span class="self">self</span>.side.side()),
+<a href=#4207 id=4207 data-nosnippet>4207</a>                );
+<a href=#4208 id=4208 data-nosnippet>4208</a>                crypto_space.crypto_offset = client_hello.len() <span class="kw">as </span>u64;
+<a href=#4209 id=4209 data-nosnippet>4209</a>
+<a href=#4210 id=4210 data-nosnippet>4210</a>                <span class="kw">let </span>next_pn = <span class="self">self</span>.spaces[SpaceId::Initial]
+<a href=#4211 id=4211 data-nosnippet>4211</a>                    .for_path(path_id)
+<a href=#4212 id=4212 data-nosnippet>4212</a>                    .next_packet_number;
+<a href=#4213 id=4213 data-nosnippet>4213</a>                <span class="self">self</span>.spaces[SpaceId::Initial] = {
+<a href=#4214 id=4214 data-nosnippet>4214</a>                    <span class="kw">let </span><span class="kw-2">mut </span>space = PacketSpace::new(now, SpaceId::Initial, <span class="kw-2">&amp;mut </span><span class="self">self</span>.rng);
+<a href=#4215 id=4215 data-nosnippet>4215</a>                    space.for_path(path_id).next_packet_number = next_pn;
+<a href=#4216 id=4216 data-nosnippet>4216</a>                    space.pending.crypto.push_back(frame::Crypto {
+<a href=#4217 id=4217 data-nosnippet>4217</a>                        offset: <span class="number">0</span>,
+<a href=#4218 id=4218 data-nosnippet>4218</a>                        data: client_hello,
+<a href=#4219 id=4219 data-nosnippet>4219</a>                    });
+<a href=#4220 id=4220 data-nosnippet>4220</a>                    space
+<a href=#4221 id=4221 data-nosnippet>4221</a>                };
 <a href=#4222 id=4222 data-nosnippet>4222</a>
 <a href=#4223 id=4223 data-nosnippet>4223</a>                <span class="comment">// Retransmit all 0-RTT data
 <a href=#4224 id=4224 data-nosnippet>4224</a>                </span><span class="kw">let </span>zero_rtt = mem::take(
@@ -4476,7 +4476,7 @@
 <a href=#4476 id=4476 data-nosnippet>4476</a>
 <a href=#4477 id=4477 data-nosnippet>4477</a>        <span class="kw">if </span>ack_eliciting {
 <a href=#4478 id=4478 data-nosnippet>4478</a>            <span class="comment">// In the initial and handshake spaces, ACKs must be sent immediately
-<a href=#4479 id=4479 data-nosnippet>4479</a>            </span><span class="self">self</span>.spaces[packet.header.space() <span class="kw">as </span>usize]
+<a href=#4479 id=4479 data-nosnippet>4479</a>            </span><span class="self">self</span>.spaces[packet.header.space()]
 <a href=#4480 id=4480 data-nosnippet>4480</a>                .for_path(path_id)
 <a href=#4481 id=4481 data-nosnippet>4481</a>                .pending_acks
 <a href=#4482 id=4482 data-nosnippet>4482</a>                .set_immediate_ack_required();
