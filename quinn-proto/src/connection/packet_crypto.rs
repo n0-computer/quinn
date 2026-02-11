@@ -384,6 +384,8 @@ pub(super) struct CryptoSpace {
     pub(super) crypto_stream: Assembler,
     /// Current offset of outgoing cryptographic handshake stream.
     pub(super) crypto_offset: u64,
+    /// Number of packets encrypted with the current set of keys.
+    pub(super) sent_with_keys: u64,
 }
 
 /// QUIC packet protection levels (RFC 9001).

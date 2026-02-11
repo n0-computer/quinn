@@ -6324,9 +6324,6 @@ impl Connection {
     fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) {
         trace!("executing key update");
         self.crypto_state.update_keys(end_packet, remote);
-        self.spaces[SpaceId::Data]
-            .iter_paths_mut()
-            .for_each(|s| s.sent_with_keys = 0);
     }
 
     fn peer_supports_ack_frequency(&self) -> bool {

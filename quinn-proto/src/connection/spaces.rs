@@ -163,13 +163,6 @@ impl PacketSpace {
             path_exclusive,
         }
     }
-
-    /// The number of packets sent with the current crypto keys
-    ///
-    /// Used to know if a key update is needed.
-    pub(super) fn sent_with_keys(&self) -> u64 {
-        self.number_spaces.values().map(|s| s.sent_with_keys).sum()
-    }
 }
 
 impl Index<SpaceId> for [PacketSpace; 3] {
@@ -217,8 +210,6 @@ pub(super) struct PacketNumberSpace {
     /// distinguishing between ECN bleaching and counts having been updated by a near-simultaneous
     /// ACK already processed in another space.
     pub(super) ecn_feedback: frame::EcnCounts,
-    /// Number of packets sent in the current key phase
-    pub(super) sent_with_keys: u64,
     /// A PING frame needs to be sent on this path
     pub(super) ping_pending: bool,
     /// An IMMEDIATE_ACK (draft-ietf-quic-ack-frequency) frame needs to be sent on this path
@@ -263,7 +254,6 @@ impl PacketNumberSpace {
             lost_packets: SortedIndexBuffer::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
-            sent_with_keys: 0,
             ping_pending: false,
             immediate_ack_pending: false,
             dedup: Default::default(),
@@ -292,7 +282,6 @@ impl PacketNumberSpace {
             lost_packets: SortedIndexBuffer::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
-            sent_with_keys: 0,
             ping_pending: false,
             immediate_ack_pending: false,
             dedup: Default::default(),
@@ -313,7 +302,6 @@ impl PacketNumberSpace {
         assert!(self.next_packet_number < 2u64.pow(62));
         let mut pn = self.next_packet_number;
         self.next_packet_number += 1;
-        self.sent_with_keys += 1;
 
         // Skip this number if the filter says so, only enabled in the data space
         if let Some(ref mut filter) = self.pn_filter
@@ -321,7 +309,6 @@ impl PacketNumberSpace {
         {
             pn = self.next_packet_number;
             self.next_packet_number += 1;
-            self.sent_with_keys += 1;
         }
         pn
     }

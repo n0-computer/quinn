@@ -58,7 +58,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
 
         let version = conn.version;
         // Initiate key update if we're approaching the confidentiality limit
-        let sent_with_keys = conn.spaces[space_id].sent_with_keys();
+        let sent_with_keys = conn.crypto_state.spaces[space_id.kind()].sent_with_keys;
         if space_id == SpaceId::Data {
             if sent_with_keys >= conn.crypto_state.key_phase_size {
                 debug!("routine key update due to phase exhaustion");
