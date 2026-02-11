@@ -2425,7 +2425,7 @@ impl Connection {
 
     /// Get a session reference
     pub fn crypto_session(&self) -> &dyn crypto::Session {
-        &*self.crypto_state.session
+        self.crypto_state.session.as_ref()
     }
 
     /// Whether the connection is in the process of being established
@@ -3923,8 +3923,7 @@ impl Connection {
                 let integrity_limit = self
                     .crypto_state
                     .integrity_limit(self.highest_space.kind())
-                    .expect("supposedly verified");
-                // TODO(@divma): wut wut
+                    .unwrap();
                 if self.authentication_failures > integrity_limit {
                     Err(TransportError::AEAD_LIMIT_REACHED("integrity limit violated").into())
                 } else {
@@ -4200,6 +4199,14 @@ impl Connection {
 
                 self.discard_space(now, SpaceId::Initial); // Make sure we clean up after
                 // any retransmitted Initials
+                let crypto_space = &mut self.crypto_state.spaces[SpaceKind::Initial];
+                crypto_space.keys = Some(
+                    self.crypto_state
+                        .session
+                        .initial_keys(remote_cid, self.side.side()),
+                );
+                crypto_space.crypto_offset = client_hello.len() as u64;
+
                 let next_pn = self.spaces[SpaceId::Initial]
                     .for_path(path_id)
                     .next_packet_number;
@@ -4208,17 +4215,10 @@ impl Connection {
                     space.for_path(path_id).next_packet_number = next_pn;
                     space.pending.crypto.push_back(frame::Crypto {
                         offset: 0,
-                        data: client_hello.clone(),
+                        data: client_hello,
                     });
                     space
                 };
-                self.crypto_state.spaces[SpaceId::Initial as usize].keys = Some(
-                    self.crypto_state
-                        .session
-                        .initial_keys(remote_cid, self.side.side()),
-                );
-                self.crypto_state.spaces[SpaceId::Initial as usize].crypto_offset =
-                    client_hello.len() as u64;
 
                 // Retransmit all 0-RTT data
                 let zero_rtt = mem::take(
@@ -4476,7 +4476,7 @@ impl Connection {
 
         if ack_eliciting {
             // In the initial and handshake spaces, ACKs must be sent immediately
-            self.spaces[packet.header.space() as usize]
+            self.spaces[packet.header.space()]
                 .for_path(path_id)
                 .pending_acks
                 .set_immediate_ack_required();
