@@ -27,7 +27,7 @@ use bytes::{Bytes, BytesMut};
 use pin_project_lite::pin_project;
 use proto::{
     self as proto, ClientConfig, ConnectError, ConnectionError, ConnectionHandle, DatagramEvent,
-    EndpointEvent, FourTuple, ServerConfig,
+    EndpointEvent, FourTuple, NetworkChangeHint, ServerConfig,
 };
 use rustc_hash::FxHashMap;
 #[cfg(all(
@@ -277,6 +277,31 @@ impl Endpoint {
         }
 
         Ok(())
+    }
+
+    /// Notify connections that the local network address has changed.
+    ///
+    /// This informs all active connections that the local address may have changed (e.g., due to a
+    /// network interface change), triggering liveness checks and recovery procedures on each
+    /// connection without requiring a socket rebind.
+    ///
+    /// Unlike [`Self::rebind`], this does not change the underlying socket. Use this when the
+    /// network topology changes but the socket remains valid (e.g., if bound to the unspecified
+    /// address and switching from WiFi to cellular, or when the local IP address changes).
+    ///
+    /// The optional `hint` allows callers to indicate which paths may still be recoverable after
+    /// the network change. If `None`, all paths are assumed to be non-recoverable. For client-side
+    /// multipath connections, unrecoverable paths will be closed and replaced with new paths to
+    /// the same remote addresses.
+    pub fn handle_network_change(&self, hint: Option<Arc<dyn NetworkChangeHint + Sync + Send>>) {
+        let mut inner = self.inner.state.lock().unwrap();
+        for sender in inner.recv_state.connections.senders.values() {
+            // Ignoring errors from dropped connections
+            let _ = sender.send(ConnectionEvent::LocalAddressChanged(hint.clone()));
+        }
+        if let Some(driver) = inner.driver.take() {
+            driver.wake();
+        }
     }
 
     /// Replace the server configuration, affecting new incoming connections only

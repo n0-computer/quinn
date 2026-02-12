@@ -101,7 +101,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: test on Illumos
-        uses: vmactions/omnios-vm@v1
+        # pinned: v1 tag moves and builder v2.0.3+ ships a VM with broken DNS
+        uses: vmactions/omnios-vm@4f4fcbf0847b079a6e0eafe6ff06b3d15510f0b0
         with:
           usesh: true
           mem: 4096
