@@ -5,7 +5,6 @@ use std::{
     net::{IpAddr, SocketAddr},
 };
 
-use identity_hash::IntMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::trace;
 
@@ -304,10 +303,6 @@ pub(crate) struct ServerState {
     round: VarInt,
     /// Addresses to which PATH_CHALLENGES need to be sent.
     pending_probes: FxHashSet<IpPort>,
-    /// Sent PATH_CHALLENGES for this round.
-    ///
-    /// This is used to validate the remotes assigned to each token.
-    active_probes: IntMap<u64, IpPort>,
 }
 
 impl ServerState {
@@ -319,7 +314,6 @@ impl ServerState {
             next_local_addr_id: Default::default(),
             round: Default::default(),
             pending_probes: Default::default(),
-            active_probes: Default::default(),
         }
     }
 
@@ -364,12 +358,6 @@ impl ServerState {
         if round > self.round {
             self.round = round;
             self.pending_probes.clear();
-            // TODO(@divma): This log is here because I'm not sure if dropping the challenges
-            // without further interaction with the connection is going to cause issues.
-            for (token, remote) in self.active_probes.drain() {
-                let remote: SocketAddr = remote.into();
-                trace!(token=format!("{:08x}", token), %remote, "dropping nat traversal challenge pending response");
-            }
         } else if self.pending_probes.len() >= self.max_remote_addresses {
             return Err(Error::TooManyAddresses);
         }
@@ -385,7 +373,6 @@ impl ServerState {
             .map(|remote| ServerProbing {
                 remote,
                 pending_probes: &mut self.pending_probes,
-                active_probes: &mut self.active_probes,
             })
     }
 }
@@ -393,13 +380,11 @@ impl ServerState {
 pub(crate) struct ServerProbing<'a> {
     remote: IpPort,
     pending_probes: &'a mut FxHashSet<IpPort>,
-    active_probes: &'a mut IntMap<u64, IpPort>,
 }
 
 impl<'a> ServerProbing<'a> {
-    pub(crate) fn finish(self, token: u64) {
+    pub(crate) fn mark_as_sent(self) {
         self.pending_probes.remove(&self.remote);
-        self.active_probes.insert(token, self.remote);
     }
 
     pub(crate) fn remote(&self) -> SocketAddr {
@@ -555,16 +540,14 @@ mod tests {
 
         dbg!(&state);
         assert_eq!(state.pending_probes.len(), 2);
-        assert_eq!(state.active_probes.len(), 0);
 
         let probe = state.next_probe().unwrap();
-        probe.finish(1);
+        probe.mark_as_sent();
         let probe = state.next_probe().unwrap();
-        probe.finish(2);
+        probe.mark_as_sent();
 
         assert!(state.next_probe().is_none());
         assert_eq!(state.pending_probes.len(), 0);
-        assert_eq!(state.active_probes.len(), 2);
     }
 
     #[test]

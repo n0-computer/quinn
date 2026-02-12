@@ -35,6 +35,9 @@ pub(crate) struct CidQueue {
     ///
     /// When [`Self::cursor_reserved`] and [`Self::cursor`] are equal, no CID is considered
     /// reserved.
+    ///
+    /// The reserved CIDs section of the buffer, if non-empty will always be ahead of the active
+    /// CID.
     cursor_reserved: usize,
 }
 
@@ -132,6 +135,14 @@ impl CidQueue {
         Some(cid_data.0)
     }
 
+    /// Returns the number of unused CIDs (neither active nor reserved).
+    pub(crate) fn remaining(&self) -> usize {
+        self.iter_from_reserved()
+            .count()
+            .checked_sub(1)
+            .expect("iterator is non empty")
+    }
+
     /// Iterate CIDs in CidQueue that are not `None`, including the active CID
     fn iter_from_active(&self) -> impl Iterator<Item = (usize, CidData)> + '_ {
         (0..Self::LEN).filter_map(move |step| {
@@ -140,9 +151,13 @@ impl CidQueue {
         })
     }
 
-    /// Iterate CIDs in CidQueue that are not `None`, including the active CID.
+    /// Iterate CIDs in CidQueue that are not `None`, from [`Self::cursor_reserved`].
     ///
-    /// Along with the CID, it returns the offset counted from [`Self::cursor_reserved`] where the CID is stored.
+    /// The iterator will always have at least one item, as it will include the active CID when no
+    /// CID has been reserved, or the last reserved CID otherwise.
+    ///
+    /// Along with the CID, it returns the offset counted from [`Self::cursor_reserved`] where the
+    /// CID is stored.
     fn iter_from_reserved(&self) -> impl Iterator<Item = (usize, CidData)> + '_ {
         (0..(Self::LEN - self.reserved_len())).filter_map(move |step| {
             let index = (self.cursor_reserved + step) % Self::LEN;
