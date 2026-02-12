@@ -1,6 +1,6 @@
 [package]
 name = "iroh-quinn-udp"
-version = "0.7.0"
+version = "0.8.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -34,6 +34,9 @@ windows-sys = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 
 [build-dependencies]
 cfg_aliases = { workspace = true }

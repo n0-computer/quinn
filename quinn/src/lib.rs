@@ -40,6 +40,7 @@
 #![warn(missing_docs)]
 
 use std::pin::Pin;
+use std::sync::Arc;
 
 mod connection;
 mod endpoint;
@@ -62,10 +63,10 @@ pub use proto::{
     AckFrequencyConfig, ApplicationClose, Chunk, ClientConfig, ClosedStream, ConfigError,
     ConnectError, ConnectionClose, ConnectionError, ConnectionId, ConnectionIdGenerator,
     ConnectionStats, Dir, EcnCodepoint, EndpointConfig, FrameStats, FrameType, IdleTimeout,
-    InvalidCid, MtuDiscoveryConfig, NoneTokenLog, NoneTokenStore, PathId, PathStats, ServerConfig,
-    Side, StdSystemTime, StreamId, TimeSource, TokenLog, TokenMemoryCache, TokenReuseError,
-    TokenStore, Transmit, TransportConfig, TransportErrorCode, UdpStats, ValidationTokenConfig,
-    VarInt, VarIntBoundsExceeded, Written, congestion, crypto,
+    InvalidCid, MtuDiscoveryConfig, NetworkChangeHint, NoneTokenLog, NoneTokenStore, PathId,
+    PathStats, ServerConfig, Side, StdSystemTime, StreamId, TimeSource, TokenLog, TokenMemoryCache,
+    TokenReuseError, TokenStore, Transmit, TransportConfig, TransportErrorCode, UdpStats,
+    ValidationTokenConfig, VarInt, VarIntBoundsExceeded, Written, congestion, crypto,
 };
 #[cfg(feature = "qlog")]
 pub use proto::{QlogConfig, QlogFactory, QlogFileFactory};
@@ -79,7 +80,7 @@ pub use crate::connection::{
 };
 pub use crate::endpoint::{Accept, Endpoint, EndpointStats};
 pub use crate::incoming::{Incoming, IncomingFuture, RetryError};
-pub use crate::path::{AddressDiscovery, ClosePath, OpenPath, Path};
+pub use crate::path::{AddressDiscovery, OpenPath, Path, WeakPathHandle};
 pub use crate::recv_stream::{
     ReadError, ReadExactError, ReadToEndError, RecvStream, ResetError, UnorderedRecvStream,
 };
@@ -90,7 +91,7 @@ pub use crate::runtime::TokioRuntime;
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub use crate::runtime::default_runtime;
 pub use crate::runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpSender};
-pub use crate::send_stream::{SendStream, StoppedError, WriteError};
+pub use crate::send_stream::{SendStream, Stopped, StoppedError, WriteError};
 
 #[cfg(test)]
 mod tests;
@@ -103,6 +104,7 @@ enum ConnectionEvent {
     },
     Proto(proto::ConnectionEvent),
     Rebind(Pin<Box<dyn UdpSender>>),
+    LocalAddressChanged(Option<Arc<dyn NetworkChangeHint + Sync + Send>>),
 }
 
 fn udp_transmit<'a>(t: &proto::Transmit, buffer: &'a [u8]) -> udp::Transmit<'a> {

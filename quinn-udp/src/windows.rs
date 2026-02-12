@@ -7,7 +7,7 @@ use std::{
     ptr,
     sync::{
         LazyLock, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Instant,
 };
@@ -29,6 +29,11 @@ use crate::{
 pub struct UdpSocketState {
     last_send_error: Mutex<Instant>,
     max_gso_segments: AtomicUsize,
+    may_fragment: bool,
+    ecn_v4_enabled: AtomicBool,
+    ecn_v6_enabled: AtomicBool,
+    pktinfo_v4_enabled: AtomicBool,
+    pktinfo_v6_enabled: AtomicBool,
 }
 
 impl UdpSocketState {
@@ -47,22 +52,26 @@ impl UdpSocketState {
         socket.0.set_nonblocking(true)?;
         let addr = socket.0.local_addr()?;
         let is_ipv6 = addr.as_socket_ipv6().is_some();
-        let v6only = unsafe {
-            let mut result: u32 = 0;
-            let mut len = mem::size_of_val(&result) as i32;
-            let rc = WinSock::getsockopt(
-                socket.0.as_raw_socket() as _,
-                WinSock::IPPROTO_IPV6,
-                WinSock::IPV6_V6ONLY as _,
-                &mut result as *mut _ as _,
-                &mut len,
-            );
-            if rc == -1 {
-                return Err(io::Error::last_os_error());
-            }
-            result != 0
+        let is_ipv4 = if is_ipv6 {
+            let v6only = unsafe {
+                let mut result: u32 = 0;
+                let mut len = mem::size_of_val(&result) as i32;
+                let rc = WinSock::getsockopt(
+                    socket.0.as_raw_socket() as _,
+                    WinSock::IPPROTO_IPV6,
+                    WinSock::IPV6_V6ONLY as _,
+                    &mut result as *mut _ as _,
+                    &mut len,
+                );
+                if rc == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+                result != 0
+            };
+            !v6only
+        } else {
+            true
         };
-        let is_ipv4 = addr.as_socket_ipv4().is_some() || !v6only;
 
         // We don't support old versions of Windows that do not enable access to `WSARecvMsg()`
         if WSARECVMSG_PTR.is_none() {
@@ -72,55 +81,114 @@ impl UdpSocketState {
             ));
         }
 
+        let mut may_fragment = false;
+        let mut ecn_v4_enabled = true;
+        let mut ecn_v6_enabled = true;
+        // Disable IP_PKTINFO under Wine: Wine's pktinfo reports unreliable local addresses
+        // on multi-homed hosts due to mapping Linux's `ipi_addr` instead of `ipi_spec_dst`.
+        // See [`is_wine`] for details.
+        let mut pktinfo_v4_enabled = !*IS_WINE;
+        let mut pktinfo_v6_enabled = !*IS_WINE;
+
         if is_ipv4 {
-            set_socket_option(
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IP,
                 WinSock::IP_DONTFRAGMENT,
                 OPTION_ON,
-            )?;
+            ) {
+                if is_unsupported_error(&e) {
+                    crate::log::warn!("IP_DONTFRAGMENT not supported, fragmentation may occur");
+                    may_fragment = true;
+                } else {
+                    return Err(e);
+                }
+            }
 
-            set_socket_option(
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IP,
                 WinSock::IP_PKTINFO,
                 OPTION_ON,
-            )?;
-            set_socket_option(
+            ) {
+                if is_unsupported_error(&e) {
+                    // This means we do not have the full 4 tuple, but can still operate
+                    crate::log::warn!("IP_PKTINFO not supported, dst_ip will be unavailable");
+                    pktinfo_v4_enabled = false;
+                } else {
+                    return Err(e);
+                }
+            }
+
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IP,
                 WinSock::IP_RECVECN,
                 OPTION_ON,
-            )?;
+            ) {
+                if is_unsupported_error(&e) {
+                    crate::log::warn!("IP_RECVECN not supported, IPv4 ECN will be disabled");
+                    ecn_v4_enabled = false;
+                } else {
+                    return Err(e);
+                }
+            }
         }
 
         if is_ipv6 {
-            set_socket_option(
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IPV6,
                 WinSock::IPV6_DONTFRAG,
                 OPTION_ON,
-            )?;
+            ) {
+                if is_unsupported_error(&e) {
+                    crate::log::warn!("IPV6_DONTFRAG not supported, fragmentation may occur");
+                    may_fragment = true;
+                } else {
+                    return Err(e);
+                }
+            }
 
-            set_socket_option(
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IPV6,
                 WinSock::IPV6_PKTINFO,
                 OPTION_ON,
-            )?;
+            ) {
+                if is_unsupported_error(&e) {
+                    // This means we do not have the full 4 tuple, but can still operate
+                    crate::log::warn!("IPV6_PKTINFO not supported, dst_ip will be unavailable");
+                    pktinfo_v6_enabled = false;
+                } else {
+                    return Err(e);
+                }
+            }
 
-            set_socket_option(
+            if let Err(e) = set_socket_option(
                 &*socket.0,
                 WinSock::IPPROTO_IPV6,
                 WinSock::IPV6_RECVECN,
                 OPTION_ON,
-            )?;
+            ) {
+                if is_unsupported_error(&e) {
+                    crate::log::warn!("IPV6_RECVECN not supported, IPv6 ECN will be disabled");
+                    ecn_v6_enabled = false;
+                } else {
+                    return Err(e);
+                }
+            }
         }
 
         let now = Instant::now();
         Ok(Self {
             last_send_error: Mutex::new(now.checked_sub(2 * IO_ERROR_LOG_INTERVAL).unwrap_or(now)),
             max_gso_segments: AtomicUsize::new(*MAX_GSO_SEGMENTS),
+            may_fragment,
+            ecn_v4_enabled: AtomicBool::new(ecn_v4_enabled),
+            ecn_v6_enabled: AtomicBool::new(ecn_v6_enabled),
+            pktinfo_v4_enabled: AtomicBool::new(pktinfo_v4_enabled),
+            pktinfo_v6_enabled: AtomicBool::new(pktinfo_v6_enabled),
         })
     }
 
@@ -238,7 +306,12 @@ impl UdpSocketState {
             const UDP_COALESCED_INFO: i32 = WinSock::UDP_COALESCED_INFO as i32;
             // [header (len)][data][padding(len + sizeof(data))] -> [header][data][padding]
             match (cmsg.cmsg_level, cmsg.cmsg_type) {
-                (WinSock::IPPROTO_IP, WinSock::IP_PKTINFO) => {
+                // Guard: depending on the Wine version, pktinfo control messages may be
+                // delivered even when the socket option was not enabled.
+                // Skip decoding when pktinfo is disabled.
+                (WinSock::IPPROTO_IP, WinSock::IP_PKTINFO)
+                    if self.pktinfo_v4_enabled.load(Ordering::Relaxed) =>
+                {
                     let pktinfo =
                         unsafe { cmsg::decode::<WinSock::IN_PKTINFO, WinSock::CMSGHDR>(cmsg) };
                     // Addr is stored in big endian format
@@ -246,13 +319,16 @@ impl UdpSocketState {
                     dst_ip = Some(ip4.into());
                     interface_index = Some(pktinfo.ipi_ifindex);
                 }
-                (WinSock::IPPROTO_IPV6, WinSock::IPV6_PKTINFO) => {
+                (WinSock::IPPROTO_IPV6, WinSock::IPV6_PKTINFO)
+                    if self.pktinfo_v6_enabled.load(Ordering::Relaxed) =>
+                {
                     let pktinfo =
                         unsafe { cmsg::decode::<WinSock::IN6_PKTINFO, WinSock::CMSGHDR>(cmsg) };
                     // Addr is stored in big endian format
                     dst_ip = Some(IpAddr::from(unsafe { pktinfo.ipi6_addr.u.Byte }));
                     interface_index = Some(pktinfo.ipi6_ifindex);
                 }
+
                 (WinSock::IPPROTO_IP, WinSock::IP_ECN) => {
                     // ECN is a C integer https://learn.microsoft.com/en-us/windows/win32/winsock/winsock-ecn
                     ecn_bits = unsafe { cmsg::decode::<c_int, WinSock::CMSGHDR>(cmsg) };
@@ -330,8 +406,15 @@ impl UdpSocketState {
 
     #[inline]
     pub fn may_fragment(&self) -> bool {
-        false
+        self.may_fragment
     }
+}
+
+fn is_unsupported_error(e: &io::Error) -> bool {
+    matches!(
+        e.raw_os_error(),
+        Some(WinSock::WSAEOPNOTSUPP | WinSock::WSAENOPROTOOPT)
+    ) || e.kind() == io::ErrorKind::Unsupported
 }
 
 fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
@@ -362,11 +445,14 @@ fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>)
     // Add control messages (ECN and PKTINFO)
     let mut encoder = unsafe { cmsg::Encoder::new(&mut wsa_msg) };
 
+    let is_ipv4 = transmit.destination.is_ipv4()
+        || matches!(transmit.destination.ip(), IpAddr::V6(addr) if addr.to_ipv4_mapped().is_some());
+
     if let Some(ip) = transmit.src_ip {
         let ip = std::net::SocketAddr::new(ip, 0);
         let ip = socket2::SockAddr::from(ip);
         match ip.family() {
-            WinSock::AF_INET => {
+            WinSock::AF_INET if state.pktinfo_v4_enabled.load(Ordering::Relaxed) => {
                 let src_ip = unsafe { ptr::read(ip.as_ptr() as *const WinSock::SOCKADDR_IN) };
                 let pktinfo = WinSock::IN_PKTINFO {
                     ipi_addr: src_ip.sin_addr,
@@ -374,7 +460,7 @@ fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>)
                 };
                 encoder.push(WinSock::IPPROTO_IP, WinSock::IP_PKTINFO, pktinfo);
             }
-            WinSock::AF_INET6 => {
+            WinSock::AF_INET6 if state.pktinfo_v6_enabled.load(Ordering::Relaxed) => {
                 let src_ip = unsafe { ptr::read(ip.as_ptr() as *const WinSock::SOCKADDR_IN6) };
                 let pktinfo = WinSock::IN6_PKTINFO {
                     ipi6_addr: src_ip.sin6_addr,
@@ -382,21 +468,22 @@ fn send(state: &UdpSocketState, socket: UdpSockRef<'_>, transmit: &Transmit<'_>)
                 };
                 encoder.push(WinSock::IPPROTO_IPV6, WinSock::IPV6_PKTINFO, pktinfo);
             }
+            WinSock::AF_INET | WinSock::AF_INET6 => {}
             _ => {
                 return Err(io::Error::from(io::ErrorKind::InvalidInput));
             }
         }
     }
 
-    // ECN is a C integer https://learn.microsoft.com/en-us/windows/win32/winsock/winsock-ecn
     let ecn = transmit.ecn.map_or(0, |x| x as c_int);
-    // True for IPv4 or IPv4-Mapped IPv6
-    let is_ipv4 = transmit.destination.is_ipv4()
-        || matches!(transmit.destination.ip(), IpAddr::V6(addr) if addr.to_ipv4_mapped().is_some());
     if is_ipv4 {
-        encoder.push(WinSock::IPPROTO_IP, WinSock::IP_ECN, ecn);
+        if state.ecn_v4_enabled.load(Ordering::Relaxed) {
+            encoder.push(WinSock::IPPROTO_IP, WinSock::IP_ECN, ecn);
+        }
     } else {
-        encoder.push(WinSock::IPPROTO_IPV6, WinSock::IPV6_ECN, ecn);
+        if state.ecn_v6_enabled.load(Ordering::Relaxed) {
+            encoder.push(WinSock::IPPROTO_IPV6, WinSock::IPV6_ECN, ecn);
+        }
     }
 
     // Segment size is a u32 https://learn.microsoft.com/en-us/windows/win32/api/ws2tcpip/nf-ws2tcpip-wsasetudpsendmessagesize
@@ -513,6 +600,48 @@ static WSARECVMSG_PTR: LazyLock<WinSock::LPFN_WSARECVMSG> = LazyLock::new(|| {
     }
 
     wsa_recvmsg_ptr
+});
+
+/// Detect whether we are running under Wine.
+///
+/// Wine's `IP_PKTINFO` implementation maps Linux's `ipi_addr` (the IP header destination
+/// address) to Windows' `IN_PKTINFO.ipi_addr`. However, on Linux, `ipi_addr` and
+/// `ipi_spec_dst` (the local address the packet was delivered to) can differ on multi-homed
+/// hosts. Windows applications expect `IN_PKTINFO.ipi_addr` to reflect the true destination
+/// address, but Wine's translation of `ipi_addr` can return a different interface's address
+/// (e.g. a Docker bridge IP instead of the external IP), causing QUIC to discard packets
+/// with "sent to incorrect interface".
+///
+/// Additionally, Wine may still deliver `IP_PKTINFO` control messages even after the socket
+/// option has been disabled via `setsockopt`, so both the send and recv paths must guard
+/// against this.
+///
+/// See:
+/// - Wine's `convert_control_headers()`: <https://github.com/wine-mirror/wine/blob/master/dlls/ntdll/unix/socket.c>
+/// - Linux `in_pktinfo` fields: <https://man7.org/linux/man-pages/man7/ip.7.html> (`ipi_spec_dst` vs `ipi_addr`)
+/// - Windows `IN_PKTINFO`: <https://learn.microsoft.com/en-us/windows/win32/api/ws2ipdef/ns-ws2ipdef-in_pktinfo>
+/// - Wine bug for original IP_PKTINFO impl: <https://bugs.winehq.org/show_bug.cgi?id=19493>
+pub(crate) fn is_wine() -> bool {
+    use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+
+    // Wine exposes a `wine_get_version` function in ntdll.dll
+    unsafe {
+        let ntdll = GetModuleHandleA(b"ntdll.dll\0".as_ptr());
+        if ntdll.is_null() {
+            return false;
+        }
+        GetProcAddress(ntdll, b"wine_get_version\0".as_ptr()).is_some()
+    }
+}
+
+static IS_WINE: LazyLock<bool> = LazyLock::new(|| {
+    let wine = is_wine();
+    if wine {
+        crate::log::warn!(
+            "Wine detected: disabling IP_PKTINFO due to unreliable local address reporting"
+        );
+    }
+    wine
 });
 
 static MAX_GSO_SEGMENTS: LazyLock<usize> = LazyLock::new(|| {

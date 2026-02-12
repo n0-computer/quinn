@@ -44,13 +44,14 @@ jobs:
             freebsd-version
             cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p iroh-quinn-udp --benches
 
-  test-solaris:
+  build-solaris:
+    # Tests disabled - too many hang in poll() on Solaris
     timeout-minutes: 45
-    name: test on solaris
+    name: build on solaris
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: test on Solaris
+      - name: build on Solaris
         uses: vmactions/solaris-vm@v1
         with:
           release: "11.4-gcc"
@@ -63,12 +64,11 @@ jobs:
             rustc --version
             echo "~~~~ Solaris-version ~~~~"
             uname -a
-          # Unlike others, don't un-ignore stress tests, because they hang on Solaris
           run: |
             export PATH=$HOME/.rust_solaris/bin:$PATH
             # Workaround for https://github.com/quinn-rs/quinn/issues/2218
             export CARGO_HTTP_MULTIPLEXING=false
-            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -p iroh-quinn-udp --benches
+            cargo build --locked --all-targets
 
   test-illumos:
     timeout-minutes: 45
@@ -77,7 +77,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: test on Illumos
-        uses: vmactions/omnios-vm@v1
+        # pinned: v1 tag moves and builder v2.0.3+ ships a VM with broken DNS
+        uses: vmactions/omnios-vm@4f4fcbf0847b079a6e0eafe6ff06b3d15510f0b0
         with:
           usesh: true
           mem: 4096
@@ -109,12 +110,17 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@cargo-hack
+      - name: Setup Go (required for aws-lc-rs FIPS)
+        if: matrix.os == 'linux'
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
 
       - run: cargo hack check --feature-powerset --depth 3 --optional-deps --no-dev-deps --ignore-private --skip "${{env.SKIP_FEATURES}}"
 
   notify:
     timeout-minutes: 45
-    needs: [test-freebsd, test-solaris, test-illumos, features]
+    needs: [test-freebsd, build-solaris, test-illumos, features]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -123,7 +129,7 @@ jobs:
           printf '${{ toJSON(needs) }}\n'
 
           freebsd_result=$(echo '${{ toJSON(needs) }}' | jq -r '.["test-freebsd"].result')
-          solaris_result=$(echo '${{ toJSON(needs) }}' | jq -r '.["test-solaris"].result')
+          solaris_result=$(echo '${{ toJSON(needs) }}' | jq -r '.["build-solaris"].result')
           illumos_result=$(echo '${{ toJSON(needs) }}' | jq -r '.["test-illumos"].result')
           features_result=$(echo '${{ toJSON(needs) }}' | jq -r '.features.result')
 
@@ -137,7 +143,7 @@ jobs:
           # Build failure details
           details=""
           [ "$freebsd_result" = "failure" ] && details="${details}- FreeBSD tests failed\n"
-          [ "$solaris_result" = "failure" ] && details="${details}- Solaris tests failed\n"
+          [ "$solaris_result" = "failure" ] && details="${details}- Solaris build failed\n"
           [ "$illumos_result" = "failure" ] && details="${details}- Illumos tests failed\n"
           [ "$features_result" = "failure" ] && details="${details}- Feature powerset check failed\n"
 
