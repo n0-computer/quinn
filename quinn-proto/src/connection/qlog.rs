@@ -46,7 +46,10 @@ use crate::{
 #[cfg(feature = "qlog")]
 use crate::{
     QlogConfig, Side, TransportErrorCode,
-    connection::timer::{ConnTimer, PathTimer},
+    connection::{
+        EncryptionLevel,
+        timer::{ConnTimer, PathTimer},
+    },
     frame::{self, DataBlocked, StreamDataBlocked, StreamsBlocked},
 };
 
@@ -423,8 +426,7 @@ impl QlogSentPacket {
         &mut self,
         header: &Header,
         pn: Option<u64>,
-        space: SpaceId,
-        is_0rtt: bool,
+        encryption_level: EncryptionLevel,
         path_id: PathId,
     ) {
         #[cfg(feature = "qlog")]
@@ -432,7 +434,7 @@ impl QlogSentPacket {
             self.inner.header.scid = header.src_cid().map(stringify_cid);
             self.inner.header.dcid = Some(stringify_cid(header.dst_cid()));
             self.inner.header.packet_number = pn;
-            self.inner.header.packet_type = packet_type(space, is_0rtt);
+            self.inner.header.packet_type = encryption_level.into();
             self.inner.header.path_id = Some(path_id.as_u32() as u64);
         }
     }
@@ -1082,6 +1084,18 @@ fn packet_type(space: SpaceId, is_0rtt: bool) -> PacketType {
         SpaceId::Handshake => PacketType::Handshake,
         SpaceId::Data if is_0rtt => PacketType::ZeroRtt,
         SpaceId::Data => PacketType::OneRtt,
+    }
+}
+
+#[cfg(feature = "qlog")]
+impl From<EncryptionLevel> for PacketType {
+    fn from(encryption_level: EncryptionLevel) -> Self {
+        match encryption_level {
+            EncryptionLevel::Initial => PacketType::Initial,
+            EncryptionLevel::Handshake => PacketType::Handshake,
+            EncryptionLevel::ZeroRtt => PacketType::ZeroRtt,
+            EncryptionLevel::OneRtt => PacketType::OneRtt,
+        }
     }
 }
 
