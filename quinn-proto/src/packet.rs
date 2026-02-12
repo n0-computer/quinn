@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::{
     ConnectionId, PathId,
     coding::{self, BufExt, BufMutExt},
-    connection::EncryptionLevel,
+    connection::{EncryptionLevel, SpaceKind},
     crypto,
 };
 
@@ -958,8 +958,7 @@ impl SpaceId {
     }
 
     /// Returns the encryption level for this packet space.
-    pub(crate) fn encryption_level(self) -> crate::connection::EncryptionLevel {
-        use crate::connection::EncryptionLevel;
+    pub(crate) fn encryption_level(self) -> EncryptionLevel {
         match self {
             Self::Initial => EncryptionLevel::Initial,
             Self::Handshake => EncryptionLevel::Handshake,
@@ -967,9 +966,8 @@ impl SpaceId {
         }
     }
 
-    /// Returns the [`SpaceKind`](crate::connection::SpaceKind) for this packet space.
-    pub(crate) fn kind(self) -> crate::connection::SpaceKind {
-        use crate::connection::SpaceKind;
+    /// Returns the [`SpaceKind`] for this packet space.
+    pub(crate) fn kind(self) -> SpaceKind {
         match self {
             Self::Initial => SpaceKind::Initial,
             Self::Handshake => SpaceKind::Handshake,

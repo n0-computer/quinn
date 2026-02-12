@@ -75,6 +75,20 @@ pub(super) struct CryptoState {
     pub(super) spaces: [CryptoSpace; 3],
     /// The TLS session.
     pub(super) session: Box<dyn crypto::Session>,
+
+    /*
+     * 0-RTT related fields
+     */
+    /// Whether 0-RTT was accepted.
+    pub(super) accepted_0rtt: bool,
+    /// Whether or not 0-RTT was enabled during the handshake. Does not imply acceptance.
+    pub(super) zero_rtt_enabled: bool,
+    /// 0-RTT crypto state, cleared when no longer needed.
+    pub(super) zero_rtt_crypto: Option<ZeroRttCrypto>,
+
+    /*
+     * State to manage 1-RTT key updates
+     */
     /// 1-RTT keys to be used for the next key update.
     ///
     /// These are generated in advance to prevent timing attacks and/or DoS by third-party
@@ -82,13 +96,7 @@ pub(super) struct CryptoState {
     pub(super) next_crypto: Option<KeyPair<Box<dyn PacketKey>>>,
     /// 1-RTT keys used prior to a key update.
     pub(super) prev_crypto: Option<PrevCrypto>,
-    /// Whether 0-RTT was accepted.
-    pub(super) accepted_0rtt: bool,
-    /// Whether or not 0-RTT was enabled during the handshake. Does not imply acceptance.
-    pub(super) zero_rtt_enabled: bool,
-    /// 0-RTT crypto state, cleared when no longer needed.
-    pub(super) zero_rtt_crypto: Option<ZeroRttCrypto>,
-    /// Current key phase, toggled on each key update.
+    /// Current key phase, toggled on each 1-RTT key update.
     pub(super) key_phase: bool,
     /// How many packets are in the current key phase. Used only for `Data` space.
     pub(super) key_phase_size: u64,
@@ -314,8 +322,7 @@ impl CryptoState {
     ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
         let keys = self.spaces[space].keys.as_ref().map(Keys::local);
         if keys.is_none() && space == SpaceKind::Data {
-            let zero_rtt_keys = self.zero_rtt_crypto.as_ref().map(ZeroRttCrypto::keys);
-            return keys.or(zero_rtt_keys);
+            return self.zero_rtt_crypto.as_ref().map(ZeroRttCrypto::keys);
         }
 
         keys
@@ -372,7 +379,7 @@ impl CryptoState {
 #[derive(Default)]
 pub(super) struct CryptoSpace {
     /// Packet protection keys for this space.
-    pub keys: Option<Keys>,
+    pub(super) keys: Option<Keys>,
     /// Incoming cryptographic handshake stream.
     pub(super) crypto_stream: Assembler,
     /// Current offset of outgoing cryptographic handshake stream.
