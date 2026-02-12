@@ -393,6 +393,7 @@ impl CryptoState {
 
         self.key_phase_size = confidentiality_limit.saturating_sub(KEY_UPDATE_MARGIN);
         self.key_phase = !self.key_phase;
+        self.spaces[2].sent_with_keys = 0;
     }
 
     pub(crate) fn sent_with_keys(&self, level: EncryptionLevel) -> u64 {
