@@ -1088,10 +1088,10 @@ fn packet_type(space: SpaceId, is_0rtt: bool) -> PacketType {
 impl From<EncryptionLevel> for PacketType {
     fn from(encryption_level: EncryptionLevel) -> Self {
         match encryption_level {
-            EncryptionLevel::Initial => PacketType::Initial,
-            EncryptionLevel::Handshake => PacketType::Handshake,
-            EncryptionLevel::ZeroRtt => PacketType::ZeroRtt,
-            EncryptionLevel::OneRtt => PacketType::OneRtt,
+            EncryptionLevel::Initial => Self::Initial,
+            EncryptionLevel::Handshake => Self::Handshake,
+            EncryptionLevel::ZeroRtt => Self::ZeroRtt,
+            EncryptionLevel::OneRtt => Self::OneRtt,
         }
     }
 }
