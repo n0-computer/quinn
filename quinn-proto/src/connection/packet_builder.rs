@@ -69,17 +69,22 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             .remaining_packet_budget(level)
             .expect("keys are installed");
 
-        if level == EncryptionLevel::OneRtt && remaining_packet_budget == 0 {
-            debug!("routine key update due to phase exhaustion");
-            conn.force_key_update();
-        } else if remaining_packet_budget == 0 {
-            // Confidentiality limit violated and there's nothing we can do
-            conn.kill(TransportError::AEAD_LIMIT_REACHED("confidentiality limit reached").into());
-            return None;
-        } else if remaining_packet_budget == 1 && level != EncryptionLevel::OneRtt {
-            // We still have time to attempt a graceful close
-            let close = TransportError::AEAD_LIMIT_REACHED("confidentiality limit reached").into();
-            conn.close_inner(now, close)
+        if level == EncryptionLevel::OneRtt {
+            // 1-RTT keys can be rotated, so exhaustion just triggers a key update
+            if remaining_packet_budget == 0 {
+                debug!("routine key update due to phase exhaustion");
+                conn.force_key_update();
+            }
+        } else {
+            // Other encryption levels have a fixed key budget
+            if remaining_packet_budget == 0 {
+                let close = TransportError::AEAD_LIMIT_REACHED("confidentiality limit reached");
+                conn.kill(close.into());
+                return None;
+            } else if remaining_packet_budget == 1 {
+                let close = TransportError::AEAD_LIMIT_REACHED("confidentiality limit reached");
+                conn.close_inner(now, close.into());
+            }
         }
 
         let (header_crypto, packet_crypto, level) = conn
