@@ -1088,10 +1088,10 @@
 <a href=#1088 id=1088 data-nosnippet>1088</a></span><span class="kw">impl </span>From&lt;EncryptionLevel&gt; <span class="kw">for </span>PacketType {
 <a href=#1089 id=1089 data-nosnippet>1089</a>    <span class="kw">fn </span>from(encryption_level: EncryptionLevel) -&gt; <span class="self">Self </span>{
 <a href=#1090 id=1090 data-nosnippet>1090</a>        <span class="kw">match </span>encryption_level {
-<a href=#1091 id=1091 data-nosnippet>1091</a>            EncryptionLevel::Initial =&gt; PacketType::Initial,
-<a href=#1092 id=1092 data-nosnippet>1092</a>            EncryptionLevel::Handshake =&gt; PacketType::Handshake,
-<a href=#1093 id=1093 data-nosnippet>1093</a>            EncryptionLevel::ZeroRtt =&gt; PacketType::ZeroRtt,
-<a href=#1094 id=1094 data-nosnippet>1094</a>            EncryptionLevel::OneRtt =&gt; PacketType::OneRtt,
+<a href=#1091 id=1091 data-nosnippet>1091</a>            EncryptionLevel::Initial =&gt; <span class="self">Self</span>::Initial,
+<a href=#1092 id=1092 data-nosnippet>1092</a>            EncryptionLevel::Handshake =&gt; <span class="self">Self</span>::Handshake,
+<a href=#1093 id=1093 data-nosnippet>1093</a>            EncryptionLevel::ZeroRtt =&gt; <span class="self">Self</span>::ZeroRtt,
+<a href=#1094 id=1094 data-nosnippet>1094</a>            EncryptionLevel::OneRtt =&gt; <span class="self">Self</span>::OneRtt,
 <a href=#1095 id=1095 data-nosnippet>1095</a>        }
 <a href=#1096 id=1096 data-nosnippet>1096</a>    }
 <a href=#1097 id=1097 data-nosnippet>1097</a>}
