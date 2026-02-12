@@ -85,6 +85,8 @@ pub(super) struct CryptoState {
     pub(super) zero_rtt_enabled: bool,
     /// 0-RTT crypto state, cleared when no longer needed.
     pub(super) zero_rtt_crypto: Option<ZeroRttCrypto>,
+    /// Number of packets encrypted with 0-RTT keys. Client only.
+    sent_with_zero_rtt: u64,
 
     /*
      * State to manage 1-RTT key updates
@@ -122,6 +124,7 @@ impl CryptoState {
             accepted_0rtt: false,
             zero_rtt_enabled: false,
             zero_rtt_crypto: None,
+            sent_with_zero_rtt: 0,
             key_phase: false,
             // A small initial key phase size ensures peers that don't handle key updates correctly
             // fail sooner rather than later. It's okay for both peers to do this, as the first one
@@ -344,6 +347,45 @@ impl CryptoState {
         }
     }
 
+    pub(super) fn encryption_keys(
+        &self,
+        kind: SpaceKind,
+        side: Side,
+    ) -> Option<(&dyn HeaderKey, &dyn PacketKey, EncryptionLevel)> {
+        let mut keys = self.spaces[kind].keys.as_ref().map(Keys::local);
+        let mut level = match kind {
+            SpaceKind::Initial => EncryptionLevel::Initial,
+            SpaceKind::Handshake => EncryptionLevel::Handshake,
+            SpaceKind::Data => EncryptionLevel::OneRtt,
+        };
+
+        // Clients use 0-RTT keys if 1-RTT keys are not available. Servers never encrypt 0-RTT
+        if keys.is_none() && kind == SpaceKind::Data && side.is_client() {
+            keys = self.zero_rtt_crypto.as_ref().map(ZeroRttCrypto::keys);
+            level = EncryptionLevel::ZeroRtt;
+        }
+
+        keys.map(|(header_keys, packet_keys)| (header_keys, packet_keys, level))
+    }
+
+    pub(super) fn decryption_keys(
+        &self,
+        side: Side,
+        level: EncryptionLevel,
+    ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
+        match level {
+            EncryptionLevel::Initial => self.spaces[0].keys.as_ref().map(Keys::remote),
+            EncryptionLevel::Handshake => self.spaces[1].keys.as_ref().map(Keys::remote),
+            EncryptionLevel::OneRtt => self.spaces[2].keys.as_ref().map(Keys::remote),
+            // 0-RTT uses the same keys for both directions
+            EncryptionLevel::ZeroRtt if side.is_server() => {
+                self.zero_rtt_crypto.as_ref().map(ZeroRttCrypto::keys)
+            }
+            // Clients never decrypt zero rtt
+            EncryptionLevel::ZeroRtt => None,
+        }
+    }
+
     /// Perform a 1-RTT key update.
     ///
     /// Generates the next set of keys, rotates current keys into previous, and installs the new
@@ -374,6 +416,15 @@ impl CryptoState {
 
         self.key_phase_size = confidentiality_limit.saturating_sub(KEY_UPDATE_MARGIN);
         self.key_phase = !self.key_phase;
+    }
+
+    pub(crate) fn sent_with_keys(&self, level: EncryptionLevel) -> u64 {
+        match level {
+            EncryptionLevel::Initial => self.spaces[0].sent_with_keys,
+            EncryptionLevel::ZeroRtt => self.sent_with_zero_rtt,
+            EncryptionLevel::Handshake => self.spaces[1].sent_with_keys,
+            EncryptionLevel::OneRtt => self.spaces[2].sent_with_keys,
+        }
     }
 }
 

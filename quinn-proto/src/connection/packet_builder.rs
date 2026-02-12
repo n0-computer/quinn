@@ -6,7 +6,7 @@ use super::{Connection, PathId, SentFrames, TransmitBuf, spaces::SentPacket};
 use crate::{
     ConnectionId, FrameStats, Instant, MIN_INITIAL_SIZE, TransportError, TransportErrorCode,
     coding::Encodable,
-    connection::{ConnectionSide, qlog::QlogSentPacket, spaces::Retransmits},
+    connection::{ConnectionSide, packet_crypto, qlog::QlogSentPacket, spaces::Retransmits},
     frame::{self, Close, EncodableFrame},
     packet::{FIXED_BIT, Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId},
 };
@@ -58,7 +58,14 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
 
         let version = conn.version;
         // Initiate key update if we're approaching the confidentiality limit
-        let sent_with_keys = conn.crypto_state.spaces[space_id.kind()].sent_with_keys;
+        let (header_crypto, packet_crypto, level) = conn
+            .crypto_state
+            .encryption_keys(space_id.kind(), conn.side.side())
+            .expect("tried to build packet without encryption keys");
+
+        let sent_with_keys = conn.crypto_state.sent_with_keys(level);
+
+        let sent_with_keys = conn.crypto_state.sent_with_;
         if space_id == SpaceId::Data {
             if sent_with_keys >= conn.crypto_state.key_phase_size {
                 debug!("routine key update due to phase exhaustion");
