@@ -30,7 +30,7 @@ use crate::{
         spaces::LostPacket,
         timer::{ConnTimer, PathTimer},
     },
-    crypto::{self, KeyPair, Keys, PacketKey},
+    crypto::{self, Keys},
     frame::{
         self, Close, DataBlocked, Datagram, FrameStruct, NewToken, ObservedAddr, StreamDataBlocked,
         StreamsBlocked,
@@ -69,7 +69,8 @@ mod packet_builder;
 use packet_builder::{PacketBuilder, PadDatagram};
 
 mod packet_crypto;
-use packet_crypto::{PrevCrypto, ZeroRttCrypto};
+use packet_crypto::CryptoState;
+pub(crate) use packet_crypto::{EncryptionLevel, SpaceKind};
 
 mod paths;
 pub use paths::{ClosedPath, PathEvent, PathId, PathStatus, RttEstimator, SetPathStatusError};
@@ -155,7 +156,8 @@ pub struct Connection {
     endpoint_config: Arc<EndpointConfig>,
     config: Arc<TransportConfig>,
     rng: StdRng,
-    crypto: Box<dyn crypto::Session>,
+    /// Consolidated cryptographic state
+    crypto_state: CryptoState,
     /// The CID we initially chose, for use during the handshake
     handshake_cid: ConnectionId,
     /// The CID the peer initially chose, for use during the handshake
@@ -181,13 +183,6 @@ pub struct Connection {
     allow_mtud: bool,
     state: State,
     side: ConnectionSide,
-    /// Whether or not 0-RTT was enabled during the handshake. Does not imply acceptance.
-    zero_rtt_enabled: bool,
-    /// Set if 0-RTT is supported, then cleared when no longer needed.
-    zero_rtt_crypto: Option<ZeroRttCrypto>,
-    key_phase: bool,
-    /// How many packets are in the current key phase. Used only for `Data` space.
-    key_phase_size: u64,
     /// Transport parameters set by the peer
     peer_params: TransportParameters,
     /// Source ConnectionId of the first packet received from the peer
@@ -208,14 +203,6 @@ pub struct Connection {
     spaces: [PacketSpace; 3],
     /// Highest usable [`SpaceId`]
     highest_space: SpaceId,
-    /// 1-RTT keys used prior to a key update
-    prev_crypto: Option<PrevCrypto>,
-    /// 1-RTT keys to be used for the next key update
-    ///
-    /// These are generated in advance to prevent timing attacks and/or DoS by third-party attackers
-    /// spoofing key updates.
-    next_crypto: Option<KeyPair<Box<dyn PacketKey>>>,
-    accepted_0rtt: bool,
     /// Whether the idle timer should be reset the next time an ack-eliciting packet is transmitted.
     permit_idle_reset: bool,
     /// Negotiated idle timeout
@@ -397,11 +384,7 @@ impl Connection {
         let connection_side = ConnectionSide::from(side_args);
         let side = connection_side.side();
         let mut rng = StdRng::from_seed(rng_seed);
-        let initial_space = {
-            let mut space = PacketSpace::new(now, SpaceId::Initial, &mut rng);
-            space.crypto = Some(crypto.initial_keys(init_cid, side));
-            space
-        };
+        let initial_space = PacketSpace::new(now, SpaceId::Initial, &mut rng);
         let handshake_space = PacketSpace::new(now, SpaceId::Handshake, &mut rng);
         #[cfg(test)]
         let data_space = match config.deterministic_packet_numbers {
@@ -431,7 +414,7 @@ impl Connection {
         path.open = true;
         let mut this = Self {
             endpoint_config,
-            crypto,
+            crypto_state: CryptoState::new(crypto, init_cid, side, &mut rng),
             handshake_cid: local_cid,
             remote_handshake_cid: remote_cid,
             local_cid_state,
@@ -446,16 +429,6 @@ impl Connection {
             allow_mtud,
             state,
             side: connection_side,
-            zero_rtt_enabled: false,
-            zero_rtt_crypto: None,
-            key_phase: false,
-            // A small initial key phase size ensures peers that don't handle key updates correctly
-            // fail sooner rather than later. It's okay for both peers to do this, as the first one
-            // to perform an update will reset the other's key phase size in `update_keys`, and a
-            // simultaneous key update by both is just like a regular key update with a really fast
-            // response. Inspired by quic-go's similar behavior of performing the first key update
-            // at the 100th short-header packet.
-            key_phase_size: rng.random_range(10..1000),
             peer_params: TransportParameters::default(),
             original_remote_cid: remote_cid,
             initial_dst_cid: init_cid,
@@ -466,9 +439,6 @@ impl Connection {
             spin: false,
             spaces: [initial_space, handshake_space, data_space],
             highest_space: SpaceId::Initial,
-            prev_crypto: None,
-            next_crypto: None,
-            accepted_0rtt: false,
             permit_idle_reset: true,
             idle_timeout: match config.max_idle_timeout {
                 None | Some(VarInt(0)) => None,
@@ -1394,8 +1364,9 @@ impl Connection {
                     },
                     None => {
                         // Only log for spaces which have crypto.
-                        if self.spaces[space_id].crypto.is_some()
-                            || (space_id == SpaceId::Data && self.zero_rtt_crypto.is_some())
+                        if self.crypto_state.has_keys(space_id.encryption_level())
+                            || (space_id == SpaceId::Data
+                                && self.crypto_state.has_keys(EncryptionLevel::ZeroRtt))
                         {
                             trace!(?space_id, %path_id, "nothing to send in space");
                         }
@@ -1486,7 +1457,7 @@ impl Connection {
             // From here on, we've determined that a packet will definitely be sent.
             //
 
-            if self.spaces[SpaceId::Initial].crypto.is_some()
+            if self.crypto_state.has_keys(EncryptionLevel::Initial)
                 && space_id == SpaceId::Handshake
                 && self.side.is_client()
             {
@@ -1494,7 +1465,7 @@ impl Connection {
                 // sends its first Handshake packet.
                 self.discard_space(now, SpaceId::Initial);
             }
-            if let Some(ref mut prev) = self.prev_crypto {
+            if let Some(ref mut prev) = self.crypto_state.prev_crypto {
                 prev.update_unacked = false;
             }
 
@@ -1550,6 +1521,7 @@ impl Connection {
                         is_multipath_negotiated,
                         &mut builder,
                         &mut self.stats.frame_tx,
+                        self.crypto_state.has_keys(space_id.encryption_level()),
                     );
                 }
 
@@ -2065,11 +2037,11 @@ impl Connection {
         connection_close_pending: bool,
     ) -> SendableFrames {
         let space = &mut self.spaces[space_id];
-        let space_has_crypto = space.crypto.is_some();
+        let space_has_crypto = self.crypto_state.has_keys(space_id.encryption_level());
 
         if !space_has_crypto
             && (space_id != SpaceId::Data
-                || self.zero_rtt_crypto.is_none()
+                || !self.crypto_state.has_keys(EncryptionLevel::ZeroRtt)
                 || self.side.is_server())
         {
             // Nothing to send in this space
@@ -2269,8 +2241,7 @@ impl Connection {
                         self.ping();
                     }
                     ConnTimer::KeyDiscard => {
-                        self.zero_rtt_crypto = None;
-                        self.prev_crypto = None;
+                        self.crypto_state.discard_temporary_keys();
                     }
                     ConnTimer::PushNewCid => {
                         while let Some((path_id, when)) = self.next_cid_retirement() {
@@ -2498,7 +2469,7 @@ impl Connection {
             debug!("ignoring forced key update in illegal state");
             return;
         }
-        if self.prev_crypto.is_some() {
+        if self.crypto_state.prev_crypto.is_some() {
             // We already just updated, or are currently updating, the keys. Concurrent key updates
             // are illegal.
             debug!("ignoring redundant forced key update");
@@ -2509,7 +2480,7 @@ impl Connection {
 
     /// Get a session reference
     pub fn crypto_session(&self) -> &dyn crypto::Session {
-        &*self.crypto
+        self.crypto_state.session.as_ref()
     }
 
     /// Whether the connection is in the process of being established
@@ -2543,12 +2514,12 @@ impl Connection {
     ///
     /// The value is meaningless until after the handshake completes.
     pub fn accepted_0rtt(&self) -> bool {
-        self.accepted_0rtt
+        self.crypto_state.accepted_0rtt
     }
 
     /// Whether 0-RTT is/was possible during the handshake
     pub fn has_0rtt(&self) -> bool {
-        self.zero_rtt_enabled
+        self.crypto_state.zero_rtt_enabled
     }
 
     /// Whether there are any pending retransmits
@@ -2943,10 +2914,11 @@ impl Connection {
     }
 
     fn set_key_discard_timer(&mut self, now: Instant, space: SpaceId) {
-        let start = if self.zero_rtt_crypto.is_some() {
+        let start = if self.crypto_state.has_keys(EncryptionLevel::ZeroRtt) {
             now
         } else {
-            self.prev_crypto
+            self.crypto_state
+                .prev_crypto
                 .as_ref()
                 .expect("no previous keys")
                 .end_packet
@@ -3398,8 +3370,8 @@ impl Connection {
                 .path_space(path)
                 .and_then(|pns| pns.largest_acked_packet)
                 .is_some()
-            || (self.spaces[SpaceId::Data].crypto.is_some()
-                && self.spaces[SpaceId::Handshake].crypto.is_none())
+            || (self.crypto_state.has_keys(EncryptionLevel::OneRtt)
+                && !self.crypto_state.has_keys(EncryptionLevel::Handshake))
     }
 
     /// Resets the the [`PathTimer::LossDetection`] timer to the next instant it may be needed
@@ -3529,12 +3501,13 @@ impl Connection {
                 }
             }
             ConnectionSide::Server { .. } => {
-                if self.spaces[SpaceId::Initial].crypto.is_some() && space_id == SpaceId::Handshake
+                if self.crypto_state.has_keys(EncryptionLevel::Initial)
+                    && space_id == SpaceId::Handshake
                 {
                     // A server stops sending and processing Initial packets when it receives its first Handshake packet.
                     self.discard_space(now, SpaceId::Initial);
                 }
-                if self.zero_rtt_crypto.is_some() && is_1rtt {
+                if self.crypto_state.has_keys(EncryptionLevel::ZeroRtt) && is_1rtt {
                     // Discard 0-RTT keys soon after receiving a 1-RTT packet
                     self.set_key_discard_timer(now, space_id)
                 }
@@ -3694,12 +3667,12 @@ impl Connection {
     }
 
     fn init_0rtt(&mut self, now: Instant) {
-        let (header, packet) = match self.crypto.early_crypto() {
+        let (header, packet) = match self.crypto_state.session.early_crypto() {
             Some(x) => x,
             None => return,
         };
         if self.side.is_client() {
-            match self.crypto.transport_parameters() {
+            match self.crypto_state.session.transport_parameters() {
                 Ok(params) => {
                     let params = params
                         .expect("crypto layer didn't supply transport parameters with ticket");
@@ -3726,8 +3699,7 @@ impl Connection {
             }
         }
         trace!("0-RTT enabled");
-        self.zero_rtt_enabled = true;
-        self.zero_rtt_crypto = Some(ZeroRttCrypto { header, packet });
+        self.crypto_state.enable_zero_rtt(header, packet);
     }
 
     fn read_crypto(
@@ -3751,7 +3723,12 @@ impl Connection {
         debug_assert!(space <= expected, "received out-of-order CRYPTO data");
 
         let end = crypto.offset + crypto.data.len() as u64;
-        if space < expected && end > self.spaces[space].crypto_stream.bytes_read() {
+        if space < expected
+            && end
+                > self.crypto_state.spaces[space.kind()]
+                    .crypto_stream
+                    .bytes_read()
+        {
             warn!(
                 "received new {:?} CRYPTO data when expecting {:?}",
                 space, expected
@@ -3761,18 +3738,18 @@ impl Connection {
             ));
         }
 
-        let space = &mut self.spaces[space];
-        let max = end.saturating_sub(space.crypto_stream.bytes_read());
+        let crypto_space = &mut self.crypto_state.spaces[space.kind()];
+        let max = end.saturating_sub(crypto_space.crypto_stream.bytes_read());
         if max > self.config.crypto_buffer_size as u64 {
             return Err(TransportError::CRYPTO_BUFFER_EXCEEDED(""));
         }
 
-        space
+        crypto_space
             .crypto_stream
             .insert(crypto.offset, crypto.data.clone(), payload_len);
-        while let Some(chunk) = space.crypto_stream.read(usize::MAX, true) {
+        while let Some(chunk) = crypto_space.crypto_stream.read(usize::MAX, true) {
             trace!("consumed {} CRYPTO bytes", chunk.bytes.len());
-            if self.crypto.read_handshake(&chunk.bytes)? {
+            if self.crypto_state.session.read_handshake(&chunk.bytes)? {
                 self.events.push_back(Event::HandshakeDataReady);
             }
         }
@@ -3784,7 +3761,7 @@ impl Connection {
         loop {
             let space = self.highest_space;
             let mut outgoing = Vec::new();
-            if let Some(crypto) = self.crypto.write_handshake(&mut outgoing) {
+            if let Some(crypto) = self.crypto_state.session.write_handshake(&mut outgoing) {
                 match space {
                     SpaceId::Initial => {
                         self.upgrade_crypto(SpaceId::Handshake, crypto);
@@ -3803,7 +3780,7 @@ impl Connection {
                     continue;
                 }
             }
-            let offset = self.spaces[space].crypto_offset;
+            let offset = self.crypto_state.spaces[space.kind()].crypto_offset;
             let outgoing = Bytes::from(outgoing);
             if let Some(hs) = self.state.as_handshake_mut()
                 && space == SpaceId::Initial
@@ -3812,7 +3789,7 @@ impl Connection {
             {
                 hs.client_hello = Some(outgoing.clone());
             }
-            self.spaces[space].crypto_offset += outgoing.len() as u64;
+            self.crypto_state.spaces[space.kind()].crypto_offset += outgoing.len() as u64;
             trace!("wrote {} {:?} CRYPTO bytes", outgoing.len(), space);
             self.spaces[space].pending.crypto.push_back(frame::Crypto {
                 offset,
@@ -3824,25 +3801,26 @@ impl Connection {
     /// Switch to stronger cryptography during handshake
     fn upgrade_crypto(&mut self, space: SpaceId, crypto: Keys) {
         debug_assert!(
-            self.spaces[space].crypto.is_none(),
+            !self.crypto_state.has_keys(space.encryption_level()),
             "already reached packet space {space:?}"
         );
         trace!("{:?} keys ready", space);
         if space == SpaceId::Data {
             // Precompute the first key update
-            self.next_crypto = Some(
-                self.crypto
+            self.crypto_state.next_crypto = Some(
+                self.crypto_state
+                    .session
                     .next_1rtt_keys()
                     .expect("handshake should be complete"),
             );
         }
 
-        self.spaces[space].crypto = Some(crypto);
+        self.crypto_state.spaces[space.kind()].keys = Some(crypto);
         debug_assert!(space as usize > self.highest_space as usize);
         self.highest_space = space;
         if space == SpaceId::Data && self.side.is_client() {
             // Discard 0-RTT keys because 1-RTT keys are available.
-            self.zero_rtt_crypto = None;
+            self.crypto_state.discard_zero_rtt();
         }
     }
 
@@ -3855,8 +3833,8 @@ impl Connection {
                 *token = Bytes::new();
             }
         }
+        self.crypto_state.spaces[space_id.kind()].keys = None;
         let space = &mut self.spaces[space_id];
-        space.crypto = None;
         let pns = space.for_path(PathId::ZERO);
         pns.time_of_last_ack_eliciting_packet = None;
         pns.loss_time = None;
@@ -3915,12 +3893,10 @@ impl Connection {
         partial_decode: PartialDecode,
     ) {
         let qlog = QlogRecvPacket::new(partial_decode.len());
-        if let Some(decoded) = packet_crypto::unprotect_header(
-            partial_decode,
-            &self.spaces,
-            self.zero_rtt_crypto.as_ref(),
-            self.peer_params.stateless_reset_token,
-        ) {
+        if let Some(decoded) = self
+            .crypto_state
+            .unprotect_header(partial_decode, self.peer_params.stateless_reset_token)
+        {
             self.handle_packet(
                 now,
                 network_path,
@@ -3999,13 +3975,10 @@ impl Connection {
             Err(None) => {
                 debug!("failed to authenticate packet");
                 self.authentication_failures += 1;
-                let integrity_limit = self.spaces[self.highest_space]
-                    .crypto
-                    .as_ref()
-                    .unwrap()
-                    .packet
-                    .local
-                    .integrity_limit();
+                let integrity_limit = self
+                    .crypto_state
+                    .integrity_limit(self.highest_space.kind())
+                    .unwrap();
                 if self.authentication_failures > integrity_limit {
                     Err(TransportError::AEAD_LIMIT_REACHED("integrity limit violated").into())
                 } else {
@@ -4243,7 +4216,7 @@ impl Connection {
                     .get(&path_id)
                     .map(|cids| cids.active())
                     .map(|orig_dst_cid| {
-                        self.crypto.is_valid_retry(
+                        self.crypto_state.session.is_valid_retry(
                             orig_dst_cid,
                             &packet.header_data,
                             &packet.payload,
@@ -4281,13 +4254,20 @@ impl Connection {
 
                 self.discard_space(now, SpaceId::Initial); // Make sure we clean up after
                 // any retransmitted Initials
+                let crypto_space = &mut self.crypto_state.spaces[SpaceKind::Initial];
+                crypto_space.keys = Some(
+                    self.crypto_state
+                        .session
+                        .initial_keys(remote_cid, self.side.side()),
+                );
+                crypto_space.crypto_offset = client_hello.len() as u64;
+
+                let next_pn = self.spaces[SpaceId::Initial]
+                    .for_path(path_id)
+                    .next_packet_number;
                 self.spaces[SpaceId::Initial] = {
                     let mut space = PacketSpace::new(now, SpaceId::Initial, &mut self.rng);
-                    space.crypto = Some(self.crypto.initial_keys(remote_cid, self.side.side()));
-                    space.crypto_offset = client_hello.len() as u64;
-                    space.for_path(path_id).next_packet_number = self.spaces[SpaceId::Initial]
-                        .for_path(path_id)
-                        .next_packet_number;
+                    space.for_path(path_id).next_packet_number = next_pn;
                     space.pending.crypto.push_back(frame::Crypto {
                         offset: 0,
                         data: client_hello,
@@ -4345,25 +4325,29 @@ impl Connection {
                     return Ok(());
                 }
 
-                if self.crypto.is_handshaking() {
+                if self.crypto_state.session.is_handshaking() {
                     trace!("handshake ongoing");
                     return Ok(());
                 }
 
                 if self.side.is_client() {
                     // Client-only because server params were set from the client's Initial
-                    let params = self.crypto.transport_parameters()?.ok_or_else(|| {
-                        TransportError::new(
-                            TransportErrorCode::crypto(0x6d),
-                            "transport parameters missing".to_owned(),
-                        )
-                    })?;
+                    let params = self
+                        .crypto_state
+                        .session
+                        .transport_parameters()?
+                        .ok_or_else(|| {
+                            TransportError::new(
+                                TransportErrorCode::crypto(0x6d),
+                                "transport parameters missing".to_owned(),
+                            )
+                        })?;
 
                     if self.has_0rtt() {
-                        if !self.crypto.early_data_accepted().unwrap() {
+                        if !self.crypto_state.session.early_data_accepted().unwrap() {
                             debug_assert!(self.side.is_client());
                             debug!("0-RTT rejected");
-                            self.accepted_0rtt = false;
+                            self.crypto_state.accepted_0rtt = false;
                             self.streams.zero_rtt_rejected();
 
                             // Discard already-queued frames
@@ -4380,7 +4364,7 @@ impl Connection {
                                     .remove_in_flight(&packet);
                             }
                         } else {
-                            self.accepted_0rtt = true;
+                            self.crypto_state.accepted_0rtt = true;
                             params.validate_resumption_from(&self.peer_params)?;
                         }
                     }
@@ -4441,12 +4425,16 @@ impl Connection {
                     && starting_space == SpaceId::Initial
                     && self.highest_space != SpaceId::Initial
                 {
-                    let params = self.crypto.transport_parameters()?.ok_or_else(|| {
-                        TransportError::new(
-                            TransportErrorCode::crypto(0x6d),
-                            "transport parameters missing".to_owned(),
-                        )
-                    })?;
+                    let params = self
+                        .crypto_state
+                        .session
+                        .transport_parameters()?
+                        .ok_or_else(|| {
+                            TransportError::new(
+                                TransportErrorCode::crypto(0x6d),
+                                "transport parameters missing".to_owned(),
+                            )
+                        })?;
                     self.handle_peer_params(params, local_cid, remote_cid, now)?;
                     self.issue_first_cids(now);
                     self.init_0rtt(now);
@@ -4980,7 +4968,7 @@ impl Connection {
                             "client sent HANDSHAKE_DONE",
                         ));
                     }
-                    if self.spaces[SpaceId::Handshake].crypto.is_some() {
+                    if self.crypto_state.has_keys(EncryptionLevel::Handshake) {
                         self.discard_space(now, SpaceId::Handshake);
                     }
                     self.events.push_back(Event::HandshakeConfirmed);
@@ -5592,10 +5580,11 @@ impl Connection {
     ) {
         let pn = builder.packet_number;
         let is_multipath_negotiated = self.is_multipath_negotiated();
+        let space_has_keys = self.crypto_state.has_keys(space_id.encryption_level());
+        let is_0rtt = space_id == SpaceId::Data && !space_has_keys;
         let stats = &mut self.stats.frame_tx;
         let space = &mut self.spaces[space_id];
         let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
-        let is_0rtt = space_id == SpaceId::Data && space.crypto.is_none();
         space
             .for_path(path_id)
             .pending_acks
@@ -5683,6 +5672,7 @@ impl Connection {
                     is_multipath_negotiated,
                     builder,
                     stats,
+                    space_has_keys,
                 );
             }
         }
@@ -6124,9 +6114,10 @@ impl Connection {
         is_multipath_negotiated: bool,
         builder: &mut PacketBuilder<'a, 'b>,
         stats: &mut FrameStats,
+        space_has_keys: bool,
     ) {
         // 0-RTT packets must never carry acks (which would have to be of handshake packets)
-        debug_assert!(space.crypto.is_some(), "tried to send ACK in 0-RTT");
+        debug_assert!(space_has_keys, "tried to send ACK in 0-RTT");
 
         debug_assert!(
             is_multipath_negotiated || path_id == PathId::ZERO,
@@ -6305,15 +6296,9 @@ impl Connection {
         path_id: PathId,
         packet: &mut Packet,
     ) -> Result<Option<u64>, Option<TransportError>> {
-        let result = packet_crypto::decrypt_packet_body(
-            packet,
-            path_id,
-            &self.spaces,
-            self.zero_rtt_crypto.as_ref(),
-            self.key_phase,
-            self.prev_crypto.as_ref(),
-            self.next_crypto.as_ref(),
-        )?;
+        let result = self
+            .crypto_state
+            .decrypt_packet_body(packet, path_id, &self.spaces)?;
 
         let result = match result {
             Some(r) => r,
@@ -6321,7 +6306,7 @@ impl Connection {
         };
 
         if result.outgoing_key_update_acked
-            && let Some(prev) = self.prev_crypto.as_mut()
+            && let Some(prev) = self.crypto_state.prev_crypto.as_mut()
         {
             prev.end_packet = Some((result.number, now));
             self.set_key_discard_timer(now, packet.header.space());
@@ -6338,34 +6323,10 @@ impl Connection {
 
     fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) {
         trace!("executing key update");
-        // Generate keys for the key phase after the one we're switching to, store them in
-        // `next_crypto`, make the contents of `next_crypto` current, and move the current keys into
-        // `prev_crypto`.
-        let new = self
-            .crypto
-            .next_1rtt_keys()
-            .expect("only called for `Data` packets");
-        self.key_phase_size = new
-            .local
-            .confidentiality_limit()
-            .saturating_sub(KEY_UPDATE_MARGIN);
-        let old = mem::replace(
-            &mut self.spaces[SpaceId::Data]
-                .crypto
-                .as_mut()
-                .unwrap() // safe because update_keys() can only be triggered by short packets
-                .packet,
-            mem::replace(self.next_crypto.as_mut().unwrap(), new),
-        );
+        self.crypto_state.update_keys(end_packet, remote);
         self.spaces[SpaceId::Data]
             .iter_paths_mut()
             .for_each(|s| s.sent_with_keys = 0);
-        self.prev_crypto = Some(PrevCrypto {
-            crypto: old,
-            end_packet,
-            update_unacked: remote,
-        });
-        self.key_phase = !self.key_phase;
     }
 
     fn peer_supports_ack_frequency(&self) -> bool {
@@ -6404,24 +6365,14 @@ impl Connection {
             panic!("Packets should never be coalesced in tests");
         }
 
-        let decrypted_header = packet_crypto::unprotect_header(
-            first_decode.clone(),
-            &self.spaces,
-            self.zero_rtt_crypto.as_ref(),
-            self.peer_params.stateless_reset_token,
-        )?;
+        let decrypted_header = self
+            .crypto_state
+            .unprotect_header(first_decode.clone(), self.peer_params.stateless_reset_token)?;
 
         let mut packet = decrypted_header.packet?;
-        packet_crypto::decrypt_packet_body(
-            &mut packet,
-            *path_id,
-            &self.spaces,
-            self.zero_rtt_crypto.as_ref(),
-            self.key_phase,
-            self.prev_crypto.as_ref(),
-            self.next_crypto.as_ref(),
-        )
-        .ok()?;
+        self.crypto_state
+            .decrypt_packet_body(&mut packet, *path_id, &self.spaces)
+            .ok()?;
 
         Some(packet.payload.to_vec())
     }
@@ -6620,14 +6571,15 @@ impl Connection {
     }
 
     fn tag_len_1rtt(&self) -> usize {
-        let key = match self.spaces[SpaceId::Data].crypto.as_ref() {
-            Some(crypto) => Some(&*crypto.packet.local),
-            None => self.zero_rtt_crypto.as_ref().map(|x| &*x.packet),
-        };
+        // local_crypto for Data space returns 1-RTT keys if available, otherwise 0-RTT keys
+        let packet_crypto = self
+            .crypto_state
+            .local_crypto(SpaceKind::Data)
+            .map(|(_, packet)| packet);
         // If neither Data nor 0-RTT keys are available, make a reasonable tag length guess. As of
         // this writing, all QUIC cipher suites use 16-byte tags. We could return `None` instead,
         // but that would needlessly prevent sending datagrams during 0-RTT.
-        key.map_or(16, |x| x.tag_len())
+        packet_crypto.map_or(16, |x| x.tag_len())
     }
 
     /// Mark the path as validated, and enqueue NEW_TOKEN frames to be sent as appropriate
@@ -7161,11 +7113,6 @@ const MIN_PACKET_SPACE: usize = MAX_HANDSHAKE_OR_0RTT_HEADER_SIZE + 32;
 // scid len + scid + length + pn
 const MAX_HANDSHAKE_OR_0RTT_HEADER_SIZE: usize =
     1 + 4 + 1 + MAX_CID_SIZE + 1 + MAX_CID_SIZE + VarInt::from_u32(u16::MAX as u32).size() + 4;
-
-/// Perform key updates this many packets before the AEAD confidentiality limit.
-///
-/// Chosen arbitrarily, intended to be large enough to prevent spurious connection loss.
-const KEY_UPDATE_MARGIN: u64 = 10_000;
 
 #[derive(Default)]
 struct SentFrames {

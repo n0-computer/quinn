@@ -11,11 +11,10 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use sorted_index_buffer::SortedIndexBuffer;
 use tracing::trace;
 
-use super::{PathId, assembler::Assembler};
+use super::PathId;
 use crate::{
     Dir, Duration, FourTuple, Instant, StreamId, TransportError, TransportErrorCode, VarInt,
     connection::StreamsState,
-    crypto::Keys,
     frame::{self, AddAddress, RemoveAddress},
     packet::SpaceId,
     range_set::ArrayRangeSet,
@@ -23,15 +22,8 @@ use crate::{
 };
 
 pub(super) struct PacketSpace {
-    pub(super) crypto: Option<Keys>,
-
     /// Data to send
     pub(super) pending: Retransmits,
-
-    /// Incoming cryptographic handshake stream
-    pub(super) crypto_stream: Assembler,
-    /// Current offset of outgoing cryptographic handshake stream
-    pub(super) crypto_offset: u64,
 
     /// Multipath packet number spaces
     ///
@@ -45,10 +37,7 @@ impl PacketSpace {
     pub(super) fn new(now: Instant, space: SpaceId, rng: &mut (impl Rng + ?Sized)) -> Self {
         let number_space_0 = PacketNumberSpace::new(now, space, rng);
         Self {
-            crypto: None,
             pending: Retransmits::default(),
-            crypto_stream: Assembler::new(),
-            crypto_offset: 0,
             number_spaces: BTreeMap::from([(PathId::ZERO, number_space_0)]),
         }
     }
@@ -57,10 +46,7 @@ impl PacketSpace {
     pub(super) fn new_deterministic(now: Instant, space: SpaceId) -> Self {
         let number_space_0 = PacketNumberSpace::new_deterministic(now, space);
         Self {
-            crypto: None,
             pending: Retransmits::default(),
-            crypto_stream: Assembler::new(),
-            crypto_offset: 0,
             number_spaces: BTreeMap::from([(PathId::ZERO, number_space_0)]),
         }
     }

@@ -60,19 +60,13 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         // Initiate key update if we're approaching the confidentiality limit
         let sent_with_keys = conn.spaces[space_id].sent_with_keys();
         if space_id == SpaceId::Data {
-            if sent_with_keys >= conn.key_phase_size {
+            if sent_with_keys >= conn.crypto_state.key_phase_size {
                 debug!("routine key update due to phase exhaustion");
                 conn.force_key_update();
             }
         } else {
-            let confidentiality_limit = conn.spaces[space_id]
-                .crypto
-                .as_ref()
-                .map_or_else(
-                    || &conn.zero_rtt_crypto.as_ref().unwrap().packet,
-                    |keys| &keys.packet.local,
-                )
-                .confidentiality_limit();
+            let (_, packet_crypto) = conn.crypto_state.local_crypto(space_id.kind()).unwrap();
+            let confidentiality_limit = packet_crypto.confidentiality_limit();
             if sent_with_keys.saturating_add(1) == confidentiality_limit {
                 // We still have time to attempt a graceful close
                 conn.close_inner(
@@ -100,8 +94,9 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             packet_number,
             space.for_path(path_id).largest_acked_packet.unwrap_or(0),
         );
+        let space_has_keys = conn.crypto_state.has_keys(space_id.encryption_level());
         let header = match space_id {
-            SpaceId::Data if space.crypto.is_some() => Header::Short {
+            SpaceId::Data if space_has_keys => Header::Short {
                 dst_cid,
                 number,
                 spin: if conn.spin_enabled {
@@ -109,7 +104,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
                 } else {
                     conn.rng.random()
                 },
-                key_phase: conn.key_phase,
+                key_phase: conn.crypto_state.key_phase,
             },
             SpaceId::Data => Header::Long {
                 ty: LongType::ZeroRtt,
@@ -142,17 +137,9 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             buffer.as_mut_slice()[partial_encode.start] ^= FIXED_BIT;
         }
 
-        let (sample_size, tag_len) = if let Some(ref crypto) = space.crypto {
-            (
-                crypto.header.local.sample_size(),
-                crypto.packet.local.tag_len(),
-            )
-        } else if space_id == SpaceId::Data {
-            let zero_rtt = conn.zero_rtt_crypto.as_ref().unwrap();
-            (zero_rtt.header.sample_size(), zero_rtt.packet.tag_len())
-        } else {
-            unreachable!();
-        };
+        let (header_crypto, packet_crypto) =
+            conn.crypto_state.local_crypto(space_id.kind()).unwrap();
+        let (sample_size, tag_len) = (header_crypto.sample_size(), packet_crypto.tag_len());
 
         // Each packet must be large enough for header protection sampling, i.e. the combined
         // lengths of the encoded packet number and protected payload must be at least 4 bytes
@@ -173,7 +160,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             &header,
             Some(packet_number),
             space_id,
-            space_id == SpaceId::Data && conn.spaces[SpaceId::Data].crypto.is_none(),
+            space_id == SpaceId::Data && !space_has_keys,
             path_id,
         );
 
@@ -349,15 +336,10 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             self.qlog.frame_padding(padding);
         }
 
-        let space = &conn.spaces[self.space];
-        let (header_crypto, packet_crypto) = if let Some(ref crypto) = space.crypto {
-            (&*crypto.header.local, &*crypto.packet.local)
-        } else if self.space == SpaceId::Data {
-            let zero_rtt = conn.zero_rtt_crypto.as_ref().unwrap();
-            (&*zero_rtt.header, &*zero_rtt.packet)
-        } else {
-            unreachable!("tried to send {:?} packet without keys", self.space);
-        };
+        let (header_crypto, packet_crypto) = conn
+            .crypto_state
+            .local_crypto(self.space.kind())
+            .expect("tried to send packet without keys");
 
         debug_assert_eq!(
             packet_crypto.tag_len(),
