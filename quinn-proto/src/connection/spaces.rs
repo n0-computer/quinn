@@ -16,7 +16,7 @@ use crate::{
     Dir, Duration, FourTuple, Instant, StreamId, TransportError, TransportErrorCode, VarInt,
     connection::StreamsState,
     frame::{self, AddAddress, RemoveAddress},
-    packet::SpaceId,
+    packet::{SpaceId, SpaceKind},
     range_set::ArrayRangeSet,
     shared::IssuedCid,
 };
@@ -174,6 +174,19 @@ impl Index<SpaceId> for [PacketSpace; 3] {
 
 impl IndexMut<SpaceId> for [PacketSpace; 3] {
     fn index_mut(&mut self, space: SpaceId) -> &mut PacketSpace {
+        &mut self.as_mut()[space as usize]
+    }
+}
+
+impl Index<SpaceKind> for [PacketSpace; 3] {
+    type Output = PacketSpace;
+    fn index(&self, space: SpaceKind) -> &PacketSpace {
+        &self.as_ref()[space as usize]
+    }
+}
+
+impl IndexMut<SpaceKind> for [PacketSpace; 3] {
+    fn index_mut(&mut self, space: SpaceKind) -> &mut PacketSpace {
         &mut self.as_mut()[space as usize]
     }
 }

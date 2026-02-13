@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::{
     ConnectionId, PathId,
     coding::{self, BufExt, BufMutExt},
-    connection::{EncryptionLevel, SpaceKind},
+    connection::EncryptionLevel,
     crypto,
 };
 
@@ -409,19 +409,19 @@ impl Header {
         })
     }
 
-    pub(crate) fn space(&self) -> SpaceId {
+    pub(crate) fn space(&self) -> SpaceKind {
         use Header::*;
         match *self {
-            Short { .. } => SpaceId::Data,
+            Short { .. } => SpaceKind::Data,
             Long {
                 ty: LongType::ZeroRtt,
                 ..
-            } => SpaceId::Data,
+            } => SpaceKind::Data,
             Long {
                 ty: LongType::Handshake,
                 ..
-            } => SpaceId::Handshake,
-            _ => SpaceId::Initial,
+            } => SpaceKind::Handshake,
+            _ => SpaceKind::Initial,
         }
     }
 
@@ -972,6 +972,46 @@ impl SpaceId {
             Self::Initial => SpaceKind::Initial,
             Self::Handshake => SpaceKind::Handshake,
             Self::Data => SpaceKind::Data,
+        }
+    }
+}
+
+/// The three QUIC packet number space kinds
+///
+/// Unlike [`SpaceId`], this always has exactly three variants — it represents the
+/// encryption level / space kind, not a specific packet number space identity.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub(crate) enum SpaceKind {
+    /// Initial packets (client and server).
+    Initial = 0,
+    /// Handshake packets.
+    Handshake = 1,
+    /// Data (1-RTT and 0-RTT)
+    Data = 2,
+}
+
+impl SpaceKind {
+    pub(crate) fn iter() -> impl Iterator<Item = Self> {
+        [Self::Initial, Self::Handshake, Self::Data].iter().cloned()
+    }
+
+    /// Returns the next higher space kind.
+    ///
+    /// Returns `None` if at [`SpaceKind::Data`].
+    pub(crate) fn next(&self) -> Option<Self> {
+        match self {
+            Self::Initial => Some(Self::Handshake),
+            Self::Handshake => Some(Self::Data),
+            Self::Data => None,
+        }
+    }
+
+    /// Returns the encryption level for this space kind.
+    pub(crate) fn encryption_level(self) -> EncryptionLevel {
+        match self {
+            Self::Initial => EncryptionLevel::Initial,
+            Self::Handshake => EncryptionLevel::Handshake,
+            Self::Data => EncryptionLevel::OneRtt,
         }
     }
 }
