@@ -426,11 +426,11 @@ impl Connection {
                     Some(recv) => {
                         drop(state);
                         OpenPath::new(path_id, recv, self.0.clone())
-                    },
+                    }
                     None => {
                         drop(state);
                         OpenPath::ready(path_id, self.0.clone())
-                    },
+                    }
                 }
             }
             Ok((path_id, _)) => {
