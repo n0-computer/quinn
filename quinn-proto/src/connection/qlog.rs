@@ -40,7 +40,7 @@ use crate::{
     Connection, ConnectionId, FourTuple, Frame, Instant, PathId,
     connection::{EncryptionLevel, PathData, SentPacket, timer::Timer},
     frame::EncodableFrame,
-    packet::{Header, SpaceId},
+    packet::{Header, SpaceKind},
     transport_parameters::TransportParameters,
 };
 #[cfg(feature = "qlog")]
@@ -193,7 +193,7 @@ impl QlogSink {
         pn: u64,
         info: &SentPacket,
         loss_delay: Duration,
-        space: SpaceId,
+        space: SpaceKind,
         now: Instant,
     ) {
         #[cfg(feature = "qlog")]
@@ -1075,12 +1075,12 @@ impl From<crate::Dir> for StreamType {
 }
 
 #[cfg(feature = "qlog")]
-fn packet_type(space: SpaceId, is_0rtt: bool) -> PacketType {
+fn packet_type(space: SpaceKind, is_0rtt: bool) -> PacketType {
     match space {
-        SpaceId::Initial => PacketType::Initial,
-        SpaceId::Handshake => PacketType::Handshake,
-        SpaceId::Data if is_0rtt => PacketType::ZeroRtt,
-        SpaceId::Data => PacketType::OneRtt,
+        SpaceKind::Initial => PacketType::Initial,
+        SpaceKind::Handshake => PacketType::Handshake,
+        SpaceKind::Data if is_0rtt => PacketType::ZeroRtt,
+        SpaceKind::Data => PacketType::OneRtt,
     }
 }
 
