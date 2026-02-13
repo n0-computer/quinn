@@ -2475,7 +2475,7 @@ impl Connection {
             debug!("ignoring redundant forced key update");
             return;
         }
-        self.update_keys(None, false);
+        self.crypto_state.update_keys(None, false);
     }
 
     /// Get a session reference
@@ -6314,19 +6314,12 @@ impl Connection {
 
         if result.incoming_key_update {
             trace!("key update authenticated");
-            self.update_keys(Some((result.number, now)), true);
+            self.crypto_state
+                .update_keys(Some((result.number, now)), true);
             self.set_key_discard_timer(now, packet.header.space());
         }
 
         Ok(Some(result.number))
-    }
-
-    fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) {
-        trace!("executing key update");
-        self.crypto_state.update_keys(end_packet, remote);
-        self.spaces[SpaceId::Data]
-            .iter_paths_mut()
-            .for_each(|s| s.sent_with_keys = 0);
     }
 
     fn peer_supports_ack_frequency(&self) -> bool {
@@ -6571,11 +6564,11 @@ impl Connection {
     }
 
     fn tag_len_1rtt(&self) -> usize {
-        // local_crypto for Data space returns 1-RTT keys if available, otherwise 0-RTT keys
+        // encryption_keys for Data space returns 1-RTT keys if available, otherwise 0-RTT keys
         let packet_crypto = self
             .crypto_state
-            .local_crypto(SpaceKind::Data)
-            .map(|(_, packet)| packet);
+            .encryption_keys(SpaceKind::Data, self.side.side())
+            .map(|(_header, packet, _level)| packet);
         // If neither Data nor 0-RTT keys are available, make a reasonable tag length guess. As of
         // this writing, all QUIC cipher suites use 16-byte tags. We could return `None` instead,
         // but that would needlessly prevent sending datagrams during 0-RTT.

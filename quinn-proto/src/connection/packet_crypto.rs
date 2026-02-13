@@ -85,6 +85,8 @@ pub(super) struct CryptoState {
     pub(super) zero_rtt_enabled: bool,
     /// 0-RTT crypto state, cleared when no longer needed.
     pub(super) zero_rtt_crypto: Option<ZeroRttCrypto>,
+    /// Number of packets encrypted with 0-RTT keys. Client only.
+    sent_with_zero_rtt: u64,
 
     /*
      * State to manage 1-RTT key updates
@@ -122,6 +124,7 @@ impl CryptoState {
             accepted_0rtt: false,
             zero_rtt_enabled: false,
             zero_rtt_crypto: None,
+            sent_with_zero_rtt: 0,
             key_phase: false,
             // A small initial key phase size ensures peers that don't handle key updates correctly
             // fail sooner rather than later. It's okay for both peers to do this, as the first one
@@ -312,29 +315,27 @@ impl CryptoState {
         Some(keys.packet.local.integrity_limit())
     }
 
-    /// Get local (sending) crypto keys for the given space.
+    /// Get local (sending) crypto keys for the given encryption level.
     ///
-    /// Returns header and packet keys used for encrypting outgoing packets. For `SpaceKind::Data`,
-    /// returns 1-RTT keys if available, otherwise 0-RTT keys.
+    /// Use this only when sure the keys are allowed to be used. [`Self::encryption_keys`] should
+    /// be preferred otherwise.
     pub(super) fn local_crypto(
         &self,
-        space: SpaceKind,
+        level: EncryptionLevel,
     ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
-        let keys = self.spaces[space].keys.as_ref().map(Keys::local);
-        if keys.is_none() && space == SpaceKind::Data {
-            return self.zero_rtt_crypto.as_ref().map(ZeroRttCrypto::keys);
+        match level {
+            EncryptionLevel::Initial => self.spaces[0].keys.as_ref().map(Keys::local),
+            EncryptionLevel::Handshake => self.spaces[1].keys.as_ref().map(Keys::local),
+            EncryptionLevel::OneRtt => self.spaces[2].keys.as_ref().map(Keys::local),
+            // 0-RTT uses the same keys for both directions
+            EncryptionLevel::ZeroRtt => self.zero_rtt_crypto.as_ref().map(ZeroRttCrypto::keys),
         }
-
-        keys
     }
 
     /// Get remote (receiving) crypto keys for the given encryption level.
     ///
     /// Returns header and packet keys used for decrypting incoming packets.
-    pub(super) fn remote_crypto(
-        &self,
-        level: EncryptionLevel,
-    ) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
+    fn remote_crypto(&self, level: EncryptionLevel) -> Option<(&dyn HeaderKey, &dyn PacketKey)> {
         match level {
             EncryptionLevel::Initial => self.spaces[0].keys.as_ref().map(Keys::remote),
             EncryptionLevel::Handshake => self.spaces[1].keys.as_ref().map(Keys::remote),
@@ -344,13 +345,44 @@ impl CryptoState {
         }
     }
 
+    /// Get local (sending) crypto keys and the actual encryption level for a given space.
+    ///
+    /// This method takes a [`SpaceKind`] and resolves the encryption level automatically: for the
+    /// [`SpaceKind::Data`] space on the client side, it falls back to 0-RTT keys when 1-RTT keys
+    /// are not yet available. Resolving the appropriate encryption keys makes this method
+    /// preferable to [`Self::local_crypto`] in general.
+    ///
+    /// Returns `None` if no keys are available.
+    pub(super) fn encryption_keys(
+        &self,
+        kind: SpaceKind,
+        side: Side,
+    ) -> Option<(&dyn HeaderKey, &dyn PacketKey, EncryptionLevel)> {
+        let mut keys = self.spaces[kind].keys.as_ref().map(Keys::local);
+        let mut level = match kind {
+            SpaceKind::Initial => EncryptionLevel::Initial,
+            SpaceKind::Handshake => EncryptionLevel::Handshake,
+            SpaceKind::Data => EncryptionLevel::OneRtt,
+        };
+
+        // Clients use 0-RTT keys if 1-RTT keys are not available. Servers never encrypt 0-RTT
+        if keys.is_none() && kind == SpaceKind::Data && side.is_client() {
+            keys = self.zero_rtt_crypto.as_ref().map(ZeroRttCrypto::keys);
+            level = EncryptionLevel::ZeroRtt;
+        }
+
+        keys.map(|(header_keys, packet_keys)| (header_keys, packet_keys, level))
+    }
+
     /// Perform a 1-RTT key update.
     ///
     /// Generates the next set of keys, rotates current keys into previous, and installs the new
     /// keys. Updates `key_phase` and `key_phase_size` accordingly.
     ///
-    /// PANICS: If 1rtt keys are missing.
+    /// PANICS: If 1-RTT keys are missing.
     pub(super) fn update_keys(&mut self, end_packet: Option<(u64, Instant)>, remote: bool) {
+        trace!("executing key update");
+
         let new = self
             .session
             .next_1rtt_keys()
@@ -372,6 +404,50 @@ impl CryptoState {
 
         self.key_phase_size = confidentiality_limit.saturating_sub(KEY_UPDATE_MARGIN);
         self.key_phase = !self.key_phase;
+        self.spaces[2].sent_with_keys = 0;
+    }
+
+    /// Number of packets encrypted with the current set of keys at `level`.
+    ///
+    /// For [`EncryptionLevel::OneRtt`], this counter resets to zero on every key update (see
+    /// [`Self::update_keys`]).
+    pub(crate) fn sent_with_keys(&self, level: EncryptionLevel) -> u64 {
+        match level {
+            EncryptionLevel::Initial => self.spaces[0].sent_with_keys,
+            EncryptionLevel::ZeroRtt => self.sent_with_zero_rtt,
+            EncryptionLevel::Handshake => self.spaces[1].sent_with_keys,
+            EncryptionLevel::OneRtt => self.spaces[2].sent_with_keys,
+        }
+    }
+
+    /// Number of packets that may still be sent before the AEAD confidentiality limit is reached
+    /// at the given encryption level.
+    ///
+    /// For [`EncryptionLevel::OneRtt`] the effective limit is the minimum of the AEAD
+    /// confidentiality limit and the current key-phase size. For all other levels the raw AEAD
+    /// confidentiality limit is used.
+    ///
+    /// Returns `None` when no keys are available for `level`.
+    pub(crate) fn remaining_packet_budget(&self, level: EncryptionLevel) -> Option<u64> {
+        let sent_with_keys = self.sent_with_keys(level);
+        let (_header_keys, packet_keys) = self.local_crypto(level)?;
+        let limit = match level {
+            EncryptionLevel::OneRtt => self.key_phase_size.min(packet_keys.confidentiality_limit()),
+            _ => packet_keys.confidentiality_limit(),
+        };
+
+        Some(limit.saturating_sub(sent_with_keys))
+    }
+
+    /// Record that a packet has been encrypted at the given level.
+    pub(crate) fn inc_sent_with_keys(&mut self, level: EncryptionLevel) {
+        let count = match level {
+            EncryptionLevel::Initial => &mut self.spaces[0].sent_with_keys,
+            EncryptionLevel::ZeroRtt => &mut self.sent_with_zero_rtt,
+            EncryptionLevel::Handshake => &mut self.spaces[1].sent_with_keys,
+            EncryptionLevel::OneRtt => &mut self.spaces[2].sent_with_keys,
+        };
+        *count = count.saturating_add(1u64);
     }
 }
 
@@ -384,6 +460,8 @@ pub(super) struct CryptoSpace {
     pub(super) crypto_stream: Assembler,
     /// Current offset of outgoing cryptographic handshake stream.
     pub(super) crypto_offset: u64,
+    /// Number of packets encrypted with the current set of keys.
+    pub(super) sent_with_keys: u64,
 }
 
 /// QUIC packet protection levels (RFC 9001).
