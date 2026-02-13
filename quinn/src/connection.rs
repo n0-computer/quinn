@@ -423,8 +423,14 @@ impl Connection {
         match open_res {
             Ok((path_id, existed)) if existed => {
                 match state.open_path.get(&path_id).map(|tx| tx.subscribe()) {
-                    Some(recv) => OpenPath::new(path_id, recv, self.0.clone()),
-                    None => OpenPath::ready(path_id, self.0.clone()),
+                    Some(recv) => {
+                        drop(state);
+                        OpenPath::new(path_id, recv, self.0.clone())
+                    },
+                    None => {
+                        drop(state);
+                        OpenPath::ready(path_id, self.0.clone())
+                    },
                 }
             }
             Ok((path_id, _)) => {
