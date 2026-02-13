@@ -416,7 +416,12 @@ impl Future for EndpointDriver {
             self.0.shared.incoming.notify_waiters();
         }
 
-        if endpoint.ref_count == 0 && endpoint.recv_state.connections.is_empty() {
+        // Stop the driver once:
+        // * all `Endpoint` structs are dropped and all connections are drained
+        // * the endpoint was closed via `Endpoint::close` and all connections are drained
+        if endpoint.recv_state.connections.is_empty()
+            && (endpoint.ref_count == 0 || endpoint.recv_state.connections.close.is_some())
+        {
             Poll::Ready(Ok(()))
         } else {
             drop(endpoint);
