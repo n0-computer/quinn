@@ -316,6 +316,9 @@ impl CryptoState {
     }
 
     /// Get local (sending) crypto keys for the given encryption level.
+    ///
+    /// Use this only when sure the keys are allowed to be used. [`Self::encryption_keys`] should
+    /// be preferred otherwise.
     pub(super) fn local_crypto(
         &self,
         level: EncryptionLevel,
@@ -342,6 +345,14 @@ impl CryptoState {
         }
     }
 
+    /// Get local (sending) crypto keys and the actual encryption level for a given space.
+    ///
+    /// This method takes a [`SpaceKind`] and resolves the encryption level automatically: for the
+    /// [`SpaceKind::Data`] space on the client side, it falls back to 0-RTT keys when 1-RTT keys
+    /// are not yet available. Resolving the appropriate encryption keys makes this method
+    /// preferable to [`Self::local_crypto`] in general.
+    ///
+    /// Returns `None` if no keys are available.
     pub(super) fn encryption_keys(
         &self,
         kind: SpaceKind,
@@ -396,6 +407,10 @@ impl CryptoState {
         self.spaces[2].sent_with_keys = 0;
     }
 
+    /// Number of packets encrypted with the current set of keys at `level`.
+    ///
+    /// For [`EncryptionLevel::OneRtt`], this counter resets to zero on every key update (see
+    /// [`Self::update_keys`]).
     pub(crate) fn sent_with_keys(&self, level: EncryptionLevel) -> u64 {
         match level {
             EncryptionLevel::Initial => self.spaces[0].sent_with_keys,
@@ -405,6 +420,14 @@ impl CryptoState {
         }
     }
 
+    /// Number of packets that may still be sent before the AEAD confidentiality limit is reached
+    /// at the given encryption level.
+    ///
+    /// For [`EncryptionLevel::OneRtt`] the effective limit is the minimum of the AEAD
+    /// confidentiality limit and the current key-phase size. For all other levels the raw AEAD
+    /// confidentiality limit is used.
+    ///
+    /// Returns `None` when no keys are available for `level`.
     pub(crate) fn remaining_packet_budget(&self, level: EncryptionLevel) -> Option<u64> {
         let sent_with_keys = self.sent_with_keys(level);
         let (_header_keys, packet_keys) = self.local_crypto(level)?;
@@ -416,6 +439,7 @@ impl CryptoState {
         Some(limit.saturating_sub(sent_with_keys))
     }
 
+    /// Record that a packet has been encrypted at the given level.
     pub(crate) fn inc_sent_with_keys(&mut self, level: EncryptionLevel) {
         let count = match level {
             EncryptionLevel::Initial => &mut self.spaces[0].sent_with_keys,
