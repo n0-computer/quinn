@@ -343,6 +343,10 @@ impl Endpoint {
             });
         }
         self.inner.shared.incoming.notify_waiters();
+        // Wake the endpoint driver so that it can shutdown if the endpoint is already drained.
+        if let Some(waker) = endpoint.driver.take() {
+            waker.wake();
+        }
     }
 
     /// Wait for all connections on the endpoint to be cleanly shut down
