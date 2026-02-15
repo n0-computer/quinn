@@ -4112,3 +4112,41 @@ fn regression_maybe_frame_roundtrip() {
     let dec = frame::MaybeFrame::decode(&mut buf.freeze()).unwrap();
     assert_eq!(dec, ty);
 }
+
+/// Regression test: CLIENT closes connection from new address, triggering migration
+/// on server DURING the close processing. The sequence is:
+/// 1. Server receives APPLICATION_CLOSE from new client address
+/// 2. Server migrates (PathData replaced, counters reset to 0)
+/// 3. set_close_timer() called BEFORE inc_total_recvd() runs
+/// 4. pto_max_path filters out path with 0 counters -> PANIC
+///
+/// Related errors in production:
+/// - "received fatal alert: InternalError" (TLS error following this)
+/// - "PTO expired while unset path_id=0"
+/// - panic: "there should be at least one path"
+#[test]
+#[should_panic(expected = "there should be at least one path")]
+fn regression_close_from_migrated_address_panics() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    let (client_ch, _server_ch) = pair.connect();
+    pair.drive();
+
+    // Change client address - server will see this as migration
+    pair.client.addr = SocketAddr::new(
+        Ipv4Addr::new(127, 0, 0, 1).into(),
+        CLIENT_PORTS.lock().unwrap().next().unwrap(),
+    );
+
+    // Client closes connection from the NEW address.
+    // When server receives this, it will:
+    // 1. Process the APPLICATION_CLOSE frame -> state becomes Closed
+    // 2. Migrate the path (counters reset to 0)
+    // 3. Call set_close_timer() -> pto_max_path() with is_closing=true
+    // 4. Panic at "there should be at least one path"
+    let now = pair.time;
+    pair.client_conn_mut(client_ch).close(now, 0u8.into(), Bytes::new());
+
+    // Drive - sends close from new address, server processes it
+    pair.drive();
+}
