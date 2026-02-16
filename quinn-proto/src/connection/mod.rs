@@ -654,7 +654,7 @@ impl Connection {
         Ok(path_id)
     }
 
-    /// Closes a path by sending a PATH_ABANDON frame
+    /// Closes a path and sends a PATH_ABANDON frame with the passed error code.
     ///
     /// This will not allow closing the last path. It does allow closing paths which have
     /// not yet been opened, as e.g. is the case when receiving a PATH_ABANDON from the peer
@@ -672,6 +672,10 @@ impl Connection {
         )
     }
 
+    /// Closes a path and sends a PATH_ABANDON frame.
+    ///
+    /// Other than [`Self::close_path`] this allows to specify the reason for the path being closed.
+    /// Internally, this should be used over [`Self::close_path`].
     fn close_path_inner(
         &mut self,
         now: Instant,
