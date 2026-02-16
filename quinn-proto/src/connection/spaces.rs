@@ -567,21 +567,21 @@ impl ::std::ops::BitOrAssign for Retransmits {
         self.add_address.extend(rhs.add_address.iter().copied());
         self.remove_address
             .extend(rhs.remove_address.iter().copied());
-        // if there are two rounds, prefer the most recent reach out set
-        match (self.reach_out.as_mut(), rhs.reach_out.as_mut()) {
-            (None, Some(_)) => self.reach_out = rhs.reach_out.take(),
-            (Some((lhs_round, lhs_reach_outs)), Some((rhs_round, rhs_reach_outs))) => {
-                if rhs_round > lhs_round {
-                    // RHS round is newer.
-                    self.reach_out = rhs.reach_out.take()
-                } else if lhs_round == rhs_round {
-                    // Same round. Merge both sets
-                    lhs_reach_outs.extend(rhs_reach_outs.iter());
-                } else {
-                    // Current round is newer, ignore RHS.
+        if let Some((rhs_round, rhs_addrs)) = rhs.reach_out {
+            match self.reach_out.as_mut() {
+                // Use RHS if there is no recorded round.
+                None => self.reach_out = Some((rhs_round, rhs_addrs)),
+                // Use RHS if newer.
+                Some((lhs_round, lhs_addrs)) if rhs_round > *lhs_round => {
+                    self.reach_out = Some((rhs_round, rhs_addrs));
                 }
+                // If both rounds are the same, merge them.
+                Some((lhs_round, lhs_addrs)) if rhs_round == *lhs_round => {
+                    lhs_addrs.extend(rhs_addrs);
+                }
+                // LHS round is newer, ignore RHS
+                Some(_) => {}
             }
-            _ => {}
         }
     }
 }
