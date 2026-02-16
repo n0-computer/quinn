@@ -606,7 +606,7 @@
 <a href=#606 id=606 data-nosnippet>606</a>
 <a href=#607 id=607 data-nosnippet>607</a>    <span class="doccomment">/// Opens a new path
 <a href=#608 id=608 data-nosnippet>608</a>    ///
-<a href=#609 id=609 data-nosnippet>609</a>    /// Further errors might occur and they will be emitted in [`PathEvent::LocallyClosed`] events.
+<a href=#609 id=609 data-nosnippet>609</a>    /// Further errors might occur and they will be emitted in [`PathEvent::Abandoned`] events with this path id.
 <a href=#610 id=610 data-nosnippet>610</a>    /// When the path is opened it will be reported as an [`PathEvent::Opened`].
 <a href=#611 id=611 data-nosnippet>611</a>    </span><span class="kw">pub fn </span>open_path(
 <a href=#612 id=612 data-nosnippet>612</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
@@ -712,7 +712,7 @@
 <a href=#712 id=712 data-nosnippet>712</a>        </span><span class="self">self</span>.spaces[SpaceId::Data]
 <a href=#713 id=713 data-nosnippet>713</a>            .pending
 <a href=#714 id=714 data-nosnippet>714</a>            .path_abandon
-<a href=#715 id=715 data-nosnippet>715</a>            .insert(path_id, reason.error_code().into());
+<a href=#715 id=715 data-nosnippet>715</a>            .insert(path_id, reason.error_code());
 <a href=#716 id=716 data-nosnippet>716</a>
 <a href=#717 id=717 data-nosnippet>717</a>        <span class="comment">// Remove pending NEW CIDs for this path
 <a href=#718 id=718 data-nosnippet>718</a>        </span><span class="kw">let </span>pending_space = <span class="kw-2">&amp;mut </span><span class="self">self</span>.spaces[SpaceId::Data].pending;

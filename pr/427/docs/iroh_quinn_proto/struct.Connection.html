@@ -71,7 +71,7 @@ the OS is likely to use the same interface to talk to said remote.</p>
     initial_status: <a class="enum" href="enum.PathStatus.html" title="enum iroh_quinn_proto::PathStatus">PathStatus</a>,
     now: <a class="struct" href="https://doc.rust-lang.org/nightly/std/time/struct.Instant.html" title="struct std::time::Instant">Instant</a>,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/nightly/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="struct.PathId.html" title="struct iroh_quinn_proto::PathId">PathId</a>, <a class="enum" href="enum.PathError.html" title="enum iroh_quinn_proto::PathError">PathError</a>&gt;</h4></section></summary><div class="docblock"><p>Opens a new path</p>
-<p>Further errors might occur and they will be emitted in [<code>PathEvent::LocallyClosed</code>] events.
+<p>Further errors might occur and they will be emitted in <a href="enum.PathEvent.html#variant.Abandoned" title="variant iroh_quinn_proto::PathEvent::Abandoned"><code>PathEvent::Abandoned</code></a> events with this path id.
 When the path is opened it will be reported as an <a href="enum.PathEvent.html#variant.Opened" title="variant iroh_quinn_proto::PathEvent::Opened"><code>PathEvent::Opened</code></a>.</p>
 </div></details><details class="toggle method-toggle" open><summary><section id="method.close_path" class="method"><a class="src rightside" href="../src/iroh_quinn_proto/connection/mod.rs.html#662-673">Source</a><h4 class="code-header">pub fn <a href="#method.close_path" class="fn">close_path</a>(
     &amp;mut self,
