@@ -572,7 +572,7 @@ impl ::std::ops::BitOrAssign for Retransmits {
                 // Use RHS if there is no recorded round.
                 None => self.reach_out = Some((rhs_round, rhs_addrs)),
                 // Use RHS if newer.
-                Some((lhs_round, lhs_addrs)) if rhs_round > *lhs_round => {
+                Some((lhs_round, _lhs_addrs)) if rhs_round > *lhs_round => {
                     self.reach_out = Some((rhs_round, rhs_addrs));
                 }
                 // If both rounds are the same, merge them.
