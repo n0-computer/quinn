@@ -114,7 +114,7 @@ impl CidQueue {
         let (i, cid_data) = self.iter_from_reserved().nth(1)?;
         let reserved = self.reserved_len();
         for j in 0..=reserved {
-            self.buffer[self.cursor + j] = None;
+            self.buffer[(self.cursor + j) % Self::LEN] = None;
         }
         let orig_offset = self.offset;
         self.offset += (i + reserved) as u64;
