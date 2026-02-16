@@ -358,7 +358,9 @@ impl ServerState {
         if round > self.round {
             self.round = round;
             self.pending_probes.clear();
-        } else if self.pending_probes.len() >= self.max_remote_addresses {
+        } else if self.pending_probes.len() >= self.max_remote_addresses
+            && !self.pending_probes.contains(&(ip, port))
+        {
             return Err(Error::TooManyAddresses);
         }
         self.pending_probes.insert((ip, port));
