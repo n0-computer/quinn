@@ -572,7 +572,7 @@
 <a href=#572 id=572 data-nosnippet>572</a>                <span class="comment">// Use RHS if there is no recorded round.
 <a href=#573 id=573 data-nosnippet>573</a>                </span><span class="prelude-val">None </span>=&gt; <span class="self">self</span>.reach_out = <span class="prelude-val">Some</span>((rhs_round, rhs_addrs)),
 <a href=#574 id=574 data-nosnippet>574</a>                <span class="comment">// Use RHS if newer.
-<a href=#575 id=575 data-nosnippet>575</a>                </span><span class="prelude-val">Some</span>((lhs_round, lhs_addrs)) <span class="kw">if </span>rhs_round &gt; <span class="kw-2">*</span>lhs_round =&gt; {
+<a href=#575 id=575 data-nosnippet>575</a>                </span><span class="prelude-val">Some</span>((lhs_round, _lhs_addrs)) <span class="kw">if </span>rhs_round &gt; <span class="kw-2">*</span>lhs_round =&gt; {
 <a href=#576 id=576 data-nosnippet>576</a>                    <span class="self">self</span>.reach_out = <span class="prelude-val">Some</span>((rhs_round, rhs_addrs));
 <a href=#577 id=577 data-nosnippet>577</a>                }
 <a href=#578 id=578 data-nosnippet>578</a>                <span class="comment">// If both rounds are the same, merge them.
