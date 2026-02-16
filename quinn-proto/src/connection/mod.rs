@@ -73,7 +73,9 @@ use packet_crypto::CryptoState;
 pub(crate) use packet_crypto::{EncryptionLevel, SpaceKind};
 
 mod paths;
-pub use paths::{ClosedPath, PathEvent, PathId, PathStatus, RttEstimator, SetPathStatusError};
+pub use paths::{
+    ClosedPath, PathAbandonReason, PathEvent, PathId, PathStatus, RttEstimator, SetPathStatusError,
+};
 use paths::{PathData, PathState};
 
 pub(crate) mod qlog;
@@ -663,16 +665,18 @@ impl Connection {
         path_id: PathId,
         error_code: VarInt,
     ) -> Result<(), ClosePathError> {
-        let locally_initiated = true;
-        self.close_path_inner(now, path_id, error_code, locally_initiated)
+        self.close_path_inner(
+            now,
+            path_id,
+            PathAbandonReason::ApplicationClosed { error_code },
+        )
     }
 
     fn close_path_inner(
         &mut self,
         now: Instant,
         path_id: PathId,
-        error_code: VarInt,
-        locally_initiated: bool,
+        reason: PathAbandonReason,
     ) -> Result<(), ClosePathError> {
         if !self.is_multipath_negotiated() {
             return Err(ClosePathError::MultipathNotNegotiated);
@@ -684,7 +688,7 @@ impl Connection {
             return Err(ClosePathError::ClosedPath);
         }
 
-        if locally_initiated {
+        if reason.is_locally_initiated() {
             let has_remaining_validated_paths = self.paths.iter().any(|(id, path)| {
                 *id != path_id && !self.abandoned_paths.contains(id) && path.data.validated
             });
@@ -708,7 +712,7 @@ impl Connection {
         self.spaces[SpaceId::Data]
             .pending
             .path_abandon
-            .insert(path_id, error_code.into());
+            .insert(path_id, reason.error_code().into());
 
         // Remove pending NEW CIDs for this path
         let pending_space = &mut self.spaces[SpaceId::Data].pending;
@@ -745,6 +749,12 @@ impl Connection {
         // We still need some timers after we close a path, e.g. the `DiscardPath` timer,
         // but that timer is going to be set once we the `PATH_ABANDON` frame is sent.
         self.timers.stop_per_path(path_id, self.qlog.with_time(now));
+
+        // Emit event to the application.
+        self.events.push_back(Event::Path(PathEvent::Abandoned {
+            id: path_id,
+            reason,
+        }));
 
         Ok(())
     }
@@ -2277,11 +2287,9 @@ impl Connection {
                     let _guard = span.enter();
                     match timer {
                         PathTimer::PathIdle => {
-                            if let Err(err) = self.close_path(
-                                now,
-                                path_id,
-                                TransportErrorCode::PATH_UNSTABLE_OR_POOR.into(),
-                            ) {
+                            if let Err(err) =
+                                self.close_path_inner(now, path_id, PathAbandonReason::TimedOut)
+                            {
                                 warn!(?err, "failed closing path");
                             }
                         }
@@ -2331,18 +2339,13 @@ impl Connection {
                                 self.qlog.with_time(now),
                             );
                             debug!("new path validation failed");
-                            if let Err(err) = self.close_path(
+                            if let Err(err) = self.close_path_inner(
                                 now,
                                 path_id,
-                                TransportErrorCode::PATH_UNSTABLE_OR_POOR.into(),
+                                PathAbandonReason::ValidationFailed,
                             ) {
                                 warn!(?err, "failed closing path");
                             }
-
-                            self.events.push_back(Event::Path(PathEvent::LocallyClosed {
-                                id: path_id,
-                                error: PathError::ValidationFailed,
-                            }));
                         }
                         PathTimer::Pacing => trace!("pacing timer expired"),
                         PathTimer::MaxAckDelay => {
@@ -3148,7 +3151,7 @@ impl Connection {
         self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
 
         self.events.push_back(
-            PathEvent::Abandoned {
+            PathEvent::Discarded {
                 id: path_id,
                 path_stats,
             }
@@ -5014,10 +5017,13 @@ impl Connection {
                     error_code,
                 }) => {
                     span.record("path", tracing::field::debug(&path_id));
-                    // TODO(flub): don't really know which error code to use here.
-                    let locally_initiated = false;
-                    match self.close_path_inner(now, path_id, error_code.into(), locally_initiated)
-                    {
+                    match self.close_path_inner(
+                        now,
+                        path_id,
+                        PathAbandonReason::RemoteAbandoned {
+                            error_code: error_code.into(),
+                        },
+                    ) {
                         Ok(()) => {
                             trace!("peer abandoned path");
                         }
@@ -5419,8 +5425,6 @@ impl Connection {
         // We prefer closing paths first unless we identify this is the last open path.
         let open_first = open_paths == non_recoverable_paths.len();
 
-        let abandon_error = TransportErrorCode::PATH_UNSTABLE_OR_POOR.into();
-
         for (path_id, remote, status) in non_recoverable_paths.into_iter() {
             let network_path = FourTuple {
                 remote,
@@ -5434,7 +5438,9 @@ impl Connection {
                 continue;
             }
 
-            if let Err(e) = self.close_path(now, path_id, abandon_error) {
+            if let Err(e) =
+                self.close_path_inner(now, path_id, PathAbandonReason::UnusableAfterNetworkChange)
+            {
                 debug!(%e,"Failed to close unrecoverable path after network change");
                 recoverable_paths.push((path_id, remote));
                 continue;
@@ -6747,10 +6753,10 @@ impl Connection {
                 && !self.abandoned_paths.contains(&path_id)
             {
                 trace!(%path_id, "closing path from previous round");
-                let _ = self.close_path(
+                let _ = self.close_path_inner(
                     now,
                     path_id,
-                    TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
+                    PathAbandonReason::NatTraversalRoundAborted,
                 );
             }
         }
