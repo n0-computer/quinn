@@ -5605,7 +5605,7 @@
 <a href=#5605 id=5605 data-nosnippet>5605</a>            <span class="kw">while let </span><span class="prelude-val">Some</span>(local_addr) = addresses.iter().next().copied() {
 <a href=#5606 id=5606 data-nosnippet>5606</a>                <span class="kw">let </span>local_addr = addresses.take(<span class="kw-2">&amp;</span>local_addr).expect(<span class="string">"found from iter"</span>);
 <a href=#5607 id=5607 data-nosnippet>5607</a>                <span class="kw">let </span>reach_out = frame::ReachOut::new(<span class="kw-2">*</span>round, local_addr);
-<a href=#5608 id=5608 data-nosnippet>5608</a>                <span class="kw">if </span>builder.frame_space_remaining() &gt; frame::ReachOut::SIZE_BOUND {
+<a href=#5608 id=5608 data-nosnippet>5608</a>                <span class="kw">if </span>builder.frame_space_remaining() &gt; reach_out.size() {
 <a href=#5609 id=5609 data-nosnippet>5609</a>                    builder.write_frame(reach_out, stats);
 <a href=#5610 id=5610 data-nosnippet>5610</a>                } <span class="kw">else </span>{
 <a href=#5611 id=5611 data-nosnippet>5611</a>                    addresses.insert(local_addr);
