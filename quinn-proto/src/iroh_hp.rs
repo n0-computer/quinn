@@ -42,7 +42,7 @@ pub(crate) struct NatTraversalRound {
     /// Sequence number to use for the new reach out frames.
     pub(crate) new_round: VarInt,
     /// Addresses to use to send reach out frames.
-    pub(crate) reach_out_at: Vec<IpPort>,
+    pub(crate) reach_out_at: FxHashSet<IpPort>,
     /// Remotes to probe by attempting to open new paths.
     ///
     /// The addresses include their Id, so that it can be used to signal these should be returned
