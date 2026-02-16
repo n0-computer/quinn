@@ -5605,7 +5605,7 @@ impl Connection {
             while let Some(local_addr) = addresses.iter().next().copied() {
                 let local_addr = addresses.take(&local_addr).expect("found from iter");
                 let reach_out = frame::ReachOut::new(*round, local_addr);
-                if builder.frame_space_remaining() > frame::ReachOut::SIZE_BOUND {
+                if builder.frame_space_remaining() > reach_out.size() {
                     builder.write_frame(reach_out, stats);
                 } else {
                     addresses.insert(local_addr);
