@@ -991,21 +991,6 @@ pub(crate) enum SpaceKind {
 }
 
 impl SpaceKind {
-    pub(crate) fn iter() -> impl Iterator<Item = Self> {
-        [Self::Initial, Self::Handshake, Self::Data].iter().cloned()
-    }
-
-    /// Returns the next higher space kind.
-    ///
-    /// Returns `None` if at [`SpaceKind::Data`].
-    pub(crate) fn next(&self) -> Option<Self> {
-        match self {
-            Self::Initial => Some(Self::Handshake),
-            Self::Handshake => Some(Self::Data),
-            Self::Data => None,
-        }
-    }
-
     /// Returns the encryption level for this space kind.
     pub(crate) fn encryption_level(self) -> EncryptionLevel {
         match self {
