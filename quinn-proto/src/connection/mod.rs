@@ -606,7 +606,7 @@ impl Connection {
 
     /// Opens a new path
     ///
-    /// Further errors might occur and they will be emitted in [`PathEvent::LocallyClosed`] events.
+    /// Further errors might occur and they will be emitted in [`PathEvent::Abandoned`] events with this path id.
     /// When the path is opened it will be reported as an [`PathEvent::Opened`].
     pub fn open_path(
         &mut self,
@@ -712,7 +712,7 @@ impl Connection {
         self.spaces[SpaceId::Data]
             .pending
             .path_abandon
-            .insert(path_id, reason.error_code().into());
+            .insert(path_id, reason.error_code());
 
         // Remove pending NEW CIDs for this path
         let pending_space = &mut self.spaces[SpaceId::Data].pending;

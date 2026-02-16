@@ -911,16 +911,16 @@ pub enum PathEvent {
         /// Which path is now open
         id: PathId,
     },
-    /// The path was abandoned and is no longer usable.
+    /// A path was abandoned and is no longer usable.
     ///
     /// This event will always be followed by [`Self::Discarded`] after some time.
     Abandoned {
-        /// Path wich was abandoned.
+        /// With path was abandoned.
         id: PathId,
         /// Reason why this path was abandoned.
         reason: PathAbandonReason,
     },
-    /// The path was discarded and all remaining state for it has been removed.
+    /// A path was discarded and all remaining state for it has been removed.
     ///
     /// This event is the last event for a path, and is always emitted after [`Self::Abandoned`].
     Discarded {
@@ -984,16 +984,12 @@ impl PathAbandonReason {
     /// Returns the error code to send with a PATH_ABANDON frame.
     pub(crate) fn error_code(&self) -> TransportErrorCode {
         match self {
-            PathAbandonReason::ApplicationClosed { error_code } => (*error_code).into(),
-            PathAbandonReason::NatTraversalRoundAborted => {
-                TransportErrorCode::APPLICATION_ABANDON_PATH
-            }
-            PathAbandonReason::ValidationFailed
-            | PathAbandonReason::TimedOut
-            | PathAbandonReason::UnusableAfterNetworkChange => {
+            Self::ApplicationClosed { error_code } => (*error_code).into(),
+            Self::NatTraversalRoundAborted => TransportErrorCode::APPLICATION_ABANDON_PATH,
+            Self::ValidationFailed | Self::TimedOut | Self::UnusableAfterNetworkChange => {
                 TransportErrorCode::PATH_UNSTABLE_OR_POOR
             }
-            PathAbandonReason::RemoteAbandoned { error_code } => (*error_code).into(),
+            Self::RemoteAbandoned { error_code } => (*error_code).into(),
         }
     }
 }
