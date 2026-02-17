@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::{
     ConnectionId, PathId,
     coding::{self, BufExt, BufMutExt},
-    connection::EncryptionLevel,
+    connection::{EncryptionLevel, SpaceKind},
     crypto,
 };
 
@@ -975,8 +975,6 @@ impl SpaceId {
         }
     }
 }
-
-pub(crate) use crate::connection::SpaceKind;
 
 #[cfg(test)]
 mod tests {

@@ -84,8 +84,8 @@ mod spaces;
 pub use spaces::Retransmits;
 #[cfg(not(fuzzing))]
 use spaces::Retransmits;
-use spaces::{PacketSpace, SendableFrames, SentPacket, ThinRetransmits};
 pub(crate) use spaces::SpaceKind;
+use spaces::{PacketSpace, SendableFrames, SentPacket, ThinRetransmits};
 
 mod stats;
 pub use stats::{ConnectionStats, FrameStats, PathStats, UdpStats};
@@ -2931,7 +2931,7 @@ impl Connection {
         // QUIC-MULTIPATH § 2.5 Key Phase Update Process: use largest PTO of all paths.
         self.timers.set(
             Timer::Conn(ConnTimer::KeyDiscard),
-            start + self.max_pto_all_paths(space) * 3,
+            start + self.max_pto_for_space(space) * 3,
             self.qlog.with_time(now),
         );
     }
@@ -3419,7 +3419,7 @@ impl Connection {
     /// The maximum probe timeout across all paths
     ///
     /// See [`Connection::pto`]
-    fn max_pto_all_paths(&self, space: SpaceKind) -> Duration {
+    fn max_pto_for_space(&self, space: SpaceKind) -> Duration {
         self.paths
             .keys()
             .map(|path_id| self.pto(space, *path_id))
@@ -3534,7 +3534,7 @@ impl Connection {
                 self.timers
                     .stop(Timer::Conn(ConnTimer::Idle), self.qlog.with_time(now));
             } else {
-                let dt = cmp::max(timeout, 3 * self.max_pto_all_paths(space));
+                let dt = cmp::max(timeout, 3 * self.max_pto_for_space(space));
                 self.timers.set(
                     Timer::Conn(ConnTimer::Idle),
                     now + dt,
@@ -6164,7 +6164,7 @@ impl Connection {
     fn set_close_timer(&mut self, now: Instant) {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO using the max PTO of
         // all paths.
-        let pto_max = self.max_pto_all_paths(self.highest_space);
+        let pto_max = self.max_pto_for_space(self.highest_space);
         self.timers.set(
             Timer::Conn(ConnTimer::Close),
             now + 3 * pto_max,
