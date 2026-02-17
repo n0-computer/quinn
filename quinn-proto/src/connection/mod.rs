@@ -5605,12 +5605,13 @@ impl Connection {
         if let Some((round, addresses)) = space.pending.reach_out.as_mut()
             && !path_exclusive_only
         {
-            while let Some(local_addr) = addresses.pop() {
+            while let Some(local_addr) = addresses.iter().next().copied() {
+                let local_addr = addresses.take(&local_addr).expect("found from iter");
                 let reach_out = frame::ReachOut::new(*round, local_addr);
                 if builder.frame_space_remaining() > reach_out.size() {
                     builder.write_frame(reach_out, stats);
                 } else {
-                    addresses.push(local_addr);
+                    addresses.insert(local_addr);
                     break;
                 }
             }
@@ -7151,12 +7152,25 @@ impl SentFrames {
             Close(_) => { /* non retransmittable, but after this we don't really care */ }
             PathResponse(_) => self.non_retransmits = true,
             HandshakeDone(_) => self.retransmits_mut().handshake_done = true,
-            ReachOut(frame::ReachOut { round, ip, port }) => self
-                .retransmits_mut()
-                .reach_out
-                .get_or_insert_with(|| (round, Vec::new()))
-                .1
-                .push((ip, port)),
+            ReachOut(frame::ReachOut { round, ip, port }) => {
+                let (recorded_round, reach_outs) = self
+                    .retransmits_mut()
+                    .reach_out
+                    .get_or_insert_with(|| (round, FxHashSet::default()));
+                // Only record reach outs for the current round or a newer than the recorded one.
+                if *recorded_round == round {
+                    // Same round, simply append.
+                    reach_outs.insert((ip, port));
+                } else if *recorded_round < round {
+                    // New round.
+                    *recorded_round = round;
+                    reach_outs.drain();
+                    reach_outs.insert((ip, port));
+                } else {
+                    // ignore old reach out that was sent
+                }
+            }
+
             ObservedAddr(_) => self.retransmits_mut().observed_addr = true,
             Ping(_) => self.non_retransmits = true,
             ImmediateAck(_) => self.non_retransmits = true,
