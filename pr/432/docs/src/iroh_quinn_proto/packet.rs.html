@@ -6,7 +6,7 @@
 <a href=#6 id=6 data-nosnippet>6</a><span class="kw">use crate</span>::{
 <a href=#7 id=7 data-nosnippet>7</a>    ConnectionId, PathId,
 <a href=#8 id=8 data-nosnippet>8</a>    coding::{<span class="self">self</span>, BufExt, BufMutExt},
-<a href=#9 id=9 data-nosnippet>9</a>    connection::EncryptionLevel,
+<a href=#9 id=9 data-nosnippet>9</a>    connection::{EncryptionLevel, SpaceKind},
 <a href=#10 id=10 data-nosnippet>10</a>    crypto,
 <a href=#11 id=11 data-nosnippet>11</a>};
 <a href=#12 id=12 data-nosnippet>12</a>
@@ -976,121 +976,119 @@
 <a href=#976 id=976 data-nosnippet>976</a>    }
 <a href=#977 id=977 data-nosnippet>977</a>}
 <a href=#978 id=978 data-nosnippet>978</a>
-<a href=#979 id=979 data-nosnippet>979</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use </span><span class="kw">crate</span>::connection::SpaceKind;
-<a href=#980 id=980 data-nosnippet>980</a>
-<a href=#981 id=981 data-nosnippet>981</a><span class="attr">#[cfg(test)]
-<a href=#982 id=982 data-nosnippet>982</a></span><span class="kw">mod </span>tests {
-<a href=#983 id=983 data-nosnippet>983</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#984 id=984 data-nosnippet>984</a>    <span class="kw">use </span>hex_literal::hex;
-<a href=#985 id=985 data-nosnippet>985</a>    <span class="kw">use </span>std::io;
-<a href=#986 id=986 data-nosnippet>986</a>
-<a href=#987 id=987 data-nosnippet>987</a>    <span class="kw">fn </span>check_pn(typed: PacketNumber, encoded: <span class="kw-2">&amp;</span>[u8]) {
-<a href=#988 id=988 data-nosnippet>988</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#989 id=989 data-nosnippet>989</a>        typed.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#990 id=990 data-nosnippet>990</a>        <span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>buf[..], encoded);
-<a href=#991 id=991 data-nosnippet>991</a>        <span class="kw">let </span>decoded = PacketNumber::decode(typed.len(), <span class="kw-2">&amp;mut </span>io::Cursor::new(<span class="kw-2">&amp;</span>buf)).unwrap();
-<a href=#992 id=992 data-nosnippet>992</a>        <span class="macro">assert_eq!</span>(typed, decoded);
-<a href=#993 id=993 data-nosnippet>993</a>    }
-<a href=#994 id=994 data-nosnippet>994</a>
-<a href=#995 id=995 data-nosnippet>995</a>    <span class="attr">#[test]
-<a href=#996 id=996 data-nosnippet>996</a>    </span><span class="kw">fn </span>roundtrip_packet_numbers() {
-<a href=#997 id=997 data-nosnippet>997</a>        check_pn(PacketNumber::U8(<span class="number">0x7f</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"7f"</span>));
-<a href=#998 id=998 data-nosnippet>998</a>        check_pn(PacketNumber::U16(<span class="number">0x80</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"0080"</span>));
-<a href=#999 id=999 data-nosnippet>999</a>        check_pn(PacketNumber::U16(<span class="number">0x3fff</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"3fff"</span>));
-<a href=#1000 id=1000 data-nosnippet>1000</a>        check_pn(PacketNumber::U32(<span class="number">0x0000_4000</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"0000 4000"</span>));
-<a href=#1001 id=1001 data-nosnippet>1001</a>        check_pn(PacketNumber::U32(<span class="number">0xffff_ffff</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"ffff ffff"</span>));
-<a href=#1002 id=1002 data-nosnippet>1002</a>    }
-<a href=#1003 id=1003 data-nosnippet>1003</a>
-<a href=#1004 id=1004 data-nosnippet>1004</a>    <span class="attr">#[test]
-<a href=#1005 id=1005 data-nosnippet>1005</a>    </span><span class="kw">fn </span>pn_encode() {
-<a href=#1006 id=1006 data-nosnippet>1006</a>        check_pn(PacketNumber::new(<span class="number">0x10</span>, <span class="number">0</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"10"</span>));
-<a href=#1007 id=1007 data-nosnippet>1007</a>        check_pn(PacketNumber::new(<span class="number">0x100</span>, <span class="number">0</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"0100"</span>));
-<a href=#1008 id=1008 data-nosnippet>1008</a>        check_pn(PacketNumber::new(<span class="number">0x10000</span>, <span class="number">0</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"010000"</span>));
-<a href=#1009 id=1009 data-nosnippet>1009</a>    }
-<a href=#1010 id=1010 data-nosnippet>1010</a>
-<a href=#1011 id=1011 data-nosnippet>1011</a>    <span class="attr">#[test]
-<a href=#1012 id=1012 data-nosnippet>1012</a>    </span><span class="kw">fn </span>pn_expand_roundtrip() {
-<a href=#1013 id=1013 data-nosnippet>1013</a>        <span class="kw">for </span>expected <span class="kw">in </span><span class="number">0</span>..<span class="number">1024 </span>{
-<a href=#1014 id=1014 data-nosnippet>1014</a>            <span class="kw">for </span>actual <span class="kw">in </span>expected..<span class="number">1024 </span>{
-<a href=#1015 id=1015 data-nosnippet>1015</a>                <span class="macro">assert_eq!</span>(actual, PacketNumber::new(actual, expected).expand(expected));
-<a href=#1016 id=1016 data-nosnippet>1016</a>            }
-<a href=#1017 id=1017 data-nosnippet>1017</a>        }
-<a href=#1018 id=1018 data-nosnippet>1018</a>    }
-<a href=#1019 id=1019 data-nosnippet>1019</a>
-<a href=#1020 id=1020 data-nosnippet>1020</a>    <span class="attr">#[cfg(any(feature = <span class="string">"rustls-aws-lc-rs"</span>, feature = <span class="string">"rustls-ring"</span>))]
-<a href=#1021 id=1021 data-nosnippet>1021</a>    #[test]
-<a href=#1022 id=1022 data-nosnippet>1022</a>    </span><span class="kw">fn </span>header_encoding() {
-<a href=#1023 id=1023 data-nosnippet>1023</a>        <span class="kw">use </span><span class="kw">crate</span>::Side;
-<a href=#1024 id=1024 data-nosnippet>1024</a>        <span class="kw">use </span><span class="kw">crate</span>::crypto::rustls::{initial_keys, initial_suite_from_provider};
-<a href=#1025 id=1025 data-nosnippet>1025</a>        <span class="attr">#[cfg(all(feature = <span class="string">"rustls-aws-lc-rs"</span>, not(feature = <span class="string">"rustls-ring"</span>)))]
-<a href=#1026 id=1026 data-nosnippet>1026</a>        </span><span class="kw">use </span>rustls::crypto::aws_lc_rs::default_provider;
-<a href=#1027 id=1027 data-nosnippet>1027</a>        <span class="attr">#[cfg(feature = <span class="string">"rustls-ring"</span>)]
-<a href=#1028 id=1028 data-nosnippet>1028</a>        </span><span class="kw">use </span>rustls::crypto::ring::default_provider;
-<a href=#1029 id=1029 data-nosnippet>1029</a>        <span class="kw">use </span>rustls::quic::Version;
-<a href=#1030 id=1030 data-nosnippet>1030</a>
-<a href=#1031 id=1031 data-nosnippet>1031</a>        <span class="kw">let </span>dcid = ConnectionId::new(<span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"06b858ec6f80452b"</span>));
-<a href=#1032 id=1032 data-nosnippet>1032</a>        <span class="kw">let </span>provider = default_provider();
-<a href=#1033 id=1033 data-nosnippet>1033</a>
-<a href=#1034 id=1034 data-nosnippet>1034</a>        <span class="kw">let </span>suite = initial_suite_from_provider(<span class="kw-2">&amp;</span>std::sync::Arc::new(provider)).unwrap();
-<a href=#1035 id=1035 data-nosnippet>1035</a>        <span class="kw">let </span>client = initial_keys(Version::V1, dcid, Side::Client, <span class="kw-2">&amp;</span>suite);
-<a href=#1036 id=1036 data-nosnippet>1036</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#1037 id=1037 data-nosnippet>1037</a>        <span class="kw">let </span>header = Header::Initial(InitialHeader {
-<a href=#1038 id=1038 data-nosnippet>1038</a>            number: PacketNumber::U8(<span class="number">0</span>),
-<a href=#1039 id=1039 data-nosnippet>1039</a>            src_cid: ConnectionId::new(<span class="kw-2">&amp;</span>[]),
-<a href=#1040 id=1040 data-nosnippet>1040</a>            dst_cid: dcid,
-<a href=#1041 id=1041 data-nosnippet>1041</a>            token: Bytes::new(),
-<a href=#1042 id=1042 data-nosnippet>1042</a>            version: <span class="kw">crate</span>::DEFAULT_SUPPORTED_VERSIONS[<span class="number">0</span>],
-<a href=#1043 id=1043 data-nosnippet>1043</a>        });
-<a href=#1044 id=1044 data-nosnippet>1044</a>        <span class="kw">let </span>encode = header.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#1045 id=1045 data-nosnippet>1045</a>        <span class="kw">let </span>header_len = buf.len();
-<a href=#1046 id=1046 data-nosnippet>1046</a>        buf.resize(header_len + <span class="number">16 </span>+ client.packet.local.tag_len(), <span class="number">0</span>);
-<a href=#1047 id=1047 data-nosnippet>1047</a>        encode.finish(
-<a href=#1048 id=1048 data-nosnippet>1048</a>            <span class="kw-2">&amp;mut </span>buf,
-<a href=#1049 id=1049 data-nosnippet>1049</a>            <span class="kw-2">&amp;*</span>client.header.local,
-<a href=#1050 id=1050 data-nosnippet>1050</a>            <span class="prelude-val">Some</span>((<span class="number">0</span>, PathId::ZERO, <span class="kw-2">&amp;*</span>client.packet.local)),
-<a href=#1051 id=1051 data-nosnippet>1051</a>        );
-<a href=#1052 id=1052 data-nosnippet>1052</a>
-<a href=#1053 id=1053 data-nosnippet>1053</a>        <span class="kw">for </span>byte <span class="kw">in </span><span class="kw-2">&amp;</span>buf {
-<a href=#1054 id=1054 data-nosnippet>1054</a>            <span class="macro">print!</span>(<span class="string">"{byte:02x}"</span>);
-<a href=#1055 id=1055 data-nosnippet>1055</a>        }
-<a href=#1056 id=1056 data-nosnippet>1056</a>        <span class="macro">println!</span>();
-<a href=#1057 id=1057 data-nosnippet>1057</a>        <span class="macro">assert_eq!</span>(
-<a href=#1058 id=1058 data-nosnippet>1058</a>            buf[..],
-<a href=#1059 id=1059 data-nosnippet>1059</a>            <span class="macro">hex!</span>(
-<a href=#1060 id=1060 data-nosnippet>1060</a>                <span class="string">"c8000000010806b858ec6f80452b00004021be
-<a href=#1061 id=1061 data-nosnippet>1061</a>                 3ef50807b84191a196f760a6dad1e9d1c430c48952cba0148250c21c0a6a70e1"
-<a href=#1062 id=1062 data-nosnippet>1062</a>            </span>)[..]
-<a href=#1063 id=1063 data-nosnippet>1063</a>        );
-<a href=#1064 id=1064 data-nosnippet>1064</a>
-<a href=#1065 id=1065 data-nosnippet>1065</a>        <span class="kw">let </span>server = initial_keys(Version::V1, dcid, Side::Server, <span class="kw-2">&amp;</span>suite);
-<a href=#1066 id=1066 data-nosnippet>1066</a>        <span class="kw">let </span>supported_versions = <span class="kw">crate</span>::DEFAULT_SUPPORTED_VERSIONS.to_vec();
-<a href=#1067 id=1067 data-nosnippet>1067</a>        <span class="kw">let </span>decode = PartialDecode::new(
-<a href=#1068 id=1068 data-nosnippet>1068</a>            buf.as_slice().into(),
-<a href=#1069 id=1069 data-nosnippet>1069</a>            <span class="kw-2">&amp;</span>FixedLengthConnectionIdParser::new(<span class="number">0</span>),
-<a href=#1070 id=1070 data-nosnippet>1070</a>            <span class="kw-2">&amp;</span>supported_versions,
-<a href=#1071 id=1071 data-nosnippet>1071</a>            <span class="bool-val">false</span>,
-<a href=#1072 id=1072 data-nosnippet>1072</a>        )
-<a href=#1073 id=1073 data-nosnippet>1073</a>        .unwrap()
-<a href=#1074 id=1074 data-nosnippet>1074</a>        .<span class="number">0</span>;
-<a href=#1075 id=1075 data-nosnippet>1075</a>        <span class="kw">let </span><span class="kw-2">mut </span>packet = decode.finish(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;*</span>server.header.remote)).unwrap();
-<a href=#1076 id=1076 data-nosnippet>1076</a>        <span class="macro">assert_eq!</span>(
-<a href=#1077 id=1077 data-nosnippet>1077</a>            packet.header_data[..],
-<a href=#1078 id=1078 data-nosnippet>1078</a>            <span class="macro">hex!</span>(<span class="string">"c0000000010806b858ec6f80452b0000402100"</span>)[..]
-<a href=#1079 id=1079 data-nosnippet>1079</a>        );
-<a href=#1080 id=1080 data-nosnippet>1080</a>        server
-<a href=#1081 id=1081 data-nosnippet>1081</a>            .packet
-<a href=#1082 id=1082 data-nosnippet>1082</a>            .remote
-<a href=#1083 id=1083 data-nosnippet>1083</a>            .decrypt(PathId::ZERO, <span class="number">0</span>, <span class="kw-2">&amp;</span>packet.header_data, <span class="kw-2">&amp;mut </span>packet.payload)
-<a href=#1084 id=1084 data-nosnippet>1084</a>            .unwrap();
-<a href=#1085 id=1085 data-nosnippet>1085</a>        <span class="macro">assert_eq!</span>(packet.payload[..], [<span class="number">0</span>; <span class="number">16</span>]);
-<a href=#1086 id=1086 data-nosnippet>1086</a>        <span class="kw">match </span>packet.header {
-<a href=#1087 id=1087 data-nosnippet>1087</a>            Header::Initial(InitialHeader {
-<a href=#1088 id=1088 data-nosnippet>1088</a>                number: PacketNumber::U8(<span class="number">0</span>),
-<a href=#1089 id=1089 data-nosnippet>1089</a>                ..
-<a href=#1090 id=1090 data-nosnippet>1090</a>            }) =&gt; {}
-<a href=#1091 id=1091 data-nosnippet>1091</a>            <span class="kw">_ </span>=&gt; {
-<a href=#1092 id=1092 data-nosnippet>1092</a>                <span class="macro">panic!</span>(<span class="string">"unexpected header {:?}"</span>, packet.header);
-<a href=#1093 id=1093 data-nosnippet>1093</a>            }
-<a href=#1094 id=1094 data-nosnippet>1094</a>        }
-<a href=#1095 id=1095 data-nosnippet>1095</a>    }
-<a href=#1096 id=1096 data-nosnippet>1096</a>}</code></pre></div></section></main></body></html>
+<a href=#979 id=979 data-nosnippet>979</a><span class="attr">#[cfg(test)]
+<a href=#980 id=980 data-nosnippet>980</a></span><span class="kw">mod </span>tests {
+<a href=#981 id=981 data-nosnippet>981</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#982 id=982 data-nosnippet>982</a>    <span class="kw">use </span>hex_literal::hex;
+<a href=#983 id=983 data-nosnippet>983</a>    <span class="kw">use </span>std::io;
+<a href=#984 id=984 data-nosnippet>984</a>
+<a href=#985 id=985 data-nosnippet>985</a>    <span class="kw">fn </span>check_pn(typed: PacketNumber, encoded: <span class="kw-2">&amp;</span>[u8]) {
+<a href=#986 id=986 data-nosnippet>986</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#987 id=987 data-nosnippet>987</a>        typed.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#988 id=988 data-nosnippet>988</a>        <span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>buf[..], encoded);
+<a href=#989 id=989 data-nosnippet>989</a>        <span class="kw">let </span>decoded = PacketNumber::decode(typed.len(), <span class="kw-2">&amp;mut </span>io::Cursor::new(<span class="kw-2">&amp;</span>buf)).unwrap();
+<a href=#990 id=990 data-nosnippet>990</a>        <span class="macro">assert_eq!</span>(typed, decoded);
+<a href=#991 id=991 data-nosnippet>991</a>    }
+<a href=#992 id=992 data-nosnippet>992</a>
+<a href=#993 id=993 data-nosnippet>993</a>    <span class="attr">#[test]
+<a href=#994 id=994 data-nosnippet>994</a>    </span><span class="kw">fn </span>roundtrip_packet_numbers() {
+<a href=#995 id=995 data-nosnippet>995</a>        check_pn(PacketNumber::U8(<span class="number">0x7f</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"7f"</span>));
+<a href=#996 id=996 data-nosnippet>996</a>        check_pn(PacketNumber::U16(<span class="number">0x80</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"0080"</span>));
+<a href=#997 id=997 data-nosnippet>997</a>        check_pn(PacketNumber::U16(<span class="number">0x3fff</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"3fff"</span>));
+<a href=#998 id=998 data-nosnippet>998</a>        check_pn(PacketNumber::U32(<span class="number">0x0000_4000</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"0000 4000"</span>));
+<a href=#999 id=999 data-nosnippet>999</a>        check_pn(PacketNumber::U32(<span class="number">0xffff_ffff</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"ffff ffff"</span>));
+<a href=#1000 id=1000 data-nosnippet>1000</a>    }
+<a href=#1001 id=1001 data-nosnippet>1001</a>
+<a href=#1002 id=1002 data-nosnippet>1002</a>    <span class="attr">#[test]
+<a href=#1003 id=1003 data-nosnippet>1003</a>    </span><span class="kw">fn </span>pn_encode() {
+<a href=#1004 id=1004 data-nosnippet>1004</a>        check_pn(PacketNumber::new(<span class="number">0x10</span>, <span class="number">0</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"10"</span>));
+<a href=#1005 id=1005 data-nosnippet>1005</a>        check_pn(PacketNumber::new(<span class="number">0x100</span>, <span class="number">0</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"0100"</span>));
+<a href=#1006 id=1006 data-nosnippet>1006</a>        check_pn(PacketNumber::new(<span class="number">0x10000</span>, <span class="number">0</span>), <span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"010000"</span>));
+<a href=#1007 id=1007 data-nosnippet>1007</a>    }
+<a href=#1008 id=1008 data-nosnippet>1008</a>
+<a href=#1009 id=1009 data-nosnippet>1009</a>    <span class="attr">#[test]
+<a href=#1010 id=1010 data-nosnippet>1010</a>    </span><span class="kw">fn </span>pn_expand_roundtrip() {
+<a href=#1011 id=1011 data-nosnippet>1011</a>        <span class="kw">for </span>expected <span class="kw">in </span><span class="number">0</span>..<span class="number">1024 </span>{
+<a href=#1012 id=1012 data-nosnippet>1012</a>            <span class="kw">for </span>actual <span class="kw">in </span>expected..<span class="number">1024 </span>{
+<a href=#1013 id=1013 data-nosnippet>1013</a>                <span class="macro">assert_eq!</span>(actual, PacketNumber::new(actual, expected).expand(expected));
+<a href=#1014 id=1014 data-nosnippet>1014</a>            }
+<a href=#1015 id=1015 data-nosnippet>1015</a>        }
+<a href=#1016 id=1016 data-nosnippet>1016</a>    }
+<a href=#1017 id=1017 data-nosnippet>1017</a>
+<a href=#1018 id=1018 data-nosnippet>1018</a>    <span class="attr">#[cfg(any(feature = <span class="string">"rustls-aws-lc-rs"</span>, feature = <span class="string">"rustls-ring"</span>))]
+<a href=#1019 id=1019 data-nosnippet>1019</a>    #[test]
+<a href=#1020 id=1020 data-nosnippet>1020</a>    </span><span class="kw">fn </span>header_encoding() {
+<a href=#1021 id=1021 data-nosnippet>1021</a>        <span class="kw">use </span><span class="kw">crate</span>::Side;
+<a href=#1022 id=1022 data-nosnippet>1022</a>        <span class="kw">use </span><span class="kw">crate</span>::crypto::rustls::{initial_keys, initial_suite_from_provider};
+<a href=#1023 id=1023 data-nosnippet>1023</a>        <span class="attr">#[cfg(all(feature = <span class="string">"rustls-aws-lc-rs"</span>, not(feature = <span class="string">"rustls-ring"</span>)))]
+<a href=#1024 id=1024 data-nosnippet>1024</a>        </span><span class="kw">use </span>rustls::crypto::aws_lc_rs::default_provider;
+<a href=#1025 id=1025 data-nosnippet>1025</a>        <span class="attr">#[cfg(feature = <span class="string">"rustls-ring"</span>)]
+<a href=#1026 id=1026 data-nosnippet>1026</a>        </span><span class="kw">use </span>rustls::crypto::ring::default_provider;
+<a href=#1027 id=1027 data-nosnippet>1027</a>        <span class="kw">use </span>rustls::quic::Version;
+<a href=#1028 id=1028 data-nosnippet>1028</a>
+<a href=#1029 id=1029 data-nosnippet>1029</a>        <span class="kw">let </span>dcid = ConnectionId::new(<span class="kw-2">&amp;</span><span class="macro">hex!</span>(<span class="string">"06b858ec6f80452b"</span>));
+<a href=#1030 id=1030 data-nosnippet>1030</a>        <span class="kw">let </span>provider = default_provider();
+<a href=#1031 id=1031 data-nosnippet>1031</a>
+<a href=#1032 id=1032 data-nosnippet>1032</a>        <span class="kw">let </span>suite = initial_suite_from_provider(<span class="kw-2">&amp;</span>std::sync::Arc::new(provider)).unwrap();
+<a href=#1033 id=1033 data-nosnippet>1033</a>        <span class="kw">let </span>client = initial_keys(Version::V1, dcid, Side::Client, <span class="kw-2">&amp;</span>suite);
+<a href=#1034 id=1034 data-nosnippet>1034</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#1035 id=1035 data-nosnippet>1035</a>        <span class="kw">let </span>header = Header::Initial(InitialHeader {
+<a href=#1036 id=1036 data-nosnippet>1036</a>            number: PacketNumber::U8(<span class="number">0</span>),
+<a href=#1037 id=1037 data-nosnippet>1037</a>            src_cid: ConnectionId::new(<span class="kw-2">&amp;</span>[]),
+<a href=#1038 id=1038 data-nosnippet>1038</a>            dst_cid: dcid,
+<a href=#1039 id=1039 data-nosnippet>1039</a>            token: Bytes::new(),
+<a href=#1040 id=1040 data-nosnippet>1040</a>            version: <span class="kw">crate</span>::DEFAULT_SUPPORTED_VERSIONS[<span class="number">0</span>],
+<a href=#1041 id=1041 data-nosnippet>1041</a>        });
+<a href=#1042 id=1042 data-nosnippet>1042</a>        <span class="kw">let </span>encode = header.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#1043 id=1043 data-nosnippet>1043</a>        <span class="kw">let </span>header_len = buf.len();
+<a href=#1044 id=1044 data-nosnippet>1044</a>        buf.resize(header_len + <span class="number">16 </span>+ client.packet.local.tag_len(), <span class="number">0</span>);
+<a href=#1045 id=1045 data-nosnippet>1045</a>        encode.finish(
+<a href=#1046 id=1046 data-nosnippet>1046</a>            <span class="kw-2">&amp;mut </span>buf,
+<a href=#1047 id=1047 data-nosnippet>1047</a>            <span class="kw-2">&amp;*</span>client.header.local,
+<a href=#1048 id=1048 data-nosnippet>1048</a>            <span class="prelude-val">Some</span>((<span class="number">0</span>, PathId::ZERO, <span class="kw-2">&amp;*</span>client.packet.local)),
+<a href=#1049 id=1049 data-nosnippet>1049</a>        );
+<a href=#1050 id=1050 data-nosnippet>1050</a>
+<a href=#1051 id=1051 data-nosnippet>1051</a>        <span class="kw">for </span>byte <span class="kw">in </span><span class="kw-2">&amp;</span>buf {
+<a href=#1052 id=1052 data-nosnippet>1052</a>            <span class="macro">print!</span>(<span class="string">"{byte:02x}"</span>);
+<a href=#1053 id=1053 data-nosnippet>1053</a>        }
+<a href=#1054 id=1054 data-nosnippet>1054</a>        <span class="macro">println!</span>();
+<a href=#1055 id=1055 data-nosnippet>1055</a>        <span class="macro">assert_eq!</span>(
+<a href=#1056 id=1056 data-nosnippet>1056</a>            buf[..],
+<a href=#1057 id=1057 data-nosnippet>1057</a>            <span class="macro">hex!</span>(
+<a href=#1058 id=1058 data-nosnippet>1058</a>                <span class="string">"c8000000010806b858ec6f80452b00004021be
+<a href=#1059 id=1059 data-nosnippet>1059</a>                 3ef50807b84191a196f760a6dad1e9d1c430c48952cba0148250c21c0a6a70e1"
+<a href=#1060 id=1060 data-nosnippet>1060</a>            </span>)[..]
+<a href=#1061 id=1061 data-nosnippet>1061</a>        );
+<a href=#1062 id=1062 data-nosnippet>1062</a>
+<a href=#1063 id=1063 data-nosnippet>1063</a>        <span class="kw">let </span>server = initial_keys(Version::V1, dcid, Side::Server, <span class="kw-2">&amp;</span>suite);
+<a href=#1064 id=1064 data-nosnippet>1064</a>        <span class="kw">let </span>supported_versions = <span class="kw">crate</span>::DEFAULT_SUPPORTED_VERSIONS.to_vec();
+<a href=#1065 id=1065 data-nosnippet>1065</a>        <span class="kw">let </span>decode = PartialDecode::new(
+<a href=#1066 id=1066 data-nosnippet>1066</a>            buf.as_slice().into(),
+<a href=#1067 id=1067 data-nosnippet>1067</a>            <span class="kw-2">&amp;</span>FixedLengthConnectionIdParser::new(<span class="number">0</span>),
+<a href=#1068 id=1068 data-nosnippet>1068</a>            <span class="kw-2">&amp;</span>supported_versions,
+<a href=#1069 id=1069 data-nosnippet>1069</a>            <span class="bool-val">false</span>,
+<a href=#1070 id=1070 data-nosnippet>1070</a>        )
+<a href=#1071 id=1071 data-nosnippet>1071</a>        .unwrap()
+<a href=#1072 id=1072 data-nosnippet>1072</a>        .<span class="number">0</span>;
+<a href=#1073 id=1073 data-nosnippet>1073</a>        <span class="kw">let </span><span class="kw-2">mut </span>packet = decode.finish(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;*</span>server.header.remote)).unwrap();
+<a href=#1074 id=1074 data-nosnippet>1074</a>        <span class="macro">assert_eq!</span>(
+<a href=#1075 id=1075 data-nosnippet>1075</a>            packet.header_data[..],
+<a href=#1076 id=1076 data-nosnippet>1076</a>            <span class="macro">hex!</span>(<span class="string">"c0000000010806b858ec6f80452b0000402100"</span>)[..]
+<a href=#1077 id=1077 data-nosnippet>1077</a>        );
+<a href=#1078 id=1078 data-nosnippet>1078</a>        server
+<a href=#1079 id=1079 data-nosnippet>1079</a>            .packet
+<a href=#1080 id=1080 data-nosnippet>1080</a>            .remote
+<a href=#1081 id=1081 data-nosnippet>1081</a>            .decrypt(PathId::ZERO, <span class="number">0</span>, <span class="kw-2">&amp;</span>packet.header_data, <span class="kw-2">&amp;mut </span>packet.payload)
+<a href=#1082 id=1082 data-nosnippet>1082</a>            .unwrap();
+<a href=#1083 id=1083 data-nosnippet>1083</a>        <span class="macro">assert_eq!</span>(packet.payload[..], [<span class="number">0</span>; <span class="number">16</span>]);
+<a href=#1084 id=1084 data-nosnippet>1084</a>        <span class="kw">match </span>packet.header {
+<a href=#1085 id=1085 data-nosnippet>1085</a>            Header::Initial(InitialHeader {
+<a href=#1086 id=1086 data-nosnippet>1086</a>                number: PacketNumber::U8(<span class="number">0</span>),
+<a href=#1087 id=1087 data-nosnippet>1087</a>                ..
+<a href=#1088 id=1088 data-nosnippet>1088</a>            }) =&gt; {}
+<a href=#1089 id=1089 data-nosnippet>1089</a>            <span class="kw">_ </span>=&gt; {
+<a href=#1090 id=1090 data-nosnippet>1090</a>                <span class="macro">panic!</span>(<span class="string">"unexpected header {:?}"</span>, packet.header);
+<a href=#1091 id=1091 data-nosnippet>1091</a>            }
+<a href=#1092 id=1092 data-nosnippet>1092</a>        }
+<a href=#1093 id=1093 data-nosnippet>1093</a>    }
+<a href=#1094 id=1094 data-nosnippet>1094</a>}</code></pre></div></section></main></body></html>

@@ -84,8 +84,8 @@
 <a href=#84 id=84 data-nosnippet>84</a></span><span class="kw">pub use </span>spaces::Retransmits;
 <a href=#85 id=85 data-nosnippet>85</a><span class="attr">#[cfg(not(fuzzing))]
 <a href=#86 id=86 data-nosnippet>86</a></span><span class="kw">use </span>spaces::Retransmits;
-<a href=#87 id=87 data-nosnippet>87</a><span class="kw">use </span>spaces::{PacketSpace, SendableFrames, SentPacket, ThinRetransmits};
-<a href=#88 id=88 data-nosnippet>88</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use </span>spaces::SpaceKind;
+<a href=#87 id=87 data-nosnippet>87</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use </span>spaces::SpaceKind;
+<a href=#88 id=88 data-nosnippet>88</a><span class="kw">use </span>spaces::{PacketSpace, SendableFrames, SentPacket, ThinRetransmits};
 <a href=#89 id=89 data-nosnippet>89</a>
 <a href=#90 id=90 data-nosnippet>90</a><span class="kw">mod </span>stats;
 <a href=#91 id=91 data-nosnippet>91</a><span class="kw">pub use </span>stats::{ConnectionStats, FrameStats, PathStats, UdpStats};
@@ -2931,7 +2931,7 @@
 <a href=#2931 id=2931 data-nosnippet>2931</a>        <span class="comment">// QUIC-MULTIPATH § 2.5 Key Phase Update Process: use largest PTO of all paths.
 <a href=#2932 id=2932 data-nosnippet>2932</a>        </span><span class="self">self</span>.timers.set(
 <a href=#2933 id=2933 data-nosnippet>2933</a>            Timer::Conn(ConnTimer::KeyDiscard),
-<a href=#2934 id=2934 data-nosnippet>2934</a>            start + <span class="self">self</span>.max_pto_all_paths(space) * <span class="number">3</span>,
+<a href=#2934 id=2934 data-nosnippet>2934</a>            start + <span class="self">self</span>.max_pto_for_space(space) * <span class="number">3</span>,
 <a href=#2935 id=2935 data-nosnippet>2935</a>            <span class="self">self</span>.qlog.with_time(now),
 <a href=#2936 id=2936 data-nosnippet>2936</a>        );
 <a href=#2937 id=2937 data-nosnippet>2937</a>    }
@@ -3419,7 +3419,7 @@
 <a href=#3419 id=3419 data-nosnippet>3419</a>    <span class="doccomment">/// The maximum probe timeout across all paths
 <a href=#3420 id=3420 data-nosnippet>3420</a>    ///
 <a href=#3421 id=3421 data-nosnippet>3421</a>    /// See [`Connection::pto`]
-<a href=#3422 id=3422 data-nosnippet>3422</a>    </span><span class="kw">fn </span>max_pto_all_paths(<span class="kw-2">&amp;</span><span class="self">self</span>, space: SpaceKind) -&gt; Duration {
+<a href=#3422 id=3422 data-nosnippet>3422</a>    </span><span class="kw">fn </span>max_pto_for_space(<span class="kw-2">&amp;</span><span class="self">self</span>, space: SpaceKind) -&gt; Duration {
 <a href=#3423 id=3423 data-nosnippet>3423</a>        <span class="self">self</span>.paths
 <a href=#3424 id=3424 data-nosnippet>3424</a>            .keys()
 <a href=#3425 id=3425 data-nosnippet>3425</a>            .map(|path_id| <span class="self">self</span>.pto(space, <span class="kw-2">*</span>path_id))
@@ -3534,7 +3534,7 @@
 <a href=#3534 id=3534 data-nosnippet>3534</a>                <span class="self">self</span>.timers
 <a href=#3535 id=3535 data-nosnippet>3535</a>                    .stop(Timer::Conn(ConnTimer::Idle), <span class="self">self</span>.qlog.with_time(now));
 <a href=#3536 id=3536 data-nosnippet>3536</a>            } <span class="kw">else </span>{
-<a href=#3537 id=3537 data-nosnippet>3537</a>                <span class="kw">let </span>dt = cmp::max(timeout, <span class="number">3 </span>* <span class="self">self</span>.max_pto_all_paths(space));
+<a href=#3537 id=3537 data-nosnippet>3537</a>                <span class="kw">let </span>dt = cmp::max(timeout, <span class="number">3 </span>* <span class="self">self</span>.max_pto_for_space(space));
 <a href=#3538 id=3538 data-nosnippet>3538</a>                <span class="self">self</span>.timers.set(
 <a href=#3539 id=3539 data-nosnippet>3539</a>                    Timer::Conn(ConnTimer::Idle),
 <a href=#3540 id=3540 data-nosnippet>3540</a>                    now + dt,
@@ -6164,7 +6164,7 @@
 <a href=#6164 id=6164 data-nosnippet>6164</a>    <span class="kw">fn </span>set_close_timer(<span class="kw-2">&amp;mut </span><span class="self">self</span>, now: Instant) {
 <a href=#6165 id=6165 data-nosnippet>6165</a>        <span class="comment">// QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO using the max PTO of
 <a href=#6166 id=6166 data-nosnippet>6166</a>        // all paths.
-<a href=#6167 id=6167 data-nosnippet>6167</a>        </span><span class="kw">let </span>pto_max = <span class="self">self</span>.max_pto_all_paths(<span class="self">self</span>.highest_space);
+<a href=#6167 id=6167 data-nosnippet>6167</a>        </span><span class="kw">let </span>pto_max = <span class="self">self</span>.max_pto_for_space(<span class="self">self</span>.highest_space);
 <a href=#6168 id=6168 data-nosnippet>6168</a>        <span class="self">self</span>.timers.set(
 <a href=#6169 id=6169 data-nosnippet>6169</a>            Timer::Conn(ConnTimer::Close),
 <a href=#6170 id=6170 data-nosnippet>6170</a>            now + <span class="number">3 </span>* pto_max,
