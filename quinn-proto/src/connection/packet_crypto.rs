@@ -3,10 +3,10 @@ use std::ops::{Index, IndexMut};
 
 use tracing::{debug, trace};
 
+use super::SpaceKind;
 use crate::connection::assembler::Assembler;
 use crate::crypto::{self, HeaderKey, KeyPair, Keys, PacketKey};
 use crate::packet::{Packet, PartialDecode};
-use super::SpaceKind;
 use crate::token::ResetToken;
 use rand::Rng;
 
@@ -200,9 +200,7 @@ impl CryptoState {
         // Packets that do not belong to known path ids are valid as long as they can be decrypted.
         // If we didn't have a path, that's for the purposes of this function equivalent to not
         // having received packets on that path yet. So both of these cases are represented by `None`.
-        let rx_packet = spaces[space]
-            .path_space(path_id)
-            .and_then(|s| s.rx_packet);
+        let rx_packet = spaces[space].path_space(path_id).and_then(|s| s.rx_packet);
         let number = packet
             .header
             .number()

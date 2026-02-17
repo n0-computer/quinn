@@ -1,5 +1,5 @@
-use crate::{Instant, MAX_UDP_PAYLOAD, MtuDiscoveryConfig};
 use super::SpaceKind;
+use crate::{Instant, MAX_UDP_PAYLOAD, MtuDiscoveryConfig};
 use std::cmp;
 use tracing::trace;
 
