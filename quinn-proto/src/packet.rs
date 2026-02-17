@@ -976,30 +976,7 @@ impl SpaceId {
     }
 }
 
-/// The three QUIC packet number space kinds
-///
-/// Unlike [`SpaceId`], this always has exactly three variants — it represents the
-/// encryption level / space kind, not a specific packet number space identity.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub(crate) enum SpaceKind {
-    /// Initial packets (client and server).
-    Initial = 0,
-    /// Handshake packets.
-    Handshake = 1,
-    /// Data (1-RTT and 0-RTT)
-    Data = 2,
-}
-
-impl SpaceKind {
-    /// Returns the encryption level for this space kind.
-    pub(crate) fn encryption_level(self) -> EncryptionLevel {
-        match self {
-            Self::Initial => EncryptionLevel::Initial,
-            Self::Handshake => EncryptionLevel::Handshake,
-            Self::Data => EncryptionLevel::OneRtt,
-        }
-    }
-}
+pub(crate) use crate::connection::SpaceKind;
 
 #[cfg(test)]
 mod tests {

@@ -38,9 +38,9 @@ use tracing::warn;
 
 use crate::{
     Connection, ConnectionId, FourTuple, Frame, Instant, PathId,
-    connection::{EncryptionLevel, PathData, SentPacket, timer::Timer},
+    connection::{EncryptionLevel, PathData, SentPacket, SpaceKind, timer::Timer},
     frame::EncodableFrame,
-    packet::{Header, SpaceKind},
+    packet::Header,
     transport_parameters::TransportParameters,
 };
 #[cfg(feature = "qlog")]

@@ -5,7 +5,7 @@ use thiserror::Error;
 use tracing::{debug, trace};
 
 use super::{
-    PathError, PathStats,
+    PathError, PathStats, SpaceKind,
     mtud::MtuDiscovery,
     pacing::Pacer,
     spaces::{PacketNumberSpace, SentPacket},
@@ -15,7 +15,6 @@ use crate::{
     coding::{self, Decodable, Encodable},
     congestion,
     frame::ObservedAddr,
-    packet::SpaceKind,
 };
 
 #[cfg(feature = "qlog")]

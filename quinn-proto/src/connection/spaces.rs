@@ -16,7 +16,7 @@ use crate::{
     Dir, Duration, FourTuple, Instant, StreamId, TransportError, TransportErrorCode, VarInt,
     connection::StreamsState,
     frame::{self, AddAddress, RemoveAddress},
-    packet::{SpaceId, SpaceKind},
+    packet::SpaceId,
     range_set::ArrayRangeSet,
     shared::IssuedCid,
 };
@@ -175,6 +175,31 @@ impl Index<SpaceId> for [PacketSpace; 3] {
 impl IndexMut<SpaceId> for [PacketSpace; 3] {
     fn index_mut(&mut self, space: SpaceId) -> &mut PacketSpace {
         &mut self.as_mut()[space as usize]
+    }
+}
+
+/// The three QUIC packet number space kinds
+///
+/// Unlike [`SpaceId`], this always has exactly three variants — it represents the
+/// encryption level / space kind, not a specific packet number space identity.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub(crate) enum SpaceKind {
+    /// Initial packets (client and server).
+    Initial = 0,
+    /// Handshake packets.
+    Handshake = 1,
+    /// Data (1-RTT and 0-RTT)
+    Data = 2,
+}
+
+impl SpaceKind {
+    /// Returns the encryption level for this space kind.
+    pub(crate) fn encryption_level(self) -> super::EncryptionLevel {
+        match self {
+            Self::Initial => super::EncryptionLevel::Initial,
+            Self::Handshake => super::EncryptionLevel::Handshake,
+            Self::Data => super::EncryptionLevel::OneRtt,
+        }
     }
 }
 

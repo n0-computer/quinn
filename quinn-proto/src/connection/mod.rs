@@ -72,8 +72,6 @@ mod packet_crypto;
 use packet_crypto::CryptoState;
 pub(crate) use packet_crypto::EncryptionLevel;
 
-use crate::packet::SpaceKind;
-
 mod paths;
 pub use paths::{ClosedPath, PathEvent, PathId, PathStatus, RttEstimator, SetPathStatusError};
 use paths::{PathData, PathState};
@@ -87,6 +85,7 @@ pub use spaces::Retransmits;
 #[cfg(not(fuzzing))]
 use spaces::Retransmits;
 use spaces::{PacketSpace, SendableFrames, SentPacket, ThinRetransmits};
+pub(crate) use spaces::SpaceKind;
 
 mod stats;
 pub use stats::{ConnectionStats, FrameStats, PathStats, UdpStats};

@@ -5,7 +5,8 @@ use tracing::{debug, trace};
 
 use crate::connection::assembler::Assembler;
 use crate::crypto::{self, HeaderKey, KeyPair, Keys, PacketKey};
-use crate::packet::{Packet, PartialDecode, SpaceKind};
+use crate::packet::{Packet, PartialDecode};
+use super::SpaceKind;
 use crate::token::ResetToken;
 use rand::Rng;
 

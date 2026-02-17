@@ -1,4 +1,5 @@
-use crate::{Instant, MAX_UDP_PAYLOAD, MtuDiscoveryConfig, packet::SpaceKind};
+use crate::{Instant, MAX_UDP_PAYLOAD, MtuDiscoveryConfig};
+use super::SpaceKind;
 use std::cmp;
 use tracing::trace;
 
@@ -526,7 +527,6 @@ mod tests {
     use super::*;
     use crate::Duration;
     use crate::MAX_UDP_PAYLOAD;
-    use crate::packet::SpaceKind;
     use assert_matches::assert_matches;
 
     fn default_mtud() -> MtuDiscovery {
