@@ -203,7 +203,7 @@ pub struct Connection {
     spin: bool,
     /// Packet number spaces: initial, handshake, 1-RTT
     spaces: [PacketSpace; 3],
-    /// Highest usable packet space kind
+    /// Highest usable packet space kind.
     highest_space: SpaceKind,
     /// Whether the idle timer should be reset the next time an ack-eliciting packet is transmitted.
     permit_idle_reset: bool,
@@ -3766,10 +3766,10 @@ impl Connection {
             if let Some(crypto) = self.crypto_state.session.write_handshake(&mut outgoing) {
                 match space {
                     SpaceKind::Initial => {
-                        self.upgrade_crypto(SpaceId::Handshake, crypto);
+                        self.upgrade_crypto(SpaceKind::Handshake, crypto);
                     }
                     SpaceKind::Handshake => {
-                        self.upgrade_crypto(SpaceId::Data, crypto);
+                        self.upgrade_crypto(SpaceKind::Data, crypto);
                     }
                     SpaceKind::Data => unreachable!("got updated secrets during 1-RTT"),
                 }
@@ -3801,13 +3801,13 @@ impl Connection {
     }
 
     /// Switch to stronger cryptography during handshake
-    fn upgrade_crypto(&mut self, space: SpaceId, crypto: Keys) {
+    fn upgrade_crypto(&mut self, space: SpaceKind, crypto: Keys) {
         debug_assert!(
             !self.crypto_state.has_keys(space.encryption_level()),
             "already reached packet space {space:?}"
         );
         trace!("{:?} keys ready", space);
-        if space == SpaceId::Data {
+        if space == SpaceKind::Data {
             // Precompute the first key update
             self.crypto_state.next_crypto = Some(
                 self.crypto_state
@@ -3817,11 +3817,10 @@ impl Connection {
             );
         }
 
-        let space_kind = space.kind();
-        self.crypto_state.spaces[space_kind].keys = Some(crypto);
-        debug_assert!(space_kind > self.highest_space);
-        self.highest_space = space_kind;
-        if space == SpaceId::Data && self.side.is_client() {
+        self.crypto_state.spaces[space].keys = Some(crypto);
+        debug_assert!(space > self.highest_space);
+        self.highest_space = space;
+        if space == SpaceKind::Data && self.side.is_client() {
             // Discard 0-RTT keys because 1-RTT keys are available.
             self.crypto_state.discard_zero_rtt();
         }
