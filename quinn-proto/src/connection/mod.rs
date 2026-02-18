@@ -3457,12 +3457,11 @@ impl Connection {
             && now > *deadline
         {
             warn!("received data on path which we abandoned more than 3 * PTO ago");
-            // The peer failed to respond with a PATH_ABANDON in time.
             if !self.state.is_closed() {
                 self.state
-                    .move_to_closed(TransportError::PROTOCOL_VIOLATION(
-                        "peer failed to respond with PATH_ABANDON in time",
-                    ));
+                    .move_to_closed(TransportError::PROTOCOL_VIOLATION(format!(
+                        "peer failed to respond with PATH_ABANDON{{ path_id={path_id} }} in time"
+                    )));
                 self.close_common();
                 self.set_close_timer(now);
                 self.connection_close_pending = true;
@@ -4514,7 +4513,7 @@ impl Connection {
                 }
                 Frame::PathAck(ack) => {
                     span.as_ref()
-                        .map(|span| span.record("path", tracing::field::debug(&ack.path_id)));
+                        .map(|span| span.record("path", tracing::field::display(&ack.path_id)));
                     self.on_path_ack_received(now, packet.header.space().into(), ack)?;
                 }
                 Frame::Close(reason) => {
@@ -4631,7 +4630,7 @@ impl Connection {
                     self.on_ack_received(now, SpaceId::Data, ack)?;
                 }
                 Frame::PathAck(ack) => {
-                    span.record("path", tracing::field::debug(&ack.path_id));
+                    span.record("path", tracing::field::display(&ack.path_id));
                     self.on_path_ack_received(now, SpaceId::Data, ack)?;
                 }
                 Frame::Padding | Frame::Ping => {}
@@ -4786,7 +4785,7 @@ impl Connection {
                 }
                 Frame::RetireConnectionId(frame::RetireConnectionId { path_id, sequence }) => {
                     if let Some(ref path_id) = path_id {
-                        span.record("path", tracing::field::debug(&path_id));
+                        span.record("path", tracing::field::display(&path_id));
                     }
                     let path_id = path_id.unwrap_or_default();
                     match self.local_cid_state.get_mut(&path_id) {
@@ -4828,12 +4827,13 @@ impl Connection {
                         PathId::ZERO
                     };
 
+                    if let Some(ref path_id) = frame.path_id {
+                        span.record("path", tracing::field::display(&path_id));
+                    }
+
                     if self.abandoned_paths.contains(&path_id) {
                         trace!("ignoring issued CID for abandoned path");
                         continue;
-                    }
-                    if let Some(ref path_id) = frame.path_id {
-                        span.record("path", tracing::field::debug(&path_id));
                     }
                     let remote_cids = self
                         .remote_cids
@@ -5014,7 +5014,7 @@ impl Connection {
                     path_id,
                     error_code,
                 }) => {
-                    span.record("path", tracing::field::debug(&path_id));
+                    span.record("path", tracing::field::display(&path_id));
                     // TODO(flub): don't really know which error code to use here.
                     let locally_initiated = false;
                     match self.close_path_inner(now, path_id, error_code.into(), locally_initiated)
@@ -5056,7 +5056,7 @@ impl Connection {
                     }
                 }
                 Frame::PathStatusAvailable(info) => {
-                    span.record("path", tracing::field::debug(&info.path_id));
+                    span.record("path", tracing::field::display(&info.path_id));
                     if self.is_multipath_negotiated() {
                         self.on_path_status(
                             info.path_id,
@@ -5070,7 +5070,7 @@ impl Connection {
                     }
                 }
                 Frame::PathStatusBackup(info) => {
-                    span.record("path", tracing::field::debug(&info.path_id));
+                    span.record("path", tracing::field::display(&info.path_id));
                     if self.is_multipath_negotiated() {
                         self.on_path_status(info.path_id, PathStatus::Backup, info.status_seq_no);
                     } else {
@@ -5080,7 +5080,7 @@ impl Connection {
                     }
                 }
                 Frame::MaxPathId(frame::MaxPathId(path_id)) => {
-                    span.record("path", tracing::field::debug(&path_id));
+                    span.record("path", tracing::field::display(&path_id));
                     if !self.is_multipath_negotiated() {
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "received MAX_PATH_ID frame when multipath was not negotiated",
