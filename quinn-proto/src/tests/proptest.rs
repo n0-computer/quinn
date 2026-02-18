@@ -736,11 +736,10 @@ fn regression_there_should_be_at_least_one_path() {
 /// the server thinks the client ignored the PATH_ABANDON frame, although the client
 /// just never *received* that frame.
 ///
-/// We fixed this issue by only giving the peer a deadline for responding with a
-/// PATH_ABANDON once it acknowledged receiving the PATH_ABANDON.
+/// We fixed this issue by not generating protocol violation errors anymore.
 #[test]
 fn regression_peer_ignored_path_abandon() {
-    let prefix = "regression_todo";
+    let prefix = "regression_peer_ignored_path_abandon";
 
     let seed = [0u8; 32];
     let interactions = vec![

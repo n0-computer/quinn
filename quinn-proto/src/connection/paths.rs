@@ -228,17 +228,9 @@ pub(super) struct PathData {
 pub(super) enum AbandonState {
     /// This path wasn't abandoned yet.
     NotAbandoned,
-    /// A PATH_ABANDON frame was sent for this path, and we're expecting a response
-    /// by the given deadline.
-    ///
-    /// If we don't receive PATH_ABANDON by that time *and* we receive a packet on this
-    /// path, then we assume our peer has ignored our PATH_ABANDON and error out.
-    ///
-    /// This is checked in [`crate::Connection::on_packet_authenticated`].
-    ExpectingPathAbandon { deadline: Instant },
-    /// We received a PATH_ABANDON and are just waiting for the path's packets to drain
-    /// and eventually will discard the path.
-    ReceivedPathAbandon,
+    /// We either received or sent a PATH_ABANDON and are only draining this path
+    /// until we discard it.
+    Draining,
 }
 
 impl PathData {

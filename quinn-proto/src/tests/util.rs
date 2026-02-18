@@ -182,7 +182,7 @@ impl Pair {
                     dst_ip: Some(packet.destination.ip()),
                 });
             } else {
-                debug!(?packet.destination, "packet from server to client lost");
+                debug!(?packet.destination, "no route from server to client for packet");
             }
         }
     }
@@ -214,7 +214,7 @@ impl Pair {
                     dst_ip: Some(packet.destination.ip()),
                 });
             } else {
-                debug!(?packet.destination, "packet from server to client lost");
+                debug!(?packet.destination, "no route from server to client for packet");
             }
         }
     }

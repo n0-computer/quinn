@@ -3450,25 +3450,6 @@ impl Connection {
         is_1rtt: bool,
     ) {
         self.total_authed_packets += 1;
-        if let Some(AbandonState::ExpectingPathAbandon { deadline }) = self
-            .paths
-            .get(&path_id)
-            .map(|path| &path.data.abandon_state)
-            && now > *deadline
-        {
-            warn!("received data on path which we abandoned more than 3 * PTO ago");
-            if !self.state.is_closed() {
-                self.state
-                    .move_to_closed(TransportError::PROTOCOL_VIOLATION(format!(
-                        "peer failed to respond with PATH_ABANDON{{ path_id={path_id} }} in time"
-                    )));
-                self.close_common();
-                self.set_close_timer(now);
-                self.connection_close_pending = true;
-            }
-            return;
-        }
-
         self.reset_keep_alive(path_id, now);
         self.reset_idle_timeout(now, space_id, path_id);
         self.permit_idle_reset = true;
@@ -5042,7 +5023,7 @@ impl Connection {
                     // may already have fired and we no longer have any state for this path.
                     // Only set this timer if we still have path state.
                     if let Some(path) = self.paths.get_mut(&path_id)
-                        && !matches!(path.data.abandon_state, AbandonState::ReceivedPathAbandon)
+                        && !matches!(path.data.abandon_state, AbandonState::Draining)
                     {
                         let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
                         let pto = path.data.rtt.pto_base() + ack_delay;
@@ -5052,7 +5033,7 @@ impl Connection {
                             self.qlog.with_time(now),
                         );
                         // We received a PATH_ABANDON, we don't expect another one by a certain time.
-                        path.data.abandon_state = AbandonState::ReceivedPathAbandon;
+                        path.data.abandon_state = AbandonState::Draining;
                     }
                 }
                 Frame::PathStatusAvailable(info) => {
@@ -5867,9 +5848,7 @@ impl Connection {
                     // protocol violation.
                     // Receiving other frames before the deadline is fine, as those might be packets
                     // that were still in-flight.
-                    abandoned_path.data.abandon_state = AbandonState::ExpectingPathAbandon {
-                        deadline: now + 3 * send_pto,
-                    };
+                    abandoned_path.data.abandon_state = AbandonState::Draining;
 
                     // At some point, we need to forget about the path.
                     // If we do so too early, then we'll have discarded the CIDs of that path and won't
@@ -5880,11 +5859,9 @@ impl Connection {
                     // still be packets incoming on the path at that point.
                     // This timer will actually get reset to a value that's likely to be even earlier
                     // once we actually receive the PATH_ABANDON frame itself.
-                    let abandoned_pto =
-                        self.paths.get(&path_id).unwrap().data.rtt.pto_base() + ack_delay;
                     self.timers.set(
                         Timer::PerPath(abandoned_path_id, PathTimer::DiscardPath),
-                        now + 3 * send_pto + 3 * abandoned_pto,
+                        now + 3 * send_pto,
                         self.qlog.with_time(now),
                     );
                 }
