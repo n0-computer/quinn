@@ -42,7 +42,7 @@ pub(crate) struct NatTraversalRound {
     /// Sequence number to use for the new reach out frames.
     pub(crate) new_round: VarInt,
     /// Addresses to use to send reach out frames.
-    pub(crate) reach_out_at: Vec<IpPort>,
+    pub(crate) reach_out_at: FxHashSet<IpPort>,
     /// Remotes to probe by attempting to open new paths.
     ///
     /// The addresses include their Id, so that it can be used to signal these should be returned
@@ -358,7 +358,9 @@ impl ServerState {
         if round > self.round {
             self.round = round;
             self.pending_probes.clear();
-        } else if self.pending_probes.len() >= self.max_remote_addresses {
+        } else if self.pending_probes.len() >= self.max_remote_addresses
+            && !self.pending_probes.contains(&(ip, port))
+        {
             return Err(Error::TooManyAddresses);
         }
         self.pending_probes.insert((ip, port));
