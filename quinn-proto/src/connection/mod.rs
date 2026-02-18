@@ -2908,6 +2908,29 @@ impl Connection {
             }
         }
 
+        if let Some(retransmits) = info.retransmits.get() {
+            for (path_id, _) in &retransmits.path_abandon {
+                if let Some(abandoned_path) = self.paths.get_mut(path_id)
+                    && matches!(
+                        abandoned_path.data.abandon_state,
+                        AbandonState::ExpectingPathAbandonAck
+                    )
+                {
+                    // The peer MUST respond with a corresponding PATH_ABANDON frame.
+                    // We give the peer some time to process this frame after it has sent an ACK.
+                    // If the PATH_ABANDON comes in within the deadline we're giving here, then this
+                    // state will be set to `AbandonState::ReceivedPathAbandon`, essentially clearing
+                    // the deadline. If we receive a frame after the deadline, we error out with a
+                    // protocol violation.
+                    // Receiving other frames before the deadline is fine, as those might be packets
+                    // that were still in-flight.
+                    abandoned_path.data.abandon_state = AbandonState::ExpectingPathAbandon {
+                        deadline: now + Duration::from_secs(1), // TODO(matheus23) this is weird :)
+                    };
+                }
+            }
+        }
+
         for frame in info.stream_frames {
             self.streams.received_ack_of(frame);
         }
@@ -5847,9 +5870,6 @@ impl Connection {
             };
             builder.write_frame(frame, stats);
 
-            let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
-            // We can't access path here anymore due to borrowing issues.
-            let send_pto = self.paths.get(&path_id).unwrap().data.rtt.pto_base() + ack_delay;
             if let Some(abandoned_path) = self.paths.get_mut(&abandoned_path_id) {
                 // We only want to set the deadline on the *first* PATH_ABANDON we send.
                 // Retransmits shouldn't run this code again
@@ -5857,35 +5877,13 @@ impl Connection {
                     abandoned_path.data.abandon_state,
                     AbandonState::NotAbandoned
                 ) {
-                    // The peer MUST respond with a corresponding PATH_ABANDON frame.
-                    // The other peer has 3 * PTO to do that.
-                    // This uses the PTO of the path we send on!
-                    // If the PATH_ABANDON comes in within the deadline we're giving here, then this
-                    // state will be set to `AbandonState::ReceivedPathAbandon`, essentially clearing
-                    // the deadline. If we receive a frame after the deadline, we error out with a
-                    // protocol violation.
-                    // Receiving other frames before the deadline is fine, as those might be packets
-                    // that were still in-flight.
-                    abandoned_path.data.abandon_state = AbandonState::ExpectingPathAbandon {
-                        deadline: now + 3 * send_pto,
-                    };
-
-                    // At some point, we need to forget about the path.
-                    // If we do so too early, then we'll have discarded the CIDs of that path and won't
-                    // handle incoming packets on that path correctly.
-                    // To give this path enough time, we assume that the peer will have received our
-                    // PATH_ABANDON within 3 * PTO of the path we sent the abandon on,
-                    // and then we give the path 3 * PTO time to make it very unlikely that there will
-                    // still be packets incoming on the path at that point.
-                    // This timer will actually get reset to a value that's likely to be even earlier
-                    // once we actually receive the PATH_ABANDON frame itself.
-                    let abandoned_pto =
-                        self.paths.get(&path_id).unwrap().data.rtt.pto_base() + ack_delay;
-                    self.timers.set(
-                        Timer::PerPath(abandoned_path_id, PathTimer::DiscardPath),
-                        now + 3 * send_pto + 3 * abandoned_pto,
-                        self.qlog.with_time(now),
-                    );
+                    // When we abandon a path, we either wait for the peer to acknowledge
+                    // having received that packet, *or* for it to send us a PATH_ABANDON frame
+                    // back. Both froms of acknowledgement work, however after getting an ACK,
+                    // we give the peer a deadline for processing the PATH_ABANDON and reciprocating it.
+                    // Otherwise we assume a protocol violation. This prevents us from holding on to
+                    // path data indefinitely while the connection goes on.
+                    abandoned_path.data.abandon_state = AbandonState::ExpectingPathAbandonAck;
                 }
             } else {
                 warn!("sent PATH_ABANDON after path was already discarded");

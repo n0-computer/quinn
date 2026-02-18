@@ -229,8 +229,15 @@ pub(super) struct PathData {
 pub(super) enum AbandonState {
     /// This path wasn't abandoned yet.
     NotAbandoned,
-    /// A PATH_ABANDON frame was sent for this path, and we're expecting a response
-    /// by the given deadline.
+    /// A PATH_ABANDON frame was sent for this path, but we haven't received an ACK
+    /// for it yet.
+    ///
+    /// We don't have a deadline for this, because acknowledgements already inherently
+    /// have deadlines and retransmits and deadlines for acknowledgements are handled
+    /// via path and connection idle timeouts.
+    ExpectingPathAbandonAck,
+    /// A PATH_ABANDON frame was sent for this path, was acknowledged and now we expect
+    /// a response by the given deadline.
     ///
     /// If we don't receive PATH_ABANDON by that time *and* we receive a packet on this
     /// path, then we assume our peer has ignored our PATH_ABANDON and error out.

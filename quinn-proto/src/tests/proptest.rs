@@ -721,3 +721,64 @@ fn regression_there_should_be_at_least_one_path() {
         pair.server_conn_mut(server_ch)
     )));
 }
+
+/// Yet another regression with PATH_ABANDON "not being answered" by our peer.
+///
+/// This test ended up severing the connection in an interesting way: It generates
+/// a passive migration just before closing the path. The passive migration breaks
+/// path 0 (which would usually be the (1.1.1.0, 2.2.2.0) tuple, the client "migrated"
+/// to (1.1.1.1, 2.2.2.0) without the server knowing that).
+/// This means that path 0 is effectively broken, but the server still has path 0
+/// verified.
+/// When the server then wants to abandon path 1, it chooses path 0 as the path to
+/// send the path abandon on, even though that path is "doomed forever".
+/// No retransmits make it thorugh, and the client keeps using path 1, thus eventually
+/// the server thinks the client ignored the PATH_ABANDON frame, although the client
+/// just never *received* that frame.
+///
+/// We fixed this issue by only giving the peer a deadline for responding with a
+/// PATH_ABANDON once it acknowledged receiving the PATH_ABANDON.
+#[test]
+fn regression_peer_ignored_path_abandon() {
+    let prefix = "regression_todo";
+
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::Drive { side: Side::Client },
+        TestOp::PathSetStatus {
+            side: Side::Client,
+            path_idx: 0,
+            status: PathStatus::Backup,
+        },
+        TestOp::AdvanceTime,
+        TestOp::Drive { side: Side::Server },
+        TestOp::PassiveMigration {
+            side: Side::Client,
+            addr_idx: 0,
+        },
+        TestOp::ClosePath {
+            side: Side::Server,
+            path_idx: 1,
+            error_code: 0,
+        },
+    ];
+
+    let _guard = subscribe();
+    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
