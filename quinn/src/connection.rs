@@ -1576,7 +1576,6 @@ impl State {
                 }
                 Path(ref evt @ PathEvent::Abandoned { id, .. }) => {
                     if let Some(sender) = self.open_path.remove(&id) {
-                        // TODO(frando):
                         // We don't care for the reason why this path was closed here, because semantically
                         // all close reasons for a path that has not yet been opened equals to `ValidationFailed`.
                         // With the quinn API, there is no way to application-close a not-yet-opened path, so

@@ -6757,11 +6757,8 @@ impl Connection {
                 && !self.abandoned_paths.contains(&path_id)
             {
                 trace!(%path_id, "closing path from previous round");
-                let _ = self.close_path_inner(
-                    now,
-                    path_id,
-                    PathAbandonReason::NatTraversalRoundAborted,
-                );
+                let _ =
+                    self.close_path_inner(now, path_id, PathAbandonReason::NatTraversalRoundEnded);
             }
         }
 
