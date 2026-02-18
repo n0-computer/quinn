@@ -114,7 +114,7 @@
 <a href=#114 id=114 data-nosnippet>114</a>        <span class="kw">let </span>(i, cid_data) = <span class="self">self</span>.iter_from_reserved().nth(<span class="number">1</span>)<span class="question-mark">?</span>;
 <a href=#115 id=115 data-nosnippet>115</a>        <span class="kw">let </span>reserved = <span class="self">self</span>.reserved_len();
 <a href=#116 id=116 data-nosnippet>116</a>        <span class="kw">for </span>j <span class="kw">in </span><span class="number">0</span>..=reserved {
-<a href=#117 id=117 data-nosnippet>117</a>            <span class="self">self</span>.buffer[<span class="self">self</span>.cursor + j] = <span class="prelude-val">None</span>;
+<a href=#117 id=117 data-nosnippet>117</a>            <span class="self">self</span>.buffer[(<span class="self">self</span>.cursor + j) % <span class="self">Self</span>::LEN] = <span class="prelude-val">None</span>;
 <a href=#118 id=118 data-nosnippet>118</a>        }
 <a href=#119 id=119 data-nosnippet>119</a>        <span class="kw">let </span>orig_offset = <span class="self">self</span>.offset;
 <a href=#120 id=120 data-nosnippet>120</a>        <span class="self">self</span>.offset += (i + reserved) <span class="kw">as </span>u64;
@@ -496,4 +496,22 @@
 <a href=#496 id=496 data-nosnippet>496</a>        <span class="macro">assert_eq!</span>(q.active(), three.id);
 <a href=#497 id=497 data-nosnippet>497</a>        <span class="macro">assert_eq!</span>(q.next_reserved(), <span class="prelude-val">None</span>);
 <a href=#498 id=498 data-nosnippet>498</a>    }
-<a href=#499 id=499 data-nosnippet>499</a>}</code></pre></div></section></main></body></html>
+<a href=#499 id=499 data-nosnippet>499</a>
+<a href=#500 id=500 data-nosnippet>500</a>    <span class="attr">#[test]
+<a href=#501 id=501 data-nosnippet>501</a>    </span><span class="kw">fn </span>reserve_many_next_clears_across_wraparound() {
+<a href=#502 id=502 data-nosnippet>502</a>        <span class="kw">let </span><span class="kw-2">mut </span>q = CidQueue::new(initial_cid());
+<a href=#503 id=503 data-nosnippet>503</a>        <span class="kw">for </span>i <span class="kw">in </span><span class="number">1</span>..CidQueue::LEN {
+<a href=#504 id=504 data-nosnippet>504</a>            q.insert(cid(i <span class="kw">as </span>u64, <span class="number">0</span>)).unwrap();
+<a href=#505 id=505 data-nosnippet>505</a>        }
+<a href=#506 id=506 data-nosnippet>506</a>
+<a href=#507 id=507 data-nosnippet>507</a>        <span class="kw">for _ in </span><span class="number">0</span>..CidQueue::LEN - <span class="number">2 </span>{
+<a href=#508 id=508 data-nosnippet>508</a>            <span class="macro">assert!</span>(q.next_reserved().is_some());
+<a href=#509 id=509 data-nosnippet>509</a>        }
+<a href=#510 id=510 data-nosnippet>510</a>
+<a href=#511 id=511 data-nosnippet>511</a>        <span class="macro">assert!</span>(q.next().is_some());
+<a href=#512 id=512 data-nosnippet>512</a>        q.insert(cid(CidQueue::LEN <span class="kw">as </span>u64, <span class="number">0</span>)).unwrap();
+<a href=#513 id=513 data-nosnippet>513</a>        <span class="macro">assert!</span>(q.next_reserved().is_some());
+<a href=#514 id=514 data-nosnippet>514</a>        q.insert(cid(CidQueue::LEN <span class="kw">as </span>u64 + <span class="number">1</span>, <span class="number">0</span>)).unwrap();
+<a href=#515 id=515 data-nosnippet>515</a>        <span class="macro">assert!</span>(q.next().is_some());
+<a href=#516 id=516 data-nosnippet>516</a>    }
+<a href=#517 id=517 data-nosnippet>517</a>}</code></pre></div></section></main></body></html>
