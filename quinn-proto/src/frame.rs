@@ -383,10 +383,12 @@ impl DatagramInfo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::Display)]
 #[cfg_attr(test, derive(Arbitrary))]
 pub(crate) enum Frame {
+    #[display("PADDING")]
     Padding,
+    #[display("PING")]
     Ping,
     Ack(Ack),
     PathAck(PathAck),
@@ -408,7 +410,9 @@ pub(crate) enum Frame {
     Close(Close),
     Datagram(Datagram),
     AckFrequency(AckFrequency),
+    #[display("IMMEDIATE_ACK")]
     ImmediateAck,
+    #[display("HANDSHAKE_DONE")]
     HandshakeDone,
     ObservedAddr(ObservedAddr),
     PathAbandon(PathAbandon),
@@ -420,22 +424,6 @@ pub(crate) enum Frame {
     AddAddress(AddAddress),
     ReachOut(ReachOut),
     RemoveAddress(RemoveAddress),
-}
-
-impl fmt::Display for Frame {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Eventually all our frames will support fmt::Display and be able to be used to log
-        // consistently. For now we fall back to fmt::Debug.
-        match self {
-            Self::Padding => write!(f, "PADDING"),
-            Self::Ping => write!(f, "PING"),
-            Self::PathChallenge(frame) => write!(f, "{frame}"),
-            Self::PathResponse(frame) => write!(f, "{frame}"),
-            Self::ImmediateAck => write!(f, "IMMEDIATE_ACK"),
-            Self::HandshakeDone => write!(f, "HANDSHAKE_DONE"),
-            _ => write!(f, "{self:?}"),
-        }
-    }
 }
 
 impl Frame {
@@ -945,7 +933,8 @@ impl ApplicationClose {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, derive_more::Display)]
+#[display("{} path_id: {path_id} ranges: {ranges:?} delay: {delay}µs", self.get_type())]
 pub(crate) struct PathAck {
     pub path_id: PathId,
     pub largest: u64,
@@ -1075,7 +1064,8 @@ impl<'a> Encodable for PathAckEncoder<'a> {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, derive_more::Display)]
+#[display("{} ranges: {ranges:?} delay: {delay}µs largest: {largest}", self.get_type())]
 pub(crate) struct Ack {
     pub largest: u64,
     pub delay: u64,
@@ -1217,8 +1207,9 @@ impl Encodable for EcnCounts {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::Display)]
 #[cfg_attr(test, derive(Arbitrary, PartialEq, Eq))]
+#[display("STREAM id: {id} off: {offset} len: {} fin: {fin}", data.len())]
 pub(crate) struct Stream {
     pub(crate) id: StreamId,
     #[cfg_attr(test, strategy(varint_u64()))]
