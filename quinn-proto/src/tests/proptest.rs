@@ -732,7 +732,7 @@ fn regression_there_should_be_at_least_one_path() {
 /// verified.
 /// When the server then wants to abandon path 1, it chooses path 0 as the path to
 /// send the path abandon on, even though that path is "doomed forever".
-/// No retransmits make it thorugh, and the client keeps using path 1, thus eventually
+/// No retransmits make it through, and the client keeps using path 1, thus eventually
 /// the server thinks the client ignored the PATH_ABANDON frame, although the client
 /// just never *received* that frame.
 ///

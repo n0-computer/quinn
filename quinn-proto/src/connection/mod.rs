@@ -2909,8 +2909,8 @@ impl Connection {
         }
 
         if let Some(retransmits) = info.retransmits.get() {
-            for (path_id, _) in &retransmits.path_abandon {
-                if let Some(abandoned_path) = self.paths.get_mut(path_id)
+            for abandoned_path_id in retransmits.path_abandon.keys() {
+                if let Some(abandoned_path) = self.paths.get_mut(abandoned_path_id)
                     && matches!(
                         abandoned_path.data.abandon_state,
                         AbandonState::ExpectingPathAbandonAck
@@ -5879,7 +5879,7 @@ impl Connection {
                 ) {
                     // When we abandon a path, we either wait for the peer to acknowledge
                     // having received that packet, *or* for it to send us a PATH_ABANDON frame
-                    // back. Both froms of acknowledgement work, however after getting an ACK,
+                    // back. Both forms of acknowledgement work, however after getting an ACK,
                     // we give the peer a deadline for processing the PATH_ABANDON and reciprocating it.
                     // Otherwise we assume a protocol violation. This prevents us from holding on to
                     // path data indefinitely while the connection goes on.
