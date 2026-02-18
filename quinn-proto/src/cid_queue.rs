@@ -496,4 +496,22 @@ mod tests {
         assert_eq!(q.active(), three.id);
         assert_eq!(q.next_reserved(), None);
     }
+
+    #[test]
+    fn reserve_many_next_clears_across_wraparound() {
+        let mut q = CidQueue::new(initial_cid());
+        for i in 1..CidQueue::LEN {
+            q.insert(cid(i as u64, 0)).unwrap();
+        }
+
+        for _ in 0..CidQueue::LEN - 2 {
+            assert!(q.next_reserved().is_some());
+        }
+
+        assert!(q.next().is_some());
+        q.insert(cid(CidQueue::LEN as u64, 0)).unwrap();
+        assert!(q.next_reserved().is_some());
+        q.insert(cid(CidQueue::LEN as u64 + 1, 0)).unwrap();
+        assert!(q.next().is_some());
+    }
 }
