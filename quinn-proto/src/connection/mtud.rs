@@ -1,4 +1,5 @@
-use crate::{Instant, MAX_UDP_PAYLOAD, MtuDiscoveryConfig, packet::SpaceId};
+use super::SpaceKind;
+use crate::{Instant, MAX_UDP_PAYLOAD, MtuDiscoveryConfig};
 use std::cmp;
 use tracing::trace;
 
@@ -92,9 +93,9 @@ impl MtuDiscovery {
     /// Notifies the [`MtuDiscovery`] that a packet has been ACKed
     ///
     /// Returns true if the packet was an MTU probe
-    pub(crate) fn on_acked(&mut self, space: SpaceId, pn: u64, len: u16) -> bool {
+    pub(crate) fn on_acked(&mut self, space: SpaceKind, pn: u64, len: u16) -> bool {
         // MTU probes are only sent in application data space
-        if space != SpaceId::Data {
+        if space != SpaceKind::Data {
             return false;
         }
 
@@ -526,7 +527,6 @@ mod tests {
     use super::*;
     use crate::Duration;
     use crate::MAX_UDP_PAYLOAD;
-    use crate::packet::SpaceId;
     use assert_matches::assert_matches;
 
     fn default_mtud() -> MtuDiscovery {
@@ -558,7 +558,7 @@ mod tests {
             probed_sizes.push(probe_size);
 
             if probe_size <= link_payload_size_limit {
-                mtud.on_acked(SpaceId::Data, probe_pn, probe_size);
+                mtud.on_acked(SpaceKind::Data, probe_pn, probe_size);
             } else {
                 mtud.on_probe_lost();
             }
@@ -821,7 +821,7 @@ mod tests {
             if i % 2 == 0 {
                 // ACK probe and ensure it results in an increase of current_mtu
                 let previous_max_size = mtud.current_mtu;
-                mtud.on_acked(SpaceId::Data, probe_pn, result.unwrap());
+                mtud.on_acked(SpaceKind::Data, probe_pn, result.unwrap());
                 println!(
                     "ACK packet {}. Previous MTU = {previous_max_size}. New MTU = {}",
                     result.unwrap(),

@@ -70,7 +70,7 @@ use packet_builder::{PacketBuilder, PadDatagram};
 
 mod packet_crypto;
 use packet_crypto::CryptoState;
-pub(crate) use packet_crypto::{EncryptionLevel, SpaceKind};
+pub(crate) use packet_crypto::EncryptionLevel;
 
 mod paths;
 pub use paths::{ClosedPath, PathEvent, PathId, PathStatus, RttEstimator, SetPathStatusError};
@@ -84,6 +84,7 @@ mod spaces;
 pub use spaces::Retransmits;
 #[cfg(not(fuzzing))]
 use spaces::Retransmits;
+pub(crate) use spaces::SpaceKind;
 use spaces::{PacketSpace, SendableFrames, SentPacket, ThinRetransmits};
 
 mod stats;
@@ -201,8 +202,8 @@ pub struct Connection {
     spin: bool,
     /// Packet number spaces: initial, handshake, 1-RTT
     spaces: [PacketSpace; 3],
-    /// Highest usable [`SpaceId`]
-    highest_space: SpaceId,
+    /// Highest usable packet space.
+    highest_space: SpaceKind,
     /// Whether the idle timer should be reset the next time an ack-eliciting packet is transmitted.
     permit_idle_reset: bool,
     /// Negotiated idle timeout
@@ -438,7 +439,7 @@ impl Connection {
             spin_enabled: config.allow_spin && rng.random_ratio(7, 8),
             spin: false,
             spaces: [initial_space, handshake_space, data_space],
-            highest_space: SpaceId::Initial,
+            highest_space: SpaceKind::Initial,
             permit_idle_reset: true,
             idle_timeout: match config.max_idle_timeout {
                 None | Some(VarInt(0)) => None,
@@ -1022,7 +1023,7 @@ impl Connection {
             self.spaces[SpaceId::Data].pending.ack_frequency = self
                 .ack_frequency
                 .should_send_ack_frequency(rtt, config, &self.peer_params)
-                && self.highest_space == SpaceId::Data
+                && self.highest_space == SpaceKind::Data
                 && self.peer_supports_ack_frequency();
         }
 
@@ -1463,7 +1464,7 @@ impl Connection {
             {
                 // A client stops both sending and processing Initial packets when it
                 // sends its first Handshake packet.
-                self.discard_space(now, SpaceId::Initial);
+                self.discard_space(now, SpaceKind::Initial);
             }
             if let Some(ref mut prev) = self.crypto_state.prev_crypto {
                 prev.update_unacked = false;
@@ -1558,7 +1559,7 @@ impl Connection {
                 }
                 let last_pn = builder.packet_number;
                 builder.finish_and_track(now, self, path_id, pad_datagram);
-                if space_id == self.highest_space {
+                if space_id.kind() == self.highest_space {
                     // Don't send another close packet. Even with multipath we only send
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
                     self.connection_close_pending = false;
@@ -1869,7 +1870,7 @@ impl Connection {
         prev_path.challenges_sent.insert(token, info);
         debug_assert_eq!(
             self.highest_space,
-            SpaceId::Data,
+            SpaceKind::Data,
             "PATH_CHALLENGE queued without 1-RTT keys"
         );
         let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
@@ -2735,7 +2736,7 @@ impl Connection {
 
                 // Notify MTU discovery that a packet was acked, because it might be an MTU probe
                 let path_data = self.path_data_mut(path);
-                let mtu_updated = path_data.mtud.on_acked(space, packet, info.size);
+                let mtu_updated = path_data.mtud.on_acked(space.kind(), packet, info.size);
                 if mtu_updated {
                     path_data
                         .congestion
@@ -2776,7 +2777,7 @@ impl Connection {
             // TODO(@divma): should be a method of path, should be contained in a single place
             path_data.rtt.update(ack_delay, rtt);
             if path_data.first_packet_after_rtt_sample.is_none() {
-                path_data.first_packet_after_rtt_sample = Some((space, next_pn));
+                path_data.first_packet_after_rtt_sample = Some((space.kind(), next_pn));
             }
         }
 
@@ -2913,7 +2914,7 @@ impl Connection {
         }
     }
 
-    fn set_key_discard_timer(&mut self, now: Instant, space: SpaceId) {
+    fn set_key_discard_timer(&mut self, now: Instant, space: SpaceKind) {
         let start = if self.crypto_state.has_keys(EncryptionLevel::ZeroRtt) {
             now
         } else {
@@ -2930,7 +2931,7 @@ impl Connection {
         // QUIC-MULTIPATH § 2.5 Key Phase Update Process: use largest PTO of all paths.
         self.timers.set(
             Timer::Conn(ConnTimer::KeyDiscard),
-            start + self.max_pto_all_paths(space) * 3,
+            start + self.max_pto_for_space(space) * 3,
             self.qlog.with_time(now),
         );
     }
@@ -3037,7 +3038,7 @@ impl Connection {
         // lost packet, including the edges, are marked lost. PTO computation must always
         // include max ACK delay, i.e. operate as if in Data space (see RFC9001 §7.6.1).
         let congestion_period = self
-            .pto(SpaceId::Data, path_id)
+            .pto(SpaceKind::Data, path_id)
             .saturating_mul(self.config.persistent_congestion_threshold);
         let mut persistent_congestion_start: Option<Instant> = None;
         let mut prev_packet = None;
@@ -3071,7 +3072,7 @@ impl Connection {
                             }
                             // Persistent congestion must start after the first RTT sample
                             None if first_packet_after_rtt_sample
-                                .is_some_and(|x| x < (pn_space, packet)) =>
+                                .is_some_and(|x| x < (pn_space.kind(), packet)) =>
                             {
                                 persistent_congestion_start = Some(info.time_sent);
                             }
@@ -3202,7 +3203,7 @@ impl Connection {
                     continue;
                 };
                 self.qlog
-                    .emit_packet_lost(packet, &info, loss_delay, pn_space, now);
+                    .emit_packet_lost(packet, &info, loss_delay, pn_space.kind(), now);
                 self.paths
                     .get_mut(&path_id)
                     .unwrap()
@@ -3312,7 +3313,7 @@ impl Connection {
             // server can not send more due to its anti-amplification limit the client must
             // send another packet on PTO.
             let space = match self.highest_space {
-                SpaceId::Handshake => SpaceId::Handshake,
+                SpaceKind::Handshake => SpaceId::Handshake,
                 _ => SpaceId::Initial,
             };
 
@@ -3418,7 +3419,7 @@ impl Connection {
     /// The maximum probe timeout across all paths
     ///
     /// See [`Connection::pto`]
-    fn max_pto_all_paths(&self, space: SpaceId) -> Duration {
+    fn max_pto_for_space(&self, space: SpaceKind) -> Duration {
         self.paths
             .keys()
             .map(|path_id| self.pto(space, *path_id))
@@ -3430,10 +3431,10 @@ impl Connection {
     ///
     /// The PTO is logically the time in which you'd expect to receive an acknowledgement
     /// for a packet. So approximately RTT + max_ack_delay.
-    fn pto(&self, space: SpaceId, path_id: PathId) -> Duration {
+    fn pto(&self, space: SpaceKind, path_id: PathId) -> Duration {
         let max_ack_delay = match space {
-            SpaceId::Initial | SpaceId::Handshake => Duration::ZERO,
-            SpaceId::Data => self.ack_frequency.max_ack_delay_for_pto(),
+            SpaceKind::Initial | SpaceKind::Handshake => Duration::ZERO,
+            SpaceKind::Data => self.ack_frequency.max_ack_delay_for_pto(),
         };
         self.path_data(path_id).rtt.pto_base() + max_ack_delay
     }
@@ -3441,7 +3442,7 @@ impl Connection {
     fn on_packet_authenticated(
         &mut self,
         now: Instant,
-        space_id: SpaceId,
+        space_id: SpaceKind,
         path_id: PathId,
         ecn: Option<EcnCodepoint>,
         packet: Option<u64>,
@@ -3493,7 +3494,7 @@ impl Connection {
                 // If we received a handshake packet that authenticated, then we're talking to
                 // the real server.  From now on we should no longer allow the server to migrate
                 // its address.
-                if space_id == SpaceId::Handshake
+                if space_id == SpaceKind::Handshake
                     && let Some(hs) = self.state.as_handshake_mut()
                 {
                     hs.allow_server_migration = false;
@@ -3501,10 +3502,10 @@ impl Connection {
             }
             ConnectionSide::Server { .. } => {
                 if self.crypto_state.has_keys(EncryptionLevel::Initial)
-                    && space_id == SpaceId::Handshake
+                    && space_id == SpaceKind::Handshake
                 {
                     // A server stops sending and processing Initial packets when it receives its first Handshake packet.
-                    self.discard_space(now, SpaceId::Initial);
+                    self.discard_space(now, SpaceKind::Initial);
                 }
                 if self.crypto_state.has_keys(EncryptionLevel::ZeroRtt) && is_1rtt {
                     // Discard 0-RTT keys soon after receiving a 1-RTT packet
@@ -3525,14 +3526,14 @@ impl Connection {
     ///
     /// Without multipath there is only the connection-wide idle timeout. When multipath is
     /// enabled there is an additional per-path idle timeout.
-    fn reset_idle_timeout(&mut self, now: Instant, space: SpaceId, path_id: PathId) {
+    fn reset_idle_timeout(&mut self, now: Instant, space: SpaceKind, path_id: PathId) {
         // First reset the global idle timeout.
         if let Some(timeout) = self.idle_timeout {
             if self.state.is_closed() {
                 self.timers
                     .stop(Timer::Conn(ConnTimer::Idle), self.qlog.with_time(now));
             } else {
-                let dt = cmp::max(timeout, 3 * self.max_pto_all_paths(space));
+                let dt = cmp::max(timeout, 3 * self.max_pto_for_space(space));
                 self.timers.set(
                     Timer::Conn(ConnTimer::Idle),
                     now + dt,
@@ -3630,7 +3631,7 @@ impl Connection {
         // The first packet is always on PathId::ZERO
         self.on_packet_authenticated(
             now,
-            SpaceId::Initial,
+            SpaceKind::Initial,
             path_id,
             ecn,
             Some(packet_number),
@@ -3709,7 +3710,7 @@ impl Connection {
     ) -> Result<(), TransportError> {
         let expected = if !self.state.is_handshake() {
             SpaceId::Data
-        } else if self.highest_space == SpaceId::Initial {
+        } else if self.highest_space == SpaceKind::Initial {
             SpaceId::Initial
         } else {
             // On the server, self.highest_space can be Data after receiving the client's first
@@ -3762,13 +3763,13 @@ impl Connection {
             let mut outgoing = Vec::new();
             if let Some(crypto) = self.crypto_state.session.write_handshake(&mut outgoing) {
                 match space {
-                    SpaceId::Initial => {
-                        self.upgrade_crypto(SpaceId::Handshake, crypto);
+                    SpaceKind::Initial => {
+                        self.upgrade_crypto(SpaceKind::Handshake, crypto);
                     }
-                    SpaceId::Handshake => {
-                        self.upgrade_crypto(SpaceId::Data, crypto);
+                    SpaceKind::Handshake => {
+                        self.upgrade_crypto(SpaceKind::Data, crypto);
                     }
-                    _ => unreachable!("got updated secrets during 1-RTT"),
+                    SpaceKind::Data => unreachable!("got updated secrets during 1-RTT"),
                 }
             }
             if outgoing.is_empty() {
@@ -3779,16 +3780,16 @@ impl Connection {
                     continue;
                 }
             }
-            let offset = self.crypto_state.spaces[space.kind()].crypto_offset;
+            let offset = self.crypto_state.spaces[space].crypto_offset;
             let outgoing = Bytes::from(outgoing);
             if let Some(hs) = self.state.as_handshake_mut()
-                && space == SpaceId::Initial
+                && space == SpaceKind::Initial
                 && offset == 0
                 && self.side.is_client()
             {
                 hs.client_hello = Some(outgoing.clone());
             }
-            self.crypto_state.spaces[space.kind()].crypto_offset += outgoing.len() as u64;
+            self.crypto_state.spaces[space].crypto_offset += outgoing.len() as u64;
             trace!("wrote {} {:?} CRYPTO bytes", outgoing.len(), space);
             self.spaces[space].pending.crypto.push_back(frame::Crypto {
                 offset,
@@ -3798,13 +3799,13 @@ impl Connection {
     }
 
     /// Switch to stronger cryptography during handshake
-    fn upgrade_crypto(&mut self, space: SpaceId, crypto: Keys) {
+    fn upgrade_crypto(&mut self, space: SpaceKind, crypto: Keys) {
         debug_assert!(
             !self.crypto_state.has_keys(space.encryption_level()),
             "already reached packet space {space:?}"
         );
         trace!("{:?} keys ready", space);
-        if space == SpaceId::Data {
+        if space == SpaceKind::Data {
             // Precompute the first key update
             self.crypto_state.next_crypto = Some(
                 self.crypto_state
@@ -3814,26 +3815,26 @@ impl Connection {
             );
         }
 
-        self.crypto_state.spaces[space.kind()].keys = Some(crypto);
-        debug_assert!(space as usize > self.highest_space as usize);
+        self.crypto_state.spaces[space].keys = Some(crypto);
+        debug_assert!(space > self.highest_space);
         self.highest_space = space;
-        if space == SpaceId::Data && self.side.is_client() {
+        if space == SpaceKind::Data && self.side.is_client() {
             // Discard 0-RTT keys because 1-RTT keys are available.
             self.crypto_state.discard_zero_rtt();
         }
     }
 
-    fn discard_space(&mut self, now: Instant, space_id: SpaceId) {
-        debug_assert!(space_id != SpaceId::Data);
-        trace!("discarding {:?} keys", space_id);
-        if space_id == SpaceId::Initial {
+    fn discard_space(&mut self, now: Instant, space: SpaceKind) {
+        debug_assert!(space != SpaceKind::Data);
+        trace!("discarding {:?} keys", space);
+        if space == SpaceKind::Initial {
             // No longer needed
             if let ConnectionSide::Client { token, .. } = &mut self.side {
                 *token = Bytes::new();
             }
         }
-        self.crypto_state.spaces[space_id.kind()].keys = None;
-        let space = &mut self.spaces[space_id];
+        self.crypto_state.spaces[space].keys = None;
+        let space = &mut self.spaces[space];
         let pns = space.for_path(PathId::ZERO);
         pns.time_of_last_ack_eliciting_packet = None;
         pns.loss_time = None;
@@ -3976,7 +3977,7 @@ impl Connection {
                 self.authentication_failures += 1;
                 let integrity_limit = self
                     .crypto_state
-                    .integrity_limit(self.highest_space.kind())
+                    .integrity_limit(self.highest_space)
                     .unwrap();
                 if self.authentication_failures > integrity_limit {
                     Err(TransportError::AEAD_LIMIT_REACHED("integrity limit violated").into())
@@ -4155,7 +4156,7 @@ impl Connection {
         let state = match self.state.as_type() {
             StateType::Established => {
                 match packet.header.space() {
-                    SpaceId::Data => self.process_payload(
+                    SpaceKind::Data => self.process_payload(
                         now,
                         network_path,
                         path_id,
@@ -4251,7 +4252,7 @@ impl Connection {
                     self.on_packet_acked(now, PathId::ZERO, info);
                 };
 
-                self.discard_space(now, SpaceId::Initial); // Make sure we clean up after
+                self.discard_space(now, SpaceKind::Initial); // Make sure we clean up after
                 // any retransmitted Initials
                 let crypto_space = &mut self.crypto_state.spaces[SpaceKind::Initial];
                 crypto_space.keys = Some(
@@ -4378,7 +4379,7 @@ impl Connection {
                 } else {
                     // Server-only
                     self.spaces[SpaceId::Data].pending.handshake_done = true;
-                    self.discard_space(now, SpaceId::Handshake);
+                    self.discard_space(now, SpaceKind::Handshake);
                     self.events.push_back(Event::HandshakeConfirmed);
                     trace!("handshake confirmed");
                 }
@@ -4421,8 +4422,8 @@ impl Connection {
                 self.process_early_payload(now, path_id, packet, qlog)?;
 
                 if self.side.is_server()
-                    && starting_space == SpaceId::Initial
-                    && self.highest_space != SpaceId::Initial
+                    && starting_space == SpaceKind::Initial
+                    && self.highest_space != SpaceKind::Initial
                 {
                     let params = self
                         .crypto_state
@@ -4478,7 +4479,7 @@ impl Connection {
         packet: Packet,
         #[allow(unused)] qlog: &mut QlogRecvPacket,
     ) -> Result<(), TransportError> {
-        debug_assert_ne!(packet.header.space(), SpaceId::Data);
+        debug_assert_ne!(packet.header.space(), SpaceKind::Data);
         debug_assert_eq!(path_id, PathId::ZERO);
         let payload_len = packet.payload.len();
         let mut ack_eliciting = false;
@@ -4496,7 +4497,7 @@ impl Connection {
             ack_eliciting |= frame.is_ack_eliciting();
 
             // Process frames
-            if frame.is_1rtt() && packet.header.space() != SpaceId::Data {
+            if frame.is_1rtt() && packet.header.space() != SpaceKind::Data {
                 return Err(TransportError::PROTOCOL_VIOLATION(
                     "illegal frame type in handshake",
                 ));
@@ -4505,15 +4506,15 @@ impl Connection {
             match frame {
                 Frame::Padding | Frame::Ping => {}
                 Frame::Crypto(frame) => {
-                    self.read_crypto(packet.header.space(), &frame, payload_len)?;
+                    self.read_crypto(packet.header.space().into(), &frame, payload_len)?;
                 }
                 Frame::Ack(ack) => {
-                    self.on_ack_received(now, packet.header.space(), ack)?;
+                    self.on_ack_received(now, packet.header.space().into(), ack)?;
                 }
                 Frame::PathAck(ack) => {
                     span.as_ref()
                         .map(|span| span.record("path", tracing::field::display(&ack.path_id)));
-                    self.on_path_ack_received(now, packet.header.space(), ack)?;
+                    self.on_path_ack_received(now, packet.header.space().into(), ack)?;
                 }
                 Frame::Close(reason) => {
                     self.state.move_to_draining(Some(reason.into()));
@@ -4969,7 +4970,7 @@ impl Connection {
                         ));
                     }
                     if self.crypto_state.has_keys(EncryptionLevel::Handshake) {
-                        self.discard_space(now, SpaceId::Handshake);
+                        self.discard_space(now, SpaceKind::Handshake);
                     }
                     self.events.push_back(Event::HandshakeConfirmed);
                     trace!("handshake confirmed");
@@ -4987,7 +4988,7 @@ impl Connection {
                         ));
                     }
                     // must only be sent in data space
-                    if packet.header.space() != SpaceId::Data {
+                    if packet.header.space() != SpaceKind::Data {
                         return Err(TransportError::PROTOCOL_VIOLATION(
                             "OBSERVED_ADDRESS frame outside data space",
                         ));
@@ -5271,7 +5272,7 @@ impl Connection {
         // Reset rtt/congestion state for new path unless it looks like a NAT rebinding.
         // Note that the congestion window will not grow until validation terminates. Helps mitigate
         // amplification attacks performed by spoofing source addresses.
-        let prev_pto = self.pto(SpaceId::Data, path_id);
+        let prev_pto = self.pto(SpaceKind::Data, path_id);
         let path = self.paths.get_mut(&path_id).expect("known path");
         let mut new_path_data = if network_path.remote.is_ipv4()
             && network_path.remote.ip() == path.data.network_path.remote.ip()
@@ -5326,7 +5327,7 @@ impl Connection {
 
         self.timers.set(
             Timer::PerPath(path_id, PathTimer::PathValidation),
-            now + 3 * cmp::max(self.pto(SpaceId::Data, path_id), prev_pto),
+            now + 3 * cmp::max(self.pto(SpaceKind::Data, path_id), prev_pto),
             self.qlog.with_time(now),
         );
     }
@@ -5349,7 +5350,7 @@ impl Connection {
     // lacking <https://github.com/n0-computer/quinn/issues/364>
     pub fn handle_network_change(&mut self, hint: Option<&dyn NetworkChangeHint>, now: Instant) {
         debug!("network changed");
-        if self.highest_space < SpaceId::Data {
+        if self.highest_space < SpaceKind::Data {
             for path in self.paths.values_mut() {
                 // Clear the local address for it to be obtained from the socket again.
                 path.data.network_path.local_ip = None;
@@ -6163,7 +6164,7 @@ impl Connection {
     fn set_close_timer(&mut self, now: Instant) {
         // QUIC-MULTIPATH § 2.6 Connection Closure: draining for 3*PTO using the max PTO of
         // all paths.
-        let pto_max = self.max_pto_all_paths(self.highest_space);
+        let pto_max = self.max_pto_for_space(self.highest_space);
         self.timers.set(
             Timer::Conn(ConnTimer::Close),
             now + 3 * pto_max,
@@ -6334,10 +6335,10 @@ impl Connection {
     pub(crate) fn immediate_ack(&mut self, path_id: PathId) {
         debug_assert_eq!(
             self.highest_space,
-            SpaceId::Data,
+            SpaceKind::Data,
             "immediate ack must be written in the data space"
         );
-        self.spaces[self.highest_space]
+        self.spaces[SpaceId::Data]
             .for_path(path_id)
             .immediate_ack_pending = true;
     }
