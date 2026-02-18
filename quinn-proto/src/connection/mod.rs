@@ -742,10 +742,26 @@ impl Connection {
 
         self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
 
-        // Clear all timers.
-        // We still need some timers after we close a path, e.g. the `DiscardPath` timer,
-        // but that timer is going to be set once we the `PATH_ABANDON` frame is sent.
-        self.timers.stop_per_path(path_id, self.qlog.with_time(now));
+        // Clear timers that should be cleared when closing a path
+        const PATH_TIMERS_TO_STOP_ON_CLOSE: [PathTimer; 7] = [
+            PathTimer::PathIdle,
+            PathTimer::PathValidation,
+            PathTimer::PathChallengeLost,
+            PathTimer::PathOpen,
+            PathTimer::PathKeepAlive,
+            PathTimer::Pacing,
+            PathTimer::MaxAckDelay,
+        ];
+        let qlog = self.qlog.with_time(now);
+        for timer in PATH_TIMERS_TO_STOP_ON_CLOSE {
+            self.timers.stop(Timer::PerPath(path_id, timer), qlog);
+        }
+        // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-19.html#name-handling-path_ack-for-aband
+        // We should immediately trigger sending ACKs when abandoning a path.
+        self.spaces[SpaceId::Data]
+            .for_path(path_id)
+            .pending_acks
+            .on_max_ack_delay_timeout();
 
         Ok(())
     }
