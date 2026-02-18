@@ -38,9 +38,9 @@
 <a href=#38 id=38 data-nosnippet>38</a>
 <a href=#39 id=39 data-nosnippet>39</a><span class="kw">use crate</span>::{
 <a href=#40 id=40 data-nosnippet>40</a>    Connection, ConnectionId, FourTuple, Frame, Instant, PathId,
-<a href=#41 id=41 data-nosnippet>41</a>    connection::{EncryptionLevel, PathData, SentPacket, timer::Timer},
+<a href=#41 id=41 data-nosnippet>41</a>    connection::{EncryptionLevel, PathData, SentPacket, SpaceKind, timer::Timer},
 <a href=#42 id=42 data-nosnippet>42</a>    frame::EncodableFrame,
-<a href=#43 id=43 data-nosnippet>43</a>    packet::{Header, SpaceId},
+<a href=#43 id=43 data-nosnippet>43</a>    packet::Header,
 <a href=#44 id=44 data-nosnippet>44</a>    transport_parameters::TransportParameters,
 <a href=#45 id=45 data-nosnippet>45</a>};
 <a href=#46 id=46 data-nosnippet>46</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
@@ -193,7 +193,7 @@
 <a href=#193 id=193 data-nosnippet>193</a>        pn: u64,
 <a href=#194 id=194 data-nosnippet>194</a>        info: <span class="kw-2">&amp;</span>SentPacket,
 <a href=#195 id=195 data-nosnippet>195</a>        loss_delay: Duration,
-<a href=#196 id=196 data-nosnippet>196</a>        space: SpaceId,
+<a href=#196 id=196 data-nosnippet>196</a>        space: SpaceKind,
 <a href=#197 id=197 data-nosnippet>197</a>        now: Instant,
 <a href=#198 id=198 data-nosnippet>198</a>    ) {
 <a href=#199 id=199 data-nosnippet>199</a>        <span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
@@ -1075,12 +1075,12 @@
 <a href=#1075 id=1075 data-nosnippet>1075</a>}
 <a href=#1076 id=1076 data-nosnippet>1076</a>
 <a href=#1077 id=1077 data-nosnippet>1077</a><span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
-<a href=#1078 id=1078 data-nosnippet>1078</a></span><span class="kw">fn </span>packet_type(space: SpaceId, is_0rtt: bool) -&gt; PacketType {
+<a href=#1078 id=1078 data-nosnippet>1078</a></span><span class="kw">fn </span>packet_type(space: SpaceKind, is_0rtt: bool) -&gt; PacketType {
 <a href=#1079 id=1079 data-nosnippet>1079</a>    <span class="kw">match </span>space {
-<a href=#1080 id=1080 data-nosnippet>1080</a>        SpaceId::Initial =&gt; PacketType::Initial,
-<a href=#1081 id=1081 data-nosnippet>1081</a>        SpaceId::Handshake =&gt; PacketType::Handshake,
-<a href=#1082 id=1082 data-nosnippet>1082</a>        SpaceId::Data <span class="kw">if </span>is_0rtt =&gt; PacketType::ZeroRtt,
-<a href=#1083 id=1083 data-nosnippet>1083</a>        SpaceId::Data =&gt; PacketType::OneRtt,
+<a href=#1080 id=1080 data-nosnippet>1080</a>        SpaceKind::Initial =&gt; PacketType::Initial,
+<a href=#1081 id=1081 data-nosnippet>1081</a>        SpaceKind::Handshake =&gt; PacketType::Handshake,
+<a href=#1082 id=1082 data-nosnippet>1082</a>        SpaceKind::Data <span class="kw">if </span>is_0rtt =&gt; PacketType::ZeroRtt,
+<a href=#1083 id=1083 data-nosnippet>1083</a>        SpaceKind::Data =&gt; PacketType::OneRtt,
 <a href=#1084 id=1084 data-nosnippet>1084</a>    }
 <a href=#1085 id=1085 data-nosnippet>1085</a>}
 <a href=#1086 id=1086 data-nosnippet>1086</a>
