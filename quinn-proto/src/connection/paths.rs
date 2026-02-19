@@ -5,7 +5,7 @@ use thiserror::Error;
 use tracing::{debug, trace};
 
 use super::{
-    PathError, PathStats,
+    PathError, PathStats, SpaceKind,
     mtud::MtuDiscovery,
     pacing::Pacer,
     spaces::{PacketNumberSpace, SentPacket},
@@ -15,7 +15,6 @@ use crate::{
     coding::{self, Decodable, Encodable},
     congestion,
     frame::ObservedAddr,
-    packet::SpaceId,
 };
 
 #[cfg(feature = "qlog")]
@@ -167,7 +166,7 @@ pub(super) struct PathData {
     /// Packet number of the first packet sent after an RTT sample was collected on this path
     ///
     /// Used in persistent congestion determination.
-    pub(super) first_packet_after_rtt_sample: Option<(SpaceId, u64)>,
+    pub(super) first_packet_after_rtt_sample: Option<(SpaceKind, u64)>,
     /// The in-flight packets and bytes
     ///
     /// Note that this is across all spaces on this path

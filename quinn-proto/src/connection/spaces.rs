@@ -11,11 +11,10 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use sorted_index_buffer::SortedIndexBuffer;
 use tracing::trace;
 
-use super::{PathId, assembler::Assembler};
+use super::PathId;
 use crate::{
     Dir, Duration, FourTuple, Instant, StreamId, TransportError, TransportErrorCode, VarInt,
     connection::StreamsState,
-    crypto::Keys,
     frame::{self, AddAddress, RemoveAddress},
     packet::SpaceId,
     range_set::ArrayRangeSet,
@@ -23,15 +22,8 @@ use crate::{
 };
 
 pub(super) struct PacketSpace {
-    pub(super) crypto: Option<Keys>,
-
     /// Data to send
     pub(super) pending: Retransmits,
-
-    /// Incoming cryptographic handshake stream
-    pub(super) crypto_stream: Assembler,
-    /// Current offset of outgoing cryptographic handshake stream
-    pub(super) crypto_offset: u64,
 
     /// Multipath packet number spaces
     ///
@@ -45,10 +37,7 @@ impl PacketSpace {
     pub(super) fn new(now: Instant, space: SpaceId, rng: &mut (impl Rng + ?Sized)) -> Self {
         let number_space_0 = PacketNumberSpace::new(now, space, rng);
         Self {
-            crypto: None,
             pending: Retransmits::default(),
-            crypto_stream: Assembler::new(),
-            crypto_offset: 0,
             number_spaces: BTreeMap::from([(PathId::ZERO, number_space_0)]),
         }
     }
@@ -57,10 +46,7 @@ impl PacketSpace {
     pub(super) fn new_deterministic(now: Instant, space: SpaceId) -> Self {
         let number_space_0 = PacketNumberSpace::new_deterministic(now, space);
         Self {
-            crypto: None,
             pending: Retransmits::default(),
-            crypto_stream: Assembler::new(),
-            crypto_offset: 0,
             number_spaces: BTreeMap::from([(PathId::ZERO, number_space_0)]),
         }
     }
@@ -177,13 +163,6 @@ impl PacketSpace {
             path_exclusive,
         }
     }
-
-    /// The number of packets sent with the current crypto keys
-    ///
-    /// Used to know if a key update is needed.
-    pub(super) fn sent_with_keys(&self) -> u64 {
-        self.number_spaces.values().map(|s| s.sent_with_keys).sum()
-    }
 }
 
 impl Index<SpaceId> for [PacketSpace; 3] {
@@ -195,6 +174,44 @@ impl Index<SpaceId> for [PacketSpace; 3] {
 
 impl IndexMut<SpaceId> for [PacketSpace; 3] {
     fn index_mut(&mut self, space: SpaceId) -> &mut PacketSpace {
+        &mut self.as_mut()[space as usize]
+    }
+}
+
+/// The three QUIC packet number space kinds
+///
+/// Unlike [`SpaceId`], this always has exactly three variants — it represents the
+/// encryption level / space kind, not a specific packet number space identity.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub(crate) enum SpaceKind {
+    /// Initial packets (client and server).
+    Initial = 0,
+    /// Handshake packets.
+    Handshake = 1,
+    /// Data (1-RTT and 0-RTT)
+    Data = 2,
+}
+
+impl SpaceKind {
+    /// Returns the encryption level for this space kind.
+    pub(crate) fn encryption_level(self) -> super::EncryptionLevel {
+        match self {
+            Self::Initial => super::EncryptionLevel::Initial,
+            Self::Handshake => super::EncryptionLevel::Handshake,
+            Self::Data => super::EncryptionLevel::OneRtt,
+        }
+    }
+}
+
+impl Index<SpaceKind> for [PacketSpace; 3] {
+    type Output = PacketSpace;
+    fn index(&self, space: SpaceKind) -> &PacketSpace {
+        &self.as_ref()[space as usize]
+    }
+}
+
+impl IndexMut<SpaceKind> for [PacketSpace; 3] {
+    fn index_mut(&mut self, space: SpaceKind) -> &mut PacketSpace {
         &mut self.as_mut()[space as usize]
     }
 }
@@ -231,8 +248,6 @@ pub(super) struct PacketNumberSpace {
     /// distinguishing between ECN bleaching and counts having been updated by a near-simultaneous
     /// ACK already processed in another space.
     pub(super) ecn_feedback: frame::EcnCounts,
-    /// Number of packets sent in the current key phase
-    pub(super) sent_with_keys: u64,
     /// A PING frame needs to be sent on this path
     pub(super) ping_pending: bool,
     /// An IMMEDIATE_ACK (draft-ietf-quic-ack-frequency) frame needs to be sent on this path
@@ -277,7 +292,6 @@ impl PacketNumberSpace {
             lost_packets: SortedIndexBuffer::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
-            sent_with_keys: 0,
             ping_pending: false,
             immediate_ack_pending: false,
             dedup: Default::default(),
@@ -306,7 +320,6 @@ impl PacketNumberSpace {
             lost_packets: SortedIndexBuffer::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
-            sent_with_keys: 0,
             ping_pending: false,
             immediate_ack_pending: false,
             dedup: Default::default(),
@@ -327,7 +340,6 @@ impl PacketNumberSpace {
         assert!(self.next_packet_number < 2u64.pow(62));
         let mut pn = self.next_packet_number;
         self.next_packet_number += 1;
-        self.sent_with_keys += 1;
 
         // Skip this number if the filter says so, only enabled in the data space
         if let Some(ref mut filter) = self.pn_filter
@@ -335,7 +347,6 @@ impl PacketNumberSpace {
         {
             pn = self.next_packet_number;
             self.next_packet_number += 1;
-            self.sent_with_keys += 1;
         }
         pn
     }
@@ -538,7 +549,7 @@ pub struct Retransmits {
     /// Address IDs to remove in `REMOVE_ADDRESS` frames
     pub(super) remove_address: BTreeSet<RemoveAddress>,
     /// Round and local addresses to advertise in `REACH_OUT` frames
-    pub(super) reach_out: Option<(VarInt, Vec<(IpAddr, u16)>)>,
+    pub(super) reach_out: Option<(VarInt, FxHashSet<(IpAddr, u16)>)>,
 }
 
 impl Retransmits {
@@ -594,15 +605,21 @@ impl ::std::ops::BitOrAssign for Retransmits {
         self.add_address.extend(rhs.add_address.iter().copied());
         self.remove_address
             .extend(rhs.remove_address.iter().copied());
-        // if there are two rounds, prefer the most recent reach out set
-        let lhs_round = self.reach_out.as_ref().map(|(round, _)| *round);
-        let rhs_round = rhs.reach_out.as_ref().map(|(round, _)| *round);
-        match (lhs_round, rhs_round) {
-            (None, Some(_)) => self.reach_out = rhs.reach_out.clone(),
-            (Some(lhs_round), Some(rhs_round)) if rhs_round > lhs_round => {
-                self.reach_out = rhs.reach_out.clone()
+        if let Some((rhs_round, rhs_addrs)) = rhs.reach_out {
+            match self.reach_out.as_mut() {
+                // Use RHS if there is no recorded round.
+                None => self.reach_out = Some((rhs_round, rhs_addrs)),
+                // Use RHS if newer.
+                Some((lhs_round, _lhs_addrs)) if rhs_round > *lhs_round => {
+                    self.reach_out = Some((rhs_round, rhs_addrs));
+                }
+                // If both rounds are the same, merge them.
+                Some((lhs_round, lhs_addrs)) if rhs_round == *lhs_round => {
+                    lhs_addrs.extend(rhs_addrs);
+                }
+                // LHS round is newer, ignore RHS
+                Some(_) => {}
             }
-            _ => {}
         }
     }
 }

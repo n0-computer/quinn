@@ -35,6 +35,9 @@ pub(crate) struct CidQueue {
     ///
     /// When [`Self::cursor_reserved`] and [`Self::cursor`] are equal, no CID is considered
     /// reserved.
+    ///
+    /// The reserved CIDs section of the buffer, if non-empty will always be ahead of the active
+    /// CID.
     cursor_reserved: usize,
 }
 
@@ -111,7 +114,7 @@ impl CidQueue {
         let (i, cid_data) = self.iter_from_reserved().nth(1)?;
         let reserved = self.reserved_len();
         for j in 0..=reserved {
-            self.buffer[self.cursor + j] = None;
+            self.buffer[(self.cursor + j) % Self::LEN] = None;
         }
         let orig_offset = self.offset;
         self.offset += (i + reserved) as u64;
@@ -132,6 +135,14 @@ impl CidQueue {
         Some(cid_data.0)
     }
 
+    /// Returns the number of unused CIDs (neither active nor reserved).
+    pub(crate) fn remaining(&self) -> usize {
+        self.iter_from_reserved()
+            .count()
+            .checked_sub(1)
+            .expect("iterator is non empty")
+    }
+
     /// Iterate CIDs in CidQueue that are not `None`, including the active CID
     fn iter_from_active(&self) -> impl Iterator<Item = (usize, CidData)> + '_ {
         (0..Self::LEN).filter_map(move |step| {
@@ -140,9 +151,13 @@ impl CidQueue {
         })
     }
 
-    /// Iterate CIDs in CidQueue that are not `None`, including the active CID.
+    /// Iterate CIDs in CidQueue that are not `None`, from [`Self::cursor_reserved`].
     ///
-    /// Along with the CID, it returns the offset counted from [`Self::cursor_reserved`] where the CID is stored.
+    /// The iterator will always have at least one item, as it will include the active CID when no
+    /// CID has been reserved, or the last reserved CID otherwise.
+    ///
+    /// Along with the CID, it returns the offset counted from [`Self::cursor_reserved`] where the
+    /// CID is stored.
     fn iter_from_reserved(&self) -> impl Iterator<Item = (usize, CidData)> + '_ {
         (0..(Self::LEN - self.reserved_len())).filter_map(move |step| {
             let index = (self.cursor_reserved + step) % Self::LEN;
@@ -480,5 +495,23 @@ mod tests {
         q.next();
         assert_eq!(q.active(), three.id);
         assert_eq!(q.next_reserved(), None);
+    }
+
+    #[test]
+    fn reserve_many_next_clears_across_wraparound() {
+        let mut q = CidQueue::new(initial_cid());
+        for i in 1..CidQueue::LEN {
+            q.insert(cid(i as u64, 0)).unwrap();
+        }
+
+        for _ in 0..CidQueue::LEN - 2 {
+            assert!(q.next_reserved().is_some());
+        }
+
+        assert!(q.next().is_some());
+        q.insert(cid(CidQueue::LEN as u64, 0)).unwrap();
+        assert!(q.next_reserved().is_some());
+        q.insert(cid(CidQueue::LEN as u64 + 1, 0)).unwrap();
+        assert!(q.next().is_some());
     }
 }

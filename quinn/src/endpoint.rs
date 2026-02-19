@@ -37,7 +37,7 @@ use rustc_hash::FxHashMap;
 ))]
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::sync::{Notify, futures::Notified, mpsc};
-use tracing::{Instrument, Span};
+use tracing::{Instrument, Span, trace};
 use udp::{BATCH_SIZE, RecvMeta};
 
 use crate::{
@@ -343,6 +343,10 @@ impl Endpoint {
             });
         }
         self.inner.shared.incoming.notify_waiters();
+        // Wake the endpoint driver so that it can shutdown if the endpoint is already drained.
+        if let Some(waker) = endpoint.driver.take() {
+            waker.wake();
+        }
     }
 
     /// Wait for all connections on the endpoint to be cleanly shut down
@@ -416,7 +420,13 @@ impl Future for EndpointDriver {
             self.0.shared.incoming.notify_waiters();
         }
 
-        if endpoint.ref_count == 0 && endpoint.recv_state.connections.is_empty() {
+        // Stop the driver if either:
+        // - all `Endpoint` structs are dropped and all connections are drained,
+        // - or `Endpoint::close` has been called and all connections are drained.
+        if endpoint.recv_state.connections.is_empty()
+            && (endpoint.ref_count == 0 || endpoint.recv_state.connections.close.is_some())
+        {
+            trace!("endpoint driver stopping");
             Poll::Ready(Ok(()))
         } else {
             drop(endpoint);

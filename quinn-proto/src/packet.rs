@@ -6,6 +6,7 @@ use thiserror::Error;
 use crate::{
     ConnectionId, PathId,
     coding::{self, BufExt, BufMutExt},
+    connection::{EncryptionLevel, SpaceKind},
     crypto,
 };
 
@@ -71,22 +72,18 @@ impl PartialDecode {
     }
 
     pub(crate) fn is_initial(&self) -> bool {
-        self.space() == Some(SpaceId::Initial)
+        self.encryption_level() == Some(EncryptionLevel::Initial)
     }
 
-    pub(crate) fn space(&self) -> Option<SpaceId> {
+    pub(crate) fn encryption_level(&self) -> Option<EncryptionLevel> {
         use ProtectedHeader::*;
         match self.plain_header {
-            Initial { .. } => Some(SpaceId::Initial),
-            Long {
-                ty: LongType::Handshake,
-                ..
-            } => Some(SpaceId::Handshake),
-            Long {
-                ty: LongType::ZeroRtt,
-                ..
-            } => Some(SpaceId::Data),
-            Short { .. } => Some(SpaceId::Data),
+            Initial { .. } => Some(EncryptionLevel::Initial),
+            Long { ty, .. } => Some(match ty {
+                LongType::Handshake => EncryptionLevel::Handshake,
+                LongType::ZeroRtt => EncryptionLevel::ZeroRtt,
+            }),
+            Short { .. } => Some(EncryptionLevel::OneRtt),
             _ => None,
         }
     }
@@ -412,19 +409,19 @@ impl Header {
         })
     }
 
-    pub(crate) fn space(&self) -> SpaceId {
+    pub(crate) fn space(&self) -> SpaceKind {
         use Header::*;
         match *self {
-            Short { .. } => SpaceId::Data,
+            Short { .. } => SpaceKind::Data,
             Long {
                 ty: LongType::ZeroRtt,
                 ..
-            } => SpaceId::Data,
+            } => SpaceKind::Data,
             Long {
                 ty: LongType::Handshake,
                 ..
-            } => SpaceId::Handshake,
-            _ => SpaceId::Initial,
+            } => SpaceKind::Handshake,
+            _ => SpaceKind::Initial,
         }
     }
 
@@ -957,6 +954,24 @@ impl SpaceId {
             Self::Initial => Some(Self::Handshake),
             Self::Handshake => Some(Self::Data),
             Self::Data => None,
+        }
+    }
+
+    /// Returns the encryption level for this packet space.
+    pub(crate) fn encryption_level(self) -> EncryptionLevel {
+        match self {
+            Self::Initial => EncryptionLevel::Initial,
+            Self::Handshake => EncryptionLevel::Handshake,
+            Self::Data => EncryptionLevel::OneRtt,
+        }
+    }
+
+    /// Returns the [`SpaceKind`] for this packet space.
+    pub(crate) fn kind(self) -> SpaceKind {
+        match self {
+            Self::Initial => SpaceKind::Initial,
+            Self::Handshake => SpaceKind::Handshake,
+            Self::Data => SpaceKind::Data,
         }
     }
 }
