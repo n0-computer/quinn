@@ -25,7 +25,6 @@ use crate::{
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     connection::{
-        paths::AbandonState,
         qlog::{QlogRecvPacket, QlogSink},
         spaces::LostPacket,
         timer::{ConnTimer, PathTimer},
@@ -739,8 +738,6 @@ impl Connection {
 
         trace!(%path_id, "abandoning path");
         self.abandoned_paths.insert(path_id);
-
-        self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
 
         // Clear all timers.
         // We still need some timers after we close a path, e.g. the `DiscardPath` timer,
@@ -3450,25 +3447,6 @@ impl Connection {
         is_1rtt: bool,
     ) {
         self.total_authed_packets += 1;
-        if let Some(AbandonState::ExpectingPathAbandon { deadline }) = self
-            .paths
-            .get(&path_id)
-            .map(|path| &path.data.abandon_state)
-            && now > *deadline
-        {
-            warn!("received data on path which we abandoned more than 3 * PTO ago");
-            if !self.state.is_closed() {
-                self.state
-                    .move_to_closed(TransportError::PROTOCOL_VIOLATION(format!(
-                        "peer failed to respond with PATH_ABANDON{{ path_id={path_id} }} in time"
-                    )));
-                self.close_common();
-                self.set_close_timer(now);
-                self.connection_close_pending = true;
-            }
-            return;
-        }
-
         self.reset_keep_alive(path_id, now);
         self.reset_idle_timeout(now, space_id, path_id);
         self.permit_idle_reset = true;
@@ -5037,12 +5015,10 @@ impl Connection {
                             ));
                         }
                     };
-                    // If we receive a retransmit of PATH_ABANDON then we may already have
-                    // abandoned this path locally.  In that case the DiscardPath timer
-                    // may already have fired and we no longer have any state for this path.
-                    // Only set this timer if we still have path state.
+
+                    // Start draining the path if it still exists and hasn't started draining yet.
                     if let Some(path) = self.paths.get_mut(&path_id)
-                        && !matches!(path.data.abandon_state, AbandonState::ReceivedPathAbandon)
+                        && !mem::replace(&mut path.data.draining, true)
                     {
                         let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
                         let pto = path.data.rtt.pto_base() + ack_delay;
@@ -5051,8 +5027,8 @@ impl Connection {
                             now + 3 * pto,
                             self.qlog.with_time(now),
                         );
-                        // We received a PATH_ABANDON, we don't expect another one by a certain time.
-                        path.data.abandon_state = AbandonState::ReceivedPathAbandon;
+
+                        self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
                     }
                 }
                 Frame::PathStatusAvailable(info) => {
@@ -5847,50 +5823,6 @@ impl Connection {
                 error_code,
             };
             builder.write_frame(frame, stats);
-
-            let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
-            // We can't access path here anymore due to borrowing issues.
-            let send_pto = self.paths.get(&path_id).unwrap().data.rtt.pto_base() + ack_delay;
-            if let Some(abandoned_path) = self.paths.get_mut(&abandoned_path_id) {
-                // We only want to set the deadline on the *first* PATH_ABANDON we send.
-                // Retransmits shouldn't run this code again
-                if matches!(
-                    abandoned_path.data.abandon_state,
-                    AbandonState::NotAbandoned
-                ) {
-                    // The peer MUST respond with a corresponding PATH_ABANDON frame.
-                    // The other peer has 3 * PTO to do that.
-                    // This uses the PTO of the path we send on!
-                    // If the PATH_ABANDON comes in within the deadline we're giving here, then this
-                    // state will be set to `AbandonState::ReceivedPathAbandon`, essentially clearing
-                    // the deadline. If we receive a frame after the deadline, we error out with a
-                    // protocol violation.
-                    // Receiving other frames before the deadline is fine, as those might be packets
-                    // that were still in-flight.
-                    abandoned_path.data.abandon_state = AbandonState::ExpectingPathAbandon {
-                        deadline: now + 3 * send_pto,
-                    };
-
-                    // At some point, we need to forget about the path.
-                    // If we do so too early, then we'll have discarded the CIDs of that path and won't
-                    // handle incoming packets on that path correctly.
-                    // To give this path enough time, we assume that the peer will have received our
-                    // PATH_ABANDON within 3 * PTO of the path we sent the abandon on,
-                    // and then we give the path 3 * PTO time to make it very unlikely that there will
-                    // still be packets incoming on the path at that point.
-                    // This timer will actually get reset to a value that's likely to be even earlier
-                    // once we actually receive the PATH_ABANDON frame itself.
-                    let abandoned_pto =
-                        self.paths.get(&path_id).unwrap().data.rtt.pto_base() + ack_delay;
-                    self.timers.set(
-                        Timer::PerPath(abandoned_path_id, PathTimer::DiscardPath),
-                        now + 3 * send_pto + 3 * abandoned_pto,
-                        self.qlog.with_time(now),
-                    );
-                }
-            } else {
-                warn!("sent PATH_ABANDON after path was already discarded");
-            }
         }
 
         // PATH_STATUS_AVAILABLE & PATH_STATUS_BACKUP
