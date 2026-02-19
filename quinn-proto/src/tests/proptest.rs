@@ -726,10 +726,12 @@ fn regression_there_should_be_at_least_one_path() {
 ///
 /// This test ended up severing the connection in an interesting way: It generates
 /// a passive migration just before closing the path. The passive migration breaks
-/// path 0 (which would usually be the (1.1.1.0, 2.2.2.0) tuple, the client "migrated"
-/// to (1.1.1.1, 2.2.2.0) without the server knowing that).
-/// This means that path 0 is effectively broken, but the server still has path 0
-/// verified.
+/// path 0.
+/// That path used the network path (1.1.1.0, 2.2.2.0), but was changed to
+/// (1.1.1.1, 2.2.2.0) by a middlebox without the server noticing, since the client
+/// never ended up sending anything on that path.
+/// This means that path 0 is effectively broken on the server side, but the server
+/// still has path 0 verified.
 /// When the server then wants to abandon path 1, it chooses path 0 as the path to
 /// send the path abandon on, even though that path is "doomed forever".
 /// No retransmits make it through, and the client keeps using path 1, thus eventually
@@ -737,6 +739,11 @@ fn regression_there_should_be_at_least_one_path() {
 /// just never *received* that frame.
 ///
 /// We fixed this issue by not generating protocol violation errors anymore.
+/// It's generally hard/impossible(?) to decide whether a PATH_ABANDON frame not
+/// arriving means the client is not protocol compliant or just under bad network.
+///
+/// To prevent memory accumulation due to malicious client behavior, we now delay
+/// sending MAX_PATH_ID until the client reciprocated the PATH_ABANDON instead.
 #[test]
 fn regression_peer_ignored_path_abandon() {
     let prefix = "regression_peer_ignored_path_abandon";

@@ -212,8 +212,13 @@ pub(super) struct PathData {
     /// irreversible, since it's not affected by the path being closed.
     pub(super) open: bool,
 
-    /// State relevant to sending and receiving PATH_ABANDON frames.
-    pub(super) abandon_state: AbandonState,
+    /// Whether we're currently draining the path after having abandoned it.
+    ///
+    /// This should only be true when a path discard timer is armed, and after the path was
+    /// abandoned (and added to the abandoned_paths set).
+    ///
+    /// This will only ever be set from false to true.
+    pub(super) draining: bool,
 
     /// Snapshot of the qlog recovery metrics
     #[cfg(feature = "qlog")]
@@ -221,16 +226,6 @@ pub(super) struct PathData {
 
     /// Tag uniquely identifying a path in a connection
     generation: u64,
-}
-
-/// The abandon-relevant state a path can be in.
-#[derive(Debug)]
-pub(super) enum AbandonState {
-    /// This path wasn't abandoned yet.
-    NotAbandoned,
-    /// We either received or sent a PATH_ABANDON and are only draining this path
-    /// until we discard it.
-    Draining,
 }
 
 impl PathData {
@@ -288,7 +283,7 @@ impl PathData {
             idle_timeout: config.default_path_max_idle_timeout,
             keep_alive: config.default_path_keep_alive_interval,
             open: false,
-            abandon_state: AbandonState::NotAbandoned,
+            draining: false,
             #[cfg(feature = "qlog")]
             recovery_metrics: RecoveryMetrics::default(),
             generation,
@@ -329,7 +324,7 @@ impl PathData {
             idle_timeout: prev.idle_timeout,
             keep_alive: prev.keep_alive,
             open: false,
-            abandon_state: AbandonState::NotAbandoned,
+            draining: false,
             #[cfg(feature = "qlog")]
             recovery_metrics: prev.recovery_metrics.clone(),
             generation,
