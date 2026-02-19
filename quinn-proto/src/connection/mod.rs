@@ -739,10 +739,39 @@ impl Connection {
         trace!(%path_id, "abandoning path");
         self.abandoned_paths.insert(path_id);
 
-        // Clear all timers.
-        // We still need some timers after we close a path, e.g. the `DiscardPath` timer,
-        // but that timer is going to be set once we the `PATH_ABANDON` frame is sent.
-        self.timers.stop_per_path(path_id, self.qlog.with_time(now));
+        for timer in timer::PathTimer::VALUES {
+            // match for completeness
+            let keep_timer = match timer {
+                // These timers deal with sending and receiving PATH_CHALLENGE and
+                // PATH_RESPONSE, but now that the path is abandoned, we no longer care about
+                // these frames or their timing
+                PathTimer::PathValidation | PathTimer::PathChallengeLost | PathTimer::PathOpen => {
+                    false
+                }
+                // These timers deal with the lifetim of the path. Now that the path is abandoned,
+                // these are not relevant.
+                PathTimer::PathKeepAlive => false,
+                PathTimer::PathIdle => false,
+                // The path has already been informed that outstanding acks should be sent
+                // immediately
+                PathTimer::MaxAckDelay => false,
+                // This timer should not be set, for completeness it's not kept as it's set when
+                // the PATH_ABANDON frame is sent.
+                PathTimer::DiscardPath => false,
+                // Sent packets still need to be identified as lost to trigger timely
+                // retransmission.
+                PathTimer::LossDetection => true,
+                // This path should not be used for sending after the PATH_ABANDON frame is sent.
+                // However, any outstanding data that should be sent before PATH_ABANDON, should
+                // still respect pacing.
+                PathTimer::Pacing => true,
+            };
+
+            if !keep_timer {
+                let qlog = self.qlog.with_time(now);
+                self.timers.stop(Timer::PerPath(path_id, timer), qlog);
+            }
+        }
 
         Ok(())
     }
