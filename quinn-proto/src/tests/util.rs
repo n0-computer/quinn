@@ -385,6 +385,15 @@ pub(super) struct ConnPair {
     server_ch: ConnectionHandle,
 }
 
+impl Default for ConnPair {
+    /// Uses the defaults from [`server_config`] and [`client_config`].
+    fn default() -> Self {
+        let server_cfg = server_config();
+        let client_cfg = client_config();
+        Self::with_default_endpoint(server_cfg, client_cfg)
+    }
+}
+
 impl ConnPair {
     pub(super) fn connect_with(mut pair: Pair, client_cfg: ClientConfig) -> Self {
         let (client_ch, server_ch) = pair.connect_with(client_cfg);

@@ -1437,23 +1437,14 @@ fn path_response_retransmit() {
     );
 }
 
-/// Regression test: when a passive migration (NAT rebind) changes the client's local IP while a
-/// PATH_CHALLENGE is in-flight, the now-stale challenge entry in `challenges_sent` is never
-/// cleaned up, causing `PathChallengeLost` to fire in an infinite loop.
+/// Regression test: handle sent challenges that are waiting for a response while a passive
+/// migration occurs.
 ///
-/// The loop happens because:
-/// 1. Challenge_A sent with `info.local_ip = Some(old_ip)`.
-/// 2. Passive migration: server starts delivering to `new_ip`; client's `local_ip` updates.
-/// 3. PATH_RESPONSE for A arrives at `local = new_ip`, but `is_probably_same_path` fails
-///    (`old_ip ≠ new_ip`), so challenge_A stays in `challenges_sent` as Invalid.
-/// 4. `PathChallengeLost` fires → challenge_B sent, path validates via B's response.
-/// 5. `retain` removes challenge_B but **not** challenge_A (different local_ip).
-/// 6. `PathChallengeLost` fires for challenge_A again → step 4 repeats indefinitely.
+/// This used to loop indefinitely.
 #[test]
 fn regression_path_validation_stale_local_after_passive_migration() {
     let _guard = subscribe();
-    let mut pair =
-        ConnPair::with_transport_cfg(TransportConfig::default(), TransportConfig::default());
+    let mut pair = ConnPair::default();
     pair.drive();
 
     // Trigger path validation on the client so the CLIENT sends PATH_CHALLENGE_A.
@@ -1462,8 +1453,8 @@ fn regression_path_validation_stale_local_after_passive_migration() {
     pair.drive_client(); // challenge_A queued at server
     pair.drive_server(); // server sends PATH_RESPONSE for A to the *old* client address
 
-    // Drop the response before it reaches the client.  We want to simulate the response
-    // arriving only *after* passive migration has changed the client's observed local IP.
+    // Drop the response before it reaches the client. We want to simulate the response arriving
+    // only *after* passive migration has changed the client's observed local IP.
     pair.client.inbound.clear();
 
     // Passive migration: client's local IP changes (e.g. NAT rebind changes source IP).
