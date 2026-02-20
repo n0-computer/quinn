@@ -1452,10 +1452,8 @@ fn path_response_retransmit() {
 #[test]
 fn regression_path_validation_stale_local_after_passive_migration() {
     let _guard = subscribe();
-    let mut pair = ConnPair::with_transport_cfg(
-        TransportConfig::default(),
-        TransportConfig::default(),
-    );
+    let mut pair =
+        ConnPair::with_transport_cfg(TransportConfig::default(), TransportConfig::default());
     pair.drive();
 
     // Trigger path validation on the client so the CLIENT sends PATH_CHALLENGE_A.
@@ -1477,7 +1475,7 @@ fn regression_path_validation_stale_local_after_passive_migration() {
     pair.conn_mut(Client).ping();
     pair.drive_client(); // server.inbound now has a packet sourced from 127.0.0.2
     pair.drive_server(); // server detects migration, sends PATH_CHALLENGE to 127.0.0.2;
-                         // client receives it at local = 127.0.0.2 → local_ip updated
+    // client receives it at local = 127.0.0.2 → local_ip updated
 
     // At this point:
     //   challenge_A.info.local_ip  = Some(::1)        (recorded at send time)
