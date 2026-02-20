@@ -5,13 +5,14 @@ use thiserror::Error;
 use tracing::{debug, trace};
 
 use super::{
-    PathError, PathStats, SpaceKind,
+    PathStats, SpaceKind,
     mtud::MtuDiscovery,
     pacing::Pacer,
     spaces::{PacketNumberSpace, SentPacket},
 };
 use crate::{
-    ConnectionId, Duration, FourTuple, Instant, TIMER_GRANULARITY, TransportConfig, VarInt,
+    ConnectionId, Duration, FourTuple, Instant, TIMER_GRANULARITY, TransportConfig,
+    TransportErrorCode, VarInt,
     coding::{self, Decodable, Encodable},
     congestion,
     frame::ObservedAddr,
@@ -896,21 +897,25 @@ pub enum PathEvent {
         /// Which path is now open
         id: PathId,
     },
-    /// The path was abandoned and all remaining state for it has been removed.
+    /// A path was abandoned and is no longer usable.
+    ///
+    /// This event will always be followed by [`Self::Discarded`] after some time.
     Abandoned {
+        /// With path was abandoned.
+        id: PathId,
+        /// Reason why this path was abandoned.
+        reason: PathAbandonReason,
+    },
+    /// A path was discarded and all remaining state for it has been removed.
+    ///
+    /// This event is the last event for a path, and is always emitted after [`Self::Abandoned`].
+    Discarded {
         /// Which path had its state dropped
         id: PathId,
         /// The final path stats, they are no longer available via [`Connection::stats`]
         ///
         /// [`Connection::stats`]: super::Connection::stats
         path_stats: PathStats,
-    },
-    /// Path was closed locally
-    LocallyClosed {
-        /// Path for which the error occurred
-        id: PathId,
-        /// The error that occurred
-        error: PathError,
     },
     /// The remote changed the status of the path
     ///
@@ -931,6 +936,48 @@ pub enum PathEvent {
         /// The address observed by the remote over this path
         addr: SocketAddr,
     },
+}
+
+/// Reason for why a path was abandoned.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum PathAbandonReason {
+    /// The path was closed locally by the application.
+    ApplicationClosed {
+        /// The error code to be sent with the abandon frame.
+        error_code: VarInt,
+    },
+    /// We didn't receive a path response in time after opening this path.
+    ValidationFailed,
+    /// We didn't receive any data from the remote within the path's idle timeout.
+    TimedOut,
+    /// The path became unusable after a local network change.
+    UnusableAfterNetworkChange,
+    /// The path was opened in a NAT traversal round which was terminated.
+    NatTraversalRoundEnded,
+    /// The remote closed the path.
+    RemoteAbandoned {
+        /// The error that was sent with the abandon frame.
+        error_code: VarInt,
+    },
+}
+
+impl PathAbandonReason {
+    /// Returns `true` if the closing of this path was initiated locally.
+    pub(crate) fn is_locally_initiated(&self) -> bool {
+        !matches!(self, Self::RemoteAbandoned { .. })
+    }
+
+    /// Returns the error code to send with a PATH_ABANDON frame.
+    pub(crate) fn error_code(&self) -> TransportErrorCode {
+        match self {
+            Self::ApplicationClosed { error_code } => (*error_code).into(),
+            Self::NatTraversalRoundEnded => TransportErrorCode::APPLICATION_ABANDON_PATH,
+            Self::ValidationFailed | Self::TimedOut | Self::UnusableAfterNetworkChange => {
+                TransportErrorCode::PATH_UNSTABLE_OR_POOR
+            }
+            Self::RemoteAbandoned { error_code } => (*error_code).into(),
+        }
+    }
 }
 
 /// Error from setting path status
