@@ -758,7 +758,7 @@ impl Connection {
                 }
                 // These timers deal with the lifetime of the path. Now that the path is abandoned,
                 // these are not relevant.
-                PathTimer::PathKeepAlive | PathTimer::PathIdle=> false,
+                PathTimer::PathKeepAlive | PathTimer::PathIdle => false,
                 // The path has already been informed that outstanding acks should be sent
                 // immediately
                 PathTimer::MaxAckDelay => false,
