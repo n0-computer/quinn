@@ -423,14 +423,8 @@ impl Connection {
         match open_res {
             Ok((path_id, existed)) if existed => {
                 match state.open_path.get(&path_id).map(|tx| tx.subscribe()) {
-                    Some(recv) => {
-                        drop(state);
-                        OpenPath::new(path_id, recv, self.0.clone())
-                    }
-                    None => {
-                        drop(state);
-                        OpenPath::ready(path_id, self.0.clone())
-                    }
+                    Some(recv) => OpenPath::new(path_id, recv, self.0.clone()),
+                    None => OpenPath::ready(path_id, self.0.clone()),
                 }
             }
             Ok((path_id, _)) => {
@@ -1574,18 +1568,26 @@ impl State {
                         sender.send_modify(|value| *value = Ok(()));
                     }
                 }
-                Path(evt @ PathEvent::Abandoned { id, path_stats }) => {
+                Path(evt @ PathEvent::Discarded { id, path_stats }) => {
                     if self.path_refs.contains_key(&id) {
                         self.final_path_stats.insert(id, path_stats);
                     }
                     self.path_events.send(evt).ok();
                 }
-                Path(ref evt @ PathEvent::LocallyClosed { id, error }) => {
-                    self.path_events.send(evt.clone()).ok();
+                Path(ref evt @ PathEvent::Abandoned { id, .. }) => {
                     if let Some(sender) = self.open_path.remove(&id) {
+                        // We don't care for the reason why this path was closed here, because semantically
+                        // all close reasons for a path that has not yet been opened equals to `ValidationFailed`.
+                        // With the quinn API, there is no way to application-close a not-yet-opened path, so
+                        // `ApplicationClosed` cannot occur. And all other variants will only occur for paths
+                        // that have already been opened.
+                        // The previous iteration of this code had another event `PathEvent::LocallyClosed` which
+                        // contained a `PathError`, but that was only ever set to `ValidationFailed`.
+                        let error = PathError::ValidationFailed;
                         sender.send_modify(|value| *value = Err(error));
                     }
                     // this will happen also for already opened paths
+                    self.path_events.send(evt.clone()).ok();
                 }
                 Path(evt @ PathEvent::RemoteStatus { .. }) => {
                     self.path_events.send(evt).ok();

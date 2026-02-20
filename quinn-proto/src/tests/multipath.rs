@@ -16,7 +16,7 @@ use crate::{
     FourTuple, LOCAL_CID_COUNT, NetworkChangeHint, PathId, PathStatus, RandomConnectionIdGenerator,
     ServerConfig, Side::*, TransportConfig, cid_queue::CidQueue,
 };
-use crate::{Dir, Event, PathError, PathEvent, StreamEvent};
+use crate::{Dir, Event, PathAbandonReason, PathEvent, StreamEvent, TransportErrorCode};
 
 use super::util::{min_opt, subscribe};
 use super::{Pair, client_config, server_config};
@@ -473,7 +473,7 @@ fn open_path_validation_fails_server_side() -> TestResult {
     while pair.blackhole_step(true, false) {}
     assert_matches!(
         pair.poll(Client),
-        Some(Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  })) if id == path_id
+        Some(Event::Path(crate::PathEvent::Abandoned { id, reason: PathAbandonReason::ValidationFailed  })) if id == path_id
     );
 
     assert!(pair.poll(Server).is_none());
@@ -514,7 +514,7 @@ fn open_path_validation_fails_client_side() -> TestResult {
 
     assert_matches!(
         pair.poll(Server),
-        Some(Event::Path(crate::PathEvent::LocallyClosed { id, error: PathError::ValidationFailed  })) if id == path_id
+        Some(Event::Path(crate::PathEvent::Abandoned { id, reason: PathAbandonReason::ValidationFailed  })) if id == path_id
     );
     Ok(())
 }
@@ -561,12 +561,27 @@ fn open_path_ensure_after_abandon() -> TestResult {
     // The path should be closed:
     assert_matches!(
         pair.poll(Client),
-        Some(Event::Path(crate::PathEvent::Abandoned { id, .. })) if id == path_id
+        Some(Event::Path(crate::PathEvent::Abandoned { id, reason: PathAbandonReason::ApplicationClosed { error_code }}))
+        if id == path_id && error_code == 0u8.into()
     );
 
     assert_matches!(
         pair.poll(Server),
-        Some(Event::Path(crate::PathEvent::Abandoned { id, .. })) if id == path_id
+        Some(Event::Path(crate::PathEvent::Abandoned { id, reason: PathAbandonReason::RemoteAbandoned { error_code }}))
+        if id == path_id && error_code == 0u8.into()
+    );
+
+    pair.drive();
+
+    // The path should be discarded:
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(crate::PathEvent::Discarded { id, .. })) if id == path_id
+    );
+
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(crate::PathEvent::Discarded { id, .. })) if id == path_id
     );
 
     info!("opening path 2");
@@ -671,6 +686,13 @@ fn per_path_observed_address() -> TestResult {
 
     pair.drive();
 
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Abandoned {
+            id: PathId(0),
+            reason: PathAbandonReason::UnusableAfterNetworkChange
+        }))
+    );
     assert_matches!(
         pair.poll(Client),
         Some(Event::Path(PathEvent::Opened { id: PathId(1) }))
@@ -799,17 +821,41 @@ fn network_change_multipath_no_hint_replaces_path() -> TestResult {
     // A new path should be opened and the old one should be closed
     assert_matches!(
         pair.poll(Client),
+        Some(Event::Path(PathEvent::Abandoned {
+            id: PathId(0),
+            reason: PathAbandonReason::UnusableAfterNetworkChange
+        }))
+    );
+    assert_matches!(
+        pair.poll(Client),
         Some(Event::Path(PathEvent::Opened { id: PathId(1) }))
     );
 
-    assert_matches!(
-        pair.poll(Server),
-        Some(Event::Path(PathEvent::Opened { id: PathId(1) }))
-    );
     // The server sees the old path closed with PATH_UNSTABLE_OR_POOR
     assert_matches!(
         pair.poll(Server),
         Some(Event::Path(PathEvent::Abandoned {
+            id: PathId::ZERO,
+            reason: PathAbandonReason::RemoteAbandoned { error_code }
+        }))
+        if error_code == TransportErrorCode::PATH_UNSTABLE_OR_POOR.into()
+    );
+    // And then sees the new path
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Opened { id: PathId(1) }))
+    );
+    // Both client and server see the old path as discarded
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Discarded {
+            id: PathId::ZERO,
+            ..
+        }))
+    );
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Discarded {
             id: PathId::ZERO,
             ..
         }))
@@ -892,7 +938,7 @@ fn network_change_selective_hint() -> TestResult {
     assert!(
         !client_events.iter().any(|e| matches!(
             e,
-            Event::Path(PathEvent::Abandoned {
+            Event::Path(PathEvent::Discarded {
                 id: PathId::ZERO,
                 ..
             })
