@@ -696,7 +696,7 @@ impl ConnPair {
         self.conn(side).is_multipath_negotiated()
     }
 
-    /// Simulate a passive migration by incrementing the last octect of the ip.
+    /// Simulate a passive migration by incrementing the last octet of the ip.
     #[track_caller]
     pub(super) fn passive_migration(&mut self, side: Side) -> SocketAddr {
         let address = match side {
