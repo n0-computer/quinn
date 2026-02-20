@@ -385,6 +385,15 @@ pub(super) struct ConnPair {
     server_ch: ConnectionHandle,
 }
 
+impl Default for ConnPair {
+    /// Uses the defaults from [`server_config`] and [`client_config`].
+    fn default() -> Self {
+        let server_cfg = server_config();
+        let client_cfg = client_config();
+        Self::with_default_endpoint(server_cfg, client_cfg)
+    }
+}
+
 impl ConnPair {
     pub(super) fn connect_with(mut pair: Pair, client_cfg: ClientConfig) -> Self {
         let (client_ch, server_ch) = pair.connect_with(client_cfg);
@@ -687,13 +696,24 @@ impl ConnPair {
         self.conn(side).is_multipath_negotiated()
     }
 
-    /// Simulate a passive migration by assigning a new port to the address.
+    /// Simulate a passive migration by incrementing the last octet of the ip.
     #[track_caller]
     pub(super) fn passive_migration(&mut self, side: Side) -> SocketAddr {
         let address = match side {
             Side::Client => &mut self.pair.client.addr,
             Side::Server => &mut self.pair.server.addr,
         };
+
+        match address {
+            SocketAddr::V4(socket_addr_v4) => {
+                let [a, b, c, d] = socket_addr_v4.ip().octets();
+                socket_addr_v4.set_ip(Ipv4Addr::new(a, b, c, d.overflowing_add(1).0));
+            }
+            SocketAddr::V6(socket_addr_v6) => {
+                let [a, b, c, d, e, f, g, h] = socket_addr_v6.ip().segments();
+                socket_addr_v6.set_ip(Ipv6Addr::new(a, b, c, d, e, f, g, h.overflowing_add(1).0));
+            }
+        }
 
         let new_port = address.port().checked_add(1).unwrap();
         address.set_port(new_port);

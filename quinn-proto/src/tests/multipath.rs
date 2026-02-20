@@ -785,7 +785,10 @@ fn remote_can_close_last_validated_path() -> TestResult {
     let mut pair = multipath_pair();
 
     pair.passive_migration(Client);
-    let route = pair.addrs_to_server();
+    let route = FourTuple {
+        remote: pair.server.addr,
+        local_ip: None,
+    };
     pair.open_path(Client, route, PathStatus::Available)?;
     pair.drive_client();
     pair.close_path(Client, PathId::ZERO, 0u8.into())?;
