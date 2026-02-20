@@ -5,7 +5,7 @@ use thiserror::Error;
 use tracing::{debug, trace};
 
 use super::{
-    PathStats,
+    PathStats, SpaceKind,
     mtud::MtuDiscovery,
     pacing::Pacer,
     spaces::{PacketNumberSpace, SentPacket},
@@ -16,7 +16,6 @@ use crate::{
     coding::{self, Decodable, Encodable},
     congestion,
     frame::ObservedAddr,
-    packet::SpaceId,
 };
 
 #[cfg(feature = "qlog")]
@@ -168,7 +167,7 @@ pub(super) struct PathData {
     /// Packet number of the first packet sent after an RTT sample was collected on this path
     ///
     /// Used in persistent congestion determination.
-    pub(super) first_packet_after_rtt_sample: Option<(SpaceId, u64)>,
+    pub(super) first_packet_after_rtt_sample: Option<(SpaceKind, u64)>,
     /// The in-flight packets and bytes
     ///
     /// Note that this is across all spaces on this path
@@ -214,8 +213,13 @@ pub(super) struct PathData {
     /// irreversible, since it's not affected by the path being closed.
     pub(super) open: bool,
 
-    /// State relevant to sending and receiving PATH_ABANDON frames.
-    pub(super) abandon_state: AbandonState,
+    /// Whether we're currently draining the path after having abandoned it.
+    ///
+    /// This should only be true when a path discard timer is armed, and after the path was
+    /// abandoned (and added to the abandoned_paths set).
+    ///
+    /// This will only ever be set from false to true.
+    pub(super) draining: bool,
 
     /// Snapshot of the qlog recovery metrics
     #[cfg(feature = "qlog")]
@@ -223,24 +227,6 @@ pub(super) struct PathData {
 
     /// Tag uniquely identifying a path in a connection
     generation: u64,
-}
-
-/// The abandon-relevant state a path can be in.
-#[derive(Debug)]
-pub(super) enum AbandonState {
-    /// This path wasn't abandoned yet.
-    NotAbandoned,
-    /// A PATH_ABANDON frame was sent for this path, and we're expecting a response
-    /// by the given deadline.
-    ///
-    /// If we don't receive PATH_ABANDON by that time *and* we receive a packet on this
-    /// path, then we assume our peer has ignored our PATH_ABANDON and error out.
-    ///
-    /// This is checked in [`crate::Connection::on_packet_authenticated`].
-    ExpectingPathAbandon { deadline: Instant },
-    /// We received a PATH_ABANDON and are just waiting for the path's packets to drain
-    /// and eventually will discard the path.
-    ReceivedPathAbandon,
 }
 
 impl PathData {
@@ -298,7 +284,7 @@ impl PathData {
             idle_timeout: config.default_path_max_idle_timeout,
             keep_alive: config.default_path_keep_alive_interval,
             open: false,
-            abandon_state: AbandonState::NotAbandoned,
+            draining: false,
             #[cfg(feature = "qlog")]
             recovery_metrics: RecoveryMetrics::default(),
             generation,
@@ -339,7 +325,7 @@ impl PathData {
             idle_timeout: prev.idle_timeout,
             keep_alive: prev.keep_alive,
             open: false,
-            abandon_state: AbandonState::NotAbandoned,
+            draining: false,
             #[cfg(feature = "qlog")]
             recovery_metrics: prev.recovery_metrics.clone(),
             generation,

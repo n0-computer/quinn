@@ -3,9 +3,10 @@ use std::ops::{Index, IndexMut};
 
 use tracing::{debug, trace};
 
+use super::SpaceKind;
 use crate::connection::assembler::Assembler;
 use crate::crypto::{self, HeaderKey, KeyPair, Keys, PacketKey};
-use crate::packet::{Packet, PartialDecode, SpaceId};
+use crate::packet::{Packet, PartialDecode};
 use crate::token::ResetToken;
 use rand::Rng;
 
@@ -190,7 +191,7 @@ impl CryptoState {
         }
         let space = packet.header.space();
 
-        if path_id != PathId::ZERO && space != SpaceId::Data {
+        if path_id != PathId::ZERO && space != SpaceKind::Data {
             // do not try to decrypt illegal multipath packets
             return Err(Some(TransportError::PROTOCOL_VIOLATION(
                 "multipath packet on non Data packet number space",
@@ -199,9 +200,7 @@ impl CryptoState {
         // Packets that do not belong to known path ids are valid as long as they can be decrypted.
         // If we didn't have a path, that's for the purposes of this function equivalent to not
         // having received packets on that path yet. So both of these cases are represented by `None`.
-        let rx_packet = spaces[space as usize]
-            .path_space(path_id)
-            .and_then(|s| s.rx_packet);
+        let rx_packet = spaces[space].path_space(path_id).and_then(|s| s.rx_packet);
         let number = packet
             .header
             .number()
@@ -213,7 +212,7 @@ impl CryptoState {
         let crypto = if packet.header.is_0rtt() {
             let (_, packet) = self.remote_crypto(EncryptionLevel::ZeroRtt).unwrap();
             packet
-        } else if packet_key_phase == conn_key_phase || space != SpaceId::Data {
+        } else if packet_key_phase == conn_key_phase || space != SpaceKind::Data {
             let (_, packet) = self.remote_crypto(space.encryption_level()).unwrap();
             packet
         } else if let Some(prev) = self.prev_crypto.as_ref().and_then(|crypto| {
@@ -475,16 +474,6 @@ pub(crate) enum EncryptionLevel {
     Handshake,
     /// Application data (1-RTT).
     OneRtt,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub(crate) enum SpaceKind {
-    /// Initial packets (client and server).
-    Initial = 0,
-    /// Handshake packets.
-    Handshake = 1,
-    /// Data (1-RTT and 0-RTT)
-    Data = 2,
 }
 
 impl From<SpaceKind> for crate::packet::SpaceId {

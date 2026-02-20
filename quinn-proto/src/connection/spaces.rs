@@ -178,6 +178,44 @@ impl IndexMut<SpaceId> for [PacketSpace; 3] {
     }
 }
 
+/// The three QUIC packet number space kinds
+///
+/// Unlike [`SpaceId`], this always has exactly three variants — it represents the
+/// encryption level / space kind, not a specific packet number space identity.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub(crate) enum SpaceKind {
+    /// Initial packets (client and server).
+    Initial = 0,
+    /// Handshake packets.
+    Handshake = 1,
+    /// Data (1-RTT and 0-RTT)
+    Data = 2,
+}
+
+impl SpaceKind {
+    /// Returns the encryption level for this space kind.
+    pub(crate) fn encryption_level(self) -> super::EncryptionLevel {
+        match self {
+            Self::Initial => super::EncryptionLevel::Initial,
+            Self::Handshake => super::EncryptionLevel::Handshake,
+            Self::Data => super::EncryptionLevel::OneRtt,
+        }
+    }
+}
+
+impl Index<SpaceKind> for [PacketSpace; 3] {
+    type Output = PacketSpace;
+    fn index(&self, space: SpaceKind) -> &PacketSpace {
+        &self.as_ref()[space as usize]
+    }
+}
+
+impl IndexMut<SpaceKind> for [PacketSpace; 3] {
+    fn index_mut(&mut self, space: SpaceKind) -> &mut PacketSpace {
+        &mut self.as_mut()[space as usize]
+    }
+}
+
 /// The per-path packet number space to support multipath.
 ///
 /// This contains the data specific to a per-path packet number space.  You should access
