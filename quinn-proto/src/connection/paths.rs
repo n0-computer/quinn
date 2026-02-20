@@ -451,7 +451,9 @@ impl PathData {
         // As per the spec, this only validates the network path on which this was *sent*.
         match self.on_path_challenges_sent.remove(&token) {
             // Response to an on-path PathChallenge that validates this path.
-            Some(info) if self.network_path == info.network_path => {
+            // The sent path should match the current path. However, it's possible that the
+            // challenge was sent when no local_ip was known. This case is allowed as well
+            Some(info) if info.network_path.is_probably_same_path(&self.network_path) => {
                 self.network_path.update_local_if_same_remote(&network_path);
                 let sent_instant = info.sent_instant;
                 if !std::mem::replace(&mut self.validated, true) {
