@@ -788,3 +788,58 @@ fn regression_peer_ignored_path_abandon() {
         pair.server_conn_mut(server_ch)
     )));
 }
+
+#[test]
+fn regression_never_idle4() {
+    let prefix = "regression_never_idle4";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Backup,
+            addr_idx: 0,
+        },
+        TestOp::PathSetStatus {
+            side: Side::Client,
+            path_idx: 0,
+            status: PathStatus::Backup,
+        },
+        TestOp::Drive { side: Side::Client },
+        TestOp::PassiveMigration {
+            side: Side::Client,
+            addr_idx: 0,
+        },
+        TestOp::DropInbound { side: Side::Server },
+        TestOp::AdvanceTime,
+        TestOp::ClosePath {
+            side: Side::Client,
+            path_idx: 0,
+            error_code: 0,
+        },
+        TestOp::Drive { side: Side::Client },
+        TestOp::PassiveMigration {
+            side: Side::Client,
+            addr_idx: 0,
+        },
+    ];
+    let routes = RoutingTable::from_routes(
+        vec![
+            ("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0),
+            ("[::ffff:1.1.1.1]:44433".parse().unwrap(), 0),
+        ],
+        vec![("[::ffff:2.2.2.0]:4433".parse().unwrap(), 0)],
+    );
+
+    let _guard = subscribe();
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}

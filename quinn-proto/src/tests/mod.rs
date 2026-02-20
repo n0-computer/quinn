@@ -1437,6 +1437,59 @@ fn path_response_retransmit() {
     );
 }
 
+/// Regression test: when a passive migration (NAT rebind) changes the client's local IP while a
+/// PATH_CHALLENGE is in-flight, the now-stale challenge entry in `challenges_sent` is never
+/// cleaned up, causing `PathChallengeLost` to fire in an infinite loop.
+///
+/// The loop happens because:
+/// 1. Challenge_A sent with `info.local_ip = Some(old_ip)`.
+/// 2. Passive migration: server starts delivering to `new_ip`; client's `local_ip` updates.
+/// 3. PATH_RESPONSE for A arrives at `local = new_ip`, but `is_probably_same_path` fails
+///    (`old_ip ≠ new_ip`), so challenge_A stays in `challenges_sent` as Invalid.
+/// 4. `PathChallengeLost` fires → challenge_B sent, path validates via B's response.
+/// 5. `retain` removes challenge_B but **not** challenge_A (different local_ip).
+/// 6. `PathChallengeLost` fires for challenge_A again → step 4 repeats indefinitely.
+#[test]
+fn regression_path_validation_stale_local_after_passive_migration() {
+    let _guard = subscribe();
+    let mut pair = ConnPair::with_transport_cfg(
+        TransportConfig::default(),
+        TransportConfig::default(),
+    );
+    pair.drive();
+
+    // Trigger path validation on the client so the CLIENT sends PATH_CHALLENGE_A.
+    // At this point the client's local IP is Some(::1) (IPv6 loopback).
+    pair.conn_mut(Client).trigger_path_validation();
+    pair.drive_client(); // challenge_A queued at server
+    pair.drive_server(); // server sends PATH_RESPONSE for A to the *old* client address
+
+    // Drop the response before it reaches the client.  We want to simulate the response
+    // arriving only *after* passive migration has changed the client's observed local IP.
+    pair.client.inbound.clear();
+
+    // Passive migration: client's local IP changes (e.g. NAT rebind changes source IP).
+    // Use an IPv4 address to guarantee the IpAddr changes, not just the port.
+    let new_client_ip = Ipv4Addr::new(127, 0, 0, 2);
+    pair.client.addr = SocketAddr::new(new_client_ip.into(), pair.client.addr.port());
+
+    // Send a ping so the server detects the migration and starts routing to `new_client_ip`.
+    pair.conn_mut(Client).ping();
+    pair.drive_client(); // server.inbound now has a packet sourced from 127.0.0.2
+    pair.drive_server(); // server detects migration, sends PATH_CHALLENGE to 127.0.0.2;
+                         // client receives it at local = 127.0.0.2 → local_ip updated
+
+    // At this point:
+    //   challenge_A.info.local_ip  = Some(::1)        (recorded at send time)
+    //   self.network_path.local_ip = Some(127.0.0.2)  (updated after passive migration)
+    //
+    // Without the fix: challenge_A is never cleaned up, PathChallengeLost fires forever.
+    assert!(
+        !pair.drive_bounded(1000),
+        "connection never became idle; path validation was stuck in a loop"
+    );
+}
+
 fn test_flow_control(config: TransportConfig, window_size: usize) {
     let _guard = subscribe();
     let mut pair = Pair::new(
