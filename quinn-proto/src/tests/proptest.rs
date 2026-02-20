@@ -789,34 +789,63 @@ fn regression_peer_ignored_path_abandon() {
     )));
 }
 
+/// A regression test that used to put quinn into a state of sending PATH_CHALLENGE
+/// from the client side indefinitely.
+///
+/// The test uses passive migrations to establish a situation in which the client
+/// expects the server to respond to a PATH_CHALLENGE that was sent on the interface
+/// 1.1.1.1, but the server cannot respond to it anymore, because the client was
+/// involuntarily migrated to path 1.1.1.2.
+///
+/// Here's a log line that shows the client skipping the path response due to it
+/// being delivered "on the wrong network path" (after migration).
+///
+/// > DEBUG client:pkt{path_id=1}:recv{space=Data pn=3}:frame{ty=PATH_RESPONSE}:
+/// > iroh_quinn_proto::connection: 4704:
+/// > ignoring invalid PATH_RESPONSE
+/// >  response=PATH_RESPONSE(ece9dc07f89ded7e)
+/// >  network_path=(local: ::ffff:1.1.1.2, remote: [::ffff:2.2.2.0]:4433)
+/// >  expected=(local: ::ffff:1.1.1.1, remote: [::ffff:2.2.2.0]:4433)
+///
+/// The client will then never clear out the PATH_CHALLENGE from the "pending"
+/// challenges, and so it will never fully clear the path challenge timer.
 #[test]
 fn regression_never_idle4() {
     let prefix = "regression_never_idle4";
     let seed = [0u8; 32];
     let interactions = vec![
+        // Open path 1 with the same remote address as path 0
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Backup,
             addr_idx: 0,
         },
+        // Sets path 0 to backup, but generally just sends *something*
         TestOp::PathSetStatus {
             side: Side::Client,
             path_idx: 0,
             status: PathStatus::Backup,
         },
+        // Sends the two packets (opening path 1 & setting path status on path 0)
         TestOp::Drive { side: Side::Client },
+        // But loses those two packets
+        TestOp::DropInbound { side: Side::Server },
+        // Client's interface 0 now migrates from 1.1.1.0 to 1.1.1.1
         TestOp::PassiveMigration {
             side: Side::Client,
             addr_idx: 0,
         },
-        TestOp::DropInbound { side: Side::Server },
         TestOp::AdvanceTime,
+        // Client closes path 0, path 1 is now the only remaining path for the client.
+        // It will now always choose path 1 to send, even though it's not validated.
         TestOp::ClosePath {
             side: Side::Client,
             path_idx: 0,
             error_code: 0,
         },
+        // Send out the packet containing the PATH_ABANDON
         TestOp::Drive { side: Side::Client },
+        // Migrate the first interface from 1.1.1.1 to 1.1.1.2 now.
         TestOp::PassiveMigration {
             side: Side::Client,
             addr_idx: 0,
