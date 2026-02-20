@@ -748,10 +748,9 @@ impl Connection {
                 PathTimer::PathValidation | PathTimer::PathChallengeLost | PathTimer::PathOpen => {
                     false
                 }
-                // These timers deal with the lifetim of the path. Now that the path is abandoned,
+                // These timers deal with the lifetime of the path. Now that the path is abandoned,
                 // these are not relevant.
-                PathTimer::PathKeepAlive => false,
-                PathTimer::PathIdle => false,
+                PathTimer::PathKeepAlive | PathTimer::PathIdle=> false,
                 // The path has already been informed that outstanding acks should be sent
                 // immediately
                 PathTimer::MaxAckDelay => false,
