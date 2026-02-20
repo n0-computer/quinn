@@ -11,7 +11,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use sorted_index_buffer::SortedIndexBuffer;
 use tracing::trace;
 
-use super::PathId;
+use super::{PathData, PathId};
 use crate::{
     Dir, Duration, FourTuple, Instant, StreamId, TransportError, TransportErrorCode, VarInt,
     connection::StreamsState,
@@ -151,16 +151,17 @@ impl PacketSpace {
             .number_spaces
             .values()
             .any(|pns| pns.pending_acks.can_send());
-        let path_exclusive = self
+        let space_id_only = self
             .number_spaces
             .get(&path_id)
             .is_some_and(|s| s.ping_pending || s.immediate_ack_pending);
-        let other = !self.pending.is_empty(streams) || path_exclusive;
+        let other = !self.pending.is_empty(streams) || space_id_only;
         SendableFrames {
             acks,
-            other,
             close: false,
-            path_exclusive,
+            validation: false, // see Connection::can_send_1rtt
+            space_id_only,
+            other,
         }
     }
 }
@@ -811,21 +812,26 @@ impl Dedup {
     }
 }
 
-/// Indicates which data is available for sending
+/// Indicates which data is available for sending.
+///
+/// This applies to a particular space ID that was queried.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) struct SendableFrames {
-    /// Whether there ACK frames to send, these are not ack-eliciting
+    /// Whether there are ACK frames to send, these are not ack-eliciting.
     pub(super) acks: bool,
-    /// Whether there are any other frames to send, these are ack-eliciting
-    pub(super) other: bool,
-    /// Whether there is a CONNECTION_CLOSE to send, this is not ack-eliciting
+    /// Whether there is a CONNECTION_CLOSE to send, this is not ack-eliciting.
     pub(super) close: bool,
-    /// Whether there are frames to send, which can only be sent on the path queried
+    /// Whether there are any frames to send to validate a path, these are ack-eliciting.
     ///
-    /// These are ack-eliciting, and a subset of [`SendableFrames::other`].  This is useful
-    /// for QUIC-MULTIPATH, which may desire not to send any frames on a backup path, which
-    /// can also be sent on an active path.
-    pub(super) path_exclusive: bool,
+    /// These are frames such as PATH_CHALLENGE and PATH_RESPONSE.
+    pub(super) validation: bool,
+    /// Whether there are any frames that must be sent on this specific space ID.
+    ///
+    /// These are ack-eliciting. Some frames are scheduled per path, e.g. PING or
+    /// IMMEDIATE_ACK.
+    pub(super) space_id_only: bool,
+    /// Whether there are any other frames to send, these are ack-eliciting.
+    pub(super) other: bool,
 }
 
 impl SendableFrames {
@@ -833,24 +839,57 @@ impl SendableFrames {
     pub(super) fn empty() -> Self {
         Self {
             acks: false,
-            other: false,
             close: false,
-            path_exclusive: false,
+            validation: false,
+            space_id_only: false,
+            other: false,
         }
     }
 
-    /// Whether no data is sendable
+    /// Whether an ack-eliciting packet will be sent.
+    pub(super) fn is_ack_eliciting(&self) -> bool {
+        let Self {
+            acks,
+            close,
+            validation,
+            space_id_only,
+            other,
+        } = *self;
+        if close {
+            // No ack-eliciting frames are included with a CONNECTION_CLOSE, only acks.
+            return false;
+        }
+        validation || space_id_only || other
+    }
+
+    /// Whether no data is sendable.
     pub(super) fn is_empty(&self) -> bool {
-        !self.acks && !self.other && !self.close && !self.path_exclusive
+        let Self {
+            acks,
+            close,
+            validation,
+            space_id_only,
+            other,
+        } = *self;
+        !acks && !close && !validation && !space_id_only && !other
     }
 }
 
 impl ::std::ops::BitOrAssign for SendableFrames {
     fn bitor_assign(&mut self, rhs: Self) {
-        self.acks |= rhs.acks;
-        self.other |= rhs.other;
-        self.close |= rhs.close;
-        self.path_exclusive |= rhs.path_exclusive;
+        let Self {
+            acks,
+            close,
+            validation,
+            space_id_only,
+            other,
+        } = rhs;
+
+        self.acks |= acks;
+        self.close |= close;
+        self.validation |= validation;
+        self.space_id_only |= space_id_only;
+        self.other |= other;
     }
 }
 
