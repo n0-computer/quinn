@@ -1863,6 +1863,7 @@ impl Connection {
         let info = paths::SentChallengeInfo {
             sent_instant: now,
             network_path,
+            on_path: true, /* WRT the PathData where this is stored */
         };
         prev_path.challenges_sent.insert(token, info);
         debug_assert_eq!(
@@ -2001,6 +2002,7 @@ impl Connection {
                     remote,
                     local_ip: None,
                 },
+                on_path: remote == path.network_path.remote,
             },
         );
 
@@ -4700,9 +4702,7 @@ impl Connection {
                                 self.qlog.with_time(now),
                             );
                         }
-                        Invalid { expected } => {
-                            debug!(%response, %network_path, %expected, "ignoring invalid PATH_RESPONSE")
-                        }
+                        Ignored => debug!(%response, "ignoring valid PATH_RESPONSE"),
                         Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
                 }
@@ -5695,6 +5695,7 @@ impl Connection {
             let info = paths::SentChallengeInfo {
                 sent_instant: now,
                 network_path: path.network_path,
+                on_path: true,
             };
             path.challenges_sent.insert(token, info);
             let challenge = frame::PathChallenge(token);

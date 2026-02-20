@@ -131,6 +131,10 @@ pub(super) struct SentChallengeInfo {
     pub(super) sent_instant: Instant,
     /// The 4-tuple on which this path challenge was sent.
     pub(super) network_path: FourTuple,
+    /// Whether this `PATH_CHALLENGE` was sent to the same remote as the one assigned to the path
+    /// that contains this [`SentChallengeInfo`]. This is explicitely stored, since the network
+    /// path might change before the path response is received.
+    pub(super) on_path: bool,
 }
 
 /// Description of a particular network path
@@ -412,20 +416,31 @@ impl PathData {
         token: u64,
         network_path: FourTuple,
     ) -> OnPathResponseReceived {
-        match self.challenges_sent.get(&token) {
-            // Response to an on-path PathChallenge
-            Some(info)
-                if info.network_path.is_probably_same_path(&network_path)
-                    && self.network_path.is_probably_same_path(&network_path) =>
-            {
+        match self.challenges_sent.remove(&token) {
+            // > § 8.2.3
+            // > Path validation succeeds when a PATH_RESPONSE frame is received that contains the
+            // > data that was sent in a previous PATH_CHALLENGE frame. A PATH_RESPONSE frame
+            // > received on any network path validates the path on which the PATH_CHALLENGE was
+            // > sent.
+            //
+            // At this point we have three potentially different network paths:
+            // - current network path (`Self::network_path`)
+            // - network path used to send the path challenge (`SentChallengeInfo::network_path`)
+            // - network path over which the response arrived (`network_path`)
+            //
+            // As per the spec, this only validates the network path on which this was *sent*.
+
+            // Response to an on-path PathChallenge that validates this path.
+            Some(info) if info.on_path && self.network_path == info.network_path => {
+                // Since the challenge was sent on the same network path as the current one.
                 self.network_path.update_local_if_same_remote(&network_path);
                 let sent_instant = info.sent_instant;
                 if !std::mem::replace(&mut self.validated, true) {
                     trace!("new path validated");
                 }
-                // Clear any other on-path sent challenge.
-                self.challenges_sent
-                    .retain(|_token, info| !info.network_path.is_probably_same_path(&network_path));
+                // Clear any other on-path sent challenge. In other words, keep only off-path
+                // challenges.
+                self.challenges_sent.retain(|_token, i| !i.on_path);
 
                 self.send_new_challenge = false;
 
@@ -437,17 +452,35 @@ impl PathData {
                 let was_open = std::mem::replace(&mut self.open, true);
                 OnPathResponseReceived::OnPath { was_open }
             }
+            // Response to an on-path PathChallenge that does not validate this path
+            Some(info) if info.on_path => {
+                // This is a valid path response, but this validates a path we no longer have in
+                // use. Among on-path challenges, keep only sent challenges for the current path.
+
+                self.challenges_sent.retain(|_token, i| {
+                    !i.on_path || (i.on_path && i.network_path == self.network_path)
+                });
+
+                // if there are no challenges for the current path, schedule one
+                let has_on_path_challenges = self
+                    .challenges_sent
+                    .iter()
+                    .any(|(_token, i)| i.on_path && i.network_path == self.network_path);
+                if !has_on_path_challenges {
+                    self.send_new_challenge = true;
+                }
+                OnPathResponseReceived::Ignored
+            }
             // Response to an off-path PathChallenge
-            Some(info) if info.network_path.is_probably_same_path(&network_path) => {
-                self.challenges_sent
-                    .retain(|_token, info| !info.network_path.is_probably_same_path(&network_path));
+            Some(info) => {
+                // Since we do not store validation state for these paths, we only really care
+                // about reaching the same remote
+                self.challenges_sent.retain(|_token, i| {
+                    i.on_path || (!i.on_path && i.network_path.remote != info.network_path.remote)
+                });
                 OnPathResponseReceived::OffPath
             }
-            // Response to a PathChallenge we recognize, but from an invalid remote
-            Some(info) => OnPathResponseReceived::Invalid {
-                expected: info.network_path,
-            },
-            // Response to an unknown PathChallenge
+            // Response to an unknown PathChallenge. Does not indicate failure
             None => OnPathResponseReceived::Unknown,
         }
     }
@@ -543,11 +576,8 @@ pub(super) enum OnPathResponseReceived {
     OffPath,
     /// The received token is unknown.
     Unknown,
-    /// The response is invalid.
-    Invalid {
-        /// The 4-tuple that was expected for this token.
-        expected: FourTuple,
-    },
+    /// The response is valid but it's not usable for path validation.
+    Ignored,
 }
 
 /// Congestion metrics as described in [`recovery_metrics_updated`].
