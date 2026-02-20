@@ -40,7 +40,7 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Run proptests (10 minutes)
-        run: cargo make proptests
+        run: cargo make proptests-long
 
   test-freebsd:
     # see https://github.com/actions/runner/issues/385
