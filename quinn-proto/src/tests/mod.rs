@@ -1457,13 +1457,9 @@ fn regression_path_validation_stale_local_after_passive_migration() {
     // only *after* passive migration has changed the client's observed local IP.
     pair.client.inbound.clear();
 
-    // Passive migration: client's local IP changes (e.g. NAT rebind changes source IP).
-    // Use an IPv4 address to guarantee the IpAddr changes, not just the port.
-    // let new_client_ip = Ipv4Addr::new(127, 0, 0, 2);
-    // pair.client.addr = SocketAddr::new(new_client_ip.into(), pair.client.addr.port());
     pair.passive_migration(Client);
 
-    // Send a ping so the server detects the migration and starts routing to `new_client_ip`.
+    // Send a ping so the server detects the migration and starts routing to the new ip.
     pair.conn_mut(Client).ping();
     pair.drive_client(); // server.inbound now has a packet sourced from 127.0.0.2
     pair.drive_server(); // server detects migration, sends PATH_CHALLENGE to 127.0.0.2;

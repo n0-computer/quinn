@@ -471,7 +471,7 @@ impl PathData {
                 OnPathResponseReceived::OnPath { was_open }
             }
             // Response to an on-path PathChallenge that does not validate this path
-            Some(_info) => {
+            Some(info) => {
                 // This is a valid path response, but this validates a path we no longer have in
                 // use. Keep only sent challenges for the current path.
 
@@ -482,7 +482,10 @@ impl PathData {
                 if !self.on_path_challenges_sent.is_empty() {
                     self.send_new_challenge = true;
                 }
-                OnPathResponseReceived::Ignored
+                OnPathResponseReceived::Ignored {
+                    sent_on: info.network_path,
+                    current_path: self.network_path,
+                }
             }
             None => match self.off_path_challenges_sent.remove(&token) {
                 // Response to an off-path PathChallenge
@@ -598,7 +601,10 @@ pub(super) enum OnPathResponseReceived {
     /// The received token is unknown.
     Unknown,
     /// The response is valid but it's not usable for path validation.
-    Ignored,
+    Ignored {
+        sent_on: FourTuple,
+        current_path: FourTuple,
+    },
 }
 
 /// Congestion metrics as described in [`recovery_metrics_updated`].

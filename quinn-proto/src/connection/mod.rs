@@ -4696,7 +4696,12 @@ impl Connection {
                                 self.qlog.with_time(now),
                             );
                         }
-                        Ignored => debug!(%response, "ignoring valid PATH_RESPONSE"),
+                        Ignored {
+                            sent_on,
+                            current_path,
+                        } => {
+                            debug!(%sent_on, %current_path, %response, "ignoring valid PATH_RESPONSE")
+                        }
                         Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
                 }
