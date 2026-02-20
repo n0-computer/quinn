@@ -706,14 +706,12 @@ impl ConnPair {
 
         match address {
             SocketAddr::V4(socket_addr_v4) => {
-                let mut octets = socket_addr_v4.ip().octets();
-                octets[octets.len() - 1] = octets[octets.len() - 1].overflowing_add(1u8).0;
-                socket_addr_v4.set_ip(Ipv4Addr::from_octets(octets));
+                let [a, b, c, d] = socket_addr_v4.ip().octets();
+                socket_addr_v4.set_ip(Ipv4Addr::new(a, b, c, d.overflowing_add(1).0));
             }
             SocketAddr::V6(socket_addr_v6) => {
-                let mut octets = socket_addr_v6.ip().octets();
-                octets[octets.len() - 1] = octets[octets.len() - 1].overflowing_add(1u8).0;
-                socket_addr_v6.set_ip(Ipv6Addr::from_octets(octets));
+                let [a, b, c, d, e, f, g, h] = socket_addr_v6.ip().segments();
+                socket_addr_v6.set_ip(Ipv6Addr::new(a, b, c, d, e, f, g, h.overflowing_add(1).0));
             }
         }
 
