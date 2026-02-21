@@ -1,4 +1,4 @@
-# Iroh Quinn
+# n0 Quinn
 
 > This is a fork based on [quinn](https://github.com/quinn-rs/quinn), maintained
 > by [n0](https://github.com/n0-computer). Currently published to crates.io under

@@ -416,7 +416,7 @@ impl TransportParameters {
                         w.write(val);
                     }
                 }
-                TransportParameterId::IrohNatTraversal => {
+                TransportParameterId::N0NatTraversal => {
                     if let Some(val) = self.max_remote_nat_traversal_addresses {
                         w.write_var(id as u64);
                         w.write(VarInt(1));
@@ -548,7 +548,7 @@ impl TransportParameters {
 
                     params.initial_max_path_id = Some(value);
                 }
-                TransportParameterId::IrohNatTraversal => {
+                TransportParameterId::N0NatTraversal => {
                     if params.max_remote_nat_traversal_addresses.is_some() {
                         return Err(Error::Malformed);
                     }
@@ -731,8 +731,8 @@ pub(crate) enum TransportParameterId {
     InitialMaxPathId = 0x3e,
 
     // inspired by https://www.ietf.org/archive/id/draft-seemann-quic-nat-traversal-02.html,
-    // simplified to iroh's needs
-    IrohNatTraversal = 0x3d7f91120401,
+    // simplified to n0's own protocol.
+    N0NatTraversal = 0x3d7f91120401,
 }
 
 impl TransportParameterId {
@@ -761,7 +761,7 @@ impl TransportParameterId {
         Self::MinAckDelayDraft07,
         Self::ObservedAddr,
         Self::InitialMaxPathId,
-        Self::IrohNatTraversal,
+        Self::N0NatTraversal,
     ];
 }
 
@@ -803,7 +803,7 @@ impl TryFrom<u64> for TransportParameterId {
             id if Self::MinAckDelayDraft07 == id => Self::MinAckDelayDraft07,
             id if Self::ObservedAddr == id => Self::ObservedAddr,
             id if Self::InitialMaxPathId == id => Self::InitialMaxPathId,
-            id if Self::IrohNatTraversal == id => Self::IrohNatTraversal,
+            id if Self::N0NatTraversal == id => Self::N0NatTraversal,
             _ => return Err(()),
         };
         Ok(param)
