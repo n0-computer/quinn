@@ -1,4 +1,4 @@
-//! n0's (< https://n0.computer>) NAT Traversal protocol implementation.
+//! n0's (<https://n0.computer>) NAT Traversal protocol implementation.
 
 use std::{
     collections::hash_map::Entry,
