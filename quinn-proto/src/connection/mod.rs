@@ -34,7 +34,7 @@ use crate::{
         self, Close, DataBlocked, Datagram, FrameStruct, NewToken, ObservedAddr, StreamDataBlocked,
         StreamsBlocked,
     },
-    iroh_hp,
+    iroh_hp as n0_nat_traversal,
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
         PacketNumber, PartialDecode, SpaceId,
@@ -309,7 +309,8 @@ pub struct Connection {
     //    paths.  Or a set together with a minimum.  Or something.
     abandoned_paths: FxHashSet<PathId>,
 
-    iroh_hp: iroh_hp::State,
+    /// State for n0's (<https://n0.computer>) nat traversal protocol.
+    n0_nat_traversal: n0_nat_traversal::State,
     qlog: QlogSink,
 }
 
@@ -483,8 +484,7 @@ impl Connection {
             max_path_id_with_cids: PathId::ZERO,
             abandoned_paths: Default::default(),
 
-            // iroh's nat traversal
-            iroh_hp: Default::default(),
+            n0_nat_traversal: Default::default(),
             qlog,
         };
         if path_validated {
@@ -2002,7 +2002,7 @@ impl Connection {
         buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
-        let server_side = self.iroh_hp.server_side_mut().ok()?;
+        let server_side = self.n0_nat_traversal.server_side_mut().ok()?;
         let probe = server_side.next_probe()?;
         if !self.paths.get(&path_id)?.data.validated {
             // Path is not usable for probing
@@ -5158,7 +5158,7 @@ impl Connection {
                     }
                 }
                 Frame::AddAddress(addr) => {
-                    let client_state = match self.iroh_hp.client_side_mut() {
+                    let client_state = match self.n0_nat_traversal.client_side_mut() {
                         Ok(state) => state,
                         Err(err) => {
                             return Err(TransportError::PROTOCOL_VIOLATION(format!(
@@ -5176,7 +5176,7 @@ impl Connection {
                         Ok(maybe_added) => {
                             if let Some(added) = maybe_added {
                                 self.events.push_back(Event::NatTraversal(
-                                    iroh_hp::Event::AddressAdded(added),
+                                    n0_nat_traversal::Event::AddressAdded(added),
                                 ));
                             }
                         }
@@ -5186,7 +5186,7 @@ impl Connection {
                     }
                 }
                 Frame::RemoveAddress(addr) => {
-                    let client_state = match self.iroh_hp.client_side_mut() {
+                    let client_state = match self.n0_nat_traversal.client_side_mut() {
                         Ok(state) => state,
                         Err(err) => {
                             return Err(TransportError::PROTOCOL_VIOLATION(format!(
@@ -5195,15 +5195,14 @@ impl Connection {
                         }
                     };
                     if let Some(removed_addr) = client_state.remove_remote_address(addr) {
-                        self.events
-                            .push_back(Event::NatTraversal(iroh_hp::Event::AddressRemoved(
-                                removed_addr,
-                            )));
+                        self.events.push_back(Event::NatTraversal(
+                            n0_nat_traversal::Event::AddressRemoved(removed_addr),
+                        ));
                     }
                 }
                 Frame::ReachOut(reach_out) => {
                     let ipv6 = self.is_ipv6();
-                    let server_state = match self.iroh_hp.server_side_mut() {
+                    let server_state = match self.n0_nat_traversal.server_side_mut() {
                         Ok(state) => state,
                         Err(err) => {
                             return Err(TransportError::PROTOCOL_VIOLATION(format!(
@@ -6220,11 +6219,14 @@ impl Connection {
             {
                 let max_local_addresses = max_remotely_allowed_remote_addresses.get();
                 let max_remote_addresses = max_locally_allowed_remote_addresses.get();
-                self.iroh_hp =
-                    iroh_hp::State::new(max_remote_addresses, max_local_addresses, self.side());
+                self.n0_nat_traversal = n0_nat_traversal::State::new(
+                    max_remote_addresses,
+                    max_local_addresses,
+                    self.side(),
+                );
                 debug!(
                     %max_remote_addresses, %max_local_addresses,
-                    "iroh hole punching negotiated"
+                    "n0's nat traversal negotiated"
                 );
 
                 match self.side() {
@@ -6249,7 +6251,7 @@ impl Connection {
                     }
                 }
             } else {
-                debug!("iroh nat traversal enabled for both endpoints, but multipath is missing")
+                debug!("n0 nat traversal enabled for both endpoints, but multipath is missing")
             }
         }
 
@@ -6604,8 +6606,11 @@ impl Connection {
     }
 
     /// Add addresses the local endpoint considers are reachable for nat traversal.
-    pub fn add_nat_traversal_address(&mut self, address: SocketAddr) -> Result<(), iroh_hp::Error> {
-        if let Some(added) = self.iroh_hp.add_local_address(address)? {
+    pub fn add_nat_traversal_address(
+        &mut self,
+        address: SocketAddr,
+    ) -> Result<(), n0_nat_traversal::Error> {
+        if let Some(added) = self.n0_nat_traversal.add_local_address(address)? {
             self.spaces[SpaceId::Data].pending.add_address.insert(added);
         };
         Ok(())
@@ -6617,8 +6622,8 @@ impl Connection {
     pub fn remove_nat_traversal_address(
         &mut self,
         address: SocketAddr,
-    ) -> Result<(), iroh_hp::Error> {
-        if let Some(removed) = self.iroh_hp.remove_local_address(address)? {
+    ) -> Result<(), n0_nat_traversal::Error> {
+        if let Some(removed) = self.n0_nat_traversal.remove_local_address(address)? {
             self.spaces[SpaceId::Data]
                 .pending
                 .remove_address
@@ -6628,14 +6633,18 @@ impl Connection {
     }
 
     /// Get the current local nat traversal addresses
-    pub fn get_local_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
-        self.iroh_hp.get_local_nat_traversal_addresses()
+    pub fn get_local_nat_traversal_addresses(
+        &self,
+    ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
+        self.n0_nat_traversal.get_local_nat_traversal_addresses()
     }
 
     /// Get the currently advertised nat traversal addresses by the server
-    pub fn get_remote_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    pub fn get_remote_nat_traversal_addresses(
+        &self,
+    ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         Ok(self
-            .iroh_hp
+            .n0_nat_traversal
             .client_side()?
             .get_remote_nat_traversal_addresses())
     }
@@ -6683,14 +6692,14 @@ impl Connection {
     pub fn initiate_nat_traversal_round(
         &mut self,
         now: Instant,
-    ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         if self.state.is_closed() {
-            return Err(iroh_hp::Error::Closed);
+            return Err(n0_nat_traversal::Error::Closed);
         }
 
         let ipv6 = self.is_ipv6();
-        let client_state = self.iroh_hp.client_side_mut()?;
-        let iroh_hp::NatTraversalRound {
+        let client_state = self.n0_nat_traversal.client_side_mut()?;
+        let n0_nat_traversal::NatTraversalRound {
             new_round,
             reach_out_at,
             addresses_to_probe,
@@ -6737,7 +6746,7 @@ impl Connection {
                     probed_addresses.push(remote);
                 }
                 Err(e) => {
-                    self.iroh_hp
+                    self.n0_nat_traversal
                         .client_side_mut()
                         .expect("validated")
                         .report_in_continuation(id, e);
@@ -6749,11 +6758,11 @@ impl Connection {
         if let Some(err) = err {
             // We failed to probe any addresses, bail out
             if probed_addresses.is_empty() {
-                return Err(iroh_hp::Error::Multipath(err));
+                return Err(n0_nat_traversal::Error::Multipath(err));
             }
         }
 
-        self.iroh_hp
+        self.n0_nat_traversal
             .client_side_mut()
             .expect("connection side validated")
             .set_round_path_ids(path_ids);
@@ -6767,10 +6776,10 @@ impl Connection {
     /// successfully open.
     fn continue_nat_traversal_round(&mut self, now: Instant) -> Option<bool> {
         let ipv6 = self.is_ipv6();
-        let client_state = self.iroh_hp.client_side_mut().ok()?;
+        let client_state = self.n0_nat_traversal.client_side_mut().ok()?;
         let (id, address) = client_state.continue_nat_traversal_round(ipv6)?;
         let open_result = self.open_nat_traversal_path(now, address);
-        let client_state = self.iroh_hp.client_side_mut().expect("validated");
+        let client_state = self.n0_nat_traversal.client_side_mut().expect("validated");
         match open_result {
             Ok(None) => Some(true),
             Ok(Some((path_id, _remote))) => {
@@ -7043,7 +7052,7 @@ pub enum Event {
     /// (Multi)Path events
     Path(PathEvent),
     /// Iroh's nat traversal events
-    NatTraversal(iroh_hp::Event),
+    NatTraversal(n0_nat_traversal::Event),
 }
 
 impl From<PathEvent> for Event {

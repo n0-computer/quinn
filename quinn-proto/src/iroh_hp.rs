@@ -1,4 +1,4 @@
-//! iroh NAT Traversal
+//! n0's (< https://n0.computer>) NAT Traversal protocol implementation.
 
 use std::{
     collections::hash_map::Entry,
@@ -91,7 +91,7 @@ pub(crate) struct ClientState {
     /// Candidate addresses the local client reports as potentially reachable, to use for nat
     /// traversal attempts.
     local_addresses: FxHashSet<IpPort>,
-    /// Current nat holepunching round.
+    /// Current nat traversal round.
     round: VarInt,
     /// [`PathId`]s used to probe remotes assigned to this round.
     round_path_ids: Vec<PathId>,
@@ -296,7 +296,7 @@ pub(crate) struct ServerState {
     local_addresses: FxHashMap<IpPort, VarInt>,
     /// The next id to use for local addresses sent to the client.
     next_local_addr_id: VarInt,
-    /// Current nat holepunching round
+    /// Current nat traversal round
     ///
     /// Servers keep track of the client's most recent round and cancel probing related to previous
     /// rounds.
