@@ -25,7 +25,7 @@ pub enum Error {
     #[error("Not allowed for this endpoint's connection side")]
     WrongConnectionSide,
     /// The extension was not negotiated
-    #[error("Iroh's nat traversal was not negotiated")]
+    #[error("n0's nat traversal was not negotiated")]
     ExtensionNotNegotiated,
     /// Not enough addresses to complete the operation
     #[error("Not enough addresses")]
@@ -63,7 +63,7 @@ pub enum Event {
     AddressRemoved(SocketAddr),
 }
 
-/// State kept for Iroh's nat traversal
+/// State kept for n0's nat traversal
 #[derive(Debug, Default)]
 pub(crate) enum State {
     #[default]

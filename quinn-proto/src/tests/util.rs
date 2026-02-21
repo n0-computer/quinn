@@ -708,7 +708,7 @@ impl ConnPair {
         &mut self,
         side: Side,
         address: SocketAddr,
-    ) -> Result<(), iroh_hp::Error> {
+    ) -> Result<(), n0_nat_traversal::Error> {
         self.conn_mut(side).add_nat_traversal_address(address)
     }
 
@@ -716,28 +716,28 @@ impl ConnPair {
         &mut self,
         side: Side,
         address: SocketAddr,
-    ) -> Result<(), iroh_hp::Error> {
+    ) -> Result<(), n0_nat_traversal::Error> {
         self.conn_mut(side).remove_nat_traversal_address(address)
     }
 
     pub(super) fn get_local_nat_traversal_addresses(
         &self,
         side: Side,
-    ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         self.conn(side).get_local_nat_traversal_addresses()
     }
 
     pub(super) fn get_remote_nat_traversal_addresses(
         &self,
         side: Side,
-    ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         self.conn(side).get_remote_nat_traversal_addresses()
     }
 
     pub(super) fn initiate_nat_traversal_round(
         &mut self,
         side: Side,
-    ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         let now = self.pair.time;
         self.conn_mut(side).initiate_nat_traversal_round(now)
     }

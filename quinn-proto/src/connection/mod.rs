@@ -34,7 +34,7 @@ use crate::{
         self, Close, DataBlocked, Datagram, FrameStruct, NewToken, ObservedAddr, StreamDataBlocked,
         StreamsBlocked,
     },
-    iroh_hp as n0_nat_traversal,
+    n0_nat_traversal,
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
         PacketNumber, PartialDecode, SpaceId,
@@ -7051,7 +7051,7 @@ pub enum Event {
     DatagramsUnblocked,
     /// (Multi)Path events
     Path(PathEvent),
-    /// Iroh's nat traversal events
+    /// n0's nat traversal events
     NatTraversal(n0_nat_traversal::Event),
 }
 
