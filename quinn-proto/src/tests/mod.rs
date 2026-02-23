@@ -43,6 +43,7 @@ mod multipath;
 mod proptest;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod random_interaction;
+mod spam_packets;
 mod token;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
@@ -4150,4 +4151,185 @@ fn regression_maybe_frame_roundtrip() {
     ty.encode(&mut buf);
     let dec = frame::MaybeFrame::decode(&mut buf.freeze()).unwrap();
     assert_eq!(dec, ty);
+}
+
+/// Feed a single spam packet into a fresh server endpoint and return its stats.
+/// Uses `HashedConnectionIdGenerator` so random CIDs fail validation (for `invalid_cid`).
+fn handle_spam(packet: BytesMut) -> DatagramStats {
+    let remote: SocketAddr = "[::2]:7890".parse().unwrap();
+    let mut endpoint_config = EndpointConfig::default();
+    endpoint_config.cid_generator(move || Box::new(HashedConnectionIdGenerator::from_key(0)));
+    let mut server = Endpoint::new(
+        Arc::new(endpoint_config),
+        Some(Arc::new(server_config())),
+        true,
+    );
+    let mut buf = Vec::new();
+    server.handle(
+        Instant::now(),
+        FourTuple { remote, local_ip: None },
+        None,
+        packet,
+        &mut buf,
+    );
+    server.datagram_stats()
+}
+
+#[test]
+fn datagram_stats_malformed_header() {
+    let _guard = subscribe();
+    assert_eq!(handle_spam(spam_packets::malformed()).malformed_header, 1);
+}
+
+#[test]
+fn datagram_stats_version_negotiation() {
+    let _guard = subscribe();
+    assert_eq!(handle_spam(spam_packets::bad_version()).version_negotiation, 1);
+}
+
+#[test]
+fn datagram_stats_unknown_connection_long_header() {
+    let _guard = subscribe();
+    assert_eq!(
+        handle_spam(spam_packets::handshake_unknown_cid()).unknown_connection_long_header,
+        1,
+    );
+}
+
+#[test]
+fn datagram_stats_initial_too_short() {
+    let _guard = subscribe();
+    assert_eq!(handle_spam(spam_packets::initial_too_short()).initial_too_short, 1);
+}
+
+#[test]
+fn datagram_stats_initial_garbage_payload() {
+    let _guard = subscribe();
+    let s = handle_spam(spam_packets::initial_garbage_payload());
+    // Depending on key derivation from the DCID, the packet hits either
+    // initial_decrypt_failed or initial_reserved_bits.
+    assert_eq!(
+        s.initial_decrypt_failed + s.initial_reserved_bits,
+        1,
+        "expected exactly one decrypt or reserved-bits rejection"
+    );
+}
+
+#[test]
+fn datagram_stats_invalid_cid() {
+    let _guard = subscribe();
+    assert_eq!(handle_spam(spam_packets::short_header_invalid_cid()).invalid_cid, 1);
+}
+
+#[test]
+fn datagram_stats_initial_refused() {
+    let _guard = subscribe();
+    assert_eq!(handle_spam(spam_packets::initial_short_dcid()).initial_refused, 1);
+}
+
+/// Verify that new_connection is counted when a real handshake arrives
+#[test]
+fn datagram_stats_new_connection() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    let (_client_ch, _server_ch) = pair.connect();
+    let s = pair.server.datagram_stats();
+    assert!(
+        s.new_connection >= 1,
+        "expected at least 1 new_connection, got {}",
+        s.new_connection
+    );
+    assert!(
+        s.routed_to_connection >= 1,
+        "expected at least 1 routed_to_connection, got {}",
+        s.routed_to_connection
+    );
+}
+
+/// Verify unsupported_version counter on client-only endpoint (no server config)
+#[test]
+fn datagram_stats_unsupported_version() {
+    let _guard = subscribe();
+    let remote: SocketAddr = "[::2]:7890".parse().unwrap();
+    let network_path = FourTuple {
+        remote,
+        local_ip: None,
+    };
+    let now = Instant::now();
+    let mut buf = Vec::new();
+
+    // Client-only endpoint (no server config)
+    let mut client = Endpoint::new(Default::default(), None, true);
+
+    // Long header with unknown version → unsupported_version (not version_negotiation)
+    client.handle(now, network_path, None, spam_packets::bad_version(), &mut buf);
+    assert_eq!(client.datagram_stats().unsupported_version, 1);
+    assert_eq!(client.datagram_stats().version_negotiation, 0);
+}
+
+/// Verify stateless reset counters
+#[test]
+fn datagram_stats_stateless_reset() {
+    let _guard = subscribe();
+    let remote: SocketAddr = "[::2]:7890".parse().unwrap();
+    let network_path = FourTuple {
+        remote,
+        local_ip: None,
+    };
+    let now = Instant::now();
+    let mut buf = Vec::new();
+
+    // RandomConnectionIdGenerator validates any CID of the right length,
+    // so short-header packets reach stateless_reset path
+    let mut endpoint_config = EndpointConfig::default();
+    endpoint_config.cid_generator(move || Box::new(RandomConnectionIdGenerator::new(8)));
+    let endpoint_config = Arc::new(endpoint_config);
+
+    let mut server = Endpoint::new(
+        endpoint_config.clone(),
+        Some(Arc::new(server_config())),
+        true,
+    );
+
+    // First short-header packet triggers stateless reset
+    server.handle(now, network_path, None, spam_packets::short_header_valid_cid(), &mut buf);
+    assert_eq!(server.datagram_stats().stateless_reset_sent, 1);
+    assert_eq!(server.datagram_stats().stateless_reset_suppressed, 0);
+
+    // Second immediately → suppressed by rate limit
+    server.handle(now, network_path, None, spam_packets::short_header_valid_cid(), &mut buf);
+    assert_eq!(server.datagram_stats().stateless_reset_sent, 1);
+    assert_eq!(server.datagram_stats().stateless_reset_suppressed, 1);
+
+    // After the minimum reset interval → another reset sent
+    let later = now + endpoint_config.min_reset_interval;
+    server.handle(later, network_path, None, spam_packets::short_header_valid_cid(), &mut buf);
+    assert_eq!(server.datagram_stats().stateless_reset_sent, 2);
+    assert_eq!(server.datagram_stats().stateless_reset_suppressed, 1);
+}
+
+/// Verify empty_cid_unrecognized counter with 0-length CID endpoint
+#[test]
+fn datagram_stats_empty_cid() {
+    let _guard = subscribe();
+    let remote: SocketAddr = "[::2]:7890".parse().unwrap();
+    let network_path = FourTuple {
+        remote,
+        local_ip: None,
+    };
+    let now = Instant::now();
+    let mut buf = Vec::new();
+
+    // 0-length CIDs: short-header packets have empty dst_cid
+    let mut endpoint_config = EndpointConfig::default();
+    endpoint_config.cid_generator(move || Box::new(RandomConnectionIdGenerator::new(0)));
+
+    let mut server = Endpoint::new(
+        Arc::new(endpoint_config),
+        Some(Arc::new(server_config())),
+        true,
+    );
+
+    server.handle(now, network_path, None, spam_packets::short_header_empty_cid(), &mut buf);
+    assert_eq!(server.datagram_stats().empty_cid_unrecognized, 1);
 }
