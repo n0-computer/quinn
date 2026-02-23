@@ -313,57 +313,6 @@ pub struct Connection {
     qlog: QlogSink,
 }
 
-/// Return value for [`Connection::poll_transmit_path`].
-#[derive(Debug)]
-enum PollPathStatus {
-    /// Nothing to send on the path, nothing was written into the [`TransmitBuf`].
-    NothingToSend {
-        /// If true there was data to send but congestion control did not allow so.
-        congestion_blocked: bool,
-    },
-    /// The transmit is ready to be sent.
-    Send(Transmit),
-}
-
-/// Return value for [`Connection::poll_transmit_path_space`].
-#[derive(Debug)]
-enum PollPathSpaceStatus {
-    /// Nothing to send in the space, nothing was written into the [`TransmitBuf`].
-    NothingToSend {
-        /// If true there was data to send but congestion control did not allow so.
-        congestion_blocked: bool,
-    },
-    /// One or more packets have been written into the [`TransmitBuf`].
-    WrotePacket {
-        /// The highest packet number.
-        last_packet_number: u64,
-        /// Whether to pad an already started datagram in the next packet.
-        ///
-        /// When packets in Initial, 0-RTT or Handshake packet do not fill the entire
-        /// datagram they may decide to coalesce with the next packet from a higher
-        /// encryption level on the same path. But the earlier packet may require specific
-        /// size requirements for the datagram they are sent in.
-        ///
-        /// If a space did not complete the datagram, they use this to request the correct
-        /// padding in the final packet of the datagram so that the final datagram will have
-        /// the correct size.
-        ///
-        /// If a space did fill an entire datagram, it leaves this to the default of
-        /// [`PadDatagram::No`].
-        pad_datagram: PadDatagram,
-    },
-    /// Send the contents of the transmit immediately.
-    ///
-    /// Packets were written and the GSO batch must end now, regardless from whether higher
-    /// spaces still have frames to write. This is used when the last datagram written would
-    /// require too much padding to continue a GSO batch, which would waste space on the
-    /// wire.
-    Send {
-        /// The highest packet number written into the transmit.
-        last_packet_number: u64,
-    },
-}
-
 impl Connection {
     pub(crate) fn new(
         endpoint_config: Arc<EndpointConfig>,
@@ -1066,33 +1015,21 @@ impl Connection {
                 && self.peer_supports_ack_frequency();
         }
 
-        // TODO(flub): path scheduling logic might be buggy if there are only un-validated
-        //    paths and PATH_STATUS_BACKUP paths.
-
-        // Path scheduling logic is currently as such:
-        //
-        // - For any un-validated paths we only send frames that *must* be sent on that
-        //   path. E.g. PATH_CHALLENGE, PATH_RESPONSE.
-        //
-        // - If there are any validated paths with CIDs and PathStatus::Available:
-        //   - Frames that can be sent on any path, e.g. STREAM, DATAGRAM, are only sent on
-        //     these available paths.
-        //   - All other paths only send frames that *must* be sent on those paths,
-        //     e.g. PATH_CHALLENGE, PATH_RESPONSE, tail-loss probes, keep alive PING.
-        //
-        // - If there are no validated paths with CIDs and PathStatus::Available all frames
-        //   are sent on the earlierst possible path.
-        //
-        // For all this we use the *path_exclusive_only* boolean: If set to true, only
-        // frames that must be sent on the path will be built into the packet.
-
-        // Is there any open, validated and status available path with dst CIDs? If so we'll
-        // want to set path_exclusive_only for any other paths.
-        let have_available_path = self.paths.iter().any(|(id, path)| {
-            path.data.validated
-                && path.data.local_status() == PathStatus::Available
-                && self.remote_cids.contains_key(id)
-        });
+        let scheduling_info: BTreeMap<PathId, PathSchedulingInfo> = self
+            .paths
+            .iter()
+            .map(|(path_id, path)| {
+                (
+                    *path_id,
+                    PathSchedulingInfo {
+                        has_cids: self.remote_cids.contains_key(&path_id),
+                        validated: path.data.validated,
+                        abandoned: self.abandoned_paths.contains(&path_id),
+                        status: path.data.local_status(),
+                    },
+                )
+            })
+            .collect();
 
         // TODO: how to avoid the allocation? Cannot use a for loop because of
         // borrowing. Maybe SmallVec or similar.
@@ -1115,7 +1052,7 @@ impl Connection {
                 buf,
                 path_id,
                 max_datagrams,
-                have_available_path,
+                scheduling_info,
                 connection_close_pending,
             ) {
                 PollPathStatus::Send(transmit) => {
@@ -1230,7 +1167,7 @@ impl Connection {
         buf: &mut Vec<u8>,
         path_id: PathId,
         max_datagrams: NonZeroUsize,
-        have_available_path: bool,
+        scheduling_info: BTreeMap<PathId, PathSchedulingInfo>,
         connection_close_pending: bool,
     ) -> PollPathStatus {
         // Check if there is at least one active CID to use for sending
@@ -1275,7 +1212,7 @@ impl Connection {
                 path_id,
                 space_id,
                 remote_cid,
-                have_available_path,
+                scheduling_info,
                 connection_close_pending,
                 pad_datagram,
             ) {
@@ -1341,8 +1278,7 @@ impl Connection {
         path_id: PathId,
         space_id: SpaceId,
         remote_cid: ConnectionId,
-        // If any other packet space has a usable path with PathStatus::Available.
-        have_available_path: bool,
+        scheduling_info: BTreeMap<PathId, PathSchedulingInfo>,
         // If we need to send a CONNECTION_CLOSE frame.
         connection_close_pending: bool,
         // Whether the current datagram needs to be padded to a certain size.
@@ -1379,22 +1315,99 @@ impl Connection {
             let can_send =
                 self.space_can_send(space_id, path_id, max_packet_size, connection_close_pending);
 
-            // Whether we would like to send any frames on this packet space. See the packet
-            // scheduling described in poll_transmit.
-            let space_should_send = {
-                let path_exclusive_only = space_id == SpaceId::Data
-                    && have_available_path
-                    && self.path_data(path_id).local_status() == PathStatus::Backup;
-                let path_should_send = if path_exclusive_only {
-                    can_send.path_exclusive
-                } else {
-                    !can_send.is_empty()
-                };
-                let needs_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
-                path_should_send || needs_loss_probe
-            };
+            let will_space_send = || {
+                let this_path = scheduling_info.get(&path_id).unwrap();
+                if !this_path.has_cids {
+                    // Without CIDs we can not send anything.
+                    return false;
+                }
+                if this_path.abandoned {
+                    // We only ever set a path to abandoned once we no longer wish to send
+                    // anything on it. If we ever want to send PATH_ABANDON on the abandoned
+                    // path, we will not set the path as abandoned until we have sent that
+                    // frame. This is how the spec describes that situation. So we never
+                    // send on an abandoned path.
+                    return false;
+                }
+                if can_send.validation {
+                    // If we need to send stuff to validate the path, we're definitely
+                    // sending.
+                    return true;
+                }
 
-            if !space_should_send {
+                if !this_path.validated {
+                    // If we don't have a validated path, we only send things when we also
+                    // have to send a PATH_CHALLENGE or PATH_RESPONSE. It is totally allowed
+                    // to start sending anything and everything on an unvalidated path
+                    // already, as long as you don't exceed any anti-amplification
+                    // limit. But we also open a lot of paths which we don't expect to work
+                    // out for nat traversal and doing so would result in a lot of lost data
+                    // that needs to be resent. And it is nicer to keep the
+                    // anti-amplification budget for actual path validation.
+                    //
+                    // Even if there is only a single path, this postpones sending anything
+                    // else on the path until validation succeeds.
+                    if can_send.close {
+                        // However, if we have to send CONNECTION_CLOSE then we may have to
+                        // send it on this path if there is nowhere better to send it.
+                        //
+                        // - a non-abandoned, validated, status-available path is better
+                        // - a non-abandoned, validated, status-backup path is 2nd best
+                        // - a non-abandoned, non-validated path is same-same
+                        // - an abandoned path is always worse
+                        //
+                        // If an earlier path was better it would have already send this
+                        // CONNECTION_CLOSE, unless it was congestion-blocked. In that case
+                        // we still prefer to send on that earlier path and would rather
+                        // postpone this to the next poll_transmit call. We also can not be
+                        // better than ourselves, so there is no need to filter by PathId.
+                        let have_better_path = scheduling_info
+                            .values()
+                            .any(|info| info.has_cids && !info.abandoned && info.validated);
+                        return !have_better_path;
+                    }
+                    return false;
+                }
+
+                //
+                // Now the current path has a CID, is not abandoned and is validated.
+                //
+
+                if can_send.space_id_only {
+                    // If there is anything that can only be sent on this path, we will be
+                    // sending it.
+                    return true;
+                }
+
+                //
+                // Now we only have things to send, which can conceivably be sent in any space.
+                //
+
+                match this_path.status {
+                    PathStatus::Available => {
+                        // If there is anything to send, it will be sent.
+                        return !can_send.is_empty();
+                    }
+                    PathStatus::Backup => {
+                        // If there is a better path to send on, we should prefer to send on
+                        // that. If an earlier path was better it would already have sent,
+                        // unless it was congestion blocked. In that case we prefer to send
+                        // nothing and wait for a future call to poll_transmit so we can
+                        // keep sending on that better path. Also no need to filter out this
+                        // path, because we can not be better than ourselves.
+                        let have_better_path = scheduling_info.values().any(|info| {
+                            info.has_cids
+                                && !info.abandoned
+                                && info.validated
+                                && info.status == PathStatus::Available
+                        });
+                        return !have_better_path;
+                    }
+                }
+            };
+            let space_will_send = will_space_send();
+
+            if !space_will_send {
                 // Nothing more to send. Previous iterations of this loop may have built
                 // packets already.
                 return match last_packet_number {
@@ -1515,7 +1528,7 @@ impl Connection {
                 path_id,
                 remote_cid,
                 transmit,
-                can_send.other,
+                can_send.is_ack_eliciting(),
                 self,
             ) else {
                 // Confidentiality limit is exceeded and the connection has been killed. We
@@ -1530,7 +1543,9 @@ impl Connection {
             };
             last_packet_number = Some(builder.packet_number);
 
-            if space_id == SpaceId::Initial && (self.side.is_client() || can_send.other) {
+            if space_id == SpaceId::Initial
+                && (self.side.is_client() || can_send.is_ack_eliciting())
+            {
                 // https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1
                 pad_datagram |= PadDatagram::ToMinMtu;
             }
@@ -1637,7 +1652,7 @@ impl Connection {
             debug_assert!(
                 !(builder.sent_frames().is_ack_only(&self.streams)
                     && !can_send.acks
-                    && can_send.other
+                    && (can_send.other || can_send.validation || can_send.space_id_only)
                     && builder.buf.segment_size()
                         == self.path_data(path_id).current_mtu() as usize
                     && self.datagrams.outgoing.is_empty()),
@@ -2064,7 +2079,9 @@ impl Connection {
         })
     }
 
-    /// Indicate what types of frames are ready to send for the given space
+    /// Indicate what types of frames are ready to send for the given space.
+    ///
+    /// Only for on-path data.
     ///
     /// *packet_size* is the number of bytes available to build the next packet.
     /// *connection_close_pending* indicates whether a CONNECTION_CLOSE frame needs to be
@@ -6440,7 +6457,7 @@ impl Connection {
         }
     }
 
-    /// Whether we have 1-RTT data to send
+    /// Whether we have on-path 1-RTT data to send.
     ///
     /// This checks for frames that can only be sent in the data space (1-RTT):
     /// - Pending PATH_CHALLENGE frames on the active and previous path if just migrated.
@@ -6451,25 +6468,25 @@ impl Connection {
     /// See also [`PacketSpace::can_send`] which keeps track of all other frame types that
     /// may need to be sent.
     fn can_send_1rtt(&self, path_id: PathId, max_size: usize) -> SendableFrames {
-        let path_exclusive = self.paths.get(&path_id).is_some_and(|path| {
-            path.data.send_new_challenge
-                || path
-                    .prev
-                    .as_ref()
-                    .is_some_and(|(_, path)| path.send_new_challenge)
-                || !path.data.path_responses.is_empty()
+        let validation = self.paths.get(&path_id).is_some_and(|path| {
+            path.data.send_new_challenge || !path.data.path_responses.is_empty()
         });
+
+        // Stream control frames are checked in PacketSpace::can_send, only check data here.
         let other = self.streams.can_send_stream_data()
             || self
                 .datagrams
                 .outgoing
                 .front()
                 .is_some_and(|x| x.size(true) <= max_size);
+
+        // All `false` fields are set in PacketSpace::can_send.
         SendableFrames {
             acks: false,
-            other,
             close: false,
-            path_exclusive,
+            validation,
+            space_id_only: false,
+            other,
         }
     }
 
@@ -6804,6 +6821,81 @@ impl fmt::Debug for Connection {
             .field("handshake_cid", &self.handshake_cid)
             .finish()
     }
+}
+
+/// Return value for [`Connection::poll_transmit_path`].
+#[derive(Debug)]
+enum PollPathStatus {
+    /// Nothing to send on the path, nothing was written into the [`TransmitBuf`].
+    NothingToSend {
+        /// If true there was data to send but congestion control did not allow so.
+        congestion_blocked: bool,
+    },
+    /// The transmit is ready to be sent.
+    Send(Transmit),
+}
+
+/// Return value for [`Connection::poll_transmit_path_space`].
+#[derive(Debug)]
+enum PollPathSpaceStatus {
+    /// Nothing to send in the space, nothing was written into the [`TransmitBuf`].
+    NothingToSend {
+        /// If true there was data to send but congestion control did not allow so.
+        congestion_blocked: bool,
+    },
+    /// One or more packets have been written into the [`TransmitBuf`].
+    WrotePacket {
+        /// The highest packet number.
+        last_packet_number: u64,
+        /// Whether to pad an already started datagram in the next packet.
+        ///
+        /// When packets in Initial, 0-RTT or Handshake packet do not fill the entire
+        /// datagram they may decide to coalesce with the next packet from a higher
+        /// encryption level on the same path. But the earlier packet may require specific
+        /// size requirements for the datagram they are sent in.
+        ///
+        /// If a space did not complete the datagram, they use this to request the correct
+        /// padding in the final packet of the datagram so that the final datagram will have
+        /// the correct size.
+        ///
+        /// If a space did fill an entire datagram, it leaves this to the default of
+        /// [`PadDatagram::No`].
+        pad_datagram: PadDatagram,
+    },
+    /// Send the contents of the transmit immediately.
+    ///
+    /// Packets were written and the GSO batch must end now, regardless from whether higher
+    /// spaces still have frames to write. This is used when the last datagram written would
+    /// require too much padding to continue a GSO batch, which would waste space on the
+    /// wire.
+    Send {
+        /// The highest packet number written into the transmit.
+        last_packet_number: u64,
+    },
+}
+
+struct SchedulingInfo {
+    paths: BTreeSet<PathId, PathSchedulingInfo>,
+    current: PathId,
+}
+
+impl SchedulingInfo {}
+
+/// TODO(flub): this really is duplicate info, but it makes it easy to reason about what
+/// info is used for scheduling right now.
+#[derive(Debug)]
+struct PathSchedulingInfo {
+    /// Whether the path has an active CID.
+    has_cids: bool,
+    /// Whether the path is validated.
+    validated: bool,
+    /// Whether the path is abandoned.
+    ///
+    /// Note that a path that is abandoned but still has CIDs can still send a packet. After
+    /// sending that packet the CIDs have to be considered retired as well.
+    abandoned: bool,
+    /// The status of the path.
+    status: PathStatus,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
