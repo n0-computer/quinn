@@ -7093,6 +7093,11 @@ impl SentFrames {
             && self.retransmits.is_empty(streams)
     }
 
+    /// Returns whether the packet contains any frames at all
+    fn is_empty(&self, streams: &StreamsState) -> bool {
+        !self.non_retransmits && self.stream_frames.is_empty() && self.retransmits.is_empty(streams)
+    }
+
     fn retransmits_mut(&mut self) -> &mut Retransmits {
         self.retransmits.get_or_create()
     }
