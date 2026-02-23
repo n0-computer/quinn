@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use proto::{
     ClosePathError, ClosedPath, PathError, PathEvent, PathId, PathStats, PathStatus,
-    SetPathStatusError,
+    SetPathStatusError, TransportErrorCode,
 };
 use tokio::sync::watch;
 use tokio_stream::{Stream, wrappers::WatchStream};
@@ -223,7 +223,7 @@ impl Path {
         state.inner.close_path(
             crate::Instant::now(),
             self.id,
-            proto::TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
+            TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
         )
     }
 
@@ -380,7 +380,7 @@ impl AddressDiscovery {
                             old != *addr
                         });
                     }
-                    Ok(PathEvent::Abandoned { id, .. }) if id == path_id => {
+                    Ok(PathEvent::Discarded { id, .. }) if id == path_id => {
                         // If the path is closed, terminate the stream
                         break;
                     }

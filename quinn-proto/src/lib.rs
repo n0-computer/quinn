@@ -45,9 +45,9 @@ pub(crate) mod connection;
 pub use crate::connection::{
     Chunk, Chunks, ClosePathError, ClosedPath, ClosedStream, Connection, ConnectionError,
     ConnectionStats, Datagrams, Event, FinishError, FrameStats, MultipathNotNegotiated,
-    NetworkChangeHint, PathError, PathEvent, PathId, PathStats, PathStatus, ReadError,
-    ReadableError, RecvStream, RttEstimator, SendDatagramError, SendStream, SetPathStatusError,
-    ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError, Written,
+    NetworkChangeHint, PathAbandonReason, PathError, PathEvent, PathId, PathStats, PathStatus,
+    ReadError, ReadableError, RecvStream, RttEstimator, SendDatagramError, SendStream,
+    SetPathStatusError, ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError, Written,
 };
 #[cfg(test)]
 use test_strategy::Arbitrary;
@@ -110,7 +110,7 @@ mod address_discovery;
 mod token_memory_cache;
 pub use token_memory_cache::TokenMemoryCache;
 
-pub mod iroh_hp;
+pub mod n0_nat_traversal;
 
 // Deal with time
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -386,6 +386,10 @@ impl FourTuple {
     /// If we have a local IP set, then we're exact and only match if the 4-tuples are
     /// exactly equal.
     /// If we don't have a local IP set, then we only check the remote addresses for equality.
+    ///
+    /// Note that because of this, the following calls might differ:
+    /// - `a.is_probably_same_path(b)`
+    /// - `b.is_probably_same_path(a)`
     pub fn is_probably_same_path(&self, other: &Self) -> bool {
         self.remote == other.remote && (self.local_ip.is_none() || self.local_ip == other.local_ip)
     }

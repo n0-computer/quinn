@@ -30,7 +30,7 @@ use crate::{
 use proto::{
     ConnectionError, ConnectionHandle, ConnectionStats, Dir, EndpointEvent, FourTuple, PathError,
     PathEvent, PathId, PathStats, PathStatus, Side, StreamEvent, StreamId, TransportError,
-    TransportErrorCode, congestion::Controller, iroh_hp,
+    TransportErrorCode, congestion::Controller, n0_nat_traversal,
 };
 
 /// In-progress connection attempt future
@@ -423,14 +423,8 @@ impl Connection {
         match open_res {
             Ok((path_id, existed)) if existed => {
                 match state.open_path.get(&path_id).map(|tx| tx.subscribe()) {
-                    Some(recv) => {
-                        drop(state);
-                        OpenPath::new(path_id, recv, self.0.clone())
-                    }
-                    None => {
-                        drop(state);
-                        OpenPath::ready(path_id, self.0.clone())
-                    }
+                    Some(recv) => OpenPath::new(path_id, recv, self.0.clone()),
+                    None => OpenPath::ready(path_id, self.0.clone()),
                 }
             }
             Ok((path_id, _)) => {
@@ -516,8 +510,10 @@ impl Connection {
         self.0.state.lock("path_events").path_events.subscribe()
     }
 
-    /// A broadcast receiver of [`iroh_hp::Event`]s for updates about server addresses
-    pub fn nat_traversal_updates(&self) -> tokio::sync::broadcast::Receiver<iroh_hp::Event> {
+    /// A broadcast receiver of [`n0_nat_traversal::Event`]s for updates about server addresses
+    pub fn nat_traversal_updates(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<n0_nat_traversal::Event> {
         self.0
             .state
             .lock("nat_traversal_updates")
@@ -930,7 +926,10 @@ impl Connection {
     /// `ADD_ADDRESS` frames. This allows clients to obtain server address candidates to initiate
     /// NAT traversal attempts. Clients provide their own reachable addresses in `REACH_OUT` frames
     /// when [`Self::initiate_nat_traversal_round`] is called.
-    pub fn add_nat_traversal_address(&self, address: SocketAddr) -> Result<(), iroh_hp::Error> {
+    pub fn add_nat_traversal_address(
+        &self,
+        address: SocketAddr,
+    ) -> Result<(), n0_nat_traversal::Error> {
         let mut conn = self.0.state.lock("add_nat_traversal_addresses");
         conn.inner.add_nat_traversal_address(address)
     }
@@ -944,19 +943,26 @@ impl Connection {
     /// For clients, removed addresses will no longer be advertised in `REACH_OUT` frames.
     ///
     /// Addresses not present in the set will be silently ignored.
-    pub fn remove_nat_traversal_address(&self, address: SocketAddr) -> Result<(), iroh_hp::Error> {
+    pub fn remove_nat_traversal_address(
+        &self,
+        address: SocketAddr,
+    ) -> Result<(), n0_nat_traversal::Error> {
         let mut conn = self.0.state.lock("remove_nat_traversal_addresses");
         conn.inner.remove_nat_traversal_address(address)
     }
 
     /// Get the current local nat traversal addresses
-    pub fn get_local_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    pub fn get_local_nat_traversal_addresses(
+        &self,
+    ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         let conn = self.0.state.lock("get_local_nat_traversal_addresses");
         conn.inner.get_local_nat_traversal_addresses()
     }
 
     /// Get the currently advertised nat traversal addresses by the server
-    pub fn get_remote_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    pub fn get_remote_nat_traversal_addresses(
+        &self,
+    ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         let conn = self.0.state.lock("get_remote_nat_traversal_addresses");
         conn.inner.get_remote_nat_traversal_addresses()
     }
@@ -968,7 +974,7 @@ impl Connection {
     /// initiated, the previous one is cancelled, and paths that have not been opened are closed.
     ///
     /// Returns the server addresses that are now being probed.
-    pub fn initiate_nat_traversal_round(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    pub fn initiate_nat_traversal_round(&self) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         let mut conn = self.0.state.lock("initiate_nat_traversal_round");
         let now = conn.runtime.now();
         conn.inner.initiate_nat_traversal_round(now)
@@ -1362,7 +1368,7 @@ pub(crate) struct State {
     /// Our last external address reported by the peer. When multipath is enabled, this will be the
     /// last report across all paths.
     pub(crate) observed_external_addr: watch::Sender<Option<SocketAddr>>,
-    pub(crate) nat_traversal_updates: tokio::sync::broadcast::Sender<iroh_hp::Event>,
+    pub(crate) nat_traversal_updates: tokio::sync::broadcast::Sender<n0_nat_traversal::Event>,
     on_closed: Vec<oneshot::Sender<(ConnectionError, ConnectionStats)>>,
 }
 
@@ -1574,18 +1580,26 @@ impl State {
                         sender.send_modify(|value| *value = Ok(()));
                     }
                 }
-                Path(evt @ PathEvent::Abandoned { id, path_stats }) => {
+                Path(evt @ PathEvent::Discarded { id, path_stats }) => {
                     if self.path_refs.contains_key(&id) {
                         self.final_path_stats.insert(id, path_stats);
                     }
                     self.path_events.send(evt).ok();
                 }
-                Path(ref evt @ PathEvent::LocallyClosed { id, error }) => {
-                    self.path_events.send(evt.clone()).ok();
+                Path(ref evt @ PathEvent::Abandoned { id, .. }) => {
                     if let Some(sender) = self.open_path.remove(&id) {
+                        // We don't care for the reason why this path was closed here, because semantically
+                        // all close reasons for a path that has not yet been opened equals to `ValidationFailed`.
+                        // With the quinn API, there is no way to application-close a not-yet-opened path, so
+                        // `ApplicationClosed` cannot occur. And all other variants will only occur for paths
+                        // that have already been opened.
+                        // The previous iteration of this code had another event `PathEvent::LocallyClosed` which
+                        // contained a `PathError`, but that was only ever set to `ValidationFailed`.
+                        let error = PathError::ValidationFailed;
                         sender.send_modify(|value| *value = Err(error));
                     }
                     // this will happen also for already opened paths
+                    self.path_events.send(evt.clone()).ok();
                 }
                 Path(evt @ PathEvent::RemoteStatus { .. }) => {
                     self.path_events.send(evt).ok();

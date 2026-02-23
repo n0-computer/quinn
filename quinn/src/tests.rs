@@ -1221,7 +1221,7 @@ async fn path_clone_stats_after_abandon() {
         // Wait for the Abandoned event
         loop {
             match path_events.recv().await {
-                Ok(proto::PathEvent::Abandoned { id, .. }) if id == path_id => {
+                Ok(proto::PathEvent::Discarded { id, .. }) if id == path_id => {
                     break;
                 }
                 Ok(_) => continue,
@@ -1286,7 +1286,7 @@ async fn close_path() -> TestResult {
         // Wait for the server to see the Abandoned event for the same path
         loop {
             match path_events.recv().await? {
-                proto::PathEvent::Abandoned { id, .. } if id == path_id => break,
+                proto::PathEvent::Discarded { id, .. } if id == path_id => break,
                 _ => continue,
             }
         }
@@ -1330,7 +1330,7 @@ async fn close_path() -> TestResult {
         // Wait for the client to see its own Abandoned event
         loop {
             match path_events.recv().await? {
-                proto::PathEvent::Abandoned { id, .. } if id == path_id => break,
+                proto::PathEvent::Discarded { id, .. } if id == path_id => break,
                 _ => continue,
             }
         }

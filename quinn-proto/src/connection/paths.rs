@@ -5,13 +5,14 @@ use thiserror::Error;
 use tracing::{debug, trace};
 
 use super::{
-    PathError, PathStats, SpaceKind,
+    PathStats, SpaceKind,
     mtud::MtuDiscovery,
     pacing::Pacer,
     spaces::{PacketNumberSpace, SentPacket},
 };
 use crate::{
-    ConnectionId, Duration, FourTuple, Instant, TIMER_GRANULARITY, TransportConfig, VarInt,
+    ConnectionId, Duration, FourTuple, Instant, TIMER_GRANULARITY, TransportConfig,
+    TransportErrorCode, VarInt,
     coding::{self, Decodable, Encodable},
     congestion,
     frame::ObservedAddr,
@@ -144,8 +145,10 @@ pub(super) struct PathData {
     pub(super) congestion: Box<dyn congestion::Controller>,
     /// Pacing state
     pub(super) pacing: Pacer,
-    /// Actually sent challenges (on the wire).
-    pub(super) challenges_sent: IntMap<u64, SentChallengeInfo>,
+    /// Actually sent challenges (on the wire, on-path).
+    on_path_challenges_sent: IntMap<u64, SentChallengeInfo>,
+    /// Actually sent challenges (on the wire, off-path).
+    off_path_challenges_sent: IntMap<u64, SentChallengeInfo>,
     /// Whether to *immediately* trigger another PATH_CHALLENGE.
     ///
     /// This is picked up by [`super::Connection::space_can_send`].
@@ -212,8 +215,13 @@ pub(super) struct PathData {
     /// irreversible, since it's not affected by the path being closed.
     pub(super) open: bool,
 
-    /// State relevant to sending and receiving PATH_ABANDON frames.
-    pub(super) abandon_state: AbandonState,
+    /// Whether we're currently draining the path after having abandoned it.
+    ///
+    /// This should only be true when a path discard timer is armed, and after the path was
+    /// abandoned (and added to the abandoned_paths set).
+    ///
+    /// This will only ever be set from false to true.
+    pub(super) draining: bool,
 
     /// Snapshot of the qlog recovery metrics
     #[cfg(feature = "qlog")]
@@ -221,24 +229,6 @@ pub(super) struct PathData {
 
     /// Tag uniquely identifying a path in a connection
     generation: u64,
-}
-
-/// The abandon-relevant state a path can be in.
-#[derive(Debug)]
-pub(super) enum AbandonState {
-    /// This path wasn't abandoned yet.
-    NotAbandoned,
-    /// A PATH_ABANDON frame was sent for this path, and we're expecting a response
-    /// by the given deadline.
-    ///
-    /// If we don't receive PATH_ABANDON by that time *and* we receive a packet on this
-    /// path, then we assume our peer has ignored our PATH_ABANDON and error out.
-    ///
-    /// This is checked in [`crate::Connection::on_packet_authenticated`].
-    ExpectingPathAbandon { deadline: Instant },
-    /// We received a PATH_ABANDON and are just waiting for the path's packets to drain
-    /// and eventually will discard the path.
-    ReceivedPathAbandon,
 }
 
 impl PathData {
@@ -265,7 +255,8 @@ impl PathData {
                 now,
             ),
             congestion,
-            challenges_sent: Default::default(),
+            on_path_challenges_sent: Default::default(),
+            off_path_challenges_sent: Default::default(),
             send_new_challenge: false,
             path_responses: PathResponses::default(),
             validated: false,
@@ -296,7 +287,7 @@ impl PathData {
             idle_timeout: config.default_path_max_idle_timeout,
             keep_alive: config.default_path_keep_alive_interval,
             open: false,
-            abandon_state: AbandonState::NotAbandoned,
+            draining: false,
             #[cfg(feature = "qlog")]
             recovery_metrics: RecoveryMetrics::default(),
             generation,
@@ -320,7 +311,8 @@ impl PathData {
             pacing: Pacer::new(smoothed_rtt, congestion.window(), prev.current_mtu(), now),
             sending_ecn: true,
             congestion,
-            challenges_sent: Default::default(),
+            on_path_challenges_sent: Default::default(),
+            off_path_challenges_sent: Default::default(),
             send_new_challenge: false,
             path_responses: PathResponses::default(),
             validated: false,
@@ -337,7 +329,7 @@ impl PathData {
             idle_timeout: prev.idle_timeout,
             keep_alive: prev.keep_alive,
             open: false,
-            abandon_state: AbandonState::NotAbandoned,
+            draining: false,
             #[cfg(feature = "qlog")]
             recovery_metrics: prev.recovery_metrics.clone(),
             generation,
@@ -346,7 +338,7 @@ impl PathData {
 
     /// Whether we're in the process of validating this path with PATH_CHALLENGEs
     pub(super) fn is_validating_path(&self) -> bool {
-        !self.challenges_sent.is_empty() || self.send_new_challenge
+        !self.on_path_challenges_sent.is_empty() || self.send_new_challenge
     }
 
     /// Indicates whether we're a server that hasn't validated the peer's address and hasn't
@@ -368,6 +360,18 @@ impl PathData {
         }
         if let Some(forgotten) = space.sent(pn, packet) {
             self.remove_in_flight(&forgotten);
+        }
+    }
+
+    pub(super) fn new_path_challenge(&mut self, now: Instant, token: u64, network_path: FourTuple) {
+        let info = SentChallengeInfo {
+            sent_instant: now,
+            network_path,
+        };
+        if network_path == self.network_path {
+            self.on_path_challenges_sent.insert(token, info);
+        } else {
+            self.off_path_challenges_sent.insert(token, info);
         }
     }
 
@@ -407,15 +411,23 @@ impl PathData {
 
     /// The earliest time at which a sent challenge is considered lost.
     pub(super) fn earliest_expiring_challenge(&self) -> Option<Instant> {
-        if self.challenges_sent.is_empty() {
+        if self.on_path_challenges_sent.is_empty() && self.off_path_challenges_sent.is_empty() {
             return None;
         }
         let pto = self.rtt.pto_base();
-        self.challenges_sent
+        let earliest_on_path = self
+            .on_path_challenges_sent
             .values()
             .map(|info| info.sent_instant)
-            .min()
-            .map(|sent_instant| sent_instant + pto)
+            .min();
+
+        let earliest_off_path = self
+            .off_path_challenges_sent
+            .values()
+            .map(|info| info.sent_instant)
+            .min();
+
+        earliest_on_path.min(earliest_off_path).map(|t| t + pto)
     }
 
     /// Handle receiving a PATH_RESPONSE.
@@ -425,20 +437,30 @@ impl PathData {
         token: u64,
         network_path: FourTuple,
     ) -> OnPathResponseReceived {
-        match self.challenges_sent.get(&token) {
-            // Response to an on-path PathChallenge
-            Some(info)
-                if info.network_path.is_probably_same_path(&network_path)
-                    && self.network_path.is_probably_same_path(&network_path) =>
-            {
+        // > § 8.2.3
+        // > Path validation succeeds when a PATH_RESPONSE frame is received that contains the
+        // > data that was sent in a previous PATH_CHALLENGE frame. A PATH_RESPONSE frame
+        // > received on any network path validates the path on which the PATH_CHALLENGE was
+        // > sent.
+        //
+        // At this point we have three potentially different network paths:
+        // - current network path (`Self::network_path`)
+        // - network path used to send the path challenge (`SentChallengeInfo::network_path`)
+        // - network path over which the response arrived (`network_path`)
+        //
+        // As per the spec, this only validates the network path on which this was *sent*.
+        match self.on_path_challenges_sent.remove(&token) {
+            // Response to an on-path PathChallenge that validates this path.
+            // The sent path should match the current path. However, it's possible that the
+            // challenge was sent when no local_ip was known. This case is allowed as well
+            Some(info) if info.network_path.is_probably_same_path(&self.network_path) => {
                 self.network_path.update_local_if_same_remote(&network_path);
                 let sent_instant = info.sent_instant;
                 if !std::mem::replace(&mut self.validated, true) {
                     trace!("new path validated");
                 }
-                // Clear any other on-path sent challenge.
-                self.challenges_sent
-                    .retain(|_token, info| !info.network_path.is_probably_same_path(&network_path));
+                // Clear any other on-path sent challenge
+                self.on_path_challenges_sent.clear();
 
                 self.send_new_challenge = false;
 
@@ -450,19 +472,43 @@ impl PathData {
                 let was_open = std::mem::replace(&mut self.open, true);
                 OnPathResponseReceived::OnPath { was_open }
             }
-            // Response to an off-path PathChallenge
-            Some(info) if info.network_path.is_probably_same_path(&network_path) => {
-                self.challenges_sent
-                    .retain(|_token, info| !info.network_path.is_probably_same_path(&network_path));
-                OnPathResponseReceived::OffPath
+            // Response to an on-path PathChallenge that does not validate this path
+            Some(info) => {
+                // This is a valid path response, but this validates a path we no longer have in
+                // use. Keep only sent challenges for the current path.
+
+                self.on_path_challenges_sent
+                    .retain(|_token, i| i.network_path == self.network_path);
+
+                // if there are no challenges for the current path, schedule one
+                if !self.on_path_challenges_sent.is_empty() {
+                    self.send_new_challenge = true;
+                }
+                OnPathResponseReceived::Ignored {
+                    sent_on: info.network_path,
+                    current_path: self.network_path,
+                }
             }
-            // Response to a PathChallenge we recognize, but from an invalid remote
-            Some(info) => OnPathResponseReceived::Invalid {
-                expected: info.network_path,
+            None => match self.off_path_challenges_sent.remove(&token) {
+                // Response to an off-path PathChallenge
+                Some(info) => {
+                    // Since we do not store validation state for these paths, we only really care
+                    // about reaching the same remote
+                    self.off_path_challenges_sent
+                        .retain(|_token, i| i.network_path.remote != info.network_path.remote);
+                    OnPathResponseReceived::OffPath
+                }
+                // Response to an unknown PathChallenge. Does not indicate failure
+                None => OnPathResponseReceived::Unknown,
             },
-            // Response to an unknown PathChallenge
-            None => OnPathResponseReceived::Unknown,
         }
+    }
+
+    /// Removes all on-path and off-path sent challenges and cancels sending new challenges.
+    pub(super) fn reset_challenges(&mut self) {
+        self.on_path_challenges_sent.clear();
+        self.off_path_challenges_sent.clear();
+        self.send_new_challenge = false;
     }
 
     #[cfg(feature = "qlog")]
@@ -556,10 +602,10 @@ pub(super) enum OnPathResponseReceived {
     OffPath,
     /// The received token is unknown.
     Unknown,
-    /// The response is invalid.
-    Invalid {
-        /// The 4-tuple that was expected for this token.
-        expected: FourTuple,
+    /// The response is valid but it's not usable for path validation.
+    Ignored {
+        sent_on: FourTuple,
+        current_path: FourTuple,
     },
 }
 
@@ -909,21 +955,25 @@ pub enum PathEvent {
         /// Which path is now open
         id: PathId,
     },
-    /// The path was abandoned and all remaining state for it has been removed.
+    /// A path was abandoned and is no longer usable.
+    ///
+    /// This event will always be followed by [`Self::Discarded`] after some time.
     Abandoned {
+        /// With path was abandoned.
+        id: PathId,
+        /// Reason why this path was abandoned.
+        reason: PathAbandonReason,
+    },
+    /// A path was discarded and all remaining state for it has been removed.
+    ///
+    /// This event is the last event for a path, and is always emitted after [`Self::Abandoned`].
+    Discarded {
         /// Which path had its state dropped
         id: PathId,
         /// The final path stats, they are no longer available via [`Connection::stats`]
         ///
         /// [`Connection::stats`]: super::Connection::stats
         path_stats: PathStats,
-    },
-    /// Path was closed locally
-    LocallyClosed {
-        /// Path for which the error occurred
-        id: PathId,
-        /// The error that occurred
-        error: PathError,
     },
     /// The remote changed the status of the path
     ///
@@ -944,6 +994,48 @@ pub enum PathEvent {
         /// The address observed by the remote over this path
         addr: SocketAddr,
     },
+}
+
+/// Reason for why a path was abandoned.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum PathAbandonReason {
+    /// The path was closed locally by the application.
+    ApplicationClosed {
+        /// The error code to be sent with the abandon frame.
+        error_code: VarInt,
+    },
+    /// We didn't receive a path response in time after opening this path.
+    ValidationFailed,
+    /// We didn't receive any data from the remote within the path's idle timeout.
+    TimedOut,
+    /// The path became unusable after a local network change.
+    UnusableAfterNetworkChange,
+    /// The path was opened in a NAT traversal round which was terminated.
+    NatTraversalRoundEnded,
+    /// The remote closed the path.
+    RemoteAbandoned {
+        /// The error that was sent with the abandon frame.
+        error_code: VarInt,
+    },
+}
+
+impl PathAbandonReason {
+    /// Returns `true` if the closing of this path was initiated locally.
+    pub(crate) fn is_locally_initiated(&self) -> bool {
+        !matches!(self, Self::RemoteAbandoned { .. })
+    }
+
+    /// Returns the error code to send with a PATH_ABANDON frame.
+    pub(crate) fn error_code(&self) -> TransportErrorCode {
+        match self {
+            Self::ApplicationClosed { error_code } => (*error_code).into(),
+            Self::NatTraversalRoundEnded => TransportErrorCode::APPLICATION_ABANDON_PATH,
+            Self::ValidationFailed | Self::TimedOut | Self::UnusableAfterNetworkChange => {
+                TransportErrorCode::PATH_UNSTABLE_OR_POOR
+            }
+            Self::RemoteAbandoned { error_code } => (*error_code).into(),
+        }
+    }
 }
 
 /// Error from setting path status

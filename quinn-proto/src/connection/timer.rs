@@ -62,7 +62,7 @@ pub(crate) enum PathTimer {
 }
 
 impl PathTimer {
-    const VALUES: [Self; 9] = [
+    pub(super) const VALUES: [Self; 9] = [
         Self::LossDetection,
         Self::PathIdle,
         Self::PathValidation,

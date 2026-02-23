@@ -25,7 +25,6 @@ use crate::{
     config::{ServerConfig, TransportConfig},
     congestion::Controller,
     connection::{
-        paths::AbandonState,
         qlog::{QlogRecvPacket, QlogSink},
         spaces::LostPacket,
         timer::{ConnTimer, PathTimer},
@@ -35,7 +34,7 @@ use crate::{
         self, Close, DataBlocked, Datagram, FrameStruct, NewToken, ObservedAddr, StreamDataBlocked,
         StreamsBlocked,
     },
-    iroh_hp,
+    n0_nat_traversal,
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
         PacketNumber, PartialDecode, SpaceId,
@@ -73,7 +72,9 @@ use packet_crypto::CryptoState;
 pub(crate) use packet_crypto::EncryptionLevel;
 
 mod paths;
-pub use paths::{ClosedPath, PathEvent, PathId, PathStatus, RttEstimator, SetPathStatusError};
+pub use paths::{
+    ClosedPath, PathAbandonReason, PathEvent, PathId, PathStatus, RttEstimator, SetPathStatusError,
+};
 use paths::{PathData, PathState};
 
 pub(crate) mod qlog;
@@ -308,7 +309,8 @@ pub struct Connection {
     //    paths.  Or a set together with a minimum.  Or something.
     abandoned_paths: FxHashSet<PathId>,
 
-    iroh_hp: iroh_hp::State,
+    /// State for n0's (<https://n0.computer>) nat traversal protocol.
+    n0_nat_traversal: n0_nat_traversal::State,
     qlog: QlogSink,
 }
 
@@ -431,8 +433,7 @@ impl Connection {
             max_path_id_with_cids: PathId::ZERO,
             abandoned_paths: Default::default(),
 
-            // iroh's nat traversal
-            iroh_hp: Default::default(),
+            n0_nat_traversal: Default::default(),
             qlog,
         };
         if path_validated {
@@ -554,7 +555,7 @@ impl Connection {
 
     /// Opens a new path
     ///
-    /// Further errors might occur and they will be emitted in [`PathEvent::LocallyClosed`] events.
+    /// Further errors might occur and they will be emitted in [`PathEvent::Abandoned`] events with this path id.
     /// When the path is opened it will be reported as an [`PathEvent::Opened`].
     pub fn open_path(
         &mut self,
@@ -602,7 +603,7 @@ impl Connection {
         Ok(path_id)
     }
 
-    /// Closes a path by sending a PATH_ABANDON frame
+    /// Closes a path and sends a PATH_ABANDON frame with the passed error code.
     ///
     /// This will not allow closing the last path. It does allow closing paths which have
     /// not yet been opened, as e.g. is the case when receiving a PATH_ABANDON from the peer
@@ -613,16 +614,22 @@ impl Connection {
         path_id: PathId,
         error_code: VarInt,
     ) -> Result<(), ClosePathError> {
-        let locally_initiated = true;
-        self.close_path_inner(now, path_id, error_code, locally_initiated)
+        self.close_path_inner(
+            now,
+            path_id,
+            PathAbandonReason::ApplicationClosed { error_code },
+        )
     }
 
+    /// Closes a path and sends a PATH_ABANDON frame.
+    ///
+    /// Other than [`Self::close_path`] this allows to specify the reason for the path being closed.
+    /// Internally, this should be used over [`Self::close_path`].
     fn close_path_inner(
         &mut self,
         now: Instant,
         path_id: PathId,
-        error_code: VarInt,
-        locally_initiated: bool,
+        reason: PathAbandonReason,
     ) -> Result<(), ClosePathError> {
         if !self.is_multipath_negotiated() {
             return Err(ClosePathError::MultipathNotNegotiated);
@@ -634,7 +641,7 @@ impl Connection {
             return Err(ClosePathError::ClosedPath);
         }
 
-        if locally_initiated {
+        if reason.is_locally_initiated() {
             let has_remaining_validated_paths = self.paths.iter().any(|(id, path)| {
                 *id != path_id && !self.abandoned_paths.contains(id) && path.data.validated
             });
@@ -658,7 +665,7 @@ impl Connection {
         self.spaces[SpaceId::Data]
             .pending
             .path_abandon
-            .insert(path_id, error_code.into());
+            .insert(path_id, reason.error_code());
 
         // Remove pending NEW CIDs for this path
         let pending_space = &mut self.spaces[SpaceId::Data].pending;
@@ -689,12 +696,44 @@ impl Connection {
         trace!(%path_id, "abandoning path");
         self.abandoned_paths.insert(path_id);
 
-        self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
+        for timer in timer::PathTimer::VALUES {
+            // match for completeness
+            let keep_timer = match timer {
+                // These timers deal with sending and receiving PATH_CHALLENGE and
+                // PATH_RESPONSE, but now that the path is abandoned, we no longer care about
+                // these frames or their timing
+                PathTimer::PathValidation | PathTimer::PathChallengeLost | PathTimer::PathOpen => {
+                    false
+                }
+                // These timers deal with the lifetime of the path. Now that the path is abandoned,
+                // these are not relevant.
+                PathTimer::PathKeepAlive | PathTimer::PathIdle => false,
+                // The path has already been informed that outstanding acks should be sent
+                // immediately
+                PathTimer::MaxAckDelay => false,
+                // This timer should not be set, for completeness it's not kept as it's set when
+                // the PATH_ABANDON frame is sent.
+                PathTimer::DiscardPath => false,
+                // Sent packets still need to be identified as lost to trigger timely
+                // retransmission.
+                PathTimer::LossDetection => true,
+                // This path should not be used for sending after the PATH_ABANDON frame is sent.
+                // However, any outstanding data that should be sent before PATH_ABANDON, should
+                // still respect pacing.
+                PathTimer::Pacing => true,
+            };
 
-        // Clear all timers.
-        // We still need some timers after we close a path, e.g. the `DiscardPath` timer,
-        // but that timer is going to be set once we the `PATH_ABANDON` frame is sent.
-        self.timers.stop_per_path(path_id, self.qlog.with_time(now));
+            if !keep_timer {
+                let qlog = self.qlog.with_time(now);
+                self.timers.stop(Timer::PerPath(path_id, timer), qlog);
+            }
+        }
+
+        // Emit event to the application.
+        self.events.push_back(Event::Path(PathEvent::Abandoned {
+            id: path_id,
+            reason,
+        }));
 
         Ok(())
     }
@@ -1877,13 +1916,10 @@ impl Connection {
             return None;
         };
         prev_path.send_new_challenge = false;
-        let network_path = prev_path.network_path;
         let token = self.rng.random();
-        let info = paths::SentChallengeInfo {
-            sent_instant: now,
-            network_path,
-        };
-        prev_path.challenges_sent.insert(token, info);
+        let network_path = prev_path.network_path;
+        prev_path.new_path_challenge(now, token, network_path);
+
         debug_assert_eq!(
             self.highest_space,
             SpaceKind::Data,
@@ -1979,7 +2015,7 @@ impl Connection {
         buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
-        let server_side = self.iroh_hp.server_side_mut().ok()?;
+        let server_side = self.n0_nat_traversal.server_side_mut().ok()?;
         let probe = server_side.next_probe()?;
         if !self.paths.get(&path_id)?.data.validated {
             // Path is not usable for probing
@@ -2011,17 +2047,12 @@ impl Connection {
         builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
 
         let path = &mut self.paths.get_mut(&path_id).expect("checked").data;
+        let network_path = FourTuple {
+            remote,
+            local_ip: None,
+        };
 
-        path.challenges_sent.insert(
-            token,
-            paths::SentChallengeInfo {
-                sent_instant: now,
-                network_path: FourTuple {
-                    remote,
-                    local_ip: None,
-                },
-            },
-        );
+        path.new_path_challenge(now, token, network_path);
 
         let size = buf.len();
 
@@ -2296,11 +2327,9 @@ impl Connection {
                     let _guard = span.enter();
                     match timer {
                         PathTimer::PathIdle => {
-                            if let Err(err) = self.close_path(
-                                now,
-                                path_id,
-                                TransportErrorCode::PATH_UNSTABLE_OR_POOR.into(),
-                            ) {
+                            if let Err(err) =
+                                self.close_path_inner(now, path_id, PathAbandonReason::TimedOut)
+                            {
                                 warn!(?err, "failed closing path");
                             }
                         }
@@ -2329,8 +2358,7 @@ impl Connection {
                             if let Some((_, prev)) = path.prev.take() {
                                 path.data = prev;
                             }
-                            path.data.challenges_sent.clear();
-                            path.data.send_new_challenge = false;
+                            path.data.reset_challenges();
                         }
                         PathTimer::PathChallengeLost => {
                             let Some(path) = self.paths.get_mut(&path_id) else {
@@ -2343,25 +2371,19 @@ impl Connection {
                             let Some(path) = self.paths.get_mut(&path_id) else {
                                 continue;
                             };
-                            path.data.challenges_sent.clear();
-                            path.data.send_new_challenge = false;
+                            path.data.reset_challenges();
                             self.timers.stop(
                                 Timer::PerPath(path_id, PathTimer::PathChallengeLost),
                                 self.qlog.with_time(now),
                             );
                             debug!("new path validation failed");
-                            if let Err(err) = self.close_path(
+                            if let Err(err) = self.close_path_inner(
                                 now,
                                 path_id,
-                                TransportErrorCode::PATH_UNSTABLE_OR_POOR.into(),
+                                PathAbandonReason::ValidationFailed,
                             ) {
                                 warn!(?err, "failed closing path");
                             }
-
-                            self.events.push_back(Event::Path(PathEvent::LocallyClosed {
-                                id: path_id,
-                                error: PathError::ValidationFailed,
-                            }));
                         }
                         PathTimer::Pacing => trace!("pacing timer expired"),
                         PathTimer::MaxAckDelay => {
@@ -3167,7 +3189,7 @@ impl Connection {
         self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
 
         self.events.push_back(
-            PathEvent::Abandoned {
+            PathEvent::Discarded {
                 id: path_id,
                 path_stats,
             }
@@ -3468,25 +3490,6 @@ impl Connection {
         is_1rtt: bool,
     ) {
         self.total_authed_packets += 1;
-        if let Some(AbandonState::ExpectingPathAbandon { deadline }) = self
-            .paths
-            .get(&path_id)
-            .map(|path| &path.data.abandon_state)
-            && now > *deadline
-        {
-            warn!("received data on path which we abandoned more than 3 * PTO ago");
-            if !self.state.is_closed() {
-                self.state
-                    .move_to_closed(TransportError::PROTOCOL_VIOLATION(format!(
-                        "peer failed to respond with PATH_ABANDON{{ path_id={path_id} }} in time"
-                    )));
-                self.close_common();
-                self.set_close_timer(now);
-                self.connection_close_pending = true;
-            }
-            return;
-        }
-
         self.reset_keep_alive(path_id, now);
         self.reset_idle_timeout(now, space_id, path_id);
         self.permit_idle_reset = true;
@@ -4724,8 +4727,7 @@ impl Connection {
                                 }
                             }
                             if let Some((_, ref mut prev)) = path.prev {
-                                prev.challenges_sent.clear();
-                                prev.send_new_challenge = false;
+                                prev.reset_challenges();
                             }
                         }
                         OffPath => {
@@ -4740,8 +4742,11 @@ impl Connection {
                                 self.qlog.with_time(now),
                             );
                         }
-                        Invalid { expected } => {
-                            debug!(%response, %network_path, %expected, "ignoring invalid PATH_RESPONSE")
+                        Ignored {
+                            sent_on,
+                            current_path,
+                        } => {
+                            debug!(%sent_on, %current_path, %response, "ignoring valid PATH_RESPONSE")
                         }
                         Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
@@ -5033,10 +5038,13 @@ impl Connection {
                     error_code,
                 }) => {
                     span.record("path", tracing::field::display(&path_id));
-                    // TODO(flub): don't really know which error code to use here.
-                    let locally_initiated = false;
-                    match self.close_path_inner(now, path_id, error_code.into(), locally_initiated)
-                    {
+                    match self.close_path_inner(
+                        now,
+                        path_id,
+                        PathAbandonReason::RemoteAbandoned {
+                            error_code: error_code.into(),
+                        },
+                    ) {
                         Ok(()) => {
                             trace!("peer abandoned path");
                         }
@@ -5055,12 +5063,10 @@ impl Connection {
                             ));
                         }
                     };
-                    // If we receive a retransmit of PATH_ABANDON then we may already have
-                    // abandoned this path locally.  In that case the DiscardPath timer
-                    // may already have fired and we no longer have any state for this path.
-                    // Only set this timer if we still have path state.
+
+                    // Start draining the path if it still exists and hasn't started draining yet.
                     if let Some(path) = self.paths.get_mut(&path_id)
-                        && !matches!(path.data.abandon_state, AbandonState::ReceivedPathAbandon)
+                        && !mem::replace(&mut path.data.draining, true)
                     {
                         let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
                         let pto = path.data.rtt.pto_base() + ack_delay;
@@ -5069,8 +5075,8 @@ impl Connection {
                             now + 3 * pto,
                             self.qlog.with_time(now),
                         );
-                        // We received a PATH_ABANDON, we don't expect another one by a certain time.
-                        path.data.abandon_state = AbandonState::ReceivedPathAbandon;
+
+                        self.set_max_path_id(now, self.local_max_path_id.saturating_add(1u8));
                     }
                 }
                 Frame::PathStatusAvailable(info) => {
@@ -5162,7 +5168,7 @@ impl Connection {
                     }
                 }
                 Frame::AddAddress(addr) => {
-                    let client_state = match self.iroh_hp.client_side_mut() {
+                    let client_state = match self.n0_nat_traversal.client_side_mut() {
                         Ok(state) => state,
                         Err(err) => {
                             return Err(TransportError::PROTOCOL_VIOLATION(format!(
@@ -5180,7 +5186,7 @@ impl Connection {
                         Ok(maybe_added) => {
                             if let Some(added) = maybe_added {
                                 self.events.push_back(Event::NatTraversal(
-                                    iroh_hp::Event::AddressAdded(added),
+                                    n0_nat_traversal::Event::AddressAdded(added),
                                 ));
                             }
                         }
@@ -5190,7 +5196,7 @@ impl Connection {
                     }
                 }
                 Frame::RemoveAddress(addr) => {
-                    let client_state = match self.iroh_hp.client_side_mut() {
+                    let client_state = match self.n0_nat_traversal.client_side_mut() {
                         Ok(state) => state,
                         Err(err) => {
                             return Err(TransportError::PROTOCOL_VIOLATION(format!(
@@ -5199,15 +5205,14 @@ impl Connection {
                         }
                     };
                     if let Some(removed_addr) = client_state.remove_remote_address(addr) {
-                        self.events
-                            .push_back(Event::NatTraversal(iroh_hp::Event::AddressRemoved(
-                                removed_addr,
-                            )));
+                        self.events.push_back(Event::NatTraversal(
+                            n0_nat_traversal::Event::AddressRemoved(removed_addr),
+                        ));
                     }
                 }
                 Frame::ReachOut(reach_out) => {
                     let ipv6 = self.is_ipv6();
-                    let server_state = match self.iroh_hp.server_side_mut() {
+                    let server_state = match self.n0_nat_traversal.server_side_mut() {
                         Ok(state) => state,
                         Err(err) => {
                             return Err(TransportError::PROTOCOL_VIOLATION(format!(
@@ -5438,8 +5443,6 @@ impl Connection {
         // We prefer closing paths first unless we identify this is the last open path.
         let open_first = open_paths == non_recoverable_paths.len();
 
-        let abandon_error = TransportErrorCode::PATH_UNSTABLE_OR_POOR.into();
-
         for (path_id, remote, status) in non_recoverable_paths.into_iter() {
             let network_path = FourTuple {
                 remote,
@@ -5453,7 +5456,9 @@ impl Connection {
                 continue;
             }
 
-            if let Err(e) = self.close_path(now, path_id, abandon_error) {
+            if let Err(e) =
+                self.close_path_inner(now, path_id, PathAbandonReason::UnusableAfterNetworkChange)
+            {
                 debug!(%e,"Failed to close unrecoverable path after network change");
                 recoverable_paths.push((path_id, remote));
                 continue;
@@ -5732,15 +5737,10 @@ impl Connection {
         {
             path.send_new_challenge = false;
 
-            // Generate a new challenge every time we send a new PATH_CHALLENGE
             let token = self.rng.random();
-            let info = paths::SentChallengeInfo {
-                sent_instant: now,
-                network_path: path.network_path,
-            };
-            path.challenges_sent.insert(token, info);
+            path.new_path_challenge(now, token, path.network_path);
+            // Generate a new challenge every time we send a new PATH_CHALLENGE
             let challenge = frame::PathChallenge(token);
-            trace!(frame = %challenge);
             builder.write_frame(challenge, stats);
             builder.require_padding();
             let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
@@ -5865,50 +5865,6 @@ impl Connection {
                 error_code,
             };
             builder.write_frame(frame, stats);
-
-            let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
-            // We can't access path here anymore due to borrowing issues.
-            let send_pto = self.paths.get(&path_id).unwrap().data.rtt.pto_base() + ack_delay;
-            if let Some(abandoned_path) = self.paths.get_mut(&abandoned_path_id) {
-                // We only want to set the deadline on the *first* PATH_ABANDON we send.
-                // Retransmits shouldn't run this code again
-                if matches!(
-                    abandoned_path.data.abandon_state,
-                    AbandonState::NotAbandoned
-                ) {
-                    // The peer MUST respond with a corresponding PATH_ABANDON frame.
-                    // The other peer has 3 * PTO to do that.
-                    // This uses the PTO of the path we send on!
-                    // If the PATH_ABANDON comes in within the deadline we're giving here, then this
-                    // state will be set to `AbandonState::ReceivedPathAbandon`, essentially clearing
-                    // the deadline. If we receive a frame after the deadline, we error out with a
-                    // protocol violation.
-                    // Receiving other frames before the deadline is fine, as those might be packets
-                    // that were still in-flight.
-                    abandoned_path.data.abandon_state = AbandonState::ExpectingPathAbandon {
-                        deadline: now + 3 * send_pto,
-                    };
-
-                    // At some point, we need to forget about the path.
-                    // If we do so too early, then we'll have discarded the CIDs of that path and won't
-                    // handle incoming packets on that path correctly.
-                    // To give this path enough time, we assume that the peer will have received our
-                    // PATH_ABANDON within 3 * PTO of the path we sent the abandon on,
-                    // and then we give the path 3 * PTO time to make it very unlikely that there will
-                    // still be packets incoming on the path at that point.
-                    // This timer will actually get reset to a value that's likely to be even earlier
-                    // once we actually receive the PATH_ABANDON frame itself.
-                    let abandoned_pto =
-                        self.paths.get(&path_id).unwrap().data.rtt.pto_base() + ack_delay;
-                    self.timers.set(
-                        Timer::PerPath(abandoned_path_id, PathTimer::DiscardPath),
-                        now + 3 * send_pto + 3 * abandoned_pto,
-                        self.qlog.with_time(now),
-                    );
-                }
-            } else {
-                warn!("sent PATH_ABANDON after path was already discarded");
-            }
         }
 
         // PATH_STATUS_AVAILABLE & PATH_STATUS_BACKUP
@@ -6268,11 +6224,14 @@ impl Connection {
             {
                 let max_local_addresses = max_remotely_allowed_remote_addresses.get();
                 let max_remote_addresses = max_locally_allowed_remote_addresses.get();
-                self.iroh_hp =
-                    iroh_hp::State::new(max_remote_addresses, max_local_addresses, self.side());
+                self.n0_nat_traversal = n0_nat_traversal::State::new(
+                    max_remote_addresses,
+                    max_local_addresses,
+                    self.side(),
+                );
                 debug!(
                     %max_remote_addresses, %max_local_addresses,
-                    "iroh hole punching negotiated"
+                    "n0's nat traversal negotiated"
                 );
 
                 match self.side() {
@@ -6297,7 +6256,7 @@ impl Connection {
                     }
                 }
             } else {
-                debug!("iroh nat traversal enabled for both endpoints, but multipath is missing")
+                debug!("n0 nat traversal enabled for both endpoints, but multipath is missing")
             }
         }
 
@@ -6652,8 +6611,11 @@ impl Connection {
     }
 
     /// Add addresses the local endpoint considers are reachable for nat traversal.
-    pub fn add_nat_traversal_address(&mut self, address: SocketAddr) -> Result<(), iroh_hp::Error> {
-        if let Some(added) = self.iroh_hp.add_local_address(address)? {
+    pub fn add_nat_traversal_address(
+        &mut self,
+        address: SocketAddr,
+    ) -> Result<(), n0_nat_traversal::Error> {
+        if let Some(added) = self.n0_nat_traversal.add_local_address(address)? {
             self.spaces[SpaceId::Data].pending.add_address.insert(added);
         };
         Ok(())
@@ -6665,8 +6627,8 @@ impl Connection {
     pub fn remove_nat_traversal_address(
         &mut self,
         address: SocketAddr,
-    ) -> Result<(), iroh_hp::Error> {
-        if let Some(removed) = self.iroh_hp.remove_local_address(address)? {
+    ) -> Result<(), n0_nat_traversal::Error> {
+        if let Some(removed) = self.n0_nat_traversal.remove_local_address(address)? {
             self.spaces[SpaceId::Data]
                 .pending
                 .remove_address
@@ -6676,14 +6638,18 @@ impl Connection {
     }
 
     /// Get the current local nat traversal addresses
-    pub fn get_local_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
-        self.iroh_hp.get_local_nat_traversal_addresses()
+    pub fn get_local_nat_traversal_addresses(
+        &self,
+    ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
+        self.n0_nat_traversal.get_local_nat_traversal_addresses()
     }
 
     /// Get the currently advertised nat traversal addresses by the server
-    pub fn get_remote_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    pub fn get_remote_nat_traversal_addresses(
+        &self,
+    ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         Ok(self
-            .iroh_hp
+            .n0_nat_traversal
             .client_side()?
             .get_remote_nat_traversal_addresses())
     }
@@ -6731,14 +6697,14 @@ impl Connection {
     pub fn initiate_nat_traversal_round(
         &mut self,
         now: Instant,
-    ) -> Result<Vec<SocketAddr>, iroh_hp::Error> {
+    ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         if self.state.is_closed() {
-            return Err(iroh_hp::Error::Closed);
+            return Err(n0_nat_traversal::Error::Closed);
         }
 
         let ipv6 = self.is_ipv6();
-        let client_state = self.iroh_hp.client_side_mut()?;
-        let iroh_hp::NatTraversalRound {
+        let client_state = self.n0_nat_traversal.client_side_mut()?;
+        let n0_nat_traversal::NatTraversalRound {
             new_round,
             reach_out_at,
             addresses_to_probe,
@@ -6767,11 +6733,8 @@ impl Connection {
                 && !self.abandoned_paths.contains(&path_id)
             {
                 trace!(%path_id, "closing path from previous round");
-                let _ = self.close_path(
-                    now,
-                    path_id,
-                    TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
-                );
+                let _ =
+                    self.close_path_inner(now, path_id, PathAbandonReason::NatTraversalRoundEnded);
             }
         }
 
@@ -6788,7 +6751,7 @@ impl Connection {
                     probed_addresses.push(remote);
                 }
                 Err(e) => {
-                    self.iroh_hp
+                    self.n0_nat_traversal
                         .client_side_mut()
                         .expect("validated")
                         .report_in_continuation(id, e);
@@ -6800,11 +6763,11 @@ impl Connection {
         if let Some(err) = err {
             // We failed to probe any addresses, bail out
             if probed_addresses.is_empty() {
-                return Err(iroh_hp::Error::Multipath(err));
+                return Err(n0_nat_traversal::Error::Multipath(err));
             }
         }
 
-        self.iroh_hp
+        self.n0_nat_traversal
             .client_side_mut()
             .expect("connection side validated")
             .set_round_path_ids(path_ids);
@@ -6818,10 +6781,10 @@ impl Connection {
     /// successfully open.
     fn continue_nat_traversal_round(&mut self, now: Instant) -> Option<bool> {
         let ipv6 = self.is_ipv6();
-        let client_state = self.iroh_hp.client_side_mut().ok()?;
+        let client_state = self.n0_nat_traversal.client_side_mut().ok()?;
         let (id, address) = client_state.continue_nat_traversal_round(ipv6)?;
         let open_result = self.open_nat_traversal_path(now, address);
-        let client_state = self.iroh_hp.client_side_mut().expect("validated");
+        let client_state = self.n0_nat_traversal.client_side_mut().expect("validated");
         match open_result {
             Ok(None) => Some(true),
             Ok(Some((path_id, _remote))) => {
@@ -6833,6 +6796,14 @@ impl Connection {
                 Some(false)
             }
         }
+    }
+}
+
+impl fmt::Debug for Connection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Connection")
+            .field("handshake_cid", &self.handshake_cid)
+            .finish()
     }
 }
 
@@ -6849,12 +6820,55 @@ pub trait NetworkChangeHint: std::fmt::Debug + 'static {
     fn is_path_recoverable(&self, path_id: PathId, network_path: FourTuple) -> bool;
 }
 
-impl fmt::Debug for Connection {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Connection")
-            .field("handshake_cid", &self.handshake_cid)
-            .finish()
-    }
+/// Return value for [`Connection::poll_transmit_path`].
+#[derive(Debug)]
+enum PollPathStatus {
+    /// Nothing to send on the path, nothing was written into the [`TransmitBuf`].
+    NothingToSend {
+        /// If true there was data to send but congestion control did not allow so.
+        congestion_blocked: bool,
+    },
+    /// The transmit is ready to be sent.
+    Send(Transmit),
+}
+
+/// Return value for [`Connection::poll_transmit_path_space`].
+#[derive(Debug)]
+enum PollPathSpaceStatus {
+    /// Nothing to send in the space, nothing was written into the [`TransmitBuf`].
+    NothingToSend {
+        /// If true there was data to send but congestion control did not allow so.
+        congestion_blocked: bool,
+    },
+    /// One or more packets have been written into the [`TransmitBuf`].
+    WrotePacket {
+        /// The highest packet number.
+        last_packet_number: u64,
+        /// Whether to pad an already started datagram in the next packet.
+        ///
+        /// When packets in Initial, 0-RTT or Handshake packet do not fill the entire
+        /// datagram they may decide to coalesce with the next packet from a higher
+        /// encryption level on the same path. But the earlier packet may require specific
+        /// size requirements for the datagram they are sent in.
+        ///
+        /// If a space did not complete the datagram, they use this to request the correct
+        /// padding in the final packet of the datagram so that the final datagram will have
+        /// the correct size.
+        ///
+        /// If a space did fill an entire datagram, it leaves this to the default of
+        /// [`PadDatagram::No`].
+        pad_datagram: PadDatagram,
+    },
+    /// Send the contents of the transmit immediately.
+    ///
+    /// Packets were written and the GSO batch must end now, regardless from whether higher
+    /// spaces still have frames to write. This is used when the last datagram written would
+    /// require too much padding to continue a GSO batch, which would waste space on the
+    /// wire.
+    Send {
+        /// The highest packet number written into the transmit.
+        last_packet_number: u64,
+    },
 }
 
 /// Return value for [`Connection::poll_transmit_path`].
@@ -7168,8 +7182,8 @@ pub enum Event {
     DatagramsUnblocked,
     /// (Multi)Path events
     Path(PathEvent),
-    /// Iroh's nat traversal events
-    NatTraversal(iroh_hp::Event),
+    /// n0's nat traversal events
+    NatTraversal(n0_nat_traversal::Event),
 }
 
 impl From<PathEvent> for Event {
