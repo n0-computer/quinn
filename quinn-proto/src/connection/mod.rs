@@ -1597,12 +1597,13 @@ impl Connection {
                 };
             }
 
-            // If this boolean is true we only want to send frames which can not be sent on
-            // any other path. See the path scheduling notes in Self::poll_transmit.
-            let path_exclusive_only =
-                have_available_path && self.path_data(path_id).local_status() == PathStatus::Backup;
-
-            self.populate_packet(now, space_id, path_id, path_exclusive_only, &mut builder);
+            self.populate_packet(
+                now,
+                space_id,
+                path_id,
+                scheduling_info.get(path_id).unwrap(),
+                &mut builder,
+            );
 
             // ACK-only packets should only be sent when explicitly allowed. If we write them due to
             // any other reason, there is a bug which leads to one component announcing write
@@ -5593,7 +5594,7 @@ impl Connection {
         now: Instant,
         space_id: SpaceId,
         path_id: PathId,
-        path_exclusive_only: bool,
+        scheduling_info: &PathSchedulingInfo,
         builder: &mut PacketBuilder<'a, 'b>,
     ) {
         let pn = builder.packet_number;
