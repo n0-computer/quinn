@@ -4713,7 +4713,7 @@ impl Connection {
                             }
                         }
                         OffPath => {
-                            debug!("Valid response to off-path PATH_CHALLENGE");
+                            debug!(%response, "Valid response to off-path PATH_CHALLENGE");
                         }
                         Ignored {
                             sent_on,
