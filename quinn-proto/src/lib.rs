@@ -110,7 +110,7 @@ mod address_discovery;
 mod token_memory_cache;
 pub use token_memory_cache::TokenMemoryCache;
 
-pub mod iroh_hp;
+pub mod n0_nat_traversal;
 
 // Deal with time
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
