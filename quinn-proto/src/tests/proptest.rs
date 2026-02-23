@@ -809,6 +809,9 @@ fn regression_peer_ignored_path_abandon() {
 ///
 /// The client will then never clear out the PATH_CHALLENGE from the "pending"
 /// challenges, and so it will never fully clear the path challenge timer.
+///
+/// This issue was fixed by making sure to clear out challenges that were probing
+/// 4-tuples that are different from the current network path.
 #[test]
 fn regression_never_idle4() {
     let prefix = "regression_never_idle4";
