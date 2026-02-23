@@ -145,18 +145,18 @@ pub(super) struct PathData {
     pub(super) congestion: Box<dyn congestion::Controller>,
     /// Pacing state
     pub(super) pacing: Pacer,
-    /// Actually sent challenges (on the wire, on-path).
-    on_path_challenges_sent: IntMap<u64, SentChallengeInfo>,
-    /// Actually sent challenges (on the wire, off-path).
-    off_path_challenges_sent: IntMap<u64, SentChallengeInfo>,
-    /// Whether to *immediately* trigger another PATH_CHALLENGE.
+    /// Path challenges sent (on the wire, on-path) that we didn't receive a path response for yet
+    on_path_challenges_unconfirmed: IntMap<u64, SentChallengeInfo>,
+    /// Path challenges sent (on the wire, off-path) that we didn't receive a path response for yet
+    off_path_challenges_unconfirmed: IntMap<u64, SentChallengeInfo>,
+    /// Whether to trigger sending another PATH_CHALLENGE in the next poll_transmit.
     ///
     /// This is picked up by [`super::Connection::space_can_send`].
     ///
     /// Only used for RFC9000-style path migration and multipath path validation (for opening).
     ///
     /// This is **not used** for n0 nat traversal challenge sending.
-    pub(super) send_new_on_path_challenge: bool,
+    pub(super) tx_queue_on_path_challenge: bool,
     /// Pending responses to PATH_CHALLENGE frames
     pub(super) path_responses: PathResponses,
     /// Whether we're certain the peer can both send and receive on this address
@@ -259,9 +259,9 @@ impl PathData {
                 now,
             ),
             congestion,
-            on_path_challenges_sent: Default::default(),
-            off_path_challenges_sent: Default::default(),
-            send_new_on_path_challenge: false,
+            on_path_challenges_unconfirmed: Default::default(),
+            off_path_challenges_unconfirmed: Default::default(),
+            tx_queue_on_path_challenge: false,
             path_responses: PathResponses::default(),
             validated: false,
             total_sent: 0,
@@ -315,9 +315,9 @@ impl PathData {
             pacing: Pacer::new(smoothed_rtt, congestion.window(), prev.current_mtu(), now),
             sending_ecn: true,
             congestion,
-            on_path_challenges_sent: Default::default(),
-            off_path_challenges_sent: Default::default(),
-            send_new_on_path_challenge: false,
+            on_path_challenges_unconfirmed: Default::default(),
+            off_path_challenges_unconfirmed: Default::default(),
+            tx_queue_on_path_challenge: false,
             path_responses: PathResponses::default(),
             validated: false,
             total_sent: 0,
@@ -342,7 +342,7 @@ impl PathData {
 
     /// Whether we're in the process of validating this path with PATH_CHALLENGEs
     pub(super) fn is_validating_path(&self) -> bool {
-        !self.on_path_challenges_sent.is_empty() || self.send_new_on_path_challenge
+        !self.on_path_challenges_unconfirmed.is_empty() || self.tx_queue_on_path_challenge
     }
 
     /// Indicates whether we're a server that hasn't validated the peer's address and hasn't
@@ -378,9 +378,9 @@ impl PathData {
             network_path,
         };
         if network_path == self.network_path {
-            self.on_path_challenges_sent.insert(token, info);
+            self.on_path_challenges_unconfirmed.insert(token, info);
         } else {
-            self.off_path_challenges_sent.insert(token, info);
+            self.off_path_challenges_unconfirmed.insert(token, info);
         }
     }
 
@@ -420,11 +420,11 @@ impl PathData {
 
     /// The earliest time at which an on-path challenge we sent is considered lost.
     pub(super) fn earliest_on_path_expiring_challenge(&self) -> Option<Instant> {
-        if self.on_path_challenges_sent.is_empty() {
+        if self.on_path_challenges_unconfirmed.is_empty() {
             return None;
         }
         let pto = self.rtt.pto_base();
-        self.on_path_challenges_sent
+        self.on_path_challenges_unconfirmed
             .values()
             .map(|info| info.sent_instant + pto)
             .min()
@@ -449,7 +449,7 @@ impl PathData {
         // - network path over which the response arrived (`network_path`)
         //
         // As per the spec, this only validates the network path on which this was *sent*.
-        match self.on_path_challenges_sent.remove(&token) {
+        match self.on_path_challenges_unconfirmed.remove(&token) {
             // Response to an on-path PathChallenge that validates this path.
             // The sent path should match the current path. However, it's possible that the
             // challenge was sent when no local_ip was known. This case is allowed as well
@@ -460,9 +460,9 @@ impl PathData {
                     trace!("new path validated");
                 }
                 // Clear any other on-path sent challenge
-                self.on_path_challenges_sent.clear();
+                self.on_path_challenges_unconfirmed.clear();
 
-                self.send_new_on_path_challenge = false;
+                self.tx_queue_on_path_challenge = false;
 
                 // This RTT can only be used for the initial RTT, not as a normal
                 // sample: https://www.rfc-editor.org/rfc/rfc9002#section-6.2.2-2.
@@ -477,24 +477,24 @@ impl PathData {
                 // This is a valid path response, but this validates a path we no longer have in
                 // use. Keep only sent challenges for the current path.
 
-                self.on_path_challenges_sent
+                self.on_path_challenges_unconfirmed
                     .retain(|_token, i| i.network_path == self.network_path);
 
                 // if there are no challenges for the current path, schedule one
-                if !self.on_path_challenges_sent.is_empty() {
-                    self.send_new_on_path_challenge = true;
+                if !self.on_path_challenges_unconfirmed.is_empty() {
+                    self.tx_queue_on_path_challenge = true;
                 }
                 OnPathResponseReceived::Ignored {
                     sent_on: info.network_path,
                     current_path: self.network_path,
                 }
             }
-            None => match self.off_path_challenges_sent.remove(&token) {
+            None => match self.off_path_challenges_unconfirmed.remove(&token) {
                 // Response to an off-path PathChallenge
                 Some(info) => {
                     // Since we do not store validation state for these paths, we only really care
                     // about reaching the same remote
-                    self.off_path_challenges_sent
+                    self.off_path_challenges_unconfirmed
                         .retain(|_token, i| i.network_path.remote != info.network_path.remote);
                     OnPathResponseReceived::OffPath
                 }
@@ -506,8 +506,8 @@ impl PathData {
 
     /// Removes all on-path challenges we remember and cancels sending new on-path challenges.
     pub(super) fn reset_on_path_challenges(&mut self) {
-        self.on_path_challenges_sent.clear();
-        self.send_new_on_path_challenge = false;
+        self.on_path_challenges_unconfirmed.clear();
+        self.tx_queue_on_path_challenge = false;
     }
 
     #[cfg(feature = "qlog")]
