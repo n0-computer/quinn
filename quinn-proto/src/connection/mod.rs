@@ -2340,7 +2340,7 @@ impl Connection {
                             if let Some((_, prev)) = path.prev.take() {
                                 path.data = prev;
                             }
-                            path.data.reset_challenges();
+                            path.data.reset_on_path_challenges();
                         }
                         PathTimer::PathChallengeLost => {
                             let Some(path) = self.paths.get_mut(&path_id) else {
@@ -2353,7 +2353,7 @@ impl Connection {
                             let Some(path) = self.paths.get_mut(&path_id) else {
                                 continue;
                             };
-                            path.data.reset_challenges();
+                            path.data.reset_on_path_challenges();
                             self.timers.stop(
                                 Timer::PerPath(path_id, PathTimer::PathChallengeLost),
                                 self.qlog.with_time(now),
@@ -4687,7 +4687,7 @@ impl Connection {
 
                             let next_challenge = path
                                 .data
-                                .earliest_expiring_challenge()
+                                .earliest_on_path_expiring_challenge()
                                 .map(|time| time + self.ack_frequency.max_ack_delay_for_pto());
                             self.timers.set_or_stop(
                                 Timer::PerPath(path_id, PathChallengeLost),
@@ -4709,20 +4709,11 @@ impl Connection {
                                 }
                             }
                             if let Some((_, ref mut prev)) = path.prev {
-                                prev.reset_challenges();
+                                prev.reset_on_path_challenges();
                             }
                         }
                         OffPath => {
-                            debug!("Response to off-path PathChallenge!");
-                            let next_challenge = path
-                                .data
-                                .earliest_expiring_challenge()
-                                .map(|time| time + self.ack_frequency.max_ack_delay_for_pto());
-                            self.timers.set_or_stop(
-                                Timer::PerPath(path_id, PathChallengeLost),
-                                next_challenge,
-                                self.qlog.with_time(now),
-                            );
+                            debug!("Valid response to off-path PATH_CHALLENGE");
                         }
                         Ignored {
                             sent_on,

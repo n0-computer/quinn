@@ -418,25 +418,16 @@ impl PathData {
         }
     }
 
-    /// The earliest time at which a sent challenge is considered lost.
-    pub(super) fn earliest_expiring_challenge(&self) -> Option<Instant> {
-        if self.on_path_challenges_sent.is_empty() && self.off_path_challenges_sent.is_empty() {
+    /// The earliest time at which an on-path challenge we sent is considered lost.
+    pub(super) fn earliest_on_path_expiring_challenge(&self) -> Option<Instant> {
+        if self.on_path_challenges_sent.is_empty() {
             return None;
         }
         let pto = self.rtt.pto_base();
-        let earliest_on_path = self
-            .on_path_challenges_sent
+        self.on_path_challenges_sent
             .values()
-            .map(|info| info.sent_instant)
-            .min();
-
-        let earliest_off_path = self
-            .off_path_challenges_sent
-            .values()
-            .map(|info| info.sent_instant)
-            .min();
-
-        earliest_on_path.min(earliest_off_path).map(|t| t + pto)
+            .map(|info| info.sent_instant + pto)
+            .min()
     }
 
     /// Handle receiving a PATH_RESPONSE.
@@ -513,10 +504,9 @@ impl PathData {
         }
     }
 
-    /// Removes all on-path and off-path sent challenges and cancels sending new challenges.
-    pub(super) fn reset_challenges(&mut self) {
+    /// Removes all on-path challenges we remember and cancels sending new on-path challenges.
+    pub(super) fn reset_on_path_challenges(&mut self) {
         self.on_path_challenges_sent.clear();
-        self.off_path_challenges_sent.clear();
         self.send_new_on_path_challenge = false;
     }
 
