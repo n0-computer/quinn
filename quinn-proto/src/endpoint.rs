@@ -1264,6 +1264,115 @@ impl Incoming {
     pub fn orig_dst_cid(&self) -> ConnectionId {
         self.token.orig_dst_cid
     }
+
+    /// The ALPN protocols proposed by the client in the TLS ClientHello
+    ///
+    /// This decrypts and parses the Initial packet payload to extract the ALPN
+    /// extension. Returns `None` if parsing fails for any reason.
+    pub fn alpn(&self) -> Option<Vec<Vec<u8>>> {
+        let packet_number = self.packet.header.number.expand(0);
+        let mut payload = self.packet.payload.clone();
+        self.crypto
+            .packet
+            .remote
+            .decrypt(
+                PathId::ZERO,
+                packet_number,
+                &self.packet.header_data,
+                &mut payload,
+            )
+            .ok()?;
+
+        let frames = frame::Iter::new(payload.freeze()).ok()?;
+        for frame in frames {
+            if let Ok(frame::Frame::Crypto(crypto)) = frame {
+                return parse_client_hello_alpns(&crypto.data);
+            }
+        }
+        None
+    }
+}
+
+/// Parse the ALPN extension from a TLS ClientHello message
+fn parse_client_hello_alpns(data: &[u8]) -> Option<Vec<Vec<u8>>> {
+    let mut r = data;
+
+    // Handshake type: ClientHello = 0x01
+    if *r.first()? != 0x01 {
+        return None;
+    }
+    r = &r[1..];
+
+    // Length (u24)
+    if r.len() < 3 {
+        return None;
+    }
+    let len = (r[0] as usize) << 16 | (r[1] as usize) << 8 | r[2] as usize;
+    r = r.get(3..3 + len)?;
+
+    // Client version (2) + random (32) = 34 bytes
+    r = r.get(34..)?;
+
+    // Session ID: 1 byte length + data
+    let session_id_len = *r.first()? as usize;
+    r = r.get(1 + session_id_len..)?;
+
+    // Cipher suites: 2 byte length + data
+    if r.len() < 2 {
+        return None;
+    }
+    let cs_len = (r[0] as usize) << 8 | r[1] as usize;
+    r = r.get(2 + cs_len..)?;
+
+    // Compression methods: 1 byte length + data
+    let comp_len = *r.first()? as usize;
+    r = r.get(1 + comp_len..)?;
+
+    // Extensions: 2 byte total length
+    if r.len() < 2 {
+        return None;
+    }
+    let ext_len = (r[0] as usize) << 8 | r[1] as usize;
+    r = r.get(2..2 + ext_len)?;
+
+    // Iterate extensions
+    while r.len() >= 4 {
+        let ext_type = (r[0] as u16) << 8 | r[1] as u16;
+        let ext_data_len = (r[2] as usize) << 8 | r[3] as usize;
+        r = &r[4..];
+        if r.len() < ext_data_len {
+            return None;
+        }
+        let ext_data = &r[..ext_data_len];
+        r = &r[ext_data_len..];
+
+        // ALPN extension type = 0x0010
+        if ext_type == 0x0010 {
+            return parse_alpn_extension(ext_data);
+        }
+    }
+    None
+}
+
+/// Parse the ALPN protocol list from the extension data
+fn parse_alpn_extension(mut data: &[u8]) -> Option<Vec<Vec<u8>>> {
+    if data.len() < 2 {
+        return None;
+    }
+    let list_len = (data[0] as usize) << 8 | data[1] as usize;
+    data = data.get(2..2 + list_len)?;
+
+    let mut alpns = Vec::new();
+    while !data.is_empty() {
+        let proto_len = *data.first()? as usize;
+        data = &data[1..];
+        if data.len() < proto_len {
+            return None;
+        }
+        alpns.push(data[..proto_len].to_vec());
+        data = &data[proto_len..];
+    }
+    Some(alpns)
 }
 
 struct IncomingImproperDropWarner;

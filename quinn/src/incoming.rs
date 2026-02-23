@@ -98,6 +98,14 @@ impl Incoming {
     pub fn orig_dst_cid(&self) -> ConnectionId {
         self.0.as_ref().unwrap().inner.orig_dst_cid()
     }
+
+    /// The ALPN protocols proposed by the client in the TLS ClientHello
+    ///
+    /// This decrypts and parses the Initial packet payload to extract the ALPN
+    /// extension. Returns `None` if parsing fails for any reason.
+    pub fn alpn(&self) -> Option<Vec<Vec<u8>>> {
+        self.0.as_ref().unwrap().inner.alpn()
+    }
 }
 
 impl Drop for Incoming {
