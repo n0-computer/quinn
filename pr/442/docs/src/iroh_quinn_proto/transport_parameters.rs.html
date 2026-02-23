@@ -416,7 +416,7 @@
 <a href=#416 id=416 data-nosnippet>416</a>                        w.write(val);
 <a href=#417 id=417 data-nosnippet>417</a>                    }
 <a href=#418 id=418 data-nosnippet>418</a>                }
-<a href=#419 id=419 data-nosnippet>419</a>                TransportParameterId::IrohNatTraversal =&gt; {
+<a href=#419 id=419 data-nosnippet>419</a>                TransportParameterId::N0NatTraversal =&gt; {
 <a href=#420 id=420 data-nosnippet>420</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(val) = <span class="self">self</span>.max_remote_nat_traversal_addresses {
 <a href=#421 id=421 data-nosnippet>421</a>                        w.write_var(id <span class="kw">as </span>u64);
 <a href=#422 id=422 data-nosnippet>422</a>                        w.write(VarInt(<span class="number">1</span>));
@@ -548,7 +548,7 @@
 <a href=#548 id=548 data-nosnippet>548</a>
 <a href=#549 id=549 data-nosnippet>549</a>                    params.initial_max_path_id = <span class="prelude-val">Some</span>(value);
 <a href=#550 id=550 data-nosnippet>550</a>                }
-<a href=#551 id=551 data-nosnippet>551</a>                TransportParameterId::IrohNatTraversal =&gt; {
+<a href=#551 id=551 data-nosnippet>551</a>                TransportParameterId::N0NatTraversal =&gt; {
 <a href=#552 id=552 data-nosnippet>552</a>                    <span class="kw">if </span>params.max_remote_nat_traversal_addresses.is_some() {
 <a href=#553 id=553 data-nosnippet>553</a>                        <span class="kw">return </span><span class="prelude-val">Err</span>(Error::Malformed);
 <a href=#554 id=554 data-nosnippet>554</a>                    }
@@ -731,8 +731,8 @@
 <a href=#731 id=731 data-nosnippet>731</a>    </span>InitialMaxPathId = <span class="number">0x3e</span>,
 <a href=#732 id=732 data-nosnippet>732</a>
 <a href=#733 id=733 data-nosnippet>733</a>    <span class="comment">// inspired by https://www.ietf.org/archive/id/draft-seemann-quic-nat-traversal-02.html,
-<a href=#734 id=734 data-nosnippet>734</a>    // simplified to iroh's needs
-<a href=#735 id=735 data-nosnippet>735</a>    </span>IrohNatTraversal = <span class="number">0x3d7f91120401</span>,
+<a href=#734 id=734 data-nosnippet>734</a>    // simplified to n0's own protocol.
+<a href=#735 id=735 data-nosnippet>735</a>    </span>N0NatTraversal = <span class="number">0x3d7f91120401</span>,
 <a href=#736 id=736 data-nosnippet>736</a>}
 <a href=#737 id=737 data-nosnippet>737</a>
 <a href=#738 id=738 data-nosnippet>738</a><span class="kw">impl </span>TransportParameterId {
@@ -761,7 +761,7 @@
 <a href=#761 id=761 data-nosnippet>761</a>        <span class="self">Self</span>::MinAckDelayDraft07,
 <a href=#762 id=762 data-nosnippet>762</a>        <span class="self">Self</span>::ObservedAddr,
 <a href=#763 id=763 data-nosnippet>763</a>        <span class="self">Self</span>::InitialMaxPathId,
-<a href=#764 id=764 data-nosnippet>764</a>        <span class="self">Self</span>::IrohNatTraversal,
+<a href=#764 id=764 data-nosnippet>764</a>        <span class="self">Self</span>::N0NatTraversal,
 <a href=#765 id=765 data-nosnippet>765</a>    ];
 <a href=#766 id=766 data-nosnippet>766</a>}
 <a href=#767 id=767 data-nosnippet>767</a>
@@ -803,7 +803,7 @@
 <a href=#803 id=803 data-nosnippet>803</a>            id <span class="kw">if </span><span class="self">Self</span>::MinAckDelayDraft07 == id =&gt; <span class="self">Self</span>::MinAckDelayDraft07,
 <a href=#804 id=804 data-nosnippet>804</a>            id <span class="kw">if </span><span class="self">Self</span>::ObservedAddr == id =&gt; <span class="self">Self</span>::ObservedAddr,
 <a href=#805 id=805 data-nosnippet>805</a>            id <span class="kw">if </span><span class="self">Self</span>::InitialMaxPathId == id =&gt; <span class="self">Self</span>::InitialMaxPathId,
-<a href=#806 id=806 data-nosnippet>806</a>            id <span class="kw">if </span><span class="self">Self</span>::IrohNatTraversal == id =&gt; <span class="self">Self</span>::IrohNatTraversal,
+<a href=#806 id=806 data-nosnippet>806</a>            id <span class="kw">if </span><span class="self">Self</span>::N0NatTraversal == id =&gt; <span class="self">Self</span>::N0NatTraversal,
 <a href=#807 id=807 data-nosnippet>807</a>            <span class="kw">_ </span>=&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(()),
 <a href=#808 id=808 data-nosnippet>808</a>        };
 <a href=#809 id=809 data-nosnippet>809</a>        <span class="prelude-val">Ok</span>(param)

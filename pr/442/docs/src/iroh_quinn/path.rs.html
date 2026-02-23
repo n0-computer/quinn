@@ -7,7 +7,7 @@
 <a href=#7 id=7 data-nosnippet>7</a>
 <a href=#8 id=8 data-nosnippet>8</a><span class="kw">use </span>proto::{
 <a href=#9 id=9 data-nosnippet>9</a>    ClosePathError, ClosedPath, PathError, PathEvent, PathId, PathStats, PathStatus,
-<a href=#10 id=10 data-nosnippet>10</a>    SetPathStatusError,
+<a href=#10 id=10 data-nosnippet>10</a>    SetPathStatusError, TransportErrorCode,
 <a href=#11 id=11 data-nosnippet>11</a>};
 <a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span>tokio::sync::watch;
 <a href=#13 id=13 data-nosnippet>13</a><span class="kw">use </span>tokio_stream::{Stream, wrappers::WatchStream};
@@ -223,7 +223,7 @@
 <a href=#223 id=223 data-nosnippet>223</a>        state.inner.close_path(
 <a href=#224 id=224 data-nosnippet>224</a>            <span class="kw">crate</span>::Instant::now(),
 <a href=#225 id=225 data-nosnippet>225</a>            <span class="self">self</span>.id,
-<a href=#226 id=226 data-nosnippet>226</a>            proto::TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
+<a href=#226 id=226 data-nosnippet>226</a>            TransportErrorCode::APPLICATION_ABANDON_PATH.into(),
 <a href=#227 id=227 data-nosnippet>227</a>        )
 <a href=#228 id=228 data-nosnippet>228</a>    }
 <a href=#229 id=229 data-nosnippet>229</a>
@@ -380,7 +380,7 @@
 <a href=#380 id=380 data-nosnippet>380</a>                            old != <span class="kw-2">*</span>addr
 <a href=#381 id=381 data-nosnippet>381</a>                        });
 <a href=#382 id=382 data-nosnippet>382</a>                    }
-<a href=#383 id=383 data-nosnippet>383</a>                    <span class="prelude-val">Ok</span>(PathEvent::Abandoned { id, .. }) <span class="kw">if </span>id == path_id =&gt; {
+<a href=#383 id=383 data-nosnippet>383</a>                    <span class="prelude-val">Ok</span>(PathEvent::Discarded { id, .. }) <span class="kw">if </span>id == path_id =&gt; {
 <a href=#384 id=384 data-nosnippet>384</a>                        <span class="comment">// If the path is closed, terminate the stream
 <a href=#385 id=385 data-nosnippet>385</a>                        </span><span class="kw">break</span>;
 <a href=#386 id=386 data-nosnippet>386</a>                    }
