@@ -1437,6 +1437,45 @@ fn path_response_retransmit() {
     );
 }
 
+/// Regression test: handle sent challenges that are waiting for a response while a passive
+/// migration occurs.
+///
+/// This used to loop indefinitely.
+#[test]
+fn regression_path_validation_stale_local_after_passive_migration() {
+    let _guard = subscribe();
+    let mut pair = ConnPair::default();
+    pair.drive();
+
+    // Trigger path validation on the client so the CLIENT sends PATH_CHALLENGE_A.
+    // At this point the client's local IP is Some(::1) (IPv6 loopback).
+    pair.conn_mut(Client).trigger_path_validation();
+    pair.drive_client(); // challenge_A queued at server
+    pair.drive_server(); // server sends PATH_RESPONSE for A to the *old* client address
+
+    // Drop the response before it reaches the client. We want to simulate the response arriving
+    // only *after* passive migration has changed the client's observed local IP.
+    pair.client.inbound.clear();
+
+    pair.passive_migration(Client);
+
+    // Send a ping so the server detects the migration and starts routing to the new ip.
+    pair.conn_mut(Client).ping();
+    pair.drive_client(); // server.inbound now has a packet sourced from 127.0.0.2
+    pair.drive_server(); // server detects migration, sends PATH_CHALLENGE to 127.0.0.2;
+    // client receives it at local = 127.0.0.2 → local_ip updated
+
+    // At this point:
+    //   challenge_A.info.local_ip  = Some(::1)        (recorded at send time)
+    //   self.network_path.local_ip = Some(127.0.0.2)  (updated after passive migration)
+    //
+    // Without the fix: challenge_A is never cleaned up, PathChallengeLost fires forever.
+    assert!(
+        !pair.drive_bounded(1000),
+        "connection never became idle; path validation was stuck in a loop"
+    );
+}
+
 fn test_flow_control(config: TransportConfig, window_size: usize) {
     let _guard = subscribe();
     let mut pair = Pair::new(

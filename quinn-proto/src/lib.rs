@@ -386,6 +386,10 @@ impl FourTuple {
     /// If we have a local IP set, then we're exact and only match if the 4-tuples are
     /// exactly equal.
     /// If we don't have a local IP set, then we only check the remote addresses for equality.
+    ///
+    /// Note that because of this, the following calls might differ:
+    /// - `a.is_probably_same_path(b)`
+    /// - `b.is_probably_same_path(a)`
     pub fn is_probably_same_path(&self, other: &Self) -> bool {
         self.remote == other.remote && (self.local_ip.is_none() || self.local_ip == other.local_ip)
     }

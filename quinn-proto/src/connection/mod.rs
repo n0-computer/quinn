@@ -1900,13 +1900,10 @@ impl Connection {
             return None;
         };
         prev_path.send_new_challenge = false;
-        let network_path = prev_path.network_path;
         let token = self.rng.random();
-        let info = paths::SentChallengeInfo {
-            sent_instant: now,
-            network_path,
-        };
-        prev_path.challenges_sent.insert(token, info);
+        let network_path = prev_path.network_path;
+        prev_path.new_path_challenge(now, token, network_path);
+
         debug_assert_eq!(
             self.highest_space,
             SpaceKind::Data,
@@ -2034,17 +2031,12 @@ impl Connection {
         builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
 
         let path = &mut self.paths.get_mut(&path_id).expect("checked").data;
+        let network_path = FourTuple {
+            remote,
+            local_ip: None,
+        };
 
-        path.challenges_sent.insert(
-            token,
-            paths::SentChallengeInfo {
-                sent_instant: now,
-                network_path: FourTuple {
-                    remote,
-                    local_ip: None,
-                },
-            },
-        );
+        path.new_path_challenge(now, token, network_path);
 
         let size = buf.len();
 
@@ -2348,8 +2340,7 @@ impl Connection {
                             if let Some((_, prev)) = path.prev.take() {
                                 path.data = prev;
                             }
-                            path.data.challenges_sent.clear();
-                            path.data.send_new_challenge = false;
+                            path.data.reset_challenges();
                         }
                         PathTimer::PathChallengeLost => {
                             let Some(path) = self.paths.get_mut(&path_id) else {
@@ -2362,8 +2353,7 @@ impl Connection {
                             let Some(path) = self.paths.get_mut(&path_id) else {
                                 continue;
                             };
-                            path.data.challenges_sent.clear();
-                            path.data.send_new_challenge = false;
+                            path.data.reset_challenges();
                             self.timers.stop(
                                 Timer::PerPath(path_id, PathTimer::PathChallengeLost),
                                 self.qlog.with_time(now),
@@ -4719,8 +4709,7 @@ impl Connection {
                                 }
                             }
                             if let Some((_, ref mut prev)) = path.prev {
-                                prev.challenges_sent.clear();
-                                prev.send_new_challenge = false;
+                                prev.reset_challenges();
                             }
                         }
                         OffPath => {
@@ -4735,8 +4724,11 @@ impl Connection {
                                 self.qlog.with_time(now),
                             );
                         }
-                        Invalid { expected } => {
-                            debug!(%response, %network_path, %expected, "ignoring invalid PATH_RESPONSE")
+                        Ignored {
+                            sent_on,
+                            current_path,
+                        } => {
+                            debug!(%sent_on, %current_path, %response, "ignoring valid PATH_RESPONSE")
                         }
                         Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
@@ -5728,15 +5720,10 @@ impl Connection {
         {
             path.send_new_challenge = false;
 
-            // Generate a new challenge every time we send a new PATH_CHALLENGE
             let token = self.rng.random();
-            let info = paths::SentChallengeInfo {
-                sent_instant: now,
-                network_path: path.network_path,
-            };
-            path.challenges_sent.insert(token, info);
+            path.new_path_challenge(now, token, path.network_path);
+            // Generate a new challenge every time we send a new PATH_CHALLENGE
             let challenge = frame::PathChallenge(token);
-            trace!(frame = %challenge);
             builder.write_frame(challenge, stats);
             builder.require_padding();
             let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
