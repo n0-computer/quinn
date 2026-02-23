@@ -103,6 +103,11 @@ impl Endpoint {
         self.inner.state.lock().unwrap().stats
     }
 
+    /// Statistics on the disposition of incoming datagrams
+    pub fn datagram_stats(&self) -> proto::DatagramStats {
+        self.inner.state.lock().unwrap().inner.datagram_stats()
+    }
+
     /// Helper to construct an endpoint for use with both incoming and outgoing connections
     ///
     /// Platform defaults for dual-stack sockets vary. For example, any socket bound to a wildcard

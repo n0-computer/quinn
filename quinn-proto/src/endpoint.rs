@@ -53,6 +53,50 @@ pub struct Endpoint {
     /// Buffered Initial and 0-RTT messages for pending incoming connections
     incoming_buffers: Slab<IncomingBuffer>,
     all_incoming_buffers_total_bytes: u64,
+    /// Counters for incoming datagrams by disposition
+    datagram_stats: DatagramStats,
+}
+
+/// Statistics on incoming datagrams, tracking where they end up
+///
+/// Every datagram passed to [`Endpoint::handle`] increments exactly one of these counters.
+#[derive(Debug, Default, Clone, Copy)]
+#[non_exhaustive]
+pub struct DatagramStats {
+    /// Routed to an existing connection
+    pub routed_to_connection: u64,
+    /// Buffered for a pending incoming connection
+    pub buffered_for_incoming: u64,
+    /// Dropped because incoming buffer was full
+    pub incoming_buffer_full: u64,
+    /// Resulted in a new incoming connection
+    pub new_connection: u64,
+    /// Responded with version negotiation
+    pub version_negotiation: u64,
+    /// Dropped due to malformed header (unparseable)
+    pub malformed_header: u64,
+    /// Dropped due to unsupported version (client mode, no server config)
+    pub unsupported_version: u64,
+    /// Dropped: non-initial long header for unknown connection
+    pub unknown_connection_long_header: u64,
+    /// Dropped: short header with invalid connection ID
+    pub invalid_cid: u64,
+    /// Dropped: short header with empty connection ID, unrecognized
+    pub empty_cid_unrecognized: u64,
+    /// Responded with stateless reset
+    pub stateless_reset_sent: u64,
+    /// Dropped: stateless reset suppressed (rate limit or packet too small)
+    pub stateless_reset_suppressed: u64,
+    /// Dropped: initial too short (< 1200 bytes)
+    pub initial_too_short: u64,
+    /// Dropped: crypto layer rejected version
+    pub initial_unsupported_crypto: u64,
+    /// Responded with CONNECTION_CLOSE (CIDs exhausted, max incoming, invalid DCID, invalid token)
+    pub initial_refused: u64,
+    /// Dropped: header decryption failed on initial
+    pub initial_decrypt_failed: u64,
+    /// Dropped: reserved bits invalid on initial
+    pub initial_reserved_bits: u64,
 }
 
 impl Endpoint {
@@ -79,6 +123,7 @@ impl Endpoint {
             last_stateless_reset: None,
             incoming_buffers: Slab::new(),
             all_incoming_buffers_total_bytes: 0,
+            datagram_stats: DatagramStats::default(),
         }
     }
 
@@ -175,6 +220,7 @@ impl Endpoint {
             }) => {
                 if self.server_config.is_none() {
                     debug!("dropping packet with unsupported version");
+                    self.datagram_stats.unsupported_version += 1;
                     return None;
                 }
                 trace!("sending version negotiation");
@@ -193,6 +239,7 @@ impl Endpoint {
                 for &version in &self.config.supported_versions {
                     buf.write(version);
                 }
+                self.datagram_stats.version_negotiation += 1;
                 return Some(DatagramEvent::Response(Transmit {
                     destination: network_path.remote,
                     ecn: None,
@@ -203,6 +250,7 @@ impl Endpoint {
             }
             Err(e) => {
                 trace!("malformed header: {}", e);
+                self.datagram_stats.malformed_header += 1;
                 return None;
             }
         };
@@ -231,14 +279,20 @@ impl Endpoint {
                         incoming_buffer.datagrams.push(event);
                         incoming_buffer.total_bytes += datagram_len as u64;
                         self.all_incoming_buffers_total_bytes += datagram_len as u64;
+                        self.datagram_stats.buffered_for_incoming += 1;
+                    } else {
+                        self.datagram_stats.incoming_buffer_full += 1;
                     }
 
                     None
                 }
-                RouteDatagramTo::Connection(ch, _path_id) => Some(DatagramEvent::ConnectionEvent(
-                    ch,
-                    ConnectionEvent(ConnectionEventInner::Datagram(event)),
-                )),
+                RouteDatagramTo::Connection(ch, _path_id) => {
+                    self.datagram_stats.routed_to_connection += 1;
+                    Some(DatagramEvent::ConnectionEvent(
+                        ch,
+                        ConnectionEvent(ConnectionEventInner::Datagram(event)),
+                    ))
+                }
             }
         } else if event.first_decode.initial_header().is_some() {
             // Potentially create a new connection
@@ -249,14 +303,17 @@ impl Endpoint {
                 "ignoring non-initial packet for unknown connection {}",
                 dst_cid
             );
+            self.datagram_stats.unknown_connection_long_header += 1;
             None
         } else if !event.first_decode.is_initial()
             && self.local_cid_generator.validate(dst_cid).is_err()
         {
             debug!("dropping packet with invalid CID");
+            self.datagram_stats.invalid_cid += 1;
             None
         } else if dst_cid.is_empty() {
             trace!("dropping unrecognized short packet without ID");
+            self.datagram_stats.empty_cid_unrecognized += 1;
             None
         } else {
             // If we got this far, we're receiving a seemingly valid packet for an unknown
@@ -280,6 +337,7 @@ impl Endpoint {
             .is_some_and(|last| last + self.config.min_reset_interval > now)
         {
             debug!("ignoring unexpected packet within minimum stateless reset interval");
+            self.datagram_stats.stateless_reset_suppressed += 1;
             return None;
         }
 
@@ -295,11 +353,13 @@ impl Endpoint {
                     "ignoring unexpected {} byte packet: not larger than minimum stateless reset size",
                     inciting_dgram_len
                 );
+                self.datagram_stats.stateless_reset_suppressed += 1;
                 return None;
             }
         };
 
         debug!(%dst_cid, %network_path.remote, "sending stateless reset");
+        self.datagram_stats.stateless_reset_sent += 1;
         self.last_stateless_reset = Some(now);
         // Resets with at least this much padding can't possibly be distinguished from real packets
         const IDEAL_MIN_PADDING_LEN: usize = MIN_PADDING_LEN + MAX_CID_SIZE;
@@ -448,6 +508,7 @@ impl Endpoint {
 
         if datagram_len < MIN_INITIAL_SIZE as usize {
             debug!("ignoring short initial for connection {}", dst_cid);
+            self.datagram_stats.initial_too_short += 1;
             return None;
         }
 
@@ -460,11 +521,13 @@ impl Endpoint {
                     "ignoring initial packet version {:#x} unsupported by cryptographic layer",
                     header.version
                 );
+                self.datagram_stats.initial_unsupported_crypto += 1;
                 return None;
             }
         };
 
         if let Err(reason) = self.early_validate_first_packet(header) {
+            self.datagram_stats.initial_refused += 1;
             return Some(DatagramEvent::Response(self.initial_close(
                 header.version,
                 network_path,
@@ -479,12 +542,14 @@ impl Endpoint {
             Ok(packet) => packet,
             Err(e) => {
                 trace!("unable to decode initial packet: {}", e);
+                self.datagram_stats.initial_decrypt_failed += 1;
                 return None;
             }
         };
 
         if !packet.reserved_bits_valid() {
             debug!("dropping connection attempt with invalid reserved bits");
+            self.datagram_stats.initial_reserved_bits += 1;
             return None;
         }
 
@@ -498,6 +563,7 @@ impl Endpoint {
             Ok(token) => token,
             Err(InvalidRetryTokenError) => {
                 debug!("rejecting invalid retry token");
+                self.datagram_stats.initial_refused += 1;
                 return Some(DatagramEvent::Response(self.initial_close(
                     header.version,
                     network_path,
@@ -513,6 +579,7 @@ impl Endpoint {
         self.index
             .insert_initial_incoming(header.dst_cid, incoming_idx);
 
+        self.datagram_stats.new_connection += 1;
         Some(DatagramEvent::NewConnection(Incoming {
             received_at: event.now,
             network_path,
@@ -928,6 +995,11 @@ impl Endpoint {
     /// in the buffers for Initial and 0-RTT messages for pending incoming connections
     pub fn incoming_buffer_bytes(&self) -> u64 {
         self.all_incoming_buffers_total_bytes
+    }
+
+    /// Statistics tracking the disposition of every datagram passed to [`Self::handle`]
+    pub fn datagram_stats(&self) -> DatagramStats {
+        self.datagram_stats
     }
 
     #[cfg(test)]
