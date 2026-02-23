@@ -145,18 +145,18 @@
 <a href=#145 id=145 data-nosnippet>145</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) congestion: Box&lt;<span class="kw">dyn </span>congestion::Controller&gt;,
 <a href=#146 id=146 data-nosnippet>146</a>    <span class="doccomment">/// Pacing state
 <a href=#147 id=147 data-nosnippet>147</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) pacing: Pacer,
-<a href=#148 id=148 data-nosnippet>148</a>    <span class="doccomment">/// Actually sent challenges (on the wire, on-path).
-<a href=#149 id=149 data-nosnippet>149</a>    </span>on_path_challenges_sent: IntMap&lt;u64, SentChallengeInfo&gt;,
-<a href=#150 id=150 data-nosnippet>150</a>    <span class="doccomment">/// Actually sent challenges (on the wire, off-path).
-<a href=#151 id=151 data-nosnippet>151</a>    </span>off_path_challenges_sent: IntMap&lt;u64, SentChallengeInfo&gt;,
-<a href=#152 id=152 data-nosnippet>152</a>    <span class="doccomment">/// Whether to *immediately* trigger another PATH_CHALLENGE.
+<a href=#148 id=148 data-nosnippet>148</a>    <span class="doccomment">/// Path challenges sent (on the wire, on-path) that we didn't receive a path response for yet
+<a href=#149 id=149 data-nosnippet>149</a>    </span>on_path_challenges_unconfirmed: IntMap&lt;u64, SentChallengeInfo&gt;,
+<a href=#150 id=150 data-nosnippet>150</a>    <span class="doccomment">/// Path challenges sent (on the wire, off-path) that we didn't receive a path response for yet
+<a href=#151 id=151 data-nosnippet>151</a>    </span>off_path_challenges_unconfirmed: IntMap&lt;u64, SentChallengeInfo&gt;,
+<a href=#152 id=152 data-nosnippet>152</a>    <span class="doccomment">/// Whether to trigger sending another PATH_CHALLENGE in the next poll_transmit.
 <a href=#153 id=153 data-nosnippet>153</a>    ///
 <a href=#154 id=154 data-nosnippet>154</a>    /// This is picked up by [`super::Connection::space_can_send`].
 <a href=#155 id=155 data-nosnippet>155</a>    ///
 <a href=#156 id=156 data-nosnippet>156</a>    /// Only used for RFC9000-style path migration and multipath path validation (for opening).
 <a href=#157 id=157 data-nosnippet>157</a>    ///
 <a href=#158 id=158 data-nosnippet>158</a>    /// This is **not used** for n0 nat traversal challenge sending.
-<a href=#159 id=159 data-nosnippet>159</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) send_new_on_path_challenge: bool,
+<a href=#159 id=159 data-nosnippet>159</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) tx_queue_on_path_challenge: bool,
 <a href=#160 id=160 data-nosnippet>160</a>    <span class="doccomment">/// Pending responses to PATH_CHALLENGE frames
 <a href=#161 id=161 data-nosnippet>161</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) path_responses: PathResponses,
 <a href=#162 id=162 data-nosnippet>162</a>    <span class="doccomment">/// Whether we're certain the peer can both send and receive on this address
@@ -259,9 +259,9 @@
 <a href=#259 id=259 data-nosnippet>259</a>                now,
 <a href=#260 id=260 data-nosnippet>260</a>            ),
 <a href=#261 id=261 data-nosnippet>261</a>            congestion,
-<a href=#262 id=262 data-nosnippet>262</a>            on_path_challenges_sent: Default::default(),
-<a href=#263 id=263 data-nosnippet>263</a>            off_path_challenges_sent: Default::default(),
-<a href=#264 id=264 data-nosnippet>264</a>            send_new_on_path_challenge: <span class="bool-val">false</span>,
+<a href=#262 id=262 data-nosnippet>262</a>            on_path_challenges_unconfirmed: Default::default(),
+<a href=#263 id=263 data-nosnippet>263</a>            off_path_challenges_unconfirmed: Default::default(),
+<a href=#264 id=264 data-nosnippet>264</a>            tx_queue_on_path_challenge: <span class="bool-val">false</span>,
 <a href=#265 id=265 data-nosnippet>265</a>            path_responses: PathResponses::default(),
 <a href=#266 id=266 data-nosnippet>266</a>            validated: <span class="bool-val">false</span>,
 <a href=#267 id=267 data-nosnippet>267</a>            total_sent: <span class="number">0</span>,
@@ -315,9 +315,9 @@
 <a href=#315 id=315 data-nosnippet>315</a>            pacing: Pacer::new(smoothed_rtt, congestion.window(), prev.current_mtu(), now),
 <a href=#316 id=316 data-nosnippet>316</a>            sending_ecn: <span class="bool-val">true</span>,
 <a href=#317 id=317 data-nosnippet>317</a>            congestion,
-<a href=#318 id=318 data-nosnippet>318</a>            on_path_challenges_sent: Default::default(),
-<a href=#319 id=319 data-nosnippet>319</a>            off_path_challenges_sent: Default::default(),
-<a href=#320 id=320 data-nosnippet>320</a>            send_new_on_path_challenge: <span class="bool-val">false</span>,
+<a href=#318 id=318 data-nosnippet>318</a>            on_path_challenges_unconfirmed: Default::default(),
+<a href=#319 id=319 data-nosnippet>319</a>            off_path_challenges_unconfirmed: Default::default(),
+<a href=#320 id=320 data-nosnippet>320</a>            tx_queue_on_path_challenge: <span class="bool-val">false</span>,
 <a href=#321 id=321 data-nosnippet>321</a>            path_responses: PathResponses::default(),
 <a href=#322 id=322 data-nosnippet>322</a>            validated: <span class="bool-val">false</span>,
 <a href=#323 id=323 data-nosnippet>323</a>            total_sent: <span class="number">0</span>,
@@ -342,7 +342,7 @@
 <a href=#342 id=342 data-nosnippet>342</a>
 <a href=#343 id=343 data-nosnippet>343</a>    <span class="doccomment">/// Whether we're in the process of validating this path with PATH_CHALLENGEs
 <a href=#344 id=344 data-nosnippet>344</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>is_validating_path(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
-<a href=#345 id=345 data-nosnippet>345</a>        !<span class="self">self</span>.on_path_challenges_sent.is_empty() || <span class="self">self</span>.send_new_on_path_challenge
+<a href=#345 id=345 data-nosnippet>345</a>        !<span class="self">self</span>.on_path_challenges_unconfirmed.is_empty() || <span class="self">self</span>.tx_queue_on_path_challenge
 <a href=#346 id=346 data-nosnippet>346</a>    }
 <a href=#347 id=347 data-nosnippet>347</a>
 <a href=#348 id=348 data-nosnippet>348</a>    <span class="doccomment">/// Indicates whether we're a server that hasn't validated the peer's address and hasn't
@@ -378,9 +378,9 @@
 <a href=#378 id=378 data-nosnippet>378</a>            network_path,
 <a href=#379 id=379 data-nosnippet>379</a>        };
 <a href=#380 id=380 data-nosnippet>380</a>        <span class="kw">if </span>network_path == <span class="self">self</span>.network_path {
-<a href=#381 id=381 data-nosnippet>381</a>            <span class="self">self</span>.on_path_challenges_sent.insert(token, info);
+<a href=#381 id=381 data-nosnippet>381</a>            <span class="self">self</span>.on_path_challenges_unconfirmed.insert(token, info);
 <a href=#382 id=382 data-nosnippet>382</a>        } <span class="kw">else </span>{
-<a href=#383 id=383 data-nosnippet>383</a>            <span class="self">self</span>.off_path_challenges_sent.insert(token, info);
+<a href=#383 id=383 data-nosnippet>383</a>            <span class="self">self</span>.off_path_challenges_unconfirmed.insert(token, info);
 <a href=#384 id=384 data-nosnippet>384</a>        }
 <a href=#385 id=385 data-nosnippet>385</a>    }
 <a href=#386 id=386 data-nosnippet>386</a>
@@ -420,11 +420,11 @@
 <a href=#420 id=420 data-nosnippet>420</a>
 <a href=#421 id=421 data-nosnippet>421</a>    <span class="doccomment">/// The earliest time at which an on-path challenge we sent is considered lost.
 <a href=#422 id=422 data-nosnippet>422</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>earliest_on_path_expiring_challenge(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;Instant&gt; {
-<a href=#423 id=423 data-nosnippet>423</a>        <span class="kw">if </span><span class="self">self</span>.on_path_challenges_sent.is_empty() {
+<a href=#423 id=423 data-nosnippet>423</a>        <span class="kw">if </span><span class="self">self</span>.on_path_challenges_unconfirmed.is_empty() {
 <a href=#424 id=424 data-nosnippet>424</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
 <a href=#425 id=425 data-nosnippet>425</a>        }
 <a href=#426 id=426 data-nosnippet>426</a>        <span class="kw">let </span>pto = <span class="self">self</span>.rtt.pto_base();
-<a href=#427 id=427 data-nosnippet>427</a>        <span class="self">self</span>.on_path_challenges_sent
+<a href=#427 id=427 data-nosnippet>427</a>        <span class="self">self</span>.on_path_challenges_unconfirmed
 <a href=#428 id=428 data-nosnippet>428</a>            .values()
 <a href=#429 id=429 data-nosnippet>429</a>            .map(|info| info.sent_instant + pto)
 <a href=#430 id=430 data-nosnippet>430</a>            .min()
@@ -449,7 +449,7 @@
 <a href=#449 id=449 data-nosnippet>449</a>        // - network path over which the response arrived (`network_path`)
 <a href=#450 id=450 data-nosnippet>450</a>        //
 <a href=#451 id=451 data-nosnippet>451</a>        // As per the spec, this only validates the network path on which this was *sent*.
-<a href=#452 id=452 data-nosnippet>452</a>        </span><span class="kw">match </span><span class="self">self</span>.on_path_challenges_sent.remove(<span class="kw-2">&amp;</span>token) {
+<a href=#452 id=452 data-nosnippet>452</a>        </span><span class="kw">match </span><span class="self">self</span>.on_path_challenges_unconfirmed.remove(<span class="kw-2">&amp;</span>token) {
 <a href=#453 id=453 data-nosnippet>453</a>            <span class="comment">// Response to an on-path PathChallenge that validates this path.
 <a href=#454 id=454 data-nosnippet>454</a>            // The sent path should match the current path. However, it's possible that the
 <a href=#455 id=455 data-nosnippet>455</a>            // challenge was sent when no local_ip was known. This case is allowed as well
@@ -460,9 +460,9 @@
 <a href=#460 id=460 data-nosnippet>460</a>                    <span class="macro">trace!</span>(<span class="string">"new path validated"</span>);
 <a href=#461 id=461 data-nosnippet>461</a>                }
 <a href=#462 id=462 data-nosnippet>462</a>                <span class="comment">// Clear any other on-path sent challenge
-<a href=#463 id=463 data-nosnippet>463</a>                </span><span class="self">self</span>.on_path_challenges_sent.clear();
+<a href=#463 id=463 data-nosnippet>463</a>                </span><span class="self">self</span>.on_path_challenges_unconfirmed.clear();
 <a href=#464 id=464 data-nosnippet>464</a>
-<a href=#465 id=465 data-nosnippet>465</a>                <span class="self">self</span>.send_new_on_path_challenge = <span class="bool-val">false</span>;
+<a href=#465 id=465 data-nosnippet>465</a>                <span class="self">self</span>.tx_queue_on_path_challenge = <span class="bool-val">false</span>;
 <a href=#466 id=466 data-nosnippet>466</a>
 <a href=#467 id=467 data-nosnippet>467</a>                <span class="comment">// This RTT can only be used for the initial RTT, not as a normal
 <a href=#468 id=468 data-nosnippet>468</a>                // sample: https://www.rfc-editor.org/rfc/rfc9002#section-6.2.2-2.
@@ -477,24 +477,24 @@
 <a href=#477 id=477 data-nosnippet>477</a>                <span class="comment">// This is a valid path response, but this validates a path we no longer have in
 <a href=#478 id=478 data-nosnippet>478</a>                // use. Keep only sent challenges for the current path.
 <a href=#479 id=479 data-nosnippet>479</a>
-<a href=#480 id=480 data-nosnippet>480</a>                </span><span class="self">self</span>.on_path_challenges_sent
+<a href=#480 id=480 data-nosnippet>480</a>                </span><span class="self">self</span>.on_path_challenges_unconfirmed
 <a href=#481 id=481 data-nosnippet>481</a>                    .retain(|_token, i| i.network_path == <span class="self">self</span>.network_path);
 <a href=#482 id=482 data-nosnippet>482</a>
 <a href=#483 id=483 data-nosnippet>483</a>                <span class="comment">// if there are no challenges for the current path, schedule one
-<a href=#484 id=484 data-nosnippet>484</a>                </span><span class="kw">if </span>!<span class="self">self</span>.on_path_challenges_sent.is_empty() {
-<a href=#485 id=485 data-nosnippet>485</a>                    <span class="self">self</span>.send_new_on_path_challenge = <span class="bool-val">true</span>;
+<a href=#484 id=484 data-nosnippet>484</a>                </span><span class="kw">if </span>!<span class="self">self</span>.on_path_challenges_unconfirmed.is_empty() {
+<a href=#485 id=485 data-nosnippet>485</a>                    <span class="self">self</span>.tx_queue_on_path_challenge = <span class="bool-val">true</span>;
 <a href=#486 id=486 data-nosnippet>486</a>                }
 <a href=#487 id=487 data-nosnippet>487</a>                OnPathResponseReceived::Ignored {
 <a href=#488 id=488 data-nosnippet>488</a>                    sent_on: info.network_path,
 <a href=#489 id=489 data-nosnippet>489</a>                    current_path: <span class="self">self</span>.network_path,
 <a href=#490 id=490 data-nosnippet>490</a>                }
 <a href=#491 id=491 data-nosnippet>491</a>            }
-<a href=#492 id=492 data-nosnippet>492</a>            <span class="prelude-val">None </span>=&gt; <span class="kw">match </span><span class="self">self</span>.off_path_challenges_sent.remove(<span class="kw-2">&amp;</span>token) {
+<a href=#492 id=492 data-nosnippet>492</a>            <span class="prelude-val">None </span>=&gt; <span class="kw">match </span><span class="self">self</span>.off_path_challenges_unconfirmed.remove(<span class="kw-2">&amp;</span>token) {
 <a href=#493 id=493 data-nosnippet>493</a>                <span class="comment">// Response to an off-path PathChallenge
 <a href=#494 id=494 data-nosnippet>494</a>                </span><span class="prelude-val">Some</span>(info) =&gt; {
 <a href=#495 id=495 data-nosnippet>495</a>                    <span class="comment">// Since we do not store validation state for these paths, we only really care
 <a href=#496 id=496 data-nosnippet>496</a>                    // about reaching the same remote
-<a href=#497 id=497 data-nosnippet>497</a>                    </span><span class="self">self</span>.off_path_challenges_sent
+<a href=#497 id=497 data-nosnippet>497</a>                    </span><span class="self">self</span>.off_path_challenges_unconfirmed
 <a href=#498 id=498 data-nosnippet>498</a>                        .retain(|_token, i| i.network_path.remote != info.network_path.remote);
 <a href=#499 id=499 data-nosnippet>499</a>                    OnPathResponseReceived::OffPath
 <a href=#500 id=500 data-nosnippet>500</a>                }
@@ -506,8 +506,8 @@
 <a href=#506 id=506 data-nosnippet>506</a>
 <a href=#507 id=507 data-nosnippet>507</a>    <span class="doccomment">/// Removes all on-path challenges we remember and cancels sending new on-path challenges.
 <a href=#508 id=508 data-nosnippet>508</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>reset_on_path_challenges(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
-<a href=#509 id=509 data-nosnippet>509</a>        <span class="self">self</span>.on_path_challenges_sent.clear();
-<a href=#510 id=510 data-nosnippet>510</a>        <span class="self">self</span>.send_new_on_path_challenge = <span class="bool-val">false</span>;
+<a href=#509 id=509 data-nosnippet>509</a>        <span class="self">self</span>.on_path_challenges_unconfirmed.clear();
+<a href=#510 id=510 data-nosnippet>510</a>        <span class="self">self</span>.tx_queue_on_path_challenge = <span class="bool-val">false</span>;
 <a href=#511 id=511 data-nosnippet>511</a>    }
 <a href=#512 id=512 data-nosnippet>512</a>
 <a href=#513 id=513 data-nosnippet>513</a>    <span class="attr">#[cfg(feature = <span class="string">"qlog"</span>)]
