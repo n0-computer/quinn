@@ -314,57 +314,6 @@ pub struct Connection {
     qlog: QlogSink,
 }
 
-/// Return value for [`Connection::poll_transmit_path`].
-#[derive(Debug)]
-enum PollPathStatus {
-    /// Nothing to send on the path, nothing was written into the [`TransmitBuf`].
-    NothingToSend {
-        /// If true there was data to send but congestion control did not allow so.
-        congestion_blocked: bool,
-    },
-    /// The transmit is ready to be sent.
-    Send(Transmit),
-}
-
-/// Return value for [`Connection::poll_transmit_path_space`].
-#[derive(Debug)]
-enum PollPathSpaceStatus {
-    /// Nothing to send in the space, nothing was written into the [`TransmitBuf`].
-    NothingToSend {
-        /// If true there was data to send but congestion control did not allow so.
-        congestion_blocked: bool,
-    },
-    /// One or more packets have been written into the [`TransmitBuf`].
-    WrotePacket {
-        /// The highest packet number.
-        last_packet_number: u64,
-        /// Whether to pad an already started datagram in the next packet.
-        ///
-        /// When packets in Initial, 0-RTT or Handshake packet do not fill the entire
-        /// datagram they may decide to coalesce with the next packet from a higher
-        /// encryption level on the same path. But the earlier packet may require specific
-        /// size requirements for the datagram they are sent in.
-        ///
-        /// If a space did not complete the datagram, they use this to request the correct
-        /// padding in the final packet of the datagram so that the final datagram will have
-        /// the correct size.
-        ///
-        /// If a space did fill an entire datagram, it leaves this to the default of
-        /// [`PadDatagram::No`].
-        pad_datagram: PadDatagram,
-    },
-    /// Send the contents of the transmit immediately.
-    ///
-    /// Packets were written and the GSO batch must end now, regardless from whether higher
-    /// spaces still have frames to write. This is used when the last datagram written would
-    /// require too much padding to continue a GSO batch, which would waste space on the
-    /// wire.
-    Send {
-        /// The highest packet number written into the transmit.
-        last_packet_number: u64,
-    },
-}
-
 impl Connection {
     pub(crate) fn new(
         endpoint_config: Arc<EndpointConfig>,
@@ -6781,6 +6730,14 @@ impl Connection {
     }
 }
 
+impl fmt::Debug for Connection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Connection")
+            .field("handshake_cid", &self.handshake_cid)
+            .finish()
+    }
+}
+
 /// Hints when the caller identifies a network change.
 pub trait NetworkChangeHint: std::fmt::Debug + 'static {
     /// Inform the connection if a path may recover after a network change.
@@ -6794,12 +6751,55 @@ pub trait NetworkChangeHint: std::fmt::Debug + 'static {
     fn is_path_recoverable(&self, path_id: PathId, network_path: FourTuple) -> bool;
 }
 
-impl fmt::Debug for Connection {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Connection")
-            .field("handshake_cid", &self.handshake_cid)
-            .finish()
-    }
+/// Return value for [`Connection::poll_transmit_path`].
+#[derive(Debug)]
+enum PollPathStatus {
+    /// Nothing to send on the path, nothing was written into the [`TransmitBuf`].
+    NothingToSend {
+        /// If true there was data to send but congestion control did not allow so.
+        congestion_blocked: bool,
+    },
+    /// The transmit is ready to be sent.
+    Send(Transmit),
+}
+
+/// Return value for [`Connection::poll_transmit_path_space`].
+#[derive(Debug)]
+enum PollPathSpaceStatus {
+    /// Nothing to send in the space, nothing was written into the [`TransmitBuf`].
+    NothingToSend {
+        /// If true there was data to send but congestion control did not allow so.
+        congestion_blocked: bool,
+    },
+    /// One or more packets have been written into the [`TransmitBuf`].
+    WrotePacket {
+        /// The highest packet number.
+        last_packet_number: u64,
+        /// Whether to pad an already started datagram in the next packet.
+        ///
+        /// When packets in Initial, 0-RTT or Handshake packet do not fill the entire
+        /// datagram they may decide to coalesce with the next packet from a higher
+        /// encryption level on the same path. But the earlier packet may require specific
+        /// size requirements for the datagram they are sent in.
+        ///
+        /// If a space did not complete the datagram, they use this to request the correct
+        /// padding in the final packet of the datagram so that the final datagram will have
+        /// the correct size.
+        ///
+        /// If a space did fill an entire datagram, it leaves this to the default of
+        /// [`PadDatagram::No`].
+        pad_datagram: PadDatagram,
+    },
+    /// Send the contents of the transmit immediately.
+    ///
+    /// Packets were written and the GSO batch must end now, regardless from whether higher
+    /// spaces still have frames to write. This is used when the last datagram written would
+    /// require too much padding to continue a GSO batch, which would waste space on the
+    /// wire.
+    Send {
+        /// The highest packet number written into the transmit.
+        last_packet_number: u64,
+    },
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

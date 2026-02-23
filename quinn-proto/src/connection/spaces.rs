@@ -554,58 +554,104 @@ pub struct Retransmits {
 
 impl Retransmits {
     pub(super) fn is_empty(&self, streams: &StreamsState) -> bool {
-        !self.max_data
-            && !self.max_stream_id.into_iter().any(|x| x)
-            && self.reset_stream.is_empty()
-            && self.stop_sending.is_empty()
-            && self
-                .max_stream_data
+        let Self {
+            max_data,
+            max_stream_id,
+            reset_stream,
+            stop_sending,
+            max_stream_data,
+            crypto,
+            new_cids,
+            retire_cids,
+            ack_frequency,
+            handshake_done,
+            observed_addr,
+            max_path_id,
+            paths_blocked,
+            new_tokens,
+            path_abandon,
+            path_status,
+            path_cids_blocked,
+            add_address,
+            remove_address,
+            reach_out,
+        } = &self;
+        !max_data
+            && !max_stream_id.iter().any(|x| *x)
+            && reset_stream.is_empty()
+            && stop_sending.is_empty()
+            && max_stream_data
                 .iter()
                 .all(|&id| !streams.can_send_flow_control(id))
-            && self.crypto.is_empty()
-            && self.new_cids.is_empty()
-            && self.retire_cids.is_empty()
-            && !self.ack_frequency
-            && !self.handshake_done
-            && !self.observed_addr
-            && self.new_tokens.is_empty()
-            && self.path_abandon.is_empty()
-            && self.path_status.is_empty()
-            && !self.max_path_id
-            && !self.paths_blocked
-            && self.add_address.is_empty()
-            && self.remove_address.is_empty()
-            && self.reach_out.is_none()
+            && crypto.is_empty()
+            && new_cids.is_empty()
+            && retire_cids.is_empty()
+            && !ack_frequency
+            && !handshake_done
+            && !observed_addr
+            && !max_path_id
+            && !paths_blocked
+            && new_tokens.is_empty()
+            && path_abandon.is_empty()
+            && path_status.is_empty()
+            && path_cids_blocked.is_empty()
+            && add_address.is_empty()
+            && remove_address.is_empty()
+            && reach_out.is_none()
     }
 }
 
 impl ::std::ops::BitOrAssign for Retransmits {
-    fn bitor_assign(&mut self, mut rhs: Self) {
+    fn bitor_assign(&mut self, rhs: Self) {
+        let Self {
+            max_data,
+            max_stream_id,
+            reset_stream,
+            stop_sending,
+            max_stream_data,
+            crypto,
+            new_cids,
+            retire_cids,
+            ack_frequency,
+            handshake_done,
+            observed_addr,
+            max_path_id,
+            paths_blocked,
+            new_tokens,
+            mut path_abandon,
+            mut path_status,
+            mut path_cids_blocked,
+            add_address,
+            remove_address,
+            reach_out,
+        } = rhs;
+
         // We reduce in-stream head-of-line blocking by queueing retransmits before other data for
         // STREAM and CRYPTO frames.
-        self.max_data |= rhs.max_data;
+        self.max_data |= max_data;
         for dir in Dir::iter() {
-            self.max_stream_id[dir as usize] |= rhs.max_stream_id[dir as usize];
+            self.max_stream_id[dir as usize] |= max_stream_id[dir as usize];
         }
-        self.reset_stream.extend_from_slice(&rhs.reset_stream);
-        self.stop_sending.extend_from_slice(&rhs.stop_sending);
-        self.max_stream_data.extend(&rhs.max_stream_data);
-        for crypto in rhs.crypto.into_iter().rev() {
+        self.reset_stream.extend_from_slice(&reset_stream);
+        self.stop_sending.extend_from_slice(&stop_sending);
+        self.max_stream_data.extend(&max_stream_data);
+        for crypto in crypto.into_iter().rev() {
             self.crypto.push_front(crypto);
         }
-        self.new_cids.extend(&rhs.new_cids);
-        self.retire_cids.extend(rhs.retire_cids);
-        self.ack_frequency |= rhs.ack_frequency;
-        self.handshake_done |= rhs.handshake_done;
-        self.observed_addr |= rhs.observed_addr;
-        self.new_tokens.extend_from_slice(&rhs.new_tokens);
-        self.path_abandon.append(&mut rhs.path_abandon);
-        self.max_path_id |= rhs.max_path_id;
-        self.paths_blocked |= rhs.paths_blocked;
-        self.add_address.extend(rhs.add_address.iter().copied());
-        self.remove_address
-            .extend(rhs.remove_address.iter().copied());
-        if let Some((rhs_round, rhs_addrs)) = rhs.reach_out {
+        self.new_cids.extend(&new_cids);
+        self.retire_cids.extend(retire_cids);
+        self.ack_frequency |= ack_frequency;
+        self.handshake_done |= handshake_done;
+        self.observed_addr |= observed_addr;
+        self.max_path_id |= max_path_id;
+        self.paths_blocked |= paths_blocked;
+        self.new_tokens.extend_from_slice(&new_tokens);
+        self.path_abandon.append(&mut path_abandon);
+        self.path_status.append(&mut path_status);
+        self.path_cids_blocked.append(&mut path_cids_blocked);
+        self.add_address.extend(add_address.iter().copied());
+        self.remove_address.extend(remove_address.iter().copied());
+        if let Some((rhs_round, rhs_addrs)) = reach_out {
             match self.reach_out.as_mut() {
                 // Use RHS if there is no recorded round.
                 None => self.reach_out = Some((rhs_round, rhs_addrs)),
@@ -626,7 +672,8 @@ impl ::std::ops::BitOrAssign for Retransmits {
 
 impl ::std::ops::BitOrAssign<ThinRetransmits> for Retransmits {
     fn bitor_assign(&mut self, rhs: ThinRetransmits) {
-        if let Some(retransmits) = rhs.retransmits {
+        let ThinRetransmits { retransmits } = rhs;
+        if let Some(retransmits) = retransmits {
             self.bitor_assign(*retransmits)
         }
     }
@@ -841,16 +888,28 @@ impl SendableFrames {
 
     /// Whether no data is sendable
     pub(super) fn is_empty(&self) -> bool {
-        !self.acks && !self.other && !self.close && !self.path_exclusive
+        let Self {
+            acks,
+            other,
+            close,
+            path_exclusive,
+        } = *self;
+        !acks && !other && !close && !path_exclusive
     }
 }
 
 impl ::std::ops::BitOrAssign for SendableFrames {
     fn bitor_assign(&mut self, rhs: Self) {
-        self.acks |= rhs.acks;
-        self.other |= rhs.other;
-        self.close |= rhs.close;
-        self.path_exclusive |= rhs.path_exclusive;
+        let Self {
+            acks,
+            other,
+            close,
+            path_exclusive,
+        } = rhs;
+        self.acks |= acks;
+        self.other |= other;
+        self.close |= close;
+        self.path_exclusive |= path_exclusive;
     }
 }
 
