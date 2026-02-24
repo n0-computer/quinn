@@ -1,4 +1,4 @@
-//! iroh NAT Traversal
+//! n0's (<https://n0.computer>) NAT Traversal protocol implementation.
 
 use std::{
     collections::hash_map::Entry,
@@ -25,7 +25,7 @@ pub enum Error {
     #[error("Not allowed for this endpoint's connection side")]
     WrongConnectionSide,
     /// The extension was not negotiated
-    #[error("Iroh's nat traversal was not negotiated")]
+    #[error("n0's nat traversal was not negotiated")]
     ExtensionNotNegotiated,
     /// Not enough addresses to complete the operation
     #[error("Not enough addresses")]
@@ -42,7 +42,7 @@ pub(crate) struct NatTraversalRound {
     /// Sequence number to use for the new reach out frames.
     pub(crate) new_round: VarInt,
     /// Addresses to use to send reach out frames.
-    pub(crate) reach_out_at: Vec<IpPort>,
+    pub(crate) reach_out_at: FxHashSet<IpPort>,
     /// Remotes to probe by attempting to open new paths.
     ///
     /// The addresses include their Id, so that it can be used to signal these should be returned
@@ -63,7 +63,7 @@ pub enum Event {
     AddressRemoved(SocketAddr),
 }
 
-/// State kept for Iroh's nat traversal
+/// State kept for n0's nat traversal
 #[derive(Debug, Default)]
 pub(crate) enum State {
     #[default]
@@ -91,7 +91,7 @@ pub(crate) struct ClientState {
     /// Candidate addresses the local client reports as potentially reachable, to use for nat
     /// traversal attempts.
     local_addresses: FxHashSet<IpPort>,
-    /// Current nat holepunching round.
+    /// Current nat traversal round.
     round: VarInt,
     /// [`PathId`]s used to probe remotes assigned to this round.
     round_path_ids: Vec<PathId>,
@@ -296,7 +296,7 @@ pub(crate) struct ServerState {
     local_addresses: FxHashMap<IpPort, VarInt>,
     /// The next id to use for local addresses sent to the client.
     next_local_addr_id: VarInt,
-    /// Current nat holepunching round
+    /// Current nat traversal round
     ///
     /// Servers keep track of the client's most recent round and cancel probing related to previous
     /// rounds.
@@ -358,7 +358,9 @@ impl ServerState {
         if round > self.round {
             self.round = round;
             self.pending_probes.clear();
-        } else if self.pending_probes.len() >= self.max_remote_addresses {
+        } else if self.pending_probes.len() >= self.max_remote_addresses
+            && !self.pending_probes.contains(&(ip, port))
+        {
             return Err(Error::TooManyAddresses);
         }
         self.pending_probes.insert((ip, port));

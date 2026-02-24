@@ -47,7 +47,7 @@ pub(crate) enum PathTimer {
     PathIdle = 1,
     /// When to give up on validating a new path from RFC9000 migration
     PathValidation = 2,
-    /// When to resend a path challenge deemed lost
+    /// When to resend an on-path path challenge deemed lost
     PathChallengeLost = 3,
     /// When to give up on validating a new (multi)path
     PathOpen = 4,
@@ -62,7 +62,7 @@ pub(crate) enum PathTimer {
 }
 
 impl PathTimer {
-    const VALUES: [Self; 9] = [
+    pub(super) const VALUES: [Self; 9] = [
         Self::LossDetection,
         Self::PathIdle,
         Self::PathValidation,

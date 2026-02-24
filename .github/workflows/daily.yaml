@@ -6,7 +6,7 @@ name: Daily CI
 on:
   schedule:
     # 06:00 UTC every day
-    - cron: '0 6 * * *'
+    - cron: "0 6 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -18,6 +18,30 @@ env:
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  proptests:
+    name: Extended Proptest Run
+    timeout-minutes: 20
+    runs-on: [self-hosted, linux, X64]
+    env:
+      RUSTC_WRAPPER: "sccache"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.80
+
+      - uses: taiki-e/install-action@cargo-make
+
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Run proptests (10 minutes)
+        run: cargo make proptests-long
+
   test-freebsd:
     # see https://github.com/actions/runner/issues/385
     # use https://github.com/vmactions/freebsd-vm for now
@@ -120,7 +144,7 @@ jobs:
 
   notify:
     timeout-minutes: 45
-    needs: [test-freebsd, build-solaris, test-illumos, features]
+    needs: [proptests, test-freebsd, build-solaris, test-illumos, features]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -128,13 +152,14 @@ jobs:
         run: |
           printf '${{ toJSON(needs) }}\n'
 
+          proptests_result=$(echo '${{ toJSON(needs) }}' | jq -r '.proptests.result')
           freebsd_result=$(echo '${{ toJSON(needs) }}' | jq -r '.["test-freebsd"].result')
           solaris_result=$(echo '${{ toJSON(needs) }}' | jq -r '.["build-solaris"].result')
           illumos_result=$(echo '${{ toJSON(needs) }}' | jq -r '.["test-illumos"].result')
           features_result=$(echo '${{ toJSON(needs) }}' | jq -r '.features.result')
 
           # Check if any failed
-          if [ "$freebsd_result" = "failure" ] || [ "$solaris_result" = "failure" ] || [ "$illumos_result" = "failure" ] || [ "$features_result" = "failure" ]; then
+          if [ "$proptests_result" = "failure" ] || [ "$freebsd_result" = "failure" ] || [ "$solaris_result" = "failure" ] || [ "$illumos_result" = "failure" ] || [ "$features_result" = "failure" ]; then
             echo "TESTS_RESULT=failure" >>"$GITHUB_ENV"
           else
             echo "TESTS_RESULT=success" >>"$GITHUB_ENV"
@@ -142,6 +167,7 @@ jobs:
 
           # Build failure details
           details=""
+          [ "$proptests_result" = "failure" ] && details="${details}- Proptests failed\n"
           [ "$freebsd_result" = "failure" ] && details="${details}- FreeBSD tests failed\n"
           [ "$solaris_result" = "failure" ] && details="${details}- Solaris build failed\n"
           [ "$illumos_result" = "failure" ] && details="${details}- Illumos tests failed\n"

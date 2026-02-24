@@ -75,7 +75,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: "stable"
 
       - name: Select features
         run: |
@@ -149,6 +149,12 @@ jobs:
             echo cargo test -p $i --doc $FEATURES
             cargo test -p $i --doc $FEATURES
           done
+
+      - uses: taiki-e/install-action@cargo-make
+
+      - name: run proptests (1 minute minimum)
+        if: ${{ ! inputs.flaky }}
+        run: cargo make proptests-light
 
   build_and_test_windows:
     timeout-minutes: 30
@@ -230,7 +236,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: "stable"
 
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
@@ -303,6 +309,21 @@ jobs:
           path: output
           retention-days: 1
           compression-level: 0
+
+      - name: Cache cargo-make
+        id: cache-cargo-make
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-make.exe
+          key: cargo-make-windows-0.37.24
+
+      - name: Install cargo-make
+        if: steps.cache-cargo-make.outputs.cache-hit != 'true'
+        run: cargo install cargo-make --version 0.37.24 --locked
+
+      - name: run proptests (1 minute minimum)
+        if: ${{ ! inputs.flaky }}
+        run: cargo make proptests-light
 
   minimal-crates:
     timeout-minutes: 45
