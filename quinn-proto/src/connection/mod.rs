@@ -1636,13 +1636,7 @@ impl Connection {
                 };
             }
 
-            self.populate_packet(
-                now,
-                space_id,
-                path_id,
-                scheduling_info.get(path_id).unwrap(),
-                &mut builder,
-            );
+            self.populate_packet(now, space_id, path_id, scheduling_info, &mut builder);
 
             // ACK-only packets should only be sent when explicitly allowed. If we write them due to
             // any other reason, there is a bug which leads to one component announcing write
@@ -5599,9 +5593,11 @@ impl Connection {
         now: Instant,
         space_id: SpaceId,
         path_id: PathId,
-        scheduling_info: &PathSchedulingInfo,
+        scheduling_info: BTreeMap<PathId, PathSchedulingInfo>,
         builder: &mut PacketBuilder<'a, 'b>,
     ) {
+        let this_path = scheduling_info.get(&path_id).unwrap();
+        debug_assert!(this_path.has_cids, "must have CIDs to populate packet");
         let pn = builder.packet_number;
         let is_multipath_negotiated = self.is_multipath_negotiated();
         let space_has_keys = self.crypto_state.has_keys(space_id.encryption_level());
@@ -6940,10 +6936,34 @@ struct PathSchedulingInfo {
     /// Whether the path is abandoned.
     ///
     /// Note that a path that is abandoned but still has CIDs can still send a packet. After
-    /// sending that packet the CIDs have to be considered retired as well.
+    /// sending that packet the CIDs have to be considered retired as well and
+    /// [`Self::has_cids`] should turn `false`.
     abandoned: bool,
     /// The status of the path.
     status: PathStatus,
+}
+
+fn should_send_data(all: &BTreeMap<PathId, PathSchedulingInfo>, current: PathId) -> bool {
+    // To send SpaceKind::Data we want a path:
+    // - with CIDs
+    // - validated
+    // - not abandoned
+    // - status-available unless there is no such path
+    let this = all.get(&current).unwrap();
+    if !this.has_cids || !this.validated || this.abandoned {
+        return false;
+    }
+    if this.status == PathStatus::Available {
+        return true;
+    }
+    !data_space_available(all)
+}
+
+/// Whether there is any path that can send SpaceKind::Data with PathStatus::Available
+fn data_space_available(all: &BTreeMap<PathId, PathSchedulingInfo>) -> bool {
+    all.values()
+        .filter(|info| info.has_cids && info.validated && !info.abandoned)
+        .any(|info| info.status == PathStatus::Available)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
