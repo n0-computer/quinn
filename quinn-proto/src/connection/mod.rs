@@ -5598,7 +5598,6 @@ impl Connection {
     ) {
         let this_path = scheduling_info.get(&path_id).unwrap();
         debug_assert!(this_path.has_cids, "must have CIDs to populate packet");
-        let pn = builder.packet_number;
         let is_multipath_negotiated = self.is_multipath_negotiated();
         let space_has_keys = self.crypto_state.has_keys(space_id.encryption_level());
         let is_0rtt = space_id == SpaceId::Data && !space_has_keys;
@@ -5612,7 +5611,7 @@ impl Connection {
 
         // HANDSHAKE_DONE
         if !is_0rtt
-            && !path_exclusive_only
+            && should_send_data(&scheduling_info, path_id)
             && mem::replace(&mut space.pending.handshake_done, false)
         {
             builder.write_frame(frame::HandshakeDone, stats);
@@ -5620,7 +5619,7 @@ impl Connection {
 
         // REACH_OUT
         if let Some((round, addresses)) = space.pending.reach_out.as_mut()
-            && !path_exclusive_only
+            && should_send_data(&scheduling_info, path_id)
         {
             while let Some(local_addr) = addresses.iter().next().copied() {
                 let local_addr = addresses.take(&local_addr).expect("found from iter");
@@ -5638,7 +5637,7 @@ impl Connection {
         }
 
         // OBSERVED_ADDR
-        if !path_exclusive_only
+        if should_send_data(&scheduling_info, path_id)
             && space_id == SpaceId::Data
             && self
                 .config
@@ -5659,6 +5658,7 @@ impl Connection {
         }
 
         // PING
+        // TODO(flub): continue here
         if mem::replace(&mut space.for_path(path_id).ping_pending, false) {
             builder.write_frame(frame::Ping, stats);
         }
@@ -5721,7 +5721,7 @@ impl Connection {
             builder.write_frame(frame, stats);
 
             self.ack_frequency
-                .ack_frequency_sent(path_id, pn, max_ack_delay);
+                .ack_frequency_sent(path_id, builder.packet_number, max_ack_delay);
         }
 
         // PATH_CHALLENGE
@@ -6919,8 +6919,11 @@ enum PollPathSpaceStatus {
 }
 
 struct SchedulingInfo {
-    paths: BTreeSet<PathId, PathSchedulingInfo>,
+    paths: BTreeMap<PathId, PathSchedulingInfo>,
     current: PathId,
+    // is_multipath_negotiated
+    // is_0rtt
+    // space_has_keys
 }
 
 impl SchedulingInfo {}
