@@ -2,7 +2,9 @@ use bytes::Bytes;
 use tracing::trace;
 
 use crate::frame::Close;
-use crate::{ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode};
+use crate::{
+    ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode,
+};
 
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
@@ -112,6 +114,24 @@ impl State {
             self.as_type()
         );
         let is_local = self.is_local_close();
+
+        // If no error is provided and we were in the `Closed` state with an unread non-local
+        // error, preserve that error so `take_error` can still surface it. Otherwise the
+        // `ConnectionLost` event would never be emitted, breaking the invariant that a
+        // drained quinn-proto connection will always produce a `ConnectionLost` event.
+        let error = error.or_else(|| {
+            if let InnerState::Closed {
+                ref remote_reason,
+                error_read: false,
+                is_local: false,
+            } = self.inner
+            {
+                Some(remote_reason.clone().into())
+            } else {
+                None
+            }
+        });
+
         self.inner = InnerState::Draining { error, is_local };
         trace!("connection state: draining");
     }
