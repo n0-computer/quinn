@@ -5524,7 +5524,6 @@ impl Connection {
         path_exclusive_only: bool,
         builder: &mut PacketBuilder<'a, 'b>,
     ) {
-        let pn = builder.packet_number;
         let is_multipath_negotiated = self.is_multipath_negotiated();
         let space_has_keys = self.crypto_state.has_keys(space_id.encryption_level());
         let is_0rtt = space_id == SpaceId::Data && !space_has_keys;
@@ -5647,7 +5646,7 @@ impl Connection {
             builder.write_frame(frame, stats);
 
             self.ack_frequency
-                .ack_frequency_sent(path_id, pn, max_ack_delay);
+                .ack_frequency_sent(path_id, builder.packet_number, max_ack_delay);
         }
 
         // PATH_CHALLENGE
