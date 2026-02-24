@@ -1265,11 +1265,15 @@ impl Incoming {
         self.token.orig_dst_cid
     }
 
-    /// The ALPN protocols proposed by the client in the TLS ClientHello
+    /// Best-effort extraction of the ALPN protocols from the TLS ClientHello
     ///
-    /// This decrypts and parses the Initial packet payload to extract the ALPN
-    /// extension. Returns `None` if parsing fails for any reason.
-    pub fn alpn(&self) -> Option<Vec<Vec<u8>>> {
+    /// Decrypts and parses the first Initial packet to extract the ALPN extension.
+    /// This is intended for routing and filtering; it is not guaranteed to succeed
+    /// if the ClientHello spans multiple packets. Returns `None` if parsing fails.
+    ///
+    /// This involves cloning and decrypting the packet payload (~1200 bytes)
+    /// and parsing the TLS ClientHello. The result is not cached.
+    pub fn alpns(&self) -> Option<Vec<Vec<u8>>> {
         let packet_number = self.packet.header.number.expand(0);
         let mut payload = self.packet.payload.clone();
         self.crypto
@@ -1283,71 +1287,77 @@ impl Incoming {
             )
             .ok()?;
 
+        // Collect and reassemble CRYPTO frames by offset
         let frames = frame::Iter::new(payload.freeze()).ok()?;
+        let mut crypto_frames = Vec::new();
         for frame in frames {
-            if let Ok(frame::Frame::Crypto(crypto)) = frame {
-                return parse_client_hello_alpns(&crypto.data);
+            match frame.ok()? {
+                frame::Frame::Crypto(crypto) => crypto_frames.push(crypto),
+                _ => {}
             }
         }
-        None
+
+        // Fast path: single CRYPTO frame at offset 0
+        if crypto_frames.len() == 1 && crypto_frames[0].offset == 0 {
+            return parse_client_hello_alpns(&crypto_frames[0].data);
+        }
+
+        // Reassemble: sort by offset, verify contiguous, concatenate
+        crypto_frames.sort_by_key(|f| f.offset);
+        let mut buf = Vec::new();
+        for f in &crypto_frames {
+            let start = f.offset as usize;
+            if start > buf.len() {
+                // Gap in the stream, can't reassemble
+                return None;
+            }
+            let end = start + f.data.len();
+            if end > buf.len() {
+                // Extend buf with the non-overlapping portion
+                buf.extend_from_slice(&f.data[buf.len() - start..]);
+            }
+        }
+
+        parse_client_hello_alpns(&buf)
     }
 }
+
+/// TLS handshake type for ClientHello messages
+/// <https://www.rfc-editor.org/rfc/rfc8446#section-4.1.2>
+const TLS_HANDSHAKE_TYPE_CLIENT_HELLO: u8 = 0x01;
+/// TLS extension type for Application-Layer Protocol Negotiation
+/// <https://www.rfc-editor.org/rfc/rfc7301#section-3.1>
+const TLS_EXTENSION_TYPE_ALPN: u16 = 0x0010;
+/// Size of the fixed-length fields in a ClientHello (client_version + random)
+/// <https://www.rfc-editor.org/rfc/rfc8446#section-4.1.2>
+const TLS_CLIENT_HELLO_FIXED_LEN: usize = 2 + 32;
 
 /// Parse the ALPN extension from a TLS ClientHello message
 fn parse_client_hello_alpns(data: &[u8]) -> Option<Vec<Vec<u8>>> {
     let mut r = data;
 
-    // Handshake type: ClientHello = 0x01
-    if *r.first()? != 0x01 {
+    if read_u8(&mut r)? != TLS_HANDSHAKE_TYPE_CLIENT_HELLO {
         return None;
     }
-    r = &r[1..];
 
-    // Length (u24)
-    if r.len() < 3 {
-        return None;
-    }
-    let len = (r[0] as usize) << 16 | (r[1] as usize) << 8 | r[2] as usize;
-    r = r.get(3..3 + len)?;
+    // Handshake message length (u24), scopes the remainder
+    let len = read_u24(&mut r)?;
+    let mut r = r.get(..len)?;
 
-    // Client version (2) + random (32) = 34 bytes
-    r = r.get(34..)?;
+    // Client version + random
+    skip(&mut r, TLS_CLIENT_HELLO_FIXED_LEN)?;
 
-    // Session ID: 1 byte length + data
-    let session_id_len = *r.first()? as usize;
-    r = r.get(1 + session_id_len..)?;
+    // Session ID, cipher suites, compression methods
+    skip_u8_prefixed(&mut r)?;
+    skip_u16_prefixed(&mut r)?;
+    skip_u8_prefixed(&mut r)?;
 
-    // Cipher suites: 2 byte length + data
-    if r.len() < 2 {
-        return None;
-    }
-    let cs_len = (r[0] as usize) << 8 | r[1] as usize;
-    r = r.get(2 + cs_len..)?;
-
-    // Compression methods: 1 byte length + data
-    let comp_len = *r.first()? as usize;
-    r = r.get(1 + comp_len..)?;
-
-    // Extensions: 2 byte total length
-    if r.len() < 2 {
-        return None;
-    }
-    let ext_len = (r[0] as usize) << 8 | r[1] as usize;
-    r = r.get(2..2 + ext_len)?;
-
-    // Iterate extensions
-    while r.len() >= 4 {
-        let ext_type = (r[0] as u16) << 8 | r[1] as u16;
-        let ext_data_len = (r[2] as usize) << 8 | r[3] as usize;
-        r = &r[4..];
-        if r.len() < ext_data_len {
-            return None;
-        }
-        let ext_data = &r[..ext_data_len];
-        r = &r[ext_data_len..];
-
-        // ALPN extension type = 0x0010
-        if ext_type == 0x0010 {
+    // Extensions
+    let mut r = take_u16_prefixed(&mut r)?;
+    while !r.is_empty() {
+        let ext_type = read_u16(&mut r)?;
+        let ext_data = take_u16_prefixed(&mut r)?;
+        if ext_type == TLS_EXTENSION_TYPE_ALPN {
             return parse_alpn_extension(ext_data);
         }
     }
@@ -1355,24 +1365,67 @@ fn parse_client_hello_alpns(data: &[u8]) -> Option<Vec<Vec<u8>>> {
 }
 
 /// Parse the ALPN protocol list from the extension data
-fn parse_alpn_extension(mut data: &[u8]) -> Option<Vec<Vec<u8>>> {
-    if data.len() < 2 {
-        return None;
-    }
-    let list_len = (data[0] as usize) << 8 | data[1] as usize;
-    data = data.get(2..2 + list_len)?;
-
+///
+/// The ALPN extension payload is a u16-length-prefixed list of u8-length-prefixed protocol names.
+fn parse_alpn_extension(data: &[u8]) -> Option<Vec<Vec<u8>>> {
+    let mut r = take_u16_prefixed(&mut &*data)?;
     let mut alpns = Vec::new();
-    while !data.is_empty() {
-        let proto_len = *data.first()? as usize;
-        data = &data[1..];
-        if data.len() < proto_len {
-            return None;
-        }
-        alpns.push(data[..proto_len].to_vec());
-        data = &data[proto_len..];
+    while !r.is_empty() {
+        let len = read_u8(&mut r)? as usize;
+        let (proto, rest) = r.split_at_checked(len)?;
+        alpns.push(proto.to_vec());
+        r = rest;
     }
     Some(alpns)
+}
+
+/// Read exactly `N` bytes as an array and advance past them
+fn read_array<const N: usize>(r: &mut &[u8]) -> Option<[u8; N]> {
+    let (bytes, rest) = r.split_at_checked(N)?;
+    *r = rest;
+    Some(bytes.try_into().unwrap())
+}
+
+/// Read a u8 and advance past it
+fn read_u8(r: &mut &[u8]) -> Option<u8> {
+    Some(read_array::<1>(r)?[0])
+}
+
+/// Read a big-endian u16 and advance past it
+fn read_u16(r: &mut &[u8]) -> Option<u16> {
+    Some(u16::from_be_bytes(read_array(r)?))
+}
+
+/// Read a big-endian u24 as usize and advance past it
+fn read_u24(r: &mut &[u8]) -> Option<usize> {
+    let [a, b, c] = read_array(r)?;
+    Some(u32::from_be_bytes([0, a, b, c]) as usize)
+}
+
+/// Advance past `n` bytes
+fn skip(r: &mut &[u8], n: usize) -> Option<()> {
+    *r = r.get(n..)?;
+    Some(())
+}
+
+/// Skip a u8-length-prefixed field
+fn skip_u8_prefixed(r: &mut &[u8]) -> Option<()> {
+    let len = read_u8(r)? as usize;
+    skip(r, len)
+}
+
+/// Skip a u16-length-prefixed field
+fn skip_u16_prefixed(r: &mut &[u8]) -> Option<()> {
+    take_u16_prefixed(r)?;
+    Some(())
+}
+
+/// Read a u16 length prefix and return the sub-slice it covers, advancing past it
+fn take_u16_prefixed<'a>(r: &mut &'a [u8]) -> Option<&'a [u8]> {
+    let len = read_u16(r)? as usize;
+    let (data, rest) = r.split_at_checked(len)?;
+    *r = rest;
+    Some(data)
 }
 
 struct IncomingImproperDropWarner;

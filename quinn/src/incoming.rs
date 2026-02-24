@@ -99,12 +99,16 @@ impl Incoming {
         self.0.as_ref().unwrap().inner.orig_dst_cid()
     }
 
-    /// The ALPN protocols proposed by the client in the TLS ClientHello
+    /// Best-effort extraction of the ALPN protocols from the TLS ClientHello
     ///
-    /// This decrypts and parses the Initial packet payload to extract the ALPN
-    /// extension. Returns `None` if parsing fails for any reason.
-    pub fn alpn(&self) -> Option<Vec<Vec<u8>>> {
-        self.0.as_ref().unwrap().inner.alpn()
+    /// Decrypts and parses the first Initial packet to extract the ALPN extension.
+    /// This is intended for routing and filtering; it is not guaranteed to succeed
+    /// if the ClientHello spans multiple packets. Returns `None` if parsing fails.
+    ///
+    /// This involves cloning and decrypting the packet payload (~1200 bytes)
+    /// and parsing the TLS ClientHello. The result is not cached.
+    pub fn alpns(&self) -> Option<Vec<Vec<u8>>> {
+        self.0.as_ref()?.inner.alpns()
     }
 }
 
