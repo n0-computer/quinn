@@ -101,7 +101,7 @@ impl Incoming {
 
     /// Best-effort extraction of the ALPN protocols from the TLS ClientHello
     ///
-    /// Decrypts and parses the first Initial packet to extract the ALPN extension.
+    /// Decrypts and parses the Initial packet to extract the ALPN extension.
     /// This is intended for routing and filtering; it is not guaranteed to succeed
     /// if the ClientHello spans multiple packets. Returns `None` if parsing fails.
     ///
