@@ -1291,9 +1291,8 @@ impl Incoming {
         let frames = frame::Iter::new(payload.freeze()).ok()?;
         let mut crypto_frames = Vec::new();
         for frame in frames {
-            match frame.ok()? {
-                frame::Frame::Crypto(crypto) => crypto_frames.push(crypto),
-                _ => {}
+            if let frame::Frame::Crypto(crypto) = frame.ok()? {
+                crypto_frames.push(crypto)
             }
         }
 
