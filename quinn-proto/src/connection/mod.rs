@@ -6368,6 +6368,20 @@ impl Connection {
         }
     }
 
+    /// Simulates a protocol violation error for test purposes.
+    #[cfg(test)]
+    pub fn simulate_protocol_violation(&mut self, now: Instant) {
+        if !self.state.is_closed() {
+            self.state
+                .move_to_closed(TransportError::PROTOCOL_VIOLATION("simulated violation"));
+            self.close_common();
+            if !self.state.is_drained() {
+                self.set_close_timer(now);
+            }
+            self.connection_close_pending = true;
+        }
+    }
+
     /// Whether we have 1-RTT data to send
     ///
     /// This checks for frames that can only be sent in the data space (1-RTT):
