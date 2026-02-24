@@ -1303,7 +1303,7 @@ fn connection_close_sends_acks() {
     let client_acks_2 = pair.client_conn_mut(client_ch).stats().frame_rx.acks;
     assert!(
         client_acks_2 > client_acks,
-        "Connection close should send pending ACKs"
+        "Connection close should send queued ACKs"
     );
 }
 

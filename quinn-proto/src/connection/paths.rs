@@ -157,8 +157,8 @@ pub(super) struct PathData {
     ///
     /// This is **not used** for n0 nat traversal challenge sending.
     pub(super) tx_queue_on_path_challenge: bool,
-    /// Pending responses to PATH_CHALLENGE frames
-    pub(super) path_responses: PathResponses,
+    /// PATH_CHALLENGE frames queued for transmission.
+    pub(super) tx_queue_path_responses: PathResponses,
     /// Whether we're certain the peer can both send and receive on this address
     ///
     /// Initially equal to `use_stateless_retry` for servers, and becomes false again on every
@@ -262,7 +262,7 @@ impl PathData {
             on_path_challenges_unconfirmed: Default::default(),
             off_path_challenges_unconfirmed: Default::default(),
             tx_queue_on_path_challenge: false,
-            path_responses: PathResponses::default(),
+            tx_queue_path_responses: PathResponses::default(),
             validated: false,
             total_sent: 0,
             total_recvd: 0,
@@ -318,7 +318,7 @@ impl PathData {
             on_path_challenges_unconfirmed: Default::default(),
             off_path_challenges_unconfirmed: Default::default(),
             tx_queue_on_path_challenge: false,
-            path_responses: PathResponses::default(),
+            tx_queue_path_responses: PathResponses::default(),
             validated: false,
             total_sent: 0,
             total_recvd: 0,
@@ -773,7 +773,7 @@ impl RttEstimator {
 
 #[derive(Default, Debug)]
 pub(crate) struct PathResponses {
-    pending: Vec<PathResponse>,
+    tx_queue: Vec<PathResponse>,
 }
 
 impl PathResponses {
@@ -786,7 +786,7 @@ impl PathResponses {
             network_path,
         };
         let existing = self
-            .pending
+            .tx_queue
             .iter_mut()
             .find(|x| x.network_path.remote == network_path.remote);
         if let Some(existing) = existing {
@@ -796,8 +796,8 @@ impl PathResponses {
             }
             return;
         }
-        if self.pending.len() < MAX_PATH_RESPONSES {
-            self.pending.push(response);
+        if self.tx_queue.len() < MAX_PATH_RESPONSES {
+            self.tx_queue.push(response);
         } else {
             // We don't expect to ever hit this with well-behaved peers, so we don't bother dropping
             // older challenges.
@@ -806,7 +806,7 @@ impl PathResponses {
     }
 
     pub(crate) fn pop_off_path(&mut self, network_path: FourTuple) -> Option<(u64, FourTuple)> {
-        let response = *self.pending.last()?;
+        let response = *self.tx_queue.last()?;
         // We use an exact comparison here, because once we've received for the first time,
         // we really should either already have a local_ip, or we will never get one
         // (because our OS doesn't support it).
@@ -815,24 +815,24 @@ impl PathResponses {
             // get drained in the immediate future by a call to `pop_on_path`
             return None;
         }
-        self.pending.pop();
+        self.tx_queue.pop();
         Some((response.token, response.network_path))
     }
 
     pub(crate) fn pop_on_path(&mut self, network_path: FourTuple) -> Option<u64> {
-        let response = *self.pending.last()?;
+        let response = *self.tx_queue.last()?;
         // Using an exact comparison. See explanation in `pop_off_path`.
         if response.network_path != network_path {
             // We don't bother searching further because we expect that the off-path response will
             // get drained in the immediate future by a call to `pop_off_path`
             return None;
         }
-        self.pending.pop();
+        self.tx_queue.pop();
         Some(response.token)
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.pending.is_empty()
+        self.tx_queue.is_empty()
     }
 }
 

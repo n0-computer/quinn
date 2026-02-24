@@ -247,7 +247,7 @@ pub struct Chunks<'a> {
     id: StreamId,
     ordered: bool,
     streams: &'a mut StreamsState,
-    pending: &'a mut Retransmits,
+    tx_queue: &'a mut Retransmits,
     state: ChunksState,
     read: u64,
 }
@@ -257,7 +257,7 @@ impl<'a> Chunks<'a> {
         id: StreamId,
         ordered: bool,
         streams: &'a mut StreamsState,
-        pending: &'a mut Retransmits,
+        tx_queue: &'a mut Retransmits,
     ) -> Result<Self, ReadableError> {
         let mut entry = match streams.recv.entry(id) {
             Entry::Occupied(entry) => entry,
@@ -275,7 +275,7 @@ impl<'a> Chunks<'a> {
             id,
             ordered,
             streams,
-            pending,
+            tx_queue,
             state: ChunksState::Readable(recv),
             read: 0,
         })
@@ -357,14 +357,14 @@ impl<'a> Chunks<'a> {
         // We issue additional stream ID credit after the application is notified that a previously
         // open stream has finished or been reset and we've therefore disposed of its state, as
         // recorded by `stream_freed` calls in `next`.
-        let mut should_transmit = self.streams.queue_max_stream_id(self.pending);
+        let mut should_transmit = self.streams.queue_max_stream_id(self.tx_queue);
 
         // If the stream hasn't finished, we may need to issue stream-level flow control credit
         if let ChunksState::Readable(mut rs) = state {
             let (_, max_stream_data) = rs.max_stream_data(self.streams.stream_receive_window);
             should_transmit |= max_stream_data.0;
             if max_stream_data.0 {
-                self.pending.max_stream_data.insert(self.id);
+                self.tx_queue.max_stream_data.insert(self.id);
             }
             // Return the stream to storage for future use
             self.streams
@@ -374,7 +374,7 @@ impl<'a> Chunks<'a> {
 
         // Issue connection-level flow control credit for any data we read regardless of state
         let max_data = self.streams.add_read_credits(self.read);
-        self.pending.max_data |= max_data.0;
+        self.tx_queue.max_data |= max_data.0;
         should_transmit |= max_data.0;
         ShouldTransmit(should_transmit)
     }

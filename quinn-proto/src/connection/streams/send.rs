@@ -11,10 +11,10 @@ use crate::{
 pub(super) struct Send {
     pub(super) max_data: u64,
     pub(super) state: SendState,
-    pub(super) pending: SendBuffer,
+    pub(super) tx_queue: SendBuffer,
     pub(super) priority: i32,
     /// Whether a frame containing a FIN bit must be transmitted, even if we don't have any new data
-    pub(super) fin_pending: bool,
+    pub(super) tx_queue_fin: bool,
     /// Whether this stream is in the `connection_blocked` list of `Streams`
     pub(super) connection_blocked: bool,
     /// The reason the peer wants us to stop, if `STOP_SENDING` was received
@@ -26,9 +26,9 @@ impl Send {
         Box::new(Self {
             max_data: max_data.into(),
             state: SendState::Ready,
-            pending: SendBuffer::new(),
+            tx_queue: SendBuffer::new(),
             priority: 0,
-            fin_pending: false,
+            tx_queue_fin: false,
             connection_blocked: false,
             stop_reason: None,
         })
@@ -46,7 +46,7 @@ impl Send {
             self.state = SendState::DataSent {
                 finish_acked: false,
             };
-            self.fin_pending = true;
+            self.tx_queue_fin = true;
             Ok(())
         } else {
             Err(FinishError::ClosedStream)
@@ -64,7 +64,7 @@ impl Send {
         if let Some(error_code) = self.stop_reason {
             return Err(WriteError::Stopped(error_code));
         }
-        let budget = self.max_data - self.pending.offset();
+        let budget = self.max_data - self.tx_queue.offset();
         if budget == 0 {
             return Err(WriteError::Blocked);
         }
@@ -81,7 +81,7 @@ impl Send {
             }
 
             limit -= chunk.len();
-            self.pending.write(chunk);
+            self.tx_queue.write(chunk);
         }
 
         Ok(result)
@@ -110,13 +110,13 @@ impl Send {
 
     /// Returns whether the stream has been finished and all data has been acknowledged by the peer
     pub(super) fn ack(&mut self, frame: frame::StreamMeta) -> bool {
-        self.pending.ack(frame.offsets);
+        self.tx_queue.ack(frame.offsets);
         match self.state {
             SendState::DataSent {
                 ref mut finish_acked,
             } => {
                 *finish_acked |= frame.fin;
-                *finish_acked && self.pending.is_fully_acked()
+                *finish_acked && self.tx_queue.is_fully_acked()
             }
             _ => false,
         }
@@ -129,17 +129,17 @@ impl Send {
         if offset <= self.max_data || self.state != SendState::Ready {
             return false;
         }
-        let was_blocked = self.pending.offset() == self.max_data;
+        let was_blocked = self.tx_queue.offset() == self.max_data;
         self.max_data = offset;
         was_blocked
     }
 
     pub(super) fn offset(&self) -> u64 {
-        self.pending.offset()
+        self.tx_queue.offset()
     }
 
-    pub(super) fn is_pending(&self) -> bool {
-        self.pending.has_unsent_data() || self.fin_pending
+    pub(super) fn has_tx_queued(&self) -> bool {
+        self.tx_queue.has_unsent_data() || self.tx_queue_fin
     }
 
     pub(super) fn is_writable(&self) -> bool {

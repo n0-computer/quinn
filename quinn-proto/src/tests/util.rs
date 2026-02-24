@@ -635,8 +635,8 @@ impl ConnPair {
         self.conn(side).has_0rtt()
     }
 
-    pub(super) fn has_pending_retransmits(&self, side: Side) -> bool {
-        self.conn(side).has_pending_retransmits()
+    pub(super) fn has_queued_retransmits(&self, side: Side) -> bool {
+        self.conn(side).has_queued_retransmits()
     }
 
     pub(super) fn path_observed_address(

@@ -807,8 +807,8 @@ fn regression_peer_ignored_path_abandon() {
 /// >  network_path=(local: ::ffff:1.1.1.2, remote: [::ffff:2.2.2.0]:4433)
 /// >  expected=(local: ::ffff:1.1.1.1, remote: [::ffff:2.2.2.0]:4433)
 ///
-/// The client will then never clear out the PATH_CHALLENGE from the "pending"
-/// challenges, and so it will never fully clear the path challenge timer.
+/// The client will then never clear out the PATH_CHALLENGE from the challenges queued for
+/// transmission, and so it will never fully clear the path challenge timer.
 ///
 /// This issue was fixed by making sure to clear out challenges that were probing
 /// 4-tuples that are different from the current network path.

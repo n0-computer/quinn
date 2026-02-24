@@ -8,8 +8,7 @@ use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
 
 use super::{
-    PendingStreamsQueue, Recv, Retransmits, Send, SendState, ShouldTransmit, StreamEvent,
-    StreamHalf,
+    Recv, Retransmits, Send, SendState, ShouldTransmit, StreamEvent, StreamHalf, StreamsTxQueue,
 };
 use crate::{
     Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
@@ -99,7 +98,7 @@ pub struct StreamsState {
     /// permitted to open but which have not yet been opened.
     pub(super) send_streams: usize,
     /// Streams with outgoing data queued, sorted by priority
-    pub(super) pending: PendingStreamsQueue,
+    pub(super) tx_queue: StreamsTxQueue,
 
     events: VecDeque<StreamEvent>,
     /// Streams blocked on connection-level flow control or stream window space
@@ -163,7 +162,7 @@ impl StreamsState {
             opened: [false, false],
             next_reported_remote: [0, 0],
             send_streams: 0,
-            pending: PendingStreamsQueue::new(),
+            tx_queue: StreamsTxQueue::new(),
             events: VecDeque::new(),
             connection_blocked: Vec::new(),
             max_data: 0,
@@ -239,7 +238,7 @@ impl StreamsState {
             }
         }
 
-        self.pending.clear();
+        self.tx_queue.clear();
         self.send_streams = 0;
         self.data_sent = 0;
         self.connection_blocked.clear();
@@ -389,8 +388,9 @@ impl StreamsState {
 
     /// Whether any stream data is queued, regardless of control frames
     pub(crate) fn can_send_stream_data(&self) -> bool {
-        // Reset streams may linger in the pending stream list, but will never produce stream frames
-        self.pending.iter().any(|stream| {
+        // Reset streams may linger in the tx_queue stream list, but will never produce
+        // stream frames
+        self.tx_queue.iter().any(|stream| {
             self.send
                 .get(&stream.id)
                 .and_then(|s| s.as_ref())
@@ -410,12 +410,12 @@ impl StreamsState {
     pub(in crate::connection) fn write_control_frames<'a, 'b>(
         &mut self,
         builder: &mut PacketBuilder<'a, 'b>,
-        pending: &mut Retransmits,
+        tx_queue: &mut Retransmits,
         stats: &mut FrameStats,
     ) {
         // RESET_STREAM
         while builder.frame_space_remaining() > frame::ResetStream::SIZE_BOUND {
-            let (id, error_code) = match pending.reset_stream.pop() {
+            let (id, error_code) = match tx_queue.reset_stream.pop() {
                 Some(x) => x,
                 None => break,
             };
@@ -433,7 +433,7 @@ impl StreamsState {
 
         // STOP_SENDING
         while builder.frame_space_remaining() > frame::StopSending::SIZE_BOUND {
-            let frame = match pending.stop_sending.pop() {
+            let frame = match tx_queue.stop_sending.pop() {
                 Some(x) => x,
                 None => break,
             };
@@ -448,8 +448,8 @@ impl StreamsState {
         }
 
         // MAX_DATA
-        if pending.max_data && builder.frame_space_remaining() > 9 {
-            pending.max_data = false;
+        if tx_queue.max_data && builder.frame_space_remaining() > 9 {
+            tx_queue.max_data = false;
 
             // `local_max_data` can grow bigger than `VarInt`.
             // For transmission inside QUIC frames we need to clamp it to the
@@ -468,11 +468,11 @@ impl StreamsState {
 
         // MAX_STREAM_DATA
         while builder.frame_space_remaining() > 17 {
-            let id = match pending.max_stream_data.iter().next() {
+            let id = match tx_queue.max_stream_data.iter().next() {
                 Some(x) => *x,
                 None => break,
             };
-            pending.max_stream_data.remove(&id);
+            tx_queue.max_stream_data.remove(&id);
             let rs = match self
                 .recv
                 .get_mut(&id)
@@ -493,11 +493,11 @@ impl StreamsState {
 
         // MAX_STREAMS
         for dir in Dir::iter() {
-            if !pending.max_stream_id[dir as usize] || builder.frame_space_remaining() <= 9 {
+            if !tx_queue.max_stream_id[dir as usize] || builder.frame_space_remaining() <= 9 {
                 continue;
             }
 
-            pending.max_stream_id[dir as usize] = false;
+            tx_queue.max_stream_id[dir as usize] = false;
             self.sent_max_remote[dir as usize] = self.max_remote[dir as usize];
             let count = self.max_remote[dir as usize];
             builder.write_frame(frame::MaxStreams { dir, count }, stats);
@@ -511,10 +511,10 @@ impl StreamsState {
         stats: &mut FrameStats,
     ) {
         while builder.frame_space_remaining() > frame::Stream::SIZE_BOUND {
-            // Pop the stream of the highest priority that currently has pending data. If
-            // the stream still has some pending data left after writing, it will be
-            // reinserted, otherwise not
-            let Some(stream) = self.pending.pop() else {
+            // Pop the stream of the highest priority that currently has data queued for
+            // transmission. If the stream still has some data queued for transmit left
+            // after writing, it will be reinserted, otherwise not
+            let Some(stream) = self.tx_queue.pop() else {
                 break;
             };
 
@@ -522,13 +522,14 @@ impl StreamsState {
 
             let stream = match self.send.get_mut(&id).and_then(|s| s.as_mut()) {
                 Some(s) => s,
-                // Stream was reset with pending data and the reset was acknowledged
+                // Stream was reset with data queued for transmission and the reset was
+                // acknowledged
                 None => continue,
             };
 
-            // Reset streams aren't removed from the pending list and still exist while the peer
-            // hasn't acknowledged the reset, but should not generate STREAM frames, so we need to
-            // check for them explicitly.
+            // Reset streams aren't removed from the tx_queue list and still exist while the
+            // peer hasn't acknowledged the reset, but should not generate STREAM frames, so
+            // we need to check for them explicitly.
             if stream.is_reset() {
                 continue;
             }
@@ -536,29 +537,30 @@ impl StreamsState {
             // Now that we know the `StreamId`, we can better account for how many bytes
             // are required to encode it.
             let max_buf_size = builder.frame_space_remaining() - 1 - VarInt::size(id.into());
-            let (offsets, encode_length) = stream.pending.poll_transmit(max_buf_size);
-            let fin = offsets.end == stream.pending.offset()
+            let (offsets, encode_length) = stream.tx_queue.poll_transmit(max_buf_size);
+            let fin = offsets.end == stream.tx_queue.offset()
                 && matches!(stream.state, SendState::DataSent { .. });
             if fin {
-                stream.fin_pending = false;
+                stream.tx_queue_fin = false;
             }
 
-            if stream.is_pending() {
-                // If the stream still has pending data, reinsert it, possibly with an updated priority value
-                // Fairness with other streams is achieved by implementing round-robin scheduling,
-                // so that the other streams will have a chance to write data
-                // before we touch this stream again.
+            if stream.has_tx_queued() {
+                // If the stream still has data queued for transmission, reinsert it,
+                // possibly with an updated priority value Fairness with other streams is
+                // achieved by implementing round-robin scheduling, so that the other
+                // streams will have a chance to write data before we touch this stream
+                // again.
                 if fair {
-                    self.pending.push_pending(id, stream.priority);
+                    self.tx_queue.push(id, stream.priority);
                 } else {
-                    self.pending.reinsert_pending(id, stream.priority);
+                    self.tx_queue.reinsert(id, stream.priority);
                 }
             }
 
             let range = offsets.clone();
             let meta = frame::StreamMeta { id, offsets, fin };
             builder.write_frame(meta.encoder(encode_length), stats);
-            stream.pending.get_into(range, builder.buf);
+            stream.tx_queue.get_into(range, builder.buf);
         }
     }
 
@@ -630,11 +632,11 @@ impl StreamsState {
             None => return,
             Some(x) => x,
         };
-        if !stream.is_pending() {
-            self.pending.push_pending(frame.id, stream.priority);
+        if !stream.has_tx_queued() {
+            self.tx_queue.push(frame.id, stream.priority);
         }
-        stream.fin_pending |= frame.fin;
-        stream.pending.retransmit(frame.offsets);
+        stream.tx_queue_fin |= frame.fin;
+        stream.tx_queue.retransmit(frame.offsets);
     }
 
     pub(crate) fn retransmit_all_for_0rtt(&mut self) {
@@ -645,15 +647,15 @@ impl StreamsState {
                     Some(stream) => stream,
                     None => continue,
                 };
-                if stream.pending.is_fully_acked() && !stream.fin_pending {
+                if stream.tx_queue.is_fully_acked() && !stream.tx_queue_fin {
                     // Stream data can't be acked in 0-RTT, so we must not have sent anything on
                     // this stream
                     continue;
                 }
-                if !stream.is_pending() {
-                    self.pending.push_pending(id, stream.priority);
+                if !stream.has_tx_queued() {
+                    self.tx_queue.push(id, stream.priority);
                 }
-                stream.pending.retransmit_all_for_0rtt();
+                stream.tx_queue.retransmit_all_for_0rtt();
             }
         }
     }
@@ -759,17 +761,17 @@ impl StreamsState {
         self.events.pop_front()
     }
 
-    /// Queues MAX_STREAM_ID frames in `pending` if needed
+    /// Queues MAX_STREAM_ID frames in `tx_queue` if needed
     ///
     /// Returns whether any frames were queued.
-    pub(crate) fn queue_max_stream_id(&mut self, pending: &mut Retransmits) -> bool {
+    pub(crate) fn queue_max_stream_id(&mut self, tx_queue: &mut Retransmits) -> bool {
         let mut queued = false;
         for dir in Dir::iter() {
             let diff = self.max_remote[dir as usize] - self.sent_max_remote[dir as usize];
             // To reduce traffic, only announce updates if at least 1/8 of the flow control window
             // has been consumed.
             if diff > self.max_concurrent_remote_count[dir as usize] / 8 {
-                pending.max_stream_id[dir as usize] = true;
+                tx_queue.max_stream_id[dir as usize] = true;
                 queued = true;
             }
         }
@@ -988,11 +990,11 @@ mod tests {
         assert_eq!(client.data_recvd, 2048);
         assert_eq!(client.local_max_data - initial_max, 0);
 
-        let mut pending = Retransmits::default();
+        let mut tx_queue = Retransmits::default();
         let mut recv = RecvStream {
             id,
             state: &mut client,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
         };
 
         let mut chunks = recv.read(true).unwrap();
@@ -1003,7 +1005,7 @@ mod tests {
         assert!(chunks.next(0).unwrap().is_none());
         let should_transmit = chunks.finalize();
         assert!(should_transmit.0);
-        assert!(pending.max_stream_id[Dir::Uni as usize]);
+        assert!(tx_queue.max_stream_id[Dir::Uni as usize]);
         assert_eq!(client.local_max_data - initial_max, MESSAGE_SIZE as u64);
     }
 
@@ -1029,11 +1031,11 @@ mod tests {
         assert_eq!(client.data_recvd, 2048);
         assert_eq!(client.local_max_data - initial_max, 0);
 
-        let mut pending = Retransmits::default();
+        let mut tx_queue = Retransmits::default();
         let mut recv = RecvStream {
             id,
             state: &mut client,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
         };
 
         let mut chunks = recv.read(true).unwrap();
@@ -1058,7 +1060,7 @@ mod tests {
         let mut recv = RecvStream {
             id,
             state: &mut client,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
         };
         let mut chunks = recv.read(true).unwrap();
         assert_eq!(
@@ -1154,16 +1156,16 @@ mod tests {
         );
         assert_eq!(client.local_max_data, initial_max);
 
-        let mut pending = Retransmits::default();
+        let mut tx_queue = Retransmits::default();
         let mut recv = RecvStream {
             id,
             state: &mut client,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
         };
 
         recv.stop(0u32.into()).unwrap();
-        assert_eq!(recv.pending.stop_sending.len(), 1);
-        assert!(!recv.pending.max_data);
+        assert_eq!(recv.tx_queue.stop_sending.len(), 1);
+        assert!(!recv.tx_queue.max_data);
 
         assert!(recv.stop(0u32.into()).is_err());
         assert_eq!(recv.read(true).err(), Some(ReadableError::ClosedStream));
@@ -1208,16 +1210,16 @@ mod tests {
             ShouldTransmit(false)
         );
 
-        let mut pending = Retransmits::default();
+        let mut tx_queue = Retransmits::default();
         let mut recv = RecvStream {
             id,
             state: &mut client,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
         };
 
         recv.stop(0u32.into()).unwrap();
-        assert_eq!(pending.stop_sending.len(), 1);
-        assert!(!pending.max_data);
+        assert_eq!(tx_queue.stop_sending.len(), 1);
+        assert!(!tx_queue.max_data);
 
         // Server complies
         let prev_max = client.max_remote[Dir::Uni as usize];
@@ -1245,7 +1247,7 @@ mod tests {
             ..TransportParameters::default()
         });
 
-        let (mut pending, state) = (Retransmits::default(), ConnState::established());
+        let (mut tx_queue, state) = (Retransmits::default(), ConnState::established());
         let id = Streams {
             state: &mut server,
             conn_state: &state,
@@ -1256,7 +1258,7 @@ mod tests {
         let mut stream = SendStream {
             id,
             state: &mut server,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
             conn_state: &state,
         };
 
@@ -1306,7 +1308,7 @@ mod tests {
             ..TransportParameters::default()
         });
 
-        let (mut pending, state) = (Retransmits::default(), ConnState::established());
+        let (mut tx_queue, state) = (Retransmits::default(), ConnState::established());
         let mut streams = Streams {
             state: &mut server,
             conn_state: &state,
@@ -1319,7 +1321,7 @@ mod tests {
         let mut mid = SendStream {
             id: id_mid,
             state: &mut server,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
             conn_state: &state,
         };
         mid.write(b"mid").unwrap();
@@ -1327,7 +1329,7 @@ mod tests {
         let mut low = SendStream {
             id: id_low,
             state: &mut server,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
             conn_state: &state,
         };
         low.set_priority(-1).unwrap();
@@ -1336,7 +1338,7 @@ mod tests {
         let mut high = SendStream {
             id: id_high,
             state: &mut server,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
             conn_state: &state,
         };
         high.set_priority(1).unwrap();
@@ -1348,7 +1350,7 @@ mod tests {
         assert_eq!(meta[2].id, id_low);
 
         assert!(!server.can_send_stream_data());
-        assert_eq!(server.pending.len(), 0);
+        assert_eq!(server.tx_queue.len(), 0);
     }
 
     #[test]
@@ -1361,7 +1363,7 @@ mod tests {
             ..TransportParameters::default()
         });
 
-        let (mut pending, state) = (Retransmits::default(), ConnState::established());
+        let (mut tx_queue, state) = (Retransmits::default(), ConnState::established());
         let mut streams = Streams {
             state: &mut server,
             conn_state: &state,
@@ -1373,21 +1375,21 @@ mod tests {
         let mut mid = SendStream {
             id: id_mid,
             state: &mut server,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
             conn_state: &state,
         };
         assert_eq!(mid.write(b"mid").unwrap(), 3);
-        assert_eq!(server.pending.len(), 1);
+        assert_eq!(server.tx_queue.len(), 1);
 
         let mut high = SendStream {
             id: id_high,
             state: &mut server,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
             conn_state: &state,
         };
         high.set_priority(1).unwrap();
         assert_eq!(high.write(&[0; 200]).unwrap(), 200);
-        assert_eq!(server.pending.len(), 2);
+        assert_eq!(server.tx_queue.len(), 2);
 
         // Requeue the high priority stream to lowest priority. The initial send
         // still uses high priority since it's queued that way. After that it will
@@ -1395,7 +1397,7 @@ mod tests {
         let mut high = SendStream {
             id: id_high,
             state: &mut server,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
             conn_state: &state,
         };
         high.set_priority(-1).unwrap();
@@ -1405,7 +1407,7 @@ mod tests {
         assert_eq!(meta[0].id, id_high);
 
         // After requeuing we should end up with 2 priorities - not 3
-        assert_eq!(server.pending.len(), 2);
+        assert_eq!(server.tx_queue.len(), 2);
 
         // Send the remaining data. The initial mid priority one should go first now
         let meta = server.write_frames_for_test(1000 - 40, true);
@@ -1414,7 +1416,7 @@ mod tests {
         assert_eq!(meta[1].id, id_high);
 
         assert!(!server.can_send_stream_data());
-        assert_eq!(server.pending.len(), 0);
+        assert_eq!(server.tx_queue.len(), 0);
     }
 
     #[test]
@@ -1428,7 +1430,7 @@ mod tests {
                 ..TransportParameters::default()
             });
 
-            let (mut pending, state) = (Retransmits::default(), ConnState::established());
+            let (mut tx_queue, state) = (Retransmits::default(), ConnState::established());
             let mut streams = Streams {
                 state: &mut server,
                 conn_state: &state,
@@ -1442,7 +1444,7 @@ mod tests {
             let mut stream_a = SendStream {
                 id: id_a,
                 state: &mut server,
-                pending: &mut pending,
+                tx_queue: &mut tx_queue,
                 conn_state: &state,
             };
             stream_a.write(&[b'a'; 100]).unwrap();
@@ -1450,7 +1452,7 @@ mod tests {
             let mut stream_b = SendStream {
                 id: id_b,
                 state: &mut server,
-                pending: &mut pending,
+                tx_queue: &mut tx_queue,
                 conn_state: &state,
             };
             stream_b.write(&[b'b'; 100]).unwrap();
@@ -1458,7 +1460,7 @@ mod tests {
             let mut stream_c = SendStream {
                 id: id_c,
                 state: &mut server,
-                pending: &mut pending,
+                tx_queue: &mut tx_queue,
                 conn_state: &state,
             };
             stream_c.write(&[b'c'; 100]).unwrap();
@@ -1475,7 +1477,7 @@ mod tests {
             }
 
             assert!(!server.can_send_stream_data());
-            assert_eq!(server.pending.len(), 0);
+            assert_eq!(server.tx_queue.len(), 0);
 
             let stream_ids = metas.iter().map(|m| m.id).collect::<Vec<_>>();
             if fair {
@@ -1506,7 +1508,7 @@ mod tests {
             ..TransportParameters::default()
         });
 
-        let (mut pending, state) = (Retransmits::default(), ConnState::established());
+        let (mut tx_queue, state) = (Retransmits::default(), ConnState::established());
         let mut streams = Streams {
             state: &mut server,
             conn_state: &state,
@@ -1520,7 +1522,7 @@ mod tests {
         let mut stream_a = SendStream {
             id: id_a,
             state: &mut server,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
             conn_state: &state,
         };
         stream_a.write(&[b'a'; 100]).unwrap();
@@ -1528,7 +1530,7 @@ mod tests {
         let mut stream_b = SendStream {
             id: id_b,
             state: &mut server,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
             conn_state: &state,
         };
         stream_b.write(&[b'b'; 100]).unwrap();
@@ -1544,7 +1546,7 @@ mod tests {
         let mut stream_c = SendStream {
             id: id_c,
             state: &mut server,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
             conn_state: &state,
         };
         stream_c.set_priority(1).unwrap();
@@ -1560,7 +1562,7 @@ mod tests {
         }
 
         assert!(!server.can_send_stream_data());
-        assert_eq!(server.pending.len(), 0);
+        assert_eq!(server.tx_queue.len(), 0);
 
         let stream_ids = metas.iter().map(|m| m.id).collect::<Vec<_>>();
         assert_eq!(
@@ -1587,17 +1589,18 @@ mod tests {
                 32,
             )
             .unwrap();
-        let mut pending = Retransmits::default();
+        let mut tx_queue = Retransmits::default();
         let mut stream = RecvStream {
             id,
             state: &mut client,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
         };
         stream.stop(0u32.into()).unwrap();
         assert!(client.recv.get_mut(&id).is_none(), "stream is freed");
     }
 
-    // Verify that a stream that's been reset doesn't cause the appearance of pending data
+    // Verify that a stream that's been reset doesn't cause the appearance of data queued
+    // for transmission
     #[test]
     fn reset_stream_cannot_send() {
         let mut server = make(Side::Server);
@@ -1607,7 +1610,7 @@ mod tests {
             initial_max_stream_data_uni: 42u32.into(),
             ..TransportParameters::default()
         });
-        let (mut pending, state) = (Retransmits::default(), ConnState::established());
+        let (mut tx_queue, state) = (Retransmits::default(), ConnState::established());
         let mut streams = Streams {
             state: &mut server,
             conn_state: &state,
@@ -1617,13 +1620,13 @@ mod tests {
         let mut stream = SendStream {
             id,
             state: &mut server,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
             conn_state: &state,
         };
         stream.write(b"hello").unwrap();
         stream.reset(0u32.into()).unwrap();
 
-        assert_eq!(pending.reset_stream, &[(id, 0u32.into())]);
+        assert_eq!(tx_queue.reset_stream, &[(id, 0u32.into())]);
         assert!(!server.can_send_stream_data());
     }
 
@@ -1661,11 +1664,11 @@ mod tests {
         );
 
         // Free stream 127
-        let mut pending = Retransmits::default();
+        let mut tx_queue = Retransmits::default();
         let mut stream = RecvStream {
             id: StreamId::new(Side::Server, Dir::Uni, 127),
             state: &mut client,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
         };
         stream.stop(0u32.into()).unwrap();
 
@@ -1756,11 +1759,11 @@ mod tests {
         client.set_max_concurrent(Dir::Uni, 127u32.into());
 
         // Free stream 127
-        let mut pending = Retransmits::default();
+        let mut tx_queue = Retransmits::default();
         let mut stream = RecvStream {
             id: StreamId::new(Side::Server, Dir::Uni, 127),
             state: &mut client,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
         };
         stream.stop(0u32.into()).unwrap();
 
@@ -1790,11 +1793,11 @@ mod tests {
             }),
             Ok(ShouldTransmit(false))
         );
-        let mut pending = Retransmits::default();
+        let mut tx_queue = Retransmits::default();
         let mut stream = RecvStream {
             id: StreamId::new(Side::Server, Dir::Uni, 126),
             state: &mut client,
-            pending: &mut pending,
+            tx_queue: &mut tx_queue,
         };
         stream.stop(0u32.into()).unwrap();
 
@@ -1922,7 +1925,7 @@ mod tests {
         let mut stream = SendStream {
             id: stream_id,
             state: &mut server,
-            pending: &mut retransmits,
+            tx_queue: &mut retransmits,
             conn_state: &conn_state,
         };
 
@@ -1997,7 +2000,7 @@ mod tests {
         let mut stream = SendStream {
             id: stream_id,
             state: &mut server,
-            pending: &mut retransmits,
+            tx_queue: &mut retransmits,
             conn_state: &conn_state,
         };
 

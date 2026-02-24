@@ -32,7 +32,7 @@ enum Operation {
 
 fuzz_target!(|input: (StreamParams, Vec<Operation>)| {
     let (params, operations) = input;
-    let (mut pending, conn_state) = (Retransmits::default(), ConnectionState::established());
+    let (mut tx_queue, conn_state) = (Retransmits::default(), ConnectionState::established());
     let mut state = StreamsState::new(
         params.side,
         params.max_remote_uni.into(),
@@ -51,7 +51,7 @@ fuzz_target!(|input: (StreamParams, Vec<Operation>)| {
                 Streams::new(&mut state, &conn_state).accept(dir);
             }
             Operation::Finish(id) => {
-                let _ = SendStream::new(id, &mut state, &mut pending, &conn_state).finish();
+                let _ = SendStream::new(id, &mut state, &mut tx_queue, &conn_state).finish();
             }
             Operation::ReceivedStopSending(sid, err_code) => {
                 Streams::new(&mut state, &conn_state)
@@ -65,7 +65,7 @@ fuzz_target!(|input: (StreamParams, Vec<Operation>)| {
             }
             Operation::Reset(id) => {
                 let _ =
-                    SendStream::new(id, &mut state, &mut pending, &conn_state).reset(0u32.into());
+                    SendStream::new(id, &mut state, &mut tx_queue, &conn_state).reset(0u32.into());
             }
         }
     }

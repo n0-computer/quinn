@@ -216,8 +216,8 @@ pub struct Connection {
     //
     // Queued non-retransmittable 1-RTT data
     //
-    /// If the CONNECTION_CLOSE frame needs to be sent
-    connection_close_pending: bool,
+    /// If the CONNECTION_CLOSE frame needs to be sent on the next poll_transmit call.
+    tx_queue_connection_close: bool,
 
     //
     // ACK frequency
@@ -398,7 +398,7 @@ impl Connection {
             },
             timers: TimerTable::default(),
             authentication_failures: 0,
-            connection_close_pending: false,
+            tx_queue_connection_close: false,
 
             ack_frequency: AckFrequencyState::new(get_max_ack_delay(
                 &TransportParameters::default(),
@@ -505,7 +505,7 @@ impl Connection {
         RecvStream {
             id,
             state: &mut self.streams,
-            pending: &mut self.spaces[SpaceId::Data].pending,
+            tx_queue: &mut self.spaces[SpaceId::Data].tx_queue,
         }
     }
 
@@ -516,7 +516,7 @@ impl Connection {
         SendStream {
             id,
             state: &mut self.streams,
-            pending: &mut self.spaces[SpaceId::Data].pending,
+            tx_queue: &mut self.spaces[SpaceId::Data].tx_queue,
             conn_state: &self.state,
         }
     }
@@ -581,7 +581,7 @@ impl Connection {
             return Err(PathError::MaxPathIdReached);
         }
         if path_id > self.remote_max_path_id {
-            self.spaces[SpaceId::Data].pending.paths_blocked = true;
+            self.spaces[SpaceId::Data].tx_queue.paths_blocked = true;
             return Err(PathError::MaxPathIdReached);
         }
         if self
@@ -591,7 +591,7 @@ impl Connection {
             .is_none()
         {
             self.spaces[SpaceId::Data]
-                .pending
+                .tx_queue
                 .path_cids_blocked
                 .insert(path_id);
             return Err(PathError::RemoteCidsExhausted);
@@ -663,15 +663,15 @@ impl Connection {
 
         // Send PATH_ABANDON
         self.spaces[SpaceId::Data]
-            .pending
+            .tx_queue
             .path_abandon
             .insert(path_id, reason.error_code());
 
-        // Remove pending NEW CIDs for this path
-        let pending_space = &mut self.spaces[SpaceId::Data].pending;
-        pending_space.new_cids.retain(|cid| cid.path_id != path_id);
-        pending_space.path_cids_blocked.retain(|&id| id != path_id);
-        pending_space.path_status.retain(|&id| id != path_id);
+        // Remove NEW CIDs queued for transmission for this path
+        let tx_queue = &mut self.spaces[SpaceId::Data].tx_queue;
+        tx_queue.new_cids.retain(|cid| cid.path_id != path_id);
+        tx_queue.path_cids_blocked.retain(|&id| id != path_id);
+        tx_queue.path_status.retain(|&id| id != path_id);
 
         // Cleanup retransmits across ALL paths (CIDs for path_id may have been transmitted on other paths)
         for space in self.spaces[SpaceId::Data].iter_paths_mut() {
@@ -803,7 +803,7 @@ impl Connection {
         let prev = match path.status.local_update(status) {
             Some(prev) => {
                 self.spaces[SpaceId::Data]
-                    .pending
+                    .tx_queue
                     .path_status
                     .insert(path_id);
                 prev
@@ -947,7 +947,7 @@ impl Connection {
         if !self.remote_cids.contains_key(&path_id) {
             debug!(%path_id, "Remote opened path without issuing CIDs");
             self.spaces[SpaceId::Data]
-                .pending
+                .tx_queue
                 .path_cids_blocked
                 .insert(path_id);
             // Do not abandon this path right away. CIDs might be in-flight still and arrive
@@ -983,7 +983,7 @@ impl Connection {
         // datagrams for one destination address are produced for each poll_transmit call.
 
         // Check whether we need to send a close message
-        let connection_close_pending = match self.state.as_type() {
+        let tx_connection_close = match self.state.as_type() {
             StateType::Drained => {
                 self.app_limited = true;
                 return None;
@@ -991,7 +991,7 @@ impl Connection {
             StateType::Draining | StateType::Closed => {
                 // self.close is only reset once the associated packet had been
                 // encoded successfully
-                if !self.connection_close_pending {
+                if !self.tx_queue_connection_close {
                     self.app_limited = true;
                     return None;
                 }
@@ -1008,7 +1008,7 @@ impl Connection {
                 .map(|p| p.data.rtt.get())
                 .min()
                 .expect("one path exists");
-            self.spaces[SpaceId::Data].pending.ack_frequency = self
+            self.spaces[SpaceId::Data].tx_queue.ack_frequency = self
                 .ack_frequency
                 .should_send_ack_frequency(rtt, config, &self.peer_params)
                 && self.highest_space == SpaceKind::Data
@@ -1052,7 +1052,7 @@ impl Connection {
         let mut congestion_blocked = false;
 
         for &path_id in &path_ids {
-            if !connection_close_pending
+            if !tx_connection_close
                 && let Some(transmit) = self.poll_transmit_off_path(now, buf, path_id)
             {
                 return Some(transmit);
@@ -1065,7 +1065,7 @@ impl Connection {
                 path_id,
                 max_datagrams,
                 have_available_path,
-                connection_close_pending,
+                tx_connection_close,
             ) {
                 PollPathStatus::Send(transmit) => {
                     return Some(transmit);
@@ -1180,7 +1180,7 @@ impl Connection {
         path_id: PathId,
         max_datagrams: NonZeroUsize,
         have_available_path: bool,
-        connection_close_pending: bool,
+        tx_connection_close: bool,
     ) -> PollPathStatus {
         // Check if there is at least one active CID to use for sending
         let Some(remote_cid) = self.remote_cids.get(&path_id).map(CidQueue::active) else {
@@ -1225,7 +1225,7 @@ impl Connection {
                 space_id,
                 remote_cid,
                 have_available_path,
-                connection_close_pending,
+                tx_connection_close,
                 pad_datagram,
             ) {
                 PollPathSpaceStatus::NothingToSend {
@@ -1293,7 +1293,7 @@ impl Connection {
         // If any other packet space has a usable path with PathStatus::Available.
         have_available_path: bool,
         // If we need to send a CONNECTION_CLOSE frame.
-        connection_close_pending: bool,
+        tx_connection_close: bool,
         // Whether the current datagram needs to be padded to a certain size.
         mut pad_datagram: PadDatagram,
     ) -> PollPathSpaceStatus {
@@ -1326,7 +1326,7 @@ impl Connection {
                 transmit.segment_size()
             };
             let can_send =
-                self.space_can_send(space_id, path_id, max_packet_size, connection_close_pending);
+                self.space_can_send(space_id, path_id, max_packet_size, tx_connection_close);
 
             // Whether we would like to send any frames on this packet space. See the packet
             // scheduling described in poll_transmit.
@@ -1497,7 +1497,7 @@ impl Connection {
                 for path_id in self.spaces[space_id]
                     .number_spaces
                     .iter()
-                    .filter(|(_, pns)| !pns.pending_acks.ranges().is_empty())
+                    .filter(|(_, pns)| !pns.acks.ranges().is_empty())
                     .map(|(&path_id, _)| path_id)
                     .collect::<Vec<_>>()
                 {
@@ -1550,7 +1550,7 @@ impl Connection {
                 if space_id.kind() == self.highest_space {
                     // Don't send another close packet. Even with multipath we only send
                     // CONNECTION_CLOSE on a single path since we expect our paths to work.
-                    self.connection_close_pending = false;
+                    self.tx_queue_connection_close = false;
                 }
                 // Send a close frame in every possible space for robustness, per
                 // RFC9000 "Immediate Close during the Handshake". Don't bother trying
@@ -1558,12 +1558,12 @@ impl Connection {
                 // TODO(flub): This breaks during the handshake if we can not coalesce
                 //    packets due to space reasons: the next space would either fail a
                 //    debug_assert checking for enough packet space or produce an invalid
-                //    packet. We need to keep track of per-space pending CONNECTION_CLOSE to
-                //    be able to send these across multiple calls to poll_transmit. Then
-                //    check for coalescing space here because initial packets need to be in
-                //    padded datagrams. And also add space checks for CONNECTION_CLOSE in
-                //    space_can_send so it would stop a GSO batch if the datagram is too
-                //    small for another CONNECTION_CLOSE packet.
+                //    packet. We need to keep track of per-space CONNECTION_CLOSE queued for
+                //    transmit to be able to send these across multiple calls to
+                //    poll_transmit. Then check for coalescing space here because initial
+                //    packets need to be in padded datagrams. And also add space checks for
+                //    CONNECTION_CLOSE in space_can_send so it would stop a GSO batch if the
+                //    datagram is too small for another CONNECTION_CLOSE packet.
                 return PollPathSpaceStatus::WrotePacket {
                     last_packet_number: last_pn,
                     pad_datagram,
@@ -1597,10 +1597,7 @@ impl Connection {
             }
 
             for (path_id, _pn) in builder.sent_frames().largest_acked.iter() {
-                self.spaces[space_id]
-                    .for_path(*path_id)
-                    .pending_acks
-                    .acks_sent();
+                self.spaces[space_id].for_path(*path_id).acks.acks_sent();
                 self.timers.stop(
                     Timer::PerPath(*path_id, PathTimer::MaxAckDelay),
                     self.qlog.with_time(now),
@@ -1620,7 +1617,7 @@ impl Connection {
                     .datagram_remaining_mut()
                     .saturating_sub(builder.predict_packet_end());
                 max_packet_size > MIN_PACKET_SPACE
-                    && self.has_pending_packet(space_id, max_packet_size, connection_close_pending)
+                    && self.has_pending_packet(space_id, max_packet_size, tx_connection_close)
             } {
                 // We can append/coalesce the next packet into the current
                 // datagram. Finish the current packet without adding extra padding.
@@ -1759,16 +1756,12 @@ impl Connection {
         &mut self,
         current_space_id: SpaceId,
         max_packet_size: usize,
-        connection_close_pending: bool,
+        tx_connection_close: bool,
     ) -> bool {
         let mut space_id = current_space_id;
         loop {
-            let can_send = self.space_can_send(
-                space_id,
-                PathId::ZERO,
-                max_packet_size,
-                connection_close_pending,
-            );
+            let can_send =
+                self.space_can_send(space_id, PathId::ZERO, max_packet_size, tx_connection_close);
             if !can_send.is_empty() {
                 return true;
             }
@@ -1903,7 +1896,9 @@ impl Connection {
     ) -> Option<Transmit> {
         let path = self.paths.get_mut(&path_id).map(|state| &mut state.data)?;
         let cid_queue = self.remote_cids.get_mut(&path_id)?;
-        let (token, network_path) = path.path_responses.pop_off_path(path.network_path)?;
+        let (token, network_path) = path
+            .tx_queue_path_responses
+            .pop_off_path(path.network_path)?;
 
         let cid = cid_queue
             .next_reserved()
@@ -2008,14 +2003,14 @@ impl Connection {
     /// Indicate what types of frames are ready to send for the given space
     ///
     /// *packet_size* is the number of bytes available to build the next packet.
-    /// *connection_close_pending* indicates whether a CONNECTION_CLOSE frame needs to be
+    /// *tx_connection_close* indicates whether a CONNECTION_CLOSE frame needs to be
     /// sent.
     fn space_can_send(
         &mut self,
         space_id: SpaceId,
         path_id: PathId,
         packet_size: usize,
-        connection_close_pending: bool,
+        tx_connection_close: bool,
     ) -> SendableFrames {
         let space = &mut self.spaces[space_id];
         let space_has_crypto = self.crypto_state.has_keys(space_id.encryption_level());
@@ -2044,7 +2039,7 @@ impl Connection {
             can_send |= self.can_send_1rtt(path_id, frame_space_1rtt);
         }
 
-        can_send.close = connection_close_pending && space_has_crypto;
+        can_send.close = tx_connection_close && space_has_crypto;
 
         can_send
     }
@@ -2124,7 +2119,7 @@ impl Connection {
                 cid_state.new_cids(&ids, now);
 
                 ids.into_iter().rev().for_each(|frame| {
-                    self.spaces[SpaceId::Data].pending.new_cids.push(frame);
+                    self.spaces[SpaceId::Data].tx_queue.new_cids.push(frame);
                 });
                 // Always update Timer::PushNewCid
                 self.reset_cid_retirement(now);
@@ -2322,7 +2317,7 @@ impl Connection {
                             // This timer is only armed in the Data space
                             self.spaces[SpaceId::Data]
                                 .for_path(path_id)
-                                .pending_acks
+                                .acks
                                 .on_max_ack_delay_timeout()
                         }
                         PathTimer::DiscardPath => {
@@ -2385,7 +2380,7 @@ impl Connection {
         if !was_closed {
             self.close_common();
             self.set_close_timer(now);
-            self.connection_close_pending = true;
+            self.tx_queue_connection_close = true;
             self.state.move_to_closed_local(reason);
         }
     }
@@ -2417,7 +2412,7 @@ impl Connection {
         // TODO(flub): This is very brute-force: it pings *all* the paths.  Instead it would
         //    be nice if we could only send a single packet for this.
         for path_data in self.spaces[self.highest_space].number_spaces.values_mut() {
-            path_data.ping_pending = true;
+            path_data.tx_queue_ping = true;
         }
     }
 
@@ -2429,7 +2424,7 @@ impl Connection {
             .number_spaces
             .get_mut(&path)
             .ok_or(ClosedPath { _private: () })?;
-        path_data.ping_pending = true;
+        path_data.tx_queue_ping = true;
         Ok(())
     }
 
@@ -2494,9 +2489,9 @@ impl Connection {
         self.crypto_state.zero_rtt_enabled
     }
 
-    /// Whether there are any pending retransmits
-    pub fn has_pending_retransmits(&self) -> bool {
-        !self.spaces[SpaceId::Data].pending.is_empty(&self.streams)
+    /// Whether there are any retransmits queued
+    pub fn has_queued_retransmits(&self) -> bool {
+        !self.spaces[SpaceId::Data].tx_queue.is_empty(&self.streams)
     }
 
     /// Look up whether we're the client or server of this Connection
@@ -2534,8 +2529,8 @@ impl Connection {
         self.streams.set_max_concurrent(dir, count);
         // If the limit was reduced, then a flow control update previously deemed insignificant may
         // now be significant.
-        let pending = &mut self.spaces[SpaceId::Data].pending;
-        self.streams.queue_max_stream_id(pending);
+        let tx_queue = &mut self.spaces[SpaceId::Data].tx_queue;
+        self.streams.queue_max_stream_id(tx_queue);
     }
 
     /// Modify the number of open paths allowed when multipath is enabled
@@ -2577,7 +2572,7 @@ impl Connection {
         }
 
         self.local_max_path_id = max_path_id;
-        self.spaces[SpaceId::Data].pending.max_path_id = true;
+        self.spaces[SpaceId::Data].tx_queue.max_path_id = true;
 
         self.issue_first_path_cids(now);
     }
@@ -2599,7 +2594,7 @@ impl Connection {
     /// See [`TransportConfig::receive_window()`]
     pub fn set_receive_window(&mut self, receive_window: VarInt) {
         if self.streams.set_receive_window(receive_window) {
-            self.spaces[SpaceId::Data].pending.max_data = true;
+            self.spaces[SpaceId::Data].tx_queue.max_data = true;
         }
     }
 
@@ -2700,7 +2695,7 @@ impl Connection {
                     // simpler state tracking. See discussion at
                     // https://www.rfc-editor.org/rfc/rfc9000.html#name-limiting-ranges-by-tracking
                     if let Some(pns) = self.spaces[space].path_space_mut(*acked_path_id) {
-                        pns.pending_acks.subtract_below(*acked_pn);
+                        pns.acks.subtract_below(*acked_pn);
                     }
                 }
                 ack_eliciting_acked |= info.ack_eliciting;
@@ -3183,7 +3178,7 @@ impl Connection {
                 for frame in info.stream_frames {
                     self.streams.retransmit(frame);
                 }
-                self.spaces[pn_space].pending |= info.retransmits;
+                self.spaces[pn_space].tx_queue |= info.retransmits;
                 self.path_data_mut(path_id)
                     .mtud
                     .on_non_probe_lost(packet, info.size);
@@ -3430,10 +3425,7 @@ impl Connection {
             space.for_path(path_id).ecn_counters += x;
 
             if x.is_ce() {
-                space
-                    .for_path(path_id)
-                    .pending_acks
-                    .set_immediate_ack_required();
+                space.for_path(path_id).acks.set_immediate_ack_required();
             }
         }
 
@@ -3466,7 +3458,7 @@ impl Connection {
             }
         }
         let space = self.spaces[space_id].for_path(path_id);
-        space.pending_acks.insert_one(packet, now);
+        space.acks.insert_one(packet, now);
         if packet >= space.rx_packet.unwrap_or_default() {
             space.rx_packet = Some(packet);
             // Update outgoing spin bit, inverting iff we're the client
@@ -3743,7 +3735,7 @@ impl Connection {
             }
             self.crypto_state.spaces[space].crypto_offset += outgoing.len() as u64;
             trace!("wrote {} {:?} CRYPTO bytes", outgoing.len(), space);
-            self.spaces[space].pending.crypto.push_back(frame::Crypto {
+            self.spaces[space].tx_queue.crypto.push_back(frame::Crypto {
                 offset,
                 data: outgoing,
             });
@@ -4084,7 +4076,7 @@ impl Connection {
                 .map(|p| p.data.validated && p.data.network_path == network_path)
                 .unwrap_or(false)
             {
-                self.connection_close_pending = true;
+                self.tx_queue_connection_close = true;
             }
         }
     }
@@ -4220,7 +4212,7 @@ impl Connection {
                 self.spaces[SpaceId::Initial] = {
                     let mut space = PacketSpace::new(now, SpaceId::Initial, &mut self.rng);
                     space.for_path(path_id).next_packet_number = next_pn;
-                    space.pending.crypto.push_back(frame::Crypto {
+                    space.tx_queue.crypto.push_back(frame::Crypto {
                         offset: 0,
                         data: client_hello,
                     });
@@ -4238,7 +4230,7 @@ impl Connection {
                         .get_mut(&PathId::ZERO)
                         .unwrap()
                         .remove_in_flight(&info);
-                    self.spaces[SpaceId::Data].pending |= info.retransmits;
+                    self.spaces[SpaceId::Data].tx_queue |= info.retransmits;
                 }
                 self.streams.retransmit_all_for_0rtt();
 
@@ -4303,7 +4295,7 @@ impl Connection {
                             self.streams.zero_rtt_rejected();
 
                             // Discard already-queued frames
-                            self.spaces[SpaceId::Data].pending = Retransmits::default();
+                            self.spaces[SpaceId::Data].tx_queue = Retransmits::default();
 
                             // Discard 0-RTT packets
                             let sent_packets = mem::take(
@@ -4330,7 +4322,7 @@ impl Connection {
                     self.issue_first_cids(now);
                 } else {
                     // Server-only
-                    self.spaces[SpaceId::Data].pending.handshake_done = true;
+                    self.spaces[SpaceId::Data].tx_queue.handshake_done = true;
                     self.discard_space(now, SpaceKind::Handshake);
                     self.events.push_back(Event::HandshakeConfirmed);
                     trace!("handshake confirmed");
@@ -4485,7 +4477,7 @@ impl Connection {
             // In the initial and handshake spaces, ACKs must be sent immediately
             self.spaces[packet.header.space()]
                 .for_path(path_id)
-                .pending_acks
+                .acks
                 .set_immediate_ack_required();
         }
 
@@ -4575,7 +4567,7 @@ impl Connection {
                 }
                 Frame::Stream(frame) => {
                     if self.streams.received(frame, payload_len)?.should_transmit() {
-                        self.spaces[SpaceId::Data].pending.max_data = true;
+                        self.spaces[SpaceId::Data].tx_queue.max_data = true;
                     }
                 }
                 Frame::Ack(ack) => {
@@ -4593,7 +4585,8 @@ impl Connection {
                     let path = &mut self
                         .path_mut(path_id)
                         .expect("payload is processed only after the path becomes known");
-                    path.path_responses.push(number, challenge.0, network_path);
+                    path.tx_queue_path_responses
+                        .push(number, challenge.0, network_path);
                     // At this point, update_network_path_or_discard was already called, so
                     // we don't need to be lenient about `local_ip` possibly mis-matching.
                     if network_path == path.network_path {
@@ -4684,7 +4677,7 @@ impl Connection {
                 }
                 Frame::ResetStream(frame) => {
                     if self.streams.received_reset(frame)?.should_transmit() {
-                        self.spaces[SpaceId::Data].pending.max_data = true;
+                        self.spaces[SpaceId::Data].tx_queue.max_data = true;
                     }
                 }
                 Frame::DataBlocked(DataBlocked(offset)) => {
@@ -4804,22 +4797,22 @@ impl Connection {
                         }
                         Ok(None) => {}
                         Ok(Some((retired, reset_token))) => {
-                            let pending_retired =
-                                &mut self.spaces[SpaceId::Data].pending.retire_cids;
-                            /// Ensure `pending_retired` cannot grow without bound. Limit is
+                            let queued_retired =
+                                &mut self.spaces[SpaceId::Data].tx_queue.retire_cids;
+                            /// Ensure `queued_retired` cannot grow without bound. Limit is
                             /// somewhat arbitrary but very permissive.
-                            const MAX_PENDING_RETIRED_CIDS: u64 = CidQueue::LEN as u64 * 10;
+                            const MAX_QUEUED_RETIRED_CIDS: u64 = CidQueue::LEN as u64 * 10;
                             // We don't bother counting in-flight frames because those are bounded
                             // by congestion control.
-                            if (pending_retired.len() as u64)
+                            if (queued_retired.len() as u64)
                                 .saturating_add(retired.end.saturating_sub(retired.start))
-                                > MAX_PENDING_RETIRED_CIDS
+                                > MAX_QUEUED_RETIRED_CIDS
                             {
                                 return Err(TransportError::CONNECTION_ID_LIMIT_ERROR(
                                     "queued too many retired CIDs",
                                 ));
                             }
-                            pending_retired.extend(retired.map(|seq| (path_id, seq)));
+                            queued_retired.extend(retired.map(|seq| (path_id, seq)));
                             // TODO(matheus23): Reset token for a remote or a full 4-tuple?
                             self.set_reset_token(path_id, network_path.remote, reset_token);
                         }
@@ -4832,7 +4825,7 @@ impl Connection {
                             // range of connection IDs larger than the active connection ID limit
                             // was retired all at once via retire_prior_to.
                             self.spaces[SpaceId::Data]
-                                .pending
+                                .tx_queue
                                 .retire_cids
                                 .push((path_id, frame.sequence));
                             continue;
@@ -4886,12 +4879,12 @@ impl Connection {
 
                     // Update the params for all of our paths
                     for (path_id, space) in self.spaces[SpaceId::Data].number_spaces.iter_mut() {
-                        space.pending_acks.set_ack_frequency_params(&ack_frequency);
+                        space.acks.set_ack_frequency_params(&ack_frequency);
 
                         // Our `max_ack_delay` has been updated, so we may need to adjust
                         // its associated timeout
                         if let Some(timeout) = space
-                            .pending_acks
+                            .acks
                             .max_ack_delay_timeout(self.ack_frequency.max_ack_delay)
                         {
                             self.timers.set(
@@ -4905,7 +4898,7 @@ impl Connection {
                 Frame::ImmediateAck => {
                     // This frame can only be sent in the Data space
                     for pns in self.spaces[SpaceId::Data].iter_paths_mut() {
-                        pns.pending_acks.set_immediate_ack_required();
+                        pns.acks.set_immediate_ack_required();
                     }
                 }
                 Frame::HandshakeDone => {
@@ -5154,13 +5147,13 @@ impl Connection {
 
         let space = self.spaces[SpaceId::Data].for_path(path_id);
         if space
-            .pending_acks
+            .acks
             .packet_received(now, number, ack_eliciting, &space.dedup)
         {
             if self.abandoned_paths.contains(&path_id) {
                 // § 3.4.3 QUIC-MULTIPATH: promptly send ACKs for packets received from
                 // abandoned paths.
-                space.pending_acks.set_immediate_ack_required();
+                space.acks.set_immediate_ack_required();
             } else {
                 self.timers.set(
                     Timer::PerPath(path_id, PathTimer::MaxAckDelay),
@@ -5174,12 +5167,12 @@ impl Connection {
         // on stopped streams. Incoming finishes/resets on open streams are not handled here as they
         // are only freed, and hence only issue credit, once the application has been notified
         // during a read on the stream.
-        let pending = &mut self.spaces[SpaceId::Data].pending;
-        self.streams.queue_max_stream_id(pending);
+        let tx_queue = &mut self.spaces[SpaceId::Data].tx_queue;
+        self.streams.queue_max_stream_id(tx_queue);
 
         if let Some(reason) = close {
             self.state.move_to_draining(Some(reason.into()));
-            self.connection_close_pending = true;
+            self.tx_queue_connection_close = true;
         }
 
         if Some(number) == self.spaces[SpaceId::Data].for_path(path_id).rx_packet
@@ -5401,10 +5394,10 @@ impl Connection {
 
             // Schedule a Ping for a liveness check.
             if let Some(path_space) = space.number_spaces.get_mut(&path_id) {
-                path_space.ping_pending = true;
+                path_space.tx_queue_ping = true;
 
                 if immediate_ack_allowed {
-                    path_space.immediate_ack_pending = true;
+                    path_space.tx_queue_immediate_ack = true;
                 }
             }
 
@@ -5416,7 +5409,7 @@ impl Connection {
 
             // Retire the current remote CID and any CIDs we had to skip.
             space
-                .pending
+                .tx_queue
                 .retire_cids
                 .extend(retired.map(|seq| (path_id, seq)));
 
@@ -5437,7 +5430,7 @@ impl Connection {
 
         // Retire the current remote CID and any CIDs we had to skip.
         self.spaces[SpaceId::Data]
-            .pending
+            .tx_queue
             .retire_cids
             .extend(retired.map(|seq| (path_id, seq)));
         let remote = self.path_data(path_id).network_path.remote;
@@ -5530,21 +5523,18 @@ impl Connection {
         let stats = &mut self.stats.frame_tx;
         let space = &mut self.spaces[space_id];
         let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
-        space
-            .for_path(path_id)
-            .pending_acks
-            .maybe_ack_non_eliciting();
+        space.for_path(path_id).acks.maybe_ack_non_eliciting();
 
         // HANDSHAKE_DONE
         if !is_0rtt
             && !path_exclusive_only
-            && mem::replace(&mut space.pending.handshake_done, false)
+            && mem::replace(&mut space.tx_queue.handshake_done, false)
         {
             builder.write_frame(frame::HandshakeDone, stats);
         }
 
         // REACH_OUT
-        if let Some((round, addresses)) = space.pending.reach_out.as_mut()
+        if let Some((round, addresses)) = space.tx_queue.reach_out.as_mut()
             && !path_exclusive_only
         {
             while let Some(local_addr) = addresses.iter().next().copied() {
@@ -5558,7 +5548,7 @@ impl Connection {
                 }
             }
             if addresses.is_empty() {
-                space.pending.reach_out = None;
+                space.tx_queue.reach_out = None;
             }
         }
 
@@ -5569,7 +5559,7 @@ impl Connection {
                 .config
                 .address_discovery_role
                 .should_report(&self.peer_params.address_discovery_role)
-            && (!path.observed_addr_sent || space.pending.observed_addr)
+            && (!path.observed_addr_sent || space.tx_queue.observed_addr)
         {
             let frame =
                 frame::ObservedAddr::new(path.network_path.remote, self.next_observed_addr_seq_no);
@@ -5579,17 +5569,17 @@ impl Connection {
                 self.next_observed_addr_seq_no = self.next_observed_addr_seq_no.saturating_add(1u8);
                 path.observed_addr_sent = true;
 
-                space.pending.observed_addr = false;
+                space.tx_queue.observed_addr = false;
             }
         }
 
         // PING
-        if mem::replace(&mut space.for_path(path_id).ping_pending, false) {
+        if mem::replace(&mut space.for_path(path_id).tx_queue_ping, false) {
             builder.write_frame(frame::Ping, stats);
         }
 
         // IMMEDIATE_ACK
-        if mem::replace(&mut space.for_path(path_id).immediate_ack_pending, false) {
+        if mem::replace(&mut space.for_path(path_id).tx_queue_immediate_ack, false) {
             debug_assert_eq!(
                 space_id,
                 SpaceId::Data,
@@ -5605,7 +5595,7 @@ impl Connection {
             for path_id in space
                 .number_spaces
                 .iter_mut()
-                .filter(|(_, pns)| pns.pending_acks.can_send())
+                .filter(|(_, pns)| pns.acks.can_send())
                 .map(|(&path_id, _)| path_id)
                 .collect::<Vec<_>>()
             {
@@ -5624,7 +5614,7 @@ impl Connection {
         }
 
         // ACK_FREQUENCY
-        if !path_exclusive_only && mem::replace(&mut space.pending.ack_frequency, false) {
+        if !path_exclusive_only && mem::replace(&mut space.tx_queue.ack_frequency, false) {
             let sequence_number = self.ack_frequency.next_sequence_number();
 
             // Safe to unwrap because this is always provided when ACK frequency is enabled
@@ -5673,7 +5663,7 @@ impl Connection {
 
             if is_multipath_negotiated && !path.validated && path.tx_queue_on_path_challenge {
                 // queue informing the path status along with the challenge
-                space.pending.path_status.insert(path_id);
+                space.tx_queue.path_status.insert(path_id);
             }
 
             // Always include an OBSERVED_ADDR frame with a PATH_CHALLENGE, regardless
@@ -5695,7 +5685,7 @@ impl Connection {
                         self.next_observed_addr_seq_no.saturating_add(1u8);
                     path.observed_addr_sent = true;
 
-                    space.pending.observed_addr = false;
+                    space.tx_queue.observed_addr = false;
                 }
             }
         }
@@ -5703,7 +5693,7 @@ impl Connection {
         // PATH_RESPONSE
         if builder.frame_space_remaining() > frame::PathResponse::SIZE_BOUND
             && space_id == SpaceId::Data
-            && let Some(token) = path.path_responses.pop_on_path(path.network_path)
+            && let Some(token) = path.tx_queue_path_responses.pop_on_path(path.network_path)
         {
             let response = frame::PathResponse(token);
             trace!(frame = %response);
@@ -5730,7 +5720,7 @@ impl Connection {
                         self.next_observed_addr_seq_no.saturating_add(1u8);
                     path.observed_addr_sent = true;
 
-                    space.pending.observed_addr = false;
+                    space.tx_queue.observed_addr = false;
                 }
             }
         }
@@ -5740,7 +5730,7 @@ impl Connection {
             && builder.frame_space_remaining() > frame::Crypto::SIZE_BOUND
             && !is_0rtt
         {
-            let mut frame = match space.pending.crypto.pop_front() {
+            let mut frame = match space.tx_queue.crypto.pop_front() {
                 Some(x) => x,
                 None => break,
             };
@@ -5767,7 +5757,7 @@ impl Connection {
 
             if !frame.data.is_empty() {
                 frame.offset += len as u64;
-                space.pending.crypto.push_front(frame);
+                space.tx_queue.crypto.push_front(frame);
             }
         }
 
@@ -5777,7 +5767,7 @@ impl Connection {
             && space_id == SpaceId::Data
             && frame::PathAbandon::SIZE_BOUND <= builder.frame_space_remaining()
         {
-            let Some((abandoned_path_id, error_code)) = space.pending.path_abandon.pop_first()
+            let Some((abandoned_path_id, error_code)) = space.tx_queue.path_abandon.pop_first()
             else {
                 break;
             };
@@ -5793,7 +5783,7 @@ impl Connection {
             && space_id == SpaceId::Data
             && frame::PathStatusAvailable::SIZE_BOUND <= builder.frame_space_remaining()
         {
-            let Some(path_id) = space.pending.path_status.pop_first() else {
+            let Some(path_id) = space.tx_queue.path_status.pop_first() else {
                 break;
             };
             let Some(path) = self.paths.get(&path_id).map(|path_state| &path_state.data) else {
@@ -5823,23 +5813,23 @@ impl Connection {
         // MAX_PATH_ID
         if space_id == SpaceId::Data
             && !path_exclusive_only
-            && space.pending.max_path_id
+            && space.tx_queue.max_path_id
             && frame::MaxPathId::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let frame = frame::MaxPathId(self.local_max_path_id);
             builder.write_frame(frame, stats);
-            space.pending.max_path_id = false;
+            space.tx_queue.max_path_id = false;
         }
 
         // PATHS_BLOCKED
         if space_id == SpaceId::Data
             && !path_exclusive_only
-            && space.pending.paths_blocked
+            && space.tx_queue.paths_blocked
             && frame::PathsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let frame = frame::PathsBlocked(self.remote_max_path_id);
             builder.write_frame(frame, stats);
-            space.pending.paths_blocked = false;
+            space.tx_queue.paths_blocked = false;
         }
 
         // PATH_CIDS_BLOCKED
@@ -5847,7 +5837,7 @@ impl Connection {
             && !path_exclusive_only
             && frame::PathCidsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
-            let Some(path_id) = space.pending.path_cids_blocked.pop_first() else {
+            let Some(path_id) = space.tx_queue.path_cids_blocked.pop_first() else {
                 break;
             };
             let next_seq = match self.remote_cids.get(&path_id) {
@@ -5861,7 +5851,7 @@ impl Connection {
         // RESET_STREAM, STOP_SENDING, MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS
         if space_id == SpaceId::Data && !path_exclusive_only {
             self.streams
-                .write_control_frames(builder, &mut space.pending, stats);
+                .write_control_frames(builder, &mut space.tx_queue, stats);
         }
 
         // NEW_CONNECTION_ID
@@ -5874,7 +5864,7 @@ impl Connection {
         let new_cid_size_bound =
             frame::NewConnectionId::size_bound(is_multipath_negotiated, cid_len);
         while !path_exclusive_only && builder.frame_space_remaining() > new_cid_size_bound {
-            let issued = match space.pending.new_cids.pop() {
+            let issued = match space.tx_queue.new_cids.pop() {
                 Some(x) => x,
                 None => break,
             };
@@ -5904,7 +5894,7 @@ impl Connection {
         // RETIRE_CONNECTION_ID
         let retire_cid_bound = frame::RetireConnectionId::size_bound(is_multipath_negotiated);
         while !path_exclusive_only && builder.frame_space_remaining() > retire_cid_bound {
-            let (path_id, sequence) = match space.pending.retire_cids.pop() {
+            let (path_id, sequence) = match space.tx_queue.retire_cids.pop() {
                 Some((PathId::ZERO, seq)) if !is_multipath_negotiated => (None, seq),
                 Some((path_id, seq)) => (Some(path_id), seq),
                 None => break,
@@ -5935,7 +5925,7 @@ impl Connection {
 
         // NEW_TOKEN
         if !path_exclusive_only {
-            while let Some(network_path) = space.pending.new_tokens.pop() {
+            while let Some(network_path) = space.tx_queue.new_tokens.pop() {
                 debug_assert_eq!(space_id, SpaceId::Data);
                 let ConnectionSide::Server { server_config } = &self.side else {
                     panic!("NEW_TOKEN frames should not be enqueued by clients");
@@ -5961,7 +5951,7 @@ impl Connection {
                 };
 
                 if builder.frame_space_remaining() < new_token.size() {
-                    space.pending.new_tokens.push(network_path);
+                    space.tx_queue.new_tokens.push(network_path);
                     break;
                 }
 
@@ -5981,7 +5971,7 @@ impl Connection {
             && !path_exclusive_only
             && frame::AddAddress::SIZE_BOUND <= builder.frame_space_remaining()
         {
-            if let Some(added_address) = space.pending.add_address.pop_last() {
+            if let Some(added_address) = space.tx_queue.add_address.pop_last() {
                 builder.write_frame(added_address, stats);
             } else {
                 break;
@@ -5993,7 +5983,7 @@ impl Connection {
             && !path_exclusive_only
             && frame::RemoveAddress::SIZE_BOUND <= builder.frame_space_remaining()
         {
-            if let Some(removed_address) = space.pending.remove_address.pop_last() {
+            if let Some(removed_address) = space.tx_queue.remove_address.pop_last() {
                 builder.write_frame(removed_address, stats);
             } else {
                 break;
@@ -6028,7 +6018,7 @@ impl Connection {
         }
 
         let pns = space.for_path(path_id);
-        let ranges = pns.pending_acks.ranges();
+        let ranges = pns.acks.ranges();
         debug_assert!(!ranges.is_empty(), "can not send empty ACK range");
         let ecn = if receiving_ecn {
             Some(&pns.ecn_counters)
@@ -6036,7 +6026,7 @@ impl Connection {
             None
         };
 
-        let delay_micros = pns.pending_acks.ack_delay(now).as_micros() as u64;
+        let delay_micros = pns.acks.ack_delay(now).as_micros() as u64;
         // TODO: This should come from `TransportConfig` if that gets configurable.
         let ack_delay_exp = TransportParameters::default().ack_delay_exponent;
         let delay = delay_micros >> ack_delay_exp.into_inner();
@@ -6238,7 +6228,7 @@ impl Connection {
         );
         self.spaces[SpaceId::Data]
             .for_path(path_id)
-            .immediate_ack_pending = true;
+            .tx_queue_immediate_ack = true;
     }
 
     /// Decodes a packet, returning its decrypted payload, so it can be inspected in tests
@@ -6371,10 +6361,10 @@ impl Connection {
     /// Whether we have 1-RTT data to send
     ///
     /// This checks for frames that can only be sent in the data space (1-RTT):
-    /// - Pending PATH_CHALLENGE frames on the active and previous path if just migrated.
-    /// - Pending PATH_RESPONSE frames.
-    /// - Pending data to send in STREAM frames.
-    /// - Pending DATAGRAM frames to send.
+    /// - Queued PATH_CHALLENGE frames on the active and previous path if just migrated.
+    /// - Queued PATH_RESPONSE frames.
+    /// - Queued data to send in STREAM frames.
+    /// - Queued DATAGRAM frames to send.
     ///
     /// See also [`PacketSpace::can_send`] which keeps track of all other frame types that
     /// may need to be sent.
@@ -6385,7 +6375,7 @@ impl Connection {
                     .prev
                     .as_ref()
                     .is_some_and(|(_, path)| path.tx_queue_on_path_challenge)
-                || !path.data.path_responses.is_empty()
+                || !path.data.tx_queue_path_responses.is_empty()
         });
         let other = self.streams.can_send_stream_data()
             || self
@@ -6482,7 +6472,7 @@ impl Connection {
             return;
         };
         let network_path = self.path_data(path_id).network_path;
-        let new_tokens = &mut self.spaces[SpaceId::Data as usize].pending.new_tokens;
+        let new_tokens = &mut self.spaces[SpaceId::Data as usize].tx_queue.new_tokens;
         new_tokens.clear();
         for _ in 0..server_config.validation_token.sent {
             new_tokens.push(network_path);
@@ -6537,7 +6527,10 @@ impl Connection {
         address: SocketAddr,
     ) -> Result<(), n0_nat_traversal::Error> {
         if let Some(added) = self.n0_nat_traversal.add_local_address(address)? {
-            self.spaces[SpaceId::Data].pending.add_address.insert(added);
+            self.spaces[SpaceId::Data]
+                .tx_queue
+                .add_address
+                .insert(added);
         };
         Ok(())
     }
@@ -6551,7 +6544,7 @@ impl Connection {
     ) -> Result<(), n0_nat_traversal::Error> {
         if let Some(removed) = self.n0_nat_traversal.remove_local_address(address)? {
             self.spaces[SpaceId::Data]
-                .pending
+                .tx_queue
                 .remove_address
                 .insert(removed);
         }
@@ -6635,7 +6628,7 @@ impl Connection {
         trace!(%new_round, reach_out=reach_out_at.len(), to_probe=addresses_to_probe.len(),
             "initiating nat traversal round");
 
-        self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
+        self.spaces[SpaceId::Data].tx_queue.reach_out = Some((new_round, reach_out_at));
 
         for path_id in prev_round_path_ids {
             let Some(path) = self.path(path_id) else {

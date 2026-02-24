@@ -302,7 +302,7 @@ pub(crate) struct ServerState {
     /// rounds.
     round: VarInt,
     /// Addresses to which PATH_CHALLENGES need to be sent.
-    pending_probes: FxHashSet<IpPort>,
+    tx_queue_probes: FxHashSet<IpPort>,
 }
 
 impl ServerState {
@@ -313,7 +313,7 @@ impl ServerState {
             local_addresses: Default::default(),
             next_local_addr_id: Default::default(),
             round: Default::default(),
-            pending_probes: Default::default(),
+            tx_queue_probes: Default::default(),
         }
     }
 
@@ -357,36 +357,36 @@ impl ServerState {
 
         if round > self.round {
             self.round = round;
-            self.pending_probes.clear();
-        } else if self.pending_probes.len() >= self.max_remote_addresses
-            && !self.pending_probes.contains(&(ip, port))
+            self.tx_queue_probes.clear();
+        } else if self.tx_queue_probes.len() >= self.max_remote_addresses
+            && !self.tx_queue_probes.contains(&(ip, port))
         {
             return Err(Error::TooManyAddresses);
         }
-        self.pending_probes.insert((ip, port));
+        self.tx_queue_probes.insert((ip, port));
         Ok(())
     }
 
     pub(crate) fn next_probe(&mut self) -> Option<ServerProbing<'_>> {
-        self.pending_probes
+        self.tx_queue_probes
             .iter()
             .next()
             .copied()
             .map(|remote| ServerProbing {
                 remote,
-                pending_probes: &mut self.pending_probes,
+                tx_queue_probes: &mut self.tx_queue_probes,
             })
     }
 }
 
 pub(crate) struct ServerProbing<'a> {
     remote: IpPort,
-    pending_probes: &'a mut FxHashSet<IpPort>,
+    tx_queue_probes: &'a mut FxHashSet<IpPort>,
 }
 
 impl<'a> ServerProbing<'a> {
     pub(crate) fn mark_as_sent(self) {
-        self.pending_probes.remove(&self.remote);
+        self.tx_queue_probes.remove(&self.remote);
     }
 
     pub(crate) fn remote(&self) -> SocketAddr {
@@ -541,7 +541,7 @@ mod tests {
             .unwrap();
 
         dbg!(&state);
-        assert_eq!(state.pending_probes.len(), 2);
+        assert_eq!(state.tx_queue_probes.len(), 2);
 
         let probe = state.next_probe().unwrap();
         probe.mark_as_sent();
@@ -549,7 +549,7 @@ mod tests {
         probe.mark_as_sent();
 
         assert!(state.next_probe().is_none());
-        assert_eq!(state.pending_probes.len(), 0);
+        assert_eq!(state.tx_queue_probes.len(), 0);
     }
 
     #[test]

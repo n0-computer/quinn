@@ -23,7 +23,7 @@ use crate::{
 
 pub(super) struct PacketSpace {
     /// Data to send
-    pub(super) pending: Retransmits,
+    pub(super) tx_queue: Retransmits,
 
     /// Multipath packet number spaces
     ///
@@ -37,7 +37,7 @@ impl PacketSpace {
     pub(super) fn new(now: Instant, space: SpaceId, rng: &mut (impl Rng + ?Sized)) -> Self {
         let number_space_0 = PacketNumberSpace::new(now, space, rng);
         Self {
-            pending: Retransmits::default(),
+            tx_queue: Retransmits::default(),
             number_spaces: BTreeMap::from([(PathId::ZERO, number_space_0)]),
         }
     }
@@ -46,7 +46,7 @@ impl PacketSpace {
     pub(super) fn new_deterministic(now: Instant, space: SpaceId) -> Self {
         let number_space_0 = PacketNumberSpace::new_deterministic(now, space);
         Self {
-            pending: Retransmits::default(),
+            tx_queue: Retransmits::default(),
             number_spaces: BTreeMap::from([(PathId::ZERO, number_space_0)]),
         }
     }
@@ -110,11 +110,11 @@ impl PacketSpace {
         if request_immediate_ack {
             // The probe should be ACKed without delay (should only be used in the Data space and
             // when the peer supports the acknowledgement frequency extension)
-            self.for_path(path_id).immediate_ack_pending = true;
+            self.for_path(path_id).tx_queue_immediate_ack = true;
         }
 
         // Retransmit the data of the oldest in-flight packet
-        if !self.pending.is_empty(streams) {
+        if !self.tx_queue.is_empty(streams) {
             // There's real data to send here, no need to make something up
             return;
         }
@@ -128,7 +128,7 @@ impl PacketSpace {
             if !packet.retransmits.is_empty(streams) {
                 // Remove retransmitted data from the old packet so we don't end up retransmitting
                 // it *again* even if the copy we're sending now gets acknowledged.
-                self.pending |= mem::take(&mut packet.retransmits);
+                self.tx_queue |= mem::take(&mut packet.retransmits);
                 return;
             }
         }
@@ -136,8 +136,8 @@ impl PacketSpace {
         // Nothing new to send and nothing to retransmit, so fall back on a ping. This should only
         // happen in rare cases during the handshake when the server becomes blocked by
         // anti-amplification.
-        if !self.for_path(path_id).immediate_ack_pending {
-            self.for_path(path_id).ping_pending = true;
+        if !self.for_path(path_id).tx_queue_immediate_ack {
+            self.for_path(path_id).tx_queue_ping = true;
         }
     }
 
@@ -147,15 +147,12 @@ impl PacketSpace {
     ///
     /// [`Connection::can_send_1rtt`]: super::Connection::can_send_1rtt
     pub(super) fn can_send(&self, path_id: PathId, streams: &StreamsState) -> SendableFrames {
-        let acks = self
-            .number_spaces
-            .values()
-            .any(|pns| pns.pending_acks.can_send());
+        let acks = self.number_spaces.values().any(|pns| pns.acks.can_send());
         let path_exclusive = self
             .number_spaces
             .get(&path_id)
-            .is_some_and(|s| s.ping_pending || s.immediate_ack_pending);
-        let other = !self.pending.is_empty(streams) || path_exclusive;
+            .is_some_and(|s| s.tx_queue_ping || s.tx_queue_immediate_ack);
+        let other = !self.tx_queue.is_empty(streams) || path_exclusive;
         SendableFrames {
             acks,
             other,
@@ -249,13 +246,13 @@ pub(super) struct PacketNumberSpace {
     /// ACK already processed in another space.
     pub(super) ecn_feedback: frame::EcnCounts,
     /// A PING frame needs to be sent on this path
-    pub(super) ping_pending: bool,
+    pub(super) tx_queue_ping: bool,
     /// An IMMEDIATE_ACK (draft-ietf-quic-ack-frequency) frame needs to be sent on this path
-    pub(super) immediate_ack_pending: bool,
+    pub(super) tx_queue_immediate_ack: bool,
     /// Packet deduplicator
     pub(super) dedup: Dedup,
-    /// Packet numbers to acknowledge
-    pub(super) pending_acks: PendingAcks,
+    /// What ACKs to generate for this space.
+    pub(super) acks: SpaceAckState,
 
     //
     // Loss Detection
@@ -292,10 +289,10 @@ impl PacketNumberSpace {
             lost_packets: SortedIndexBuffer::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
-            ping_pending: false,
-            immediate_ack_pending: false,
+            tx_queue_ping: false,
+            tx_queue_immediate_ack: false,
             dedup: Default::default(),
-            pending_acks: PendingAcks::new(),
+            acks: SpaceAckState::new(),
             time_of_last_ack_eliciting_packet: None,
             loss_time: None,
             loss_probes: 0,
@@ -320,10 +317,10 @@ impl PacketNumberSpace {
             lost_packets: SortedIndexBuffer::new(),
             ecn_counters: frame::EcnCounts::ZERO,
             ecn_feedback: frame::EcnCounts::ZERO,
-            ping_pending: false,
-            immediate_ack_pending: false,
+            tx_queue_ping: false,
+            tx_queue_immediate_ack: false,
             dedup: Default::default(),
-            pending_acks: PendingAcks::new(),
+            acks: SpaceAckState::new(),
             time_of_last_ack_eliciting_packet: None,
             loss_time: None,
             loss_probes: 0,
@@ -913,8 +910,9 @@ impl ::std::ops::BitOrAssign for SendableFrames {
     }
 }
 
+/// State about which ACKs to generate for a particular [`PacketNumberSpace`].
 #[derive(Debug)]
-pub(super) struct PendingAcks {
+pub(super) struct SpaceAckState {
     /// Whether we should send an ACK immediately, even if that means sending an ACK-only packet
     ///
     /// When `immediate_ack_required` is false, the normal behavior is to send ACK frames only when
@@ -945,7 +943,7 @@ pub(super) struct PendingAcks {
     ranges: ArrayRangeSet,
     /// The largest packet number received and the time it was received
     ///
-    /// Used to calculate ACK delay in [`PendingAcks::ack_delay`].
+    /// Used to calculate ACK delay in [`SpaceAckState::ack_delay`].
     largest_packet: Option<(u64, Instant)>,
     /// The ack-eliciting packet we have received with the largest packet number
     largest_ack_eliciting_packet: Option<u64>,
@@ -953,7 +951,7 @@ pub(super) struct PendingAcks {
     largest_acked: Option<u64>,
 }
 
-impl PendingAcks {
+impl SpaceAckState {
     fn new() -> Self {
         Self {
             immediate_ack_required: false,
@@ -1116,12 +1114,12 @@ impl PendingAcks {
         }
     }
 
-    /// Remove ACKs of packets numbered at or below `max` from the set of pending ACKs
+    /// Remove ACKs of packets numbered at or below `max` from the set of queued ACKs
     pub(super) fn subtract_below(&mut self, max: u64) {
         self.ranges.remove(0..(max + 1));
     }
 
-    /// Returns the set of currently pending ACK ranges
+    /// Returns the set of currently queued ACK ranges
     pub(super) fn ranges(&self) -> &ArrayRangeSet {
         &self.ranges
     }
@@ -1335,8 +1333,8 @@ mod test {
     }
 
     #[test]
-    fn pending_acks_first_packet_is_not_considered_reordered() {
-        let mut acks = PendingAcks::new();
+    fn ack_state_first_packet_is_not_considered_reordered() {
+        let mut acks = SpaceAckState::new();
         let mut dedup = Dedup::new();
         dedup.insert(0);
         acks.packet_received(Instant::now(), 0, true, &dedup);
@@ -1344,8 +1342,8 @@ mod test {
     }
 
     #[test]
-    fn pending_acks_after_immediate_ack_set() {
-        let mut acks = PendingAcks::new();
+    fn ack_state_after_immediate_ack_set() {
+        let mut acks = SpaceAckState::new();
         let mut dedup = Dedup::new();
 
         // Receive ack-eliciting packet
@@ -1364,8 +1362,8 @@ mod test {
     }
 
     #[test]
-    fn pending_acks_ack_delay() {
-        let mut acks = PendingAcks::new();
+    fn ack_state_ack_delay() {
+        let mut acks = SpaceAckState::new();
         let mut dedup = Dedup::new();
 
         let t1 = Instant::now();

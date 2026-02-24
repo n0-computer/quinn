@@ -105,7 +105,7 @@ impl<'a> Streams<'a> {
 pub struct RecvStream<'a> {
     pub(super) id: StreamId,
     pub(super) state: &'a mut StreamsState,
-    pub(super) pending: &'a mut Retransmits,
+    pub(super) tx_queue: &'a mut Retransmits,
 }
 
 impl RecvStream<'_> {
@@ -126,7 +126,7 @@ impl RecvStream<'_> {
     /// reads, but ordered reads on streams that have seen previous unordered reads will return
     /// `ReadError::IllegalOrderedRead`.
     pub fn read(&mut self, ordered: bool) -> Result<Chunks<'_>, ReadableError> {
-        Chunks::new(self.id, ordered, self.state, self.pending)
+        Chunks::new(self.id, ordered, self.state, self.tx_queue)
     }
 
     /// Stop accepting data on the given receive stream
@@ -142,7 +142,7 @@ impl RecvStream<'_> {
 
         let (read_credits, stop_sending) = stream.stop()?;
         if stop_sending.should_transmit() {
-            self.pending.stop_sending.push(frame::StopSending {
+            self.tx_queue.stop_sending.push(frame::StopSending {
                 id: self.id,
                 error_code,
             });
@@ -157,7 +157,7 @@ impl RecvStream<'_> {
         }
 
         if self.state.add_read_credits(read_credits).should_transmit() {
-            self.pending.max_data = true;
+            self.tx_queue.max_data = true;
         }
 
         Ok(())
@@ -186,7 +186,7 @@ impl RecvStream<'_> {
         let (_, recv) = entry.remove_entry();
         self.state
             .stream_recv_freed(self.id, recv.expect("must have recv on reset"));
-        self.state.queue_max_stream_id(self.pending);
+        self.state.queue_max_stream_id(self.tx_queue);
 
         Ok(Some(code))
     }
@@ -196,7 +196,7 @@ impl RecvStream<'_> {
 pub struct SendStream<'a> {
     pub(super) id: StreamId,
     pub(super) state: &'a mut StreamsState,
-    pub(super) pending: &'a mut Retransmits,
+    pub(super) tx_queue: &'a mut Retransmits,
     pub(super) conn_state: &'a super::State,
 }
 
@@ -206,13 +206,13 @@ impl<'a> SendStream<'a> {
     pub fn new(
         id: StreamId,
         state: &'a mut StreamsState,
-        pending: &'a mut Retransmits,
+        tx_queue: &'a mut Retransmits,
         conn_state: &'a super::State,
     ) -> Self {
         Self {
             id,
             state,
-            pending,
+            tx_queue,
             conn_state,
         }
     }
@@ -266,13 +266,13 @@ impl<'a> SendStream<'a> {
             return Err(WriteError::Blocked);
         }
 
-        let was_pending = stream.is_pending();
+        let was_tx_queued = stream.has_tx_queued();
         let written = stream.write(source, limit)?;
         self.state.data_sent += written.bytes as u64;
         self.state.unacked_data += written.bytes as u64;
         trace!(stream = %self.id, "wrote {} bytes", written.bytes);
-        if !was_pending {
-            self.state.pending.push_pending(self.id, stream.priority);
+        if !was_tx_queued {
+            self.state.tx_queue.push(self.id, stream.priority);
         }
         Ok(written)
     }
@@ -300,10 +300,10 @@ impl<'a> SendStream<'a> {
             .map(get_or_insert_send(max_send_data))
             .ok_or(FinishError::ClosedStream)?;
 
-        let was_pending = stream.is_pending();
+        let was_queued = stream.has_tx_queued();
         stream.finish()?;
-        if !was_pending {
-            self.state.pending.push_pending(self.id, stream.priority);
+        if !was_queued {
+            self.state.tx_queue.push(self.id, stream.priority);
         }
 
         Ok(())
@@ -330,9 +330,9 @@ impl<'a> SendStream<'a> {
         // Restore the portion of the send window consumed by the data that we aren't about to
         // send. We leave flow control alone because the peer's responsible for issuing additional
         // credit based on the final offset communicated in the RESET_STREAM frame we send.
-        self.state.unacked_data -= stream.pending.unacked();
+        self.state.unacked_data -= stream.tx_queue.unacked();
         stream.reset();
-        self.pending.reset_stream.push((self.id, error_code));
+        self.tx_queue.reset_stream.push((self.id, error_code));
 
         // Don't reopen an already-closed stream we haven't forgotten yet
         Ok(())
@@ -371,17 +371,17 @@ impl<'a> SendStream<'a> {
 }
 
 /// A queue of streams with pending outgoing data, sorted by priority
-struct PendingStreamsQueue {
-    streams: BinaryHeap<PendingStream>,
+struct StreamsTxQueue {
+    streams: BinaryHeap<StreamTxQueue>,
     /// The next stream to write out. This is `Some` when `TransportConfig::send_fairness(false)` and writing a stream is
-    /// interrupted while the stream still has some pending data. See `reinsert_pending()`.
-    next: Option<PendingStream>,
+    /// interrupted while the stream still has some pending data. See `reinsert()`.
+    next: Option<StreamTxQueue>,
     /// A monotonically decreasing counter, used to implement round-robin scheduling for streams of the same priority.
-    /// Underflowing is not a practical concern, as it is initialized to u64::MAX and only decremented by 1 in `push_pending`
+    /// Underflowing is not a practical concern, as it is initialized to u64::MAX and only decremented by 1 in `push`
     recency: u64,
 }
 
-impl PendingStreamsQueue {
+impl StreamsTxQueue {
     fn new() -> Self {
         Self {
             streams: BinaryHeap::new(),
@@ -391,18 +391,18 @@ impl PendingStreamsQueue {
     }
 
     /// Reinsert a stream that was pending and still contains unsent data.
-    fn reinsert_pending(&mut self, id: StreamId, priority: i32) {
+    fn reinsert(&mut self, id: StreamId, priority: i32) {
         assert!(self.next.is_none());
 
-        self.next = Some(PendingStream {
+        self.next = Some(StreamTxQueue {
             priority,
             recency: self.recency, // the value here doesn't really matter
             id,
         });
     }
 
-    /// Push a pending stream ID with the given priority, queued after any already-queued streams for the priority
-    fn push_pending(&mut self, id: StreamId, priority: i32) {
+    /// Push a stream ID to be transmitted with the given priority, queued after any already-queued streams for the priority
+    fn push(&mut self, id: StreamId, priority: i32) {
         // Note that in the case where fairness is disabled, if we have a reinserted stream we don't
         // bump it even if priority > next.priority. In order to minimize fragmentation we
         // always try to complete a stream once part of it has been written.
@@ -412,14 +412,14 @@ impl PendingStreamsQueue {
         // This is enough to implement round-robin scheduling for streams that are still pending even after being handled,
         // as in that case they are removed from the `BinaryHeap`, handled, and then immediately reinserted.
         self.recency -= 1;
-        self.streams.push(PendingStream {
+        self.streams.push(StreamTxQueue {
             priority,
             recency: self.recency,
             id,
         });
     }
 
-    fn pop(&mut self) -> Option<PendingStream> {
+    fn pop(&mut self) -> Option<StreamTxQueue> {
         self.next.take().or_else(|| self.streams.pop())
     }
 
@@ -428,7 +428,7 @@ impl PendingStreamsQueue {
         self.streams.clear();
     }
 
-    fn iter(&self) -> impl Iterator<Item = &PendingStream> {
+    fn iter(&self) -> impl Iterator<Item = &StreamTxQueue> {
         self.next.iter().chain(self.streams.iter())
     }
 
@@ -438,9 +438,9 @@ impl PendingStreamsQueue {
     }
 }
 
-/// The [`StreamId`] of a stream with pending data queued, ordered by its priority and recency
+/// The [`StreamId`] of a stream with data queued for transmission, ordered by its priority and recency
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct PendingStream {
+struct StreamTxQueue {
     /// The priority of the stream
     // Note that this field should be kept above the `recency` field, in order for the `Ord` derive to be correct
     // (See https://doc.rust-lang.org/stable/std/cmp/trait.Ord.html#derivable)
