@@ -212,12 +212,12 @@ pub(super) struct PathData {
     /// [`TransportParameters`]: crate::transport_parameters::TransportParameters
     pub(super) keep_alive: Option<Duration>,
 
-    /// Whether the path has already been considered opened from an application perspective
+    /// Whether the path has already been considered opened from an application perspective.
     ///
     /// This means, for paths other than the original [`PathId::ZERO`], a first path challenge has
     /// been responded to, regardless of the initial validation status of the path. This state is
     /// irreversible, since it's not affected by the path being closed.
-    pub(super) open: bool,
+    pub(super) open_status: OpenStatus,
 
     /// Whether we're currently draining the path after having abandoned it.
     ///
@@ -290,7 +290,7 @@ impl PathData {
             pto_count: 0,
             idle_timeout: config.default_path_max_idle_timeout,
             keep_alive: config.default_path_keep_alive_interval,
-            open: false,
+            open_status: OpenStatus::default(),
             draining: false,
             #[cfg(feature = "qlog")]
             recovery_metrics: RecoveryMetrics::default(),
@@ -332,7 +332,7 @@ impl PathData {
             pto_count: 0,
             idle_timeout: prev.idle_timeout,
             keep_alive: prev.keep_alive,
-            open: false,
+            open_status: OpenStatus::default(),
             draining: false,
             #[cfg(feature = "qlog")]
             recovery_metrics: prev.recovery_metrics.clone(),
@@ -469,8 +469,10 @@ impl PathData {
                 let rtt = now.saturating_duration_since(sent_instant);
                 self.rtt.reset_initial_rtt(rtt);
 
-                let was_open = std::mem::replace(&mut self.open, true);
-                OnPathResponseReceived::OnPath { was_open }
+                let prev_status = std::mem::replace(&mut self.open_status, OpenStatus::Informed);
+                OnPathResponseReceived::OnPath {
+                    was_open: prev_status == OpenStatus::Informed,
+                }
             }
             // Response to an on-path PathChallenge that does not validate this path
             Some(info) => {
@@ -606,6 +608,18 @@ pub(super) enum OnPathResponseReceived {
         sent_on: FourTuple,
         current_path: FourTuple,
     },
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OpenStatus {
+    /// A first path challenge has not been sent.
+    #[default]
+    Pending,
+    /// The first path challenge has been sent on the wire.
+    Sent,
+    /// A response that validates this path has been received and the application has been
+    /// informed.
+    Informed,
 }
 
 /// Congestion metrics as described in [`recovery_metrics_updated`].

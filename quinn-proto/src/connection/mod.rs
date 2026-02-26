@@ -362,8 +362,7 @@ impl Connection {
         )]);
 
         let mut path = PathData::new(network_path, allow_mtud, None, 0, now, &config);
-        // TODO(@divma): consider if we want to delay this until the path is validated
-        path.open = true;
+        path.open_status = paths::OpenStatus::Informed;
         let mut this = Self {
             endpoint_config,
             crypto_state: CryptoState::new(crypto, init_cid, side, &mut rng),
@@ -918,13 +917,6 @@ impl Connection {
         if let Some(initial_rtt) = initial_rtt {
             data.rtt.reset_initial_rtt(initial_rtt);
         }
-
-        let pto = self.ack_frequency.max_ack_delay_for_pto() + data.rtt.pto_base();
-        self.timers.set(
-            Timer::PerPath(path_id, PathTimer::PathOpen),
-            now + 3 * pto,
-            self.qlog.with_time(now),
-        );
 
         // To open a path locally we need to send a packet on the path. Sending a challenge
         // guarantees this.
@@ -4942,7 +4934,7 @@ impl Connection {
                     let path = self.path_data_mut(path_id);
                     if network_path == path.network_path {
                         if let Some(updated) = path.update_observed_addr_report(observed)
-                            && path.open
+                            && path.open_status == paths::OpenStatus::Informed
                         {
                             self.events.push_back(Event::Path(PathEvent::ObservedAddr {
                                 id: path_id,
@@ -5665,6 +5657,15 @@ impl Connection {
             builder.write_frame(challenge, stats);
             builder.require_padding();
             let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
+            if path.open_status == paths::OpenStatus::Pending {
+                path.open_status = paths::OpenStatus::Sent;
+                self.timers.set(
+                    Timer::PerPath(path_id, PathTimer::PathOpen),
+                    now + 3 * pto,
+                    self.qlog.with_time(now),
+                );
+            }
+
             self.timers.set(
                 Timer::PerPath(path_id, PathTimer::PathChallengeLost),
                 now + pto,
