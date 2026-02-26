@@ -1265,19 +1265,10 @@ impl Incoming {
         self.token.orig_dst_cid
     }
 
-    /// Best-effort extraction of the ALPN protocols from the TLS ClientHello
+    /// Decrypt the Initial packet payload
     ///
-    /// Decrypts and parses the Initial packet to extract the ALPN extension.
-    /// This is intended for routing and filtering; it is not guaranteed to succeed
-    /// if the ClientHello spans multiple packets. Returns `None` if parsing fails.
-    ///
-    /// This involves cloning and decrypting the packet payload (~1200 bytes)
-    /// and parsing the TLS ClientHello. The result is not cached.
-    ///
-    /// Returns an iterator over the proposed ALPN protocol names. On the common
-    /// fast path (single CRYPTO frame), the only allocation is the payload clone
-    /// for decryption.
-    pub fn alpns(&self) -> Option<IncomingAlpns> {
+    /// This clones and decrypts the packet payload (~1200 bytes).
+    pub fn decrypt(&self) -> Option<DecryptedInitial> {
         let packet_number = self.packet.header.number.expand(0);
         let mut payload = self.packet.payload.clone();
         self.crypto
@@ -1290,21 +1281,39 @@ impl Incoming {
                 &mut payload,
             )
             .ok()?;
+        Some(DecryptedInitial(payload.freeze()))
+    }
+}
 
-        // Collect CRYPTO frames, fast path avoids allocation
-        let frames = frame::Iter::new(payload.freeze()).ok()?;
+/// Decrypted payload of a QUIC Initial packet
+///
+/// Obtained via [`Incoming::decrypt`]. Can be used to extract information from
+/// the TLS ClientHello without completing the handshake.
+pub struct DecryptedInitial(Bytes);
+
+impl DecryptedInitial {
+    /// Best-effort extraction of the ALPN protocols from the TLS ClientHello
+    ///
+    /// Parses the CRYPTO frames to extract the ALPN extension. This is intended
+    /// for routing and filtering; it is not guaranteed to succeed if the
+    /// ClientHello spans multiple packets. Returns `None` if parsing fails.
+    pub fn alpns(&self) -> Option<IncomingAlpns> {
+        let frames = frame::Iter::new(self.0.clone()).ok()?;
         let mut first = None;
         let mut rest = Vec::new();
         for frame in frames {
-            match (frame.ok()?, &first) {
-                (frame::Frame::Crypto(crypto), None) => first = Some(crypto),
-                (frame::Frame::Crypto(crypto), Some(_)) => rest.push(crypto),
+            match frame {
+                Ok(frame::Frame::Crypto(crypto)) => match first {
+                    None => first = Some(crypto),
+                    Some(_) => rest.push(crypto),
+                },
+                Err(_) => return None,
                 _ => {}
             }
         }
         let first = first?;
 
-        // Fast path: single CRYPTO frame at offset 0 (no Vec allocated)
+        // Fast path: single CRYPTO frame at offset 0 (no extra allocation)
         if rest.is_empty() && first.offset == 0 {
             let data = find_alpn_data(&first.data).ok()?;
             return Some(IncomingAlpns { data, pos: 0 });

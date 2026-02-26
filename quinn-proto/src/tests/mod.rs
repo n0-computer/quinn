@@ -880,6 +880,8 @@ fn incoming_alpns() {
     let expected = client_alpns.clone();
     pair.server.handle_incoming = Box::new(move |incoming| {
         let alpns: Vec<Vec<u8>> = incoming
+            .decrypt()
+            .expect("decrypt should succeed")
             .alpns()
             .expect("alpns should be parseable")
             .map(|a| a.unwrap().to_vec())

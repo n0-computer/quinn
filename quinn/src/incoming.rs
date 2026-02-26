@@ -99,20 +99,11 @@ impl Incoming {
         self.0.as_ref().unwrap().inner.orig_dst_cid()
     }
 
-    /// Best-effort extraction of the ALPN protocols from the TLS ClientHello
+    /// Decrypt the Initial packet payload
     ///
-    /// Decrypts and parses the Initial packet to extract the ALPN extension.
-    /// This is intended for routing and filtering; it is not guaranteed to succeed
-    /// if the ClientHello spans multiple packets. Returns `None` if parsing fails.
-    ///
-    /// This involves cloning and decrypting the packet payload (~1200 bytes)
-    /// and parsing the TLS ClientHello. The result is not cached.
-    ///
-    /// Returns an iterator over the proposed ALPN protocol names. On the common
-    /// fast path (single CRYPTO frame), the only allocation is the payload clone
-    /// for decryption.
-    pub fn alpns(&self) -> Option<proto::IncomingAlpns> {
-        self.0.as_ref()?.inner.alpns()
+    /// This clones and decrypts the packet payload (~1200 bytes).
+    pub fn decrypt(&self) -> Option<proto::DecryptedInitial> {
+        self.0.as_ref()?.inner.decrypt()
     }
 }
 
