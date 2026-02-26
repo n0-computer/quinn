@@ -951,3 +951,38 @@ fn network_change_selective_hint() -> TestResult {
 
     Ok(())
 }
+
+/// Checks that the deadline given before a path fails to be considered open start only when the
+/// first packet is sent.
+///
+/// This is a regression test. See <https://github.com/n0-computer/quinn/issues/435>
+#[test]
+fn path_open_deadline_is_set_on_send() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    let server_addr = pair.addrs_to_server();
+    let path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
+
+    // Fast-forward time well past 3×PTO without letting any transmit happen on the new
+    // path.
+    let far_future = pair.time + Duration::from_secs(5);
+    pair.handle_timeout(Client, far_future);
+
+    assert!(
+        pair.poll(Client).is_none(),
+        "path was abandoned before any challenge was sent (issue #456)"
+    );
+
+    // Now let the challenge be sent and the path to be opened.
+    pair.time = far_future;
+    pair.drive();
+
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Opened { id })) if id == path_id,
+        "path should open successfully after the challenge is sent"
+    );
+
+    Ok(())
+}
