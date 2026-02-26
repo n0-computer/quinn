@@ -4174,3 +4174,46 @@ fn regression_maybe_frame_roundtrip() {
     let dec = frame::MaybeFrame::decode(&mut buf.freeze()).unwrap();
     assert_eq!(dec, ty);
 }
+
+/// Regression test simulating a situation that would trigger an unreachable! in quinn.
+///
+/// - Quinn expects that there always is a `ConnectionError` set at the end of draining
+///   a connection.
+/// - When the connection close is generated within quinn-proto (or received remotely),
+///   then this error in Quinn is populated via connection events.
+/// - This test simulates a situation in which quinn-proto would not generate a
+///   `ConnectionLost` event for a connection that has drained.
+///
+/// The issue is a race condition between `move_to_closed` and `move_to_draining(None)`.
+/// The latter overwrites the error from the former, making it impossible to generate a
+/// `ConnectionLost` event, even though no such event had previously made it out of
+/// quinn-proto.
+///
+/// We simulate hitting this race condition by concurrently closing the connection on
+/// both the client and server side. The client side closes it from within quinn-proto
+/// by simulating some arbitrary protocol violation.
+#[test]
+fn regression_close_without_connection_event() {
+    let _guard = subscribe();
+    let mut pair = Pair::default();
+    let (client_ch, server_ch) = pair.connect();
+
+    // We concurrently simulate the client detecting a protocol violation
+    // (and closing the connection due to that), as well as the server
+    // just closing the connection normally.
+
+    let now = pair.time;
+    pair.client_conn_mut(client_ch)
+        .simulate_protocol_violation(now);
+    pair.server_conn_mut(server_ch)
+        .close(now, VarInt(0), Bytes::new());
+
+    pair.drive();
+
+    // The client must surface a ConnectionLost event once the connection drained,
+    // otherwise quinn would panic.
+    assert_matches!(
+        pair.client_conn_mut(client_ch).poll(),
+        Some(Event::ConnectionLost { .. })
+    );
+}
