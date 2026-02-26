@@ -217,6 +217,11 @@ pub(super) struct PathData {
     /// This means, for paths other than the original [`PathId::ZERO`], a first path challenge has
     /// been responded to, regardless of the initial validation status of the path. This state is
     /// irreversible, since it's not affected by the path being closed.
+    ///
+    /// Sending a PATH_CHALLENGE and receiving a valid response before the application is informed
+    /// of the path, is a way to ensure the path is usable before it is reported. This is not
+    /// required by the spec, and in the future might be changed for simply requiring a first ack'd
+    /// packet.
     pub(super) open_status: OpenStatus,
 
     /// Whether we're currently draining the path after having abandoned it.
@@ -612,13 +617,13 @@ pub(super) enum OnPathResponseReceived {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) enum OpenStatus {
-    /// A first path challenge has not been sent.
+    /// A first packet has not been sent using this [`PathId`].
     #[default]
     Pending,
-    /// The first path challenge has been sent on the wire.
+    /// The first packet has been sent using this [`PathId`]. However, it is not yet deemed good
+    /// enough to be reported to the application.
     Sent,
-    /// A response that validates this path has been received and the application has been
-    /// informed.
+    /// The application has been informed of this path.
     Informed,
 }
 
