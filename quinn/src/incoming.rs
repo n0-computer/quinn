@@ -109,7 +109,8 @@ impl Incoming {
     /// and parsing the TLS ClientHello. The result is not cached.
     ///
     /// Returns an iterator over the proposed ALPN protocol names. On the common
-    /// fast path (single CRYPTO frame), this is zero-allocation.
+    /// fast path (single CRYPTO frame), the only allocation is the payload clone
+    /// for decryption.
     pub fn alpns(&self) -> Option<proto::IncomingAlpns> {
         self.0.as_ref()?.inner.alpns()
     }

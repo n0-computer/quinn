@@ -1275,7 +1275,8 @@ impl Incoming {
     /// and parsing the TLS ClientHello. The result is not cached.
     ///
     /// Returns an iterator over the proposed ALPN protocol names. On the common
-    /// fast path (single CRYPTO frame), this is zero-allocation.
+    /// fast path (single CRYPTO frame), the only allocation is the payload clone
+    /// for decryption.
     pub fn alpns(&self) -> Option<IncomingAlpns> {
         let packet_number = self.packet.header.number.expand(0);
         let mut payload = self.packet.payload.clone();
@@ -1295,12 +1296,9 @@ impl Incoming {
         let mut first = None;
         let mut rest = Vec::new();
         for frame in frames {
-            match frame {
-                Ok(frame::Frame::Crypto(crypto)) => match first {
-                    None => first = Some(crypto),
-                    Some(_) => rest.push(crypto),
-                },
-                Err(_) => return None,
+            match (frame.ok()?, &first) {
+                (frame::Frame::Crypto(crypto), None) => first = Some(crypto),
+                (frame::Frame::Crypto(crypto), Some(_)) => rest.push(crypto),
                 _ => {}
             }
         }
@@ -1333,7 +1331,7 @@ const TLS_CLIENT_HELLO_FIXED_LEN: usize = 2 + 32;
 /// Iterator over ALPN protocol names from a TLS ClientHello
 ///
 /// Yields protocol names as [`Bytes`] slices. On the common fast path (single
-/// CRYPTO frame), this involves no allocation beyond the initial decryption.
+/// CRYPTO frame), the only allocation is the payload clone for decryption.
 pub struct IncomingAlpns {
     data: Bytes,
     pos: usize,
