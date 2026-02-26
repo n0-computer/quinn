@@ -301,6 +301,10 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             packet,
             conn.spaces[space_id].for_path(path_id),
         );
+        if ack_eliciting && size != 0 {
+            conn.set_open_path_timer(path_id, space_id.kind(), now);
+        }
+
         conn.reset_keep_alive(path_id, now);
         if size != 0 {
             if ack_eliciting {

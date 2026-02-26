@@ -918,16 +918,21 @@ impl Connection {
             data.rtt.reset_initial_rtt(initial_rtt);
         }
 
-        // To open a path locally we need to send a packet on the path. Sending a challenge
-        // guarantees this.
-        data.tx_queue_on_path_challenge = true;
-
-        let path = vacant_entry.insert(PathState { data, prev: None });
-
         let mut pn_space = spaces::PacketNumberSpace::new(now, SpaceId::Data, &mut self.rng);
         if let Some(pn) = pn {
             pn_space.dedup.insert(pn);
         }
+
+        // Schedule an ack-eliciting packet to open the path. If the network path is not validated,
+        // we send a PATH_CHALLENGE. Otherwise a PING is enough.
+        if !data.validated {
+            data.tx_queue_on_path_challenge = true;
+        } else {
+            pn_space.ping_pending = true;
+        }
+
+        let path = vacant_entry.insert(PathState { data, prev: None });
+
         self.spaces[SpaceId::Data]
             .number_spaces
             .insert(path_id, pn_space);
@@ -2291,15 +2296,10 @@ impl Connection {
                             path.data.tx_queue_on_path_challenge = true;
                         }
                         PathTimer::PathOpen => {
-                            let Some(path) = self.paths.get_mut(&path_id) else {
+                            if !self.paths.contains_key(&path_id) {
                                 continue;
                             };
-                            path.data.reset_on_path_challenges();
-                            self.timers.stop(
-                                Timer::PerPath(path_id, PathTimer::PathChallengeLost),
-                                self.qlog.with_time(now),
-                            );
-                            debug!("new path validation failed");
+                            debug!(%path_id, "new path validation failed");
                             if let Err(err) = self.close_path_inner(
                                 now,
                                 path_id,
@@ -4623,8 +4623,6 @@ impl Connection {
 
                             self.timers
                                 .stop(Timer::PerPath(path_id, PathValidation), qlog.clone());
-                            self.timers
-                                .stop(Timer::PerPath(path_id, PathOpen), qlog.clone());
 
                             let next_challenge = path
                                 .data
@@ -5657,14 +5655,6 @@ impl Connection {
             builder.write_frame(challenge, stats);
             builder.require_padding();
             let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
-            if path.open_status == paths::OpenStatus::Pending {
-                path.open_status = paths::OpenStatus::Sent;
-                self.timers.set(
-                    Timer::PerPath(path_id, PathTimer::PathOpen),
-                    now + 3 * pto,
-                    self.qlog.with_time(now),
-                );
-            }
 
             self.timers.set(
                 Timer::PerPath(path_id, PathTimer::PathChallengeLost),
@@ -6731,6 +6721,32 @@ impl Connection {
                 client_state.report_in_continuation(id, e);
                 Some(false)
             }
+        }
+    }
+
+    /// Sets a timer for a path to be deemed open.
+    ///
+    /// The timer is only set for paths other than [`PathId::ZERO`], on the data space. It's also
+    /// set only if asdfasfdawef
+    /// TODO(@divma): yet another lookup yay
+    ///
+    /// PANICS: if the path does not exist.
+    fn set_open_path_timer(&mut self, path_id: PathId, space: SpaceKind, now: Instant) {
+        if path_id == PathId::ZERO || space != SpaceKind::Data {
+            return;
+        }
+
+        let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
+
+        if path.open_status == paths::OpenStatus::Pending {
+            path.open_status = paths::OpenStatus::Sent;
+
+            let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
+            self.timers.set(
+                Timer::PerPath(path_id, PathTimer::PathOpen),
+                now + 3 * pto,
+                self.qlog.with_time(now),
+            );
         }
     }
 }
