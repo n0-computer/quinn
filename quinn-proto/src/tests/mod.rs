@@ -879,7 +879,11 @@ fn incoming_alpns() {
     let client_alpns: Vec<Vec<u8>> = vec!["bar".into(), "quux".into()];
     let expected = client_alpns.clone();
     pair.server.handle_incoming = Box::new(move |incoming| {
-        let alpns = incoming.alpns().expect("alpns should be parseable");
+        let alpns: Vec<Vec<u8>> = incoming
+            .alpns()
+            .expect("alpns should be parseable")
+            .map(|a| a.unwrap().to_vec())
+            .collect();
         assert_eq!(alpns, expected);
         IncomingConnectionBehavior::Accept
     });

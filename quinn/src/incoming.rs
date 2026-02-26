@@ -107,7 +107,10 @@ impl Incoming {
     ///
     /// This involves cloning and decrypting the packet payload (~1200 bytes)
     /// and parsing the TLS ClientHello. The result is not cached.
-    pub fn alpns(&self) -> Option<Vec<Vec<u8>>> {
+    ///
+    /// Returns an iterator over the proposed ALPN protocol names. On the common
+    /// fast path (single CRYPTO frame), this is zero-allocation.
+    pub fn alpns(&self) -> Option<proto::IncomingAlpns> {
         self.0.as_ref()?.inner.alpns()
     }
 }
