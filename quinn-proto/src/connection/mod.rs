@@ -5658,7 +5658,6 @@ impl Connection {
         }
 
         // PING
-        // TODO(flub): continue here
         if mem::replace(&mut space.for_path(path_id).ping_pending, false) {
             builder.write_frame(frame::Ping, stats);
         }
@@ -5674,9 +5673,7 @@ impl Connection {
         }
 
         // ACK
-        // TODO(flub): Should this send acks for this path anyway?
-
-        if !path_exclusive_only {
+        if should_send_data(&scheduling_info, path_id) {
             for path_id in space
                 .number_spaces
                 .iter_mut()
@@ -5696,10 +5693,29 @@ impl Connection {
                     space_has_keys,
                 );
             }
+        } else if this_path.abandoned {
+            // If we are abandoning this very path, also include ACKs for this path,
+            // together with the PATH_ABANDON that will be sent. Normally we don't do this
+            // though and send the PATH_ABANDON on a different path.
+            if !space.for_path(path_id).pending_acks.ranges().is_empty() {
+                Self::populate_acks(
+                    now,
+                    self.receiving_ecn,
+                    path_id,
+                    space_id,
+                    space,
+                    is_multipath_negotiated,
+                    builder,
+                    stats,
+                    space_has_keys,
+                )
+            }
         }
 
         // ACK_FREQUENCY
-        if !path_exclusive_only && mem::replace(&mut space.pending.ack_frequency, false) {
+        if should_send_data(&scheduling_info, path_id)
+            && mem::replace(&mut space.pending.ack_frequency, false)
+        {
             let sequence_number = self.ack_frequency.next_sequence_number();
 
             // Safe to unwrap because this is always provided when ACK frequency is enabled
@@ -5811,9 +5827,9 @@ impl Connection {
         }
 
         // CRYPTO
-        while !path_exclusive_only
+        while !is_0rtt
+            && (space_id < SpaceId::Data || should_send_data(&scheduling_info, path_id))
             && builder.frame_space_remaining() > frame::Crypto::SIZE_BOUND
-            && !is_0rtt
         {
             let mut frame = match space.pending.crypto.pop_front() {
                 Some(x) => x,
@@ -5848,8 +5864,8 @@ impl Connection {
 
         // TODO(flub): maybe this is much higher priority?
         // PATH_ABANDON
-        while !path_exclusive_only
-            && space_id == SpaceId::Data
+        while space_id == SpaceId::Data
+            && should_send_data(&scheduling_info, path_id)
             && frame::PathAbandon::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let Some((abandoned_path_id, error_code)) = space.pending.path_abandon.pop_first()
@@ -5864,8 +5880,8 @@ impl Connection {
         }
 
         // PATH_STATUS_AVAILABLE & PATH_STATUS_BACKUP
-        while !path_exclusive_only
-            && space_id == SpaceId::Data
+        while space_id == SpaceId::Data
+            && should_send_data(&scheduling_info, path_id)
             && frame::PathStatusAvailable::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let Some(path_id) = space.pending.path_status.pop_first() else {
@@ -5897,7 +5913,7 @@ impl Connection {
 
         // MAX_PATH_ID
         if space_id == SpaceId::Data
-            && !path_exclusive_only
+            && should_send_data(&scheduling_info, path_id)
             && space.pending.max_path_id
             && frame::MaxPathId::SIZE_BOUND <= builder.frame_space_remaining()
         {
@@ -5908,7 +5924,7 @@ impl Connection {
 
         // PATHS_BLOCKED
         if space_id == SpaceId::Data
-            && !path_exclusive_only
+            && should_send_data(&scheduling_info, path_id)
             && space.pending.paths_blocked
             && frame::PathsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
@@ -5919,7 +5935,7 @@ impl Connection {
 
         // PATH_CIDS_BLOCKED
         while space_id == SpaceId::Data
-            && !path_exclusive_only
+            && should_send_data(&scheduling_info, path_id)
             && frame::PathCidsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let Some(path_id) = space.pending.path_cids_blocked.pop_first() else {
@@ -5933,8 +5949,9 @@ impl Connection {
             builder.write_frame(frame, stats);
         }
 
+        // TODO(flub): continue here
         // RESET_STREAM, STOP_SENDING, MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS
-        if space_id == SpaceId::Data && !path_exclusive_only {
+        if space_id == SpaceId::Data && should_send_data(&scheduling_info, path_id) {
             self.streams
                 .write_control_frames(builder, &mut space.pending, stats);
         }
