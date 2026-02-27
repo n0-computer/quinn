@@ -13,7 +13,6 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use clap::Parser;
-use noq;
 use proto::{TransportConfig, crypto::rustls::QuicClientConfig};
 use rustls::pki_types::CertificateDer;
 use tracing::{error, info};
