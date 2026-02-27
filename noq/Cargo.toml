@@ -16,20 +16,27 @@ rust-version.workspace = true
 # NOTE: Please keep this in sync with the feature list in `.github/workflows/codecov.yml`, see
 # comment in that file for more information.
 default = ["tracing-log", "platform-verifier", "runtime-tokio", "rustls", "ring", "bloom"]
-# Enables `Endpoint::client` and `Endpoint::server` conveniences
+# Enables conveniences like `EndpointConfig::default`, and together with
+# enabling the `rustls` feature, this also enables the `aws-lc-rs` crypto provider
+# for the rustls TLS backend, making `Endpoint::client` and `Endpoint::server` available,
+# except when compiling to Wasm.
+# If both `aws-lc-rs` and `ring` are enabled, `ring` will actually be used.
 aws-lc-rs = ["proto/aws-lc-rs"]
 aws-lc-rs-fips = ["proto/aws-lc-rs-fips"]
+# Enables conveniences like `EndpointConfig::default`, and together with
+# enabling the `rustls` feature, this also enables the `ring` crypto provider
+# for the rustls TLS backend, making `Endpoint::client` and `Endpoint::server` available,
+# except when compiling to Wasm.
+# If both `aws-lc-rs` and `ring` are enabled, `ring` will actually be used.
+ring = ["proto/ring"]
 # Enables BloomTokenLog, and uses it by default
 bloom = ["proto/bloom"]
 # Records how long locks are held, and warns if they are held >= 1ms
 lock_tracking = []
 # Provides `ClientConfig::with_platform_verifier()` convenience method
 platform-verifier = ["proto/platform-verifier"]
-# For backwards compatibility, `rustls` forwards to `rustls-ring`
+# Enables rustls as the TLS implementation backend
 rustls = ["dep:rustls", "proto/rustls"]
-# Enable the `ring` crypto provider.
-# Outside wasm*-unknown-unknown targets, this enables `Endpoint::client` and `Endpoint::server` conveniences.
-ring = ["proto/ring"]
 runtime-tokio = ["tokio/time", "tokio/rt", "tokio/net"]
 runtime-smol = ["dep:async-io", "dep:smol"]
 

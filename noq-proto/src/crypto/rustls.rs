@@ -10,7 +10,7 @@ use rustls::{
     pki_types::{CertificateDer, ServerName},
     quic::{Connection, HeaderProtectionKey, KeyChange, PacketKey, Secrets, Suite, Version},
 };
-#[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use rustls::{client::danger::ServerCertVerifier, pki_types::PrivateKeyDer};
 #[cfg(feature = "platform-verifier")]
 use rustls_platform_verifier::BuilderVerifierExt;
@@ -321,7 +321,7 @@ impl QuicClientConfig {
     ///
     /// QUIC requires that TLS 1.3 be enabled. Advanced users can use any [`rustls::ClientConfig`] that
     /// satisfies this requirement.
-    #[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
+    #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
     pub(crate) fn new(verifier: Arc<dyn ServerCertVerifier>) -> Self {
         let inner = Self::inner(verifier);
         Self {
@@ -345,7 +345,7 @@ impl QuicClientConfig {
         }
     }
 
-    #[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
+    #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
     pub(crate) fn inner(verifier: Arc<dyn ServerCertVerifier>) -> rustls::ClientConfig {
         // Keep in sync with `with_platform_verifier()` above
         let mut config = rustls::ClientConfig::builder_with_provider(configured_provider())
@@ -450,7 +450,7 @@ pub struct QuicServerConfig {
 }
 
 impl QuicServerConfig {
-    #[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
+    #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
     pub(crate) fn new(
         cert_chain: Vec<CertificateDer<'static>>,
         key: PrivateKeyDer<'static>,
@@ -482,7 +482,7 @@ impl QuicServerConfig {
     /// QUIC requires that TLS 1.3 be enabled, and that the maximum early data size is either 0 or
     /// `u32::MAX`. Advanced users can use any [`rustls::ServerConfig`] that satisfies these
     /// requirements.
-    #[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
+    #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
     pub(crate) fn inner(
         cert_chain: Vec<CertificateDer<'static>>,
         key: PrivateKeyDer<'static>,

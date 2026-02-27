@@ -15,14 +15,23 @@ workspace = ".."
 # comment in that file for more information.
 default = ["rustls", "ring", "tracing-log", "bloom"]
 arbitrary = ["dep:arbitrary"]
+# Enables conveniences like `EndpointConfig::default`, and together with
+# enabling the `rustls` feature, this also enables the `aws-lc-rs` crypto provider
+# for the rustls TLS backend, making `Endpoint::client` and `Endpoint::server` available,
+# except when compiling to Wasm.
+# If both `aws-lc-rs` and `ring` are enabled, `ring` will actually be used.
 aws-lc-rs = ["dep:aws-lc-rs", "aws-lc-rs?/aws-lc-sys", "aws-lc-rs?/prebuilt-nasm", "rustls?/aws-lc-rs"] # TODO: Once released, we'll want to depend on the rustls-aws-lc-rs crate instead of rustls' aws-lc-rs feature.
 aws-lc-rs-fips = ["aws-lc-rs", "aws-lc-rs?/fips"]
+# Enables conveniences like `EndpointConfig::default`, and together with
+# enabling the `rustls` feature, this also enables the `ring` crypto provider
+# for the rustls TLS backend, making `Endpoint::client` and `Endpoint::server` available,
+# except when compiling to Wasm.
+# If both `aws-lc-rs` and `ring` are enabled, `ring` will actually be used.
 ring = ["dep:ring", "rustls?/ring"] # TODO: Once released, we'll want to depend on the rustls-ring crate instead of rustls' ring feature.
 # Enables BloomTokenLog, and uses it by default
 bloom = ["dep:fastbloom"]
-# For backwards compatibility, `rustls` forwards to `rustls-ring`
+# Enables rustls as the TLS implementation backend
 rustls = ["dep:rustls"]
-# Enable rustls ring provider and direct ring usage
 # Provides `ClientConfig::with_platform_verifier()` convenience method
 platform-verifier = ["dep:rustls-platform-verifier"]
 # Configure `tracing` to log events via `log` if no `tracing` subscriber exists.
