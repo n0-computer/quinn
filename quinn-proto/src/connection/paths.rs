@@ -156,7 +156,7 @@ pub(super) struct PathData {
     /// Only used for RFC9000-style path migration and multipath path validation (for opening).
     ///
     /// This is **not used** for n0 nat traversal challenge sending.
-    pub(super) tx_queue_on_path_challenge: bool,
+    pub(super) pending_on_path_challenge: bool,
     /// Pending responses to PATH_CHALLENGE frames
     pub(super) path_responses: PathResponses,
     /// Whether we're certain the peer can both send and receive on this address
@@ -266,7 +266,7 @@ impl PathData {
             congestion,
             on_path_challenges_unconfirmed: Default::default(),
             off_path_challenges_unconfirmed: Default::default(),
-            tx_queue_on_path_challenge: false,
+            pending_on_path_challenge: false,
             path_responses: PathResponses::default(),
             validated: false,
             total_sent: 0,
@@ -322,7 +322,7 @@ impl PathData {
             congestion,
             on_path_challenges_unconfirmed: Default::default(),
             off_path_challenges_unconfirmed: Default::default(),
-            tx_queue_on_path_challenge: false,
+            pending_on_path_challenge: false,
             path_responses: PathResponses::default(),
             validated: false,
             total_sent: 0,
@@ -347,7 +347,7 @@ impl PathData {
 
     /// Whether we're in the process of validating this path with PATH_CHALLENGEs
     pub(super) fn is_validating_path(&self) -> bool {
-        !self.on_path_challenges_unconfirmed.is_empty() || self.tx_queue_on_path_challenge
+        !self.on_path_challenges_unconfirmed.is_empty() || self.pending_on_path_challenge
     }
 
     /// Indicates whether we're a server that hasn't validated the peer's address and hasn't
@@ -467,7 +467,7 @@ impl PathData {
                 // Clear any other on-path sent challenge
                 self.on_path_challenges_unconfirmed.clear();
 
-                self.tx_queue_on_path_challenge = false;
+                self.pending_on_path_challenge = false;
 
                 // This RTT can only be used for the initial RTT, not as a normal
                 // sample: https://www.rfc-editor.org/rfc/rfc9002#section-6.2.2-2.
@@ -489,7 +489,7 @@ impl PathData {
 
                 // if there are no challenges for the current path, schedule one
                 if !self.on_path_challenges_unconfirmed.is_empty() {
-                    self.tx_queue_on_path_challenge = true;
+                    self.pending_on_path_challenge = true;
                 }
                 OnPathResponseReceived::Ignored {
                     sent_on: info.network_path,
@@ -514,7 +514,7 @@ impl PathData {
     /// Removes all on-path challenges we remember and cancels sending new on-path challenges.
     pub(super) fn reset_on_path_challenges(&mut self) {
         self.on_path_challenges_unconfirmed.clear();
-        self.tx_queue_on_path_challenge = false;
+        self.pending_on_path_challenge = false;
     }
 
     #[cfg(feature = "qlog")]
