@@ -1799,10 +1799,11 @@ impl Connection {
         loop {
             let can_send = self.space_can_send(
                 space_id,
-                PathId::ZERO,
+                PathId::ZERO, // TODO: why only PathId 0?????
                 max_packet_size,
                 connection_close_pending,
             );
+            tracing::warn!(?can_send, ?space_id, "has_pending_packet");
             if !can_send.is_empty() {
                 return true;
             }
