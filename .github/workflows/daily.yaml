@@ -66,7 +66,7 @@ jobs:
             rustc --version
             echo "===== freebsd-version ====="
             freebsd-version
-            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p iroh-quinn-udp --benches
+            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p noq-udp --benches
 
   build-solaris:
     # Tests disabled - too many hang in poll() on Solaris
@@ -112,7 +112,7 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           run: |
             . "$HOME/.cargo/env"
-            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p iroh-quinn-udp --benches
+            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p noq-udp --benches
 
   features:
     name: Feature powerset check

@@ -13,7 +13,7 @@ import time
 
 
 def parse_quinn_perf_json(path: Path) -> dict | None:
-    """Parse quinn-perf JSON output and extract metrics."""
+    """Parse noq-perf JSON output and extract metrics."""
     try:
         with open(path) as f:
             data = json.load(f)

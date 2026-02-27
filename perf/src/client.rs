@@ -9,7 +9,7 @@ use std::{
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use clap::Parser;
-use quinn::{TokioRuntime, crypto::rustls::QuicClientConfig};
+use noq::{TokioRuntime, crypto::rustls::QuicClientConfig};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info};
@@ -98,10 +98,10 @@ pub async fn run(opt: Opt) -> Result<()> {
 
     let socket = opt.common.bind_socket(bind_addr)?;
 
-    let mut endpoint_cfg = quinn::EndpointConfig::default();
+    let mut endpoint_cfg = noq::EndpointConfig::default();
     endpoint_cfg.max_udp_payload_size(opt.common.max_udp_payload_size)?;
 
-    let endpoint = quinn::Endpoint::new(endpoint_cfg, None, socket, Arc::new(TokioRuntime))?;
+    let endpoint = noq::Endpoint::new(endpoint_cfg, None, socket, Arc::new(TokioRuntime))?;
 
     let default_provider = rustls::crypto::ring::default_provider();
     let provider = Arc::new(rustls::crypto::CryptoProvider {
@@ -127,7 +127,7 @@ pub async fn run(opt: Opt) -> Result<()> {
     )?;
 
     let crypto = Arc::new(QuicClientConfig::try_from(crypto)?);
-    let mut config = quinn::ClientConfig::new(match opt.common.no_protection {
+    let mut config = noq::ClientConfig::new(match opt.common.no_protection {
         true => Arc::new(NoProtectionClientConfig::new(crypto)),
         false => crypto,
     });
@@ -205,7 +205,7 @@ pub async fn run(opt: Opt) -> Result<()> {
 }
 
 async fn drain_stream(
-    mut stream: quinn::RecvStream,
+    mut stream: noq::RecvStream,
     download: u64,
     stream_stats: OpenStreamStats,
 ) -> Result<()> {
@@ -248,7 +248,7 @@ async fn drain_stream(
 }
 
 async fn drive_uni(
-    connection: quinn::Connection,
+    connection: noq::Connection,
     stream_stats: OpenStreamStats,
     concurrency: u64,
     upload: u64,
@@ -278,8 +278,8 @@ async fn drive_uni(
 }
 
 async fn request_uni(
-    send: quinn::SendStream,
-    conn: quinn::Connection,
+    send: noq::SendStream,
+    conn: noq::Connection,
     upload: u64,
     download: u64,
     stream_stats: OpenStreamStats,
@@ -291,7 +291,7 @@ async fn request_uni(
 }
 
 async fn request(
-    mut send: quinn::SendStream,
+    mut send: noq::SendStream,
     mut upload: u64,
     download: u64,
     stream_stats: OpenStreamStats,
@@ -324,7 +324,7 @@ async fn request(
 }
 
 async fn drive_bi(
-    connection: quinn::Connection,
+    connection: noq::Connection,
     stream_stats: OpenStreamStats,
     concurrency: u64,
     upload: u64,
@@ -353,8 +353,8 @@ async fn drive_bi(
 }
 
 async fn request_bi(
-    send: quinn::SendStream,
-    recv: quinn::RecvStream,
+    send: noq::SendStream,
+    recv: noq::RecvStream,
     upload: u64,
     download: u64,
     stream_stats: OpenStreamStats,

@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-# Run netsim-based performance tests for quinn-perf
+# Run netsim-based performance tests for noq-perf
 # Usage: run_netsim_perf.sh <impl> <netsim_dir>
 #
-# impl: iroh-quinn or upstream-quinn
+# impl: noq or upstream-quinn
 # netsim_dir: path to chuck/netsim directory
 
 IMPL="$1"

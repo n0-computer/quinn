@@ -64,7 +64,7 @@ jobs:
         issue-number: ${{ github.event.pull_request.number || inputs.pr_number }}
         comment-id: ${{ steps.fc.outputs.comment-id }}
         body: |
-          Documentation for this PR has been generated and is available at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ env.PREVIEW_PATH }}/iroh_quinn/
+          Documentation for this PR has been generated and is available at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ env.PREVIEW_PATH }}/noq/
 
           Last updated: ${{ env.TIMESTAMP }}
         edit-mode: replace

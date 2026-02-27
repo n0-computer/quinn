@@ -39,11 +39,11 @@ jobs:
         with:
           go-version: 'stable'
       # Prevent feature unification from selecting *ring* as the crypto provider
-      - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path quinn-proto/Cargo.toml --no-default-features --features rustls-aws-lc-rs
-      - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path quinn/Cargo.toml --no-default-features --features rustls-aws-lc-rs,runtime-tokio,__rustls-post-quantum-test
+      - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path noq-proto/Cargo.toml --no-default-features --features rustls-aws-lc-rs
+      - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path noq/Cargo.toml --no-default-features --features rustls-aws-lc-rs,runtime-tokio,__rustls-post-quantum-test
       # FIPS
-      - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path quinn-proto/Cargo.toml --no-default-features --features rustls-aws-lc-rs-fips
-      - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path quinn/Cargo.toml --no-default-features --features rustls-aws-lc-rs-fips,runtime-tokio,__rustls-post-quantum-test
+      - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path noq-proto/Cargo.toml --no-default-features --features rustls-aws-lc-rs-fips
+      - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path noq/Cargo.toml --no-default-features --features rustls-aws-lc-rs-fips,runtime-tokio,__rustls-post-quantum-test
 
   wasm_test:
     name: Build & test wasm32
@@ -70,28 +70,28 @@ jobs:
       - uses: bytecodealliance/actions/wasm-tools/setup@v1
       - uses: cargo-bins/cargo-binstall@v1.16.3
 
-      - name: wasm32 test build (iroh-quinn-proto)
-        run: cargo test --locked -p iroh-quinn-proto --target wasm32-unknown-unknown --no-run
+      - name: wasm32 test build (noq-proto)
+        run: cargo test --locked -p noq-proto --target wasm32-unknown-unknown --no-run
 
-      - name: wasm32 check (iroh-quinn-udp)
-        run: cargo check --locked -p iroh-quinn-udp --target wasm32-unknown-unknown --no-default-features --features=tracing,log
+      - name: wasm32 check (noq-udp)
+        run: cargo check --locked -p noq-udp --target wasm32-unknown-unknown --no-default-features --features=tracing,log
 
-      - name: wasm32 build (iroh-quinn)
-        run: cargo rustc --locked -p iroh-quinn --target wasm32-unknown-unknown --no-default-features --features=tracing-log,platform-verifier,rustls-ring --crate-type=cdylib
+      - name: wasm32 build (noq)
+        run: cargo rustc --locked -p noq --target wasm32-unknown-unknown --no-default-features --features=tracing-log,platform-verifier,rustls-ring --crate-type=cdylib
 
       # If the Wasm file contains any 'import "env"' declarations, then
       # some non-Wasm-compatible code made it into the final code.
-      - name: Ensure no 'import "env"' in iroh-quinn-proto Wasm
+      - name: Ensure no 'import "env"' in noq-proto Wasm
         run: |
-          ! wasm-tools print --skeleton target/wasm32-unknown-unknown/debug/deps/iroh_quinn_proto-*.wasm | grep 'import "env"'
-      - name: Ensure no 'import "env"' in iroh-quinn Wasm
+          ! wasm-tools print --skeleton target/wasm32-unknown-unknown/debug/deps/noq_proto-*.wasm | grep 'import "env"'
+      - name: Ensure no 'import "env"' in noq Wasm
         run: |
-          ! wasm-tools print --skeleton target/wasm32-unknown-unknown/debug/iroh_quinn.wasm | grep 'import "env"'
+          ! wasm-tools print --skeleton target/wasm32-unknown-unknown/debug/noq.wasm | grep 'import "env"'
 
       # Match the version of wasm-bindgen used in Cargo.lock
       - run: cargo binstall wasm-bindgen-cli@0.2.106 --locked --no-confirm
-      - name: wasm32 test (iroh-quinn-proto)
-        run: cargo test --locked -p iroh-quinn-proto --target wasm32-unknown-unknown
+      - name: wasm32 test (noq-proto)
+        run: cargo test --locked -p noq-proto --target wasm32-unknown-unknown
 
   android_build:
     name: Android Build Only
@@ -233,12 +233,12 @@ jobs:
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: quinn docs
-        run: cargo docs-rs -p iroh-quinn
-      - name: quinn-proto docs
-        run: cargo docs-rs -p iroh-quinn-proto
-      - name: quinn-udp docs
-        run: cargo docs-rs -p iroh-quinn-udp
+      - name: noq docs
+        run: cargo docs-rs -p noq
+      - name: noq-proto docs
+        run: cargo docs-rs -p noq-proto
+      - name: noq-udp docs
+        run: cargo docs-rs -p noq-udp
 
   clippy_check:
     timeout-minutes: 30

@@ -1,13 +1,13 @@
 [workspace]
-members = ["quinn", "quinn-proto", "quinn-udp", "bench", "perf", "fuzz", "docs/book"]
-default-members = ["quinn", "quinn-proto", "quinn-udp", "bench", "perf"]
+members = ["noq", "noq-proto", "noq-udp", "bench", "perf", "fuzz", "docs/book"]
+default-members = ["noq", "noq-proto", "noq-udp", "bench", "perf"]
 resolver = "2"
 
 [workspace.package]
 rust-version = "1.88"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/quinn-rs/quinn"
+repository = "https://github.com/n0-computer/noq"
 keywords = ["quic"]
 categories = ["network-programming", "asynchronous"]
 

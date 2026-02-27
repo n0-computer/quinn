@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Compare performance results between iroh-quinn and upstream quinn.
+Compare performance results between noq and upstream quinn.
 Generates a markdown table with throughput, latency, and CPU metrics.
 """
 
@@ -155,7 +155,7 @@ def generate_markdown(results: list[PerfResult]) -> str:
     lines = []
 
     # Group by scenario
-    iroh_results = {r.scenario: r for r in results if 'iroh' in r.impl.lower()}
+    iroh_results = {r.scenario: r for r in results if 'noq' in r.impl.lower()}
     upstream_results = {r.scenario: r for r in results if 'upstream' in r.impl.lower()}
 
     # Raw benchmarks table
@@ -166,7 +166,7 @@ def generate_markdown(results: list[PerfResult]) -> str:
 
     if raw_scenarios:
         lines.append("### Raw Benchmarks (localhost)\n")
-        lines.append("| Scenario | iroh-quinn | upstream | Delta | CPU (avg/max) |")
+        lines.append("| Scenario | noq | upstream | Delta | CPU (avg/max) |")
         lines.append("|----------|------------|----------|-------|---------------|")
 
         for scenario in raw_scenarios:
@@ -202,7 +202,7 @@ def generate_markdown(results: list[PerfResult]) -> str:
 
     if netsim_scenarios:
         lines.append("### Netsim Benchmarks (network simulation)\n")
-        lines.append("| Condition | iroh-quinn | upstream | Delta |")
+        lines.append("| Condition | noq | upstream | Delta |")
         lines.append("|-----------|------------|----------|-------|")
 
         for scenario in netsim_scenarios:
@@ -239,9 +239,9 @@ def generate_markdown(results: list[PerfResult]) -> str:
 
             lines.append("### Summary\n")
             if avg_delta > 5:
-                lines.append(f"iroh-quinn is **{avg_delta:.1f}% faster** on average")
+                lines.append(f"noq is **{avg_delta:.1f}% faster** on average")
             elif avg_delta < -5:
-                lines.append(f"iroh-quinn is **{abs(avg_delta):.1f}% slower** on average")
+                lines.append(f"noq is **{abs(avg_delta):.1f}% slower** on average")
             else:
                 lines.append(f"Performance is roughly equivalent (delta: {avg_delta:+.1f}%)")
 

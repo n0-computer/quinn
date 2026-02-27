@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bytes::BytesMut;
 
-use quinn_proto::{
+use noq_proto::{
     ConnectionId, PathId, Side, TransportError,
     crypto::{
         self, CryptoError,
@@ -135,7 +135,7 @@ impl crypto::ClientConfig for NoProtectionClientConfig {
         version: u32,
         server_name: &str,
         params: &transport_parameters::TransportParameters,
-    ) -> Result<Box<dyn crypto::Session>, quinn::ConnectError> {
+    ) -> Result<Box<dyn crypto::Session>, noq::ConnectError> {
         let tls = self
             .inner
             .clone()

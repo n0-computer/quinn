@@ -1,5 +1,5 @@
 use hdrhistogram::Histogram;
-use quinn::StreamId;
+use noq::StreamId;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -136,7 +136,7 @@ impl Stats {
 pub struct OpenStreamStats(Arc<Mutex<Vec<Arc<StreamStats>>>>);
 
 impl OpenStreamStats {
-    pub fn new_sender(&self, stream: &quinn::SendStream, upload_size: u64) -> Arc<StreamStats> {
+    pub fn new_sender(&self, stream: &noq::SendStream, upload_size: u64) -> Arc<StreamStats> {
         let send_stream_stats = StreamStats {
             id: stream.id(),
             request_size: upload_size,
@@ -151,7 +151,7 @@ impl OpenStreamStats {
         send_stream_stats
     }
 
-    pub fn new_receiver(&self, stream: &quinn::RecvStream, download_size: u64) -> Arc<StreamStats> {
+    pub fn new_receiver(&self, stream: &noq::RecvStream, download_size: u64) -> Arc<StreamStats> {
         let recv_stream_stats = StreamStats {
             id: stream.id(),
             request_size: download_size,
@@ -247,7 +247,7 @@ fn throughput_bytes_per_second(duration_in_micros: u64, size: u64) -> f64 {
 mod json {
     use crate::stats;
     use crate::stats::{Stats, StreamIntervalStats};
-    use quinn::StreamId;
+    use noq::StreamId;
     use serde::{self, Serialize, Serializer, ser::SerializeStruct};
     use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};

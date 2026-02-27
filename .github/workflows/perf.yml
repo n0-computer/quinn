@@ -35,13 +35,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - impl: iroh-quinn
-            artifact: quinn-perf-iroh
+          - impl: noq
+            artifact: noq-perf-noq
           - impl: upstream-quinn
             artifact: quinn-perf-upstream
     steps:
       - uses: actions/checkout@v6
-        if: matrix.impl == 'iroh-quinn'
+        if: matrix.impl == 'noq'
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -70,7 +70,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.impl == 'upstream-quinn' && '/tmp/upstream-quinn/target/release/quinn-perf' || 'target/release/quinn-perf' }}
+          path: ${{ matrix.impl == 'upstream-quinn' && '/tmp/upstream-quinn/target/release/quinn-perf' || 'target/release/noq-perf' }}
           retention-days: 1
 
   raw-perf:
@@ -81,10 +81,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        impl: [iroh-quinn, upstream-quinn]
+        impl: [noq, upstream-quinn]
         include:
-          - impl: iroh-quinn
-            artifact: quinn-perf-iroh
+          - impl: noq
+            artifact: noq-perf-noq
           - impl: upstream-quinn
             artifact: quinn-perf-upstream
     steps:
@@ -97,8 +97,9 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          chmod +x ./bin/quinn-perf
-          ./.github/scripts/run_perf.sh ./bin/quinn-perf results/${{ matrix.impl }}
+          PERF_BIN=$(ls ./bin/noq-perf ./bin/quinn-perf 2>/dev/null | head -1)
+          chmod +x "$PERF_BIN"
+          ./.github/scripts/run_perf.sh "$PERF_BIN" results/${{ matrix.impl }}
 
       - uses: actions/upload-artifact@v5
         with:
@@ -114,10 +115,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        impl: [iroh-quinn, upstream-quinn]
+        impl: [noq, upstream-quinn]
         include:
-          - impl: iroh-quinn
-            artifact: quinn-perf-iroh
+          - impl: noq
+            artifact: noq-perf-noq
           - impl: upstream-quinn
             artifact: quinn-perf-upstream
     steps:
@@ -142,9 +143,14 @@ jobs:
 
       - name: Setup netsim bins
         run: |
-          chmod +x ./bin/quinn-perf
           mkdir -p /tmp/chuck/netsim/bins
-          cp ./bin/quinn-perf /tmp/chuck/netsim/bins/
+          if [ -f ./bin/noq-perf ]; then
+            chmod +x ./bin/noq-perf
+            cp ./bin/noq-perf /tmp/chuck/netsim/bins/noq-perf
+          else
+            chmod +x ./bin/quinn-perf
+            cp ./bin/quinn-perf /tmp/chuck/netsim/bins/noq-perf
+          fi
 
       - name: Run netsim perf test
         id: run_netsim
