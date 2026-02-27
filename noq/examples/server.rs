@@ -12,7 +12,6 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
-use noq;
 use proto::crypto::rustls::QuicServerConfig;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, pem::PemObject};
 use tracing::{error, info, info_span};
