@@ -2836,6 +2836,7 @@ impl Connection {
         };
 
         if self.detect_spurious_loss(&ack, space, path) {
+            self.path_stats.for_path(path).spurious_congestion_events += 1;
             self.path_data_mut(path)
                 .congestion
                 .on_spurious_congestion_event();
