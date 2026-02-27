@@ -11,7 +11,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use sorted_index_buffer::SortedIndexBuffer;
 use tracing::trace;
 
-use super::{PathData, PathId};
+use super::PathId;
 use crate::{
     Dir, Duration, FourTuple, Instant, StreamId, TransportError, TransportErrorCode, VarInt,
     connection::StreamsState,
@@ -896,7 +896,7 @@ impl SendableFrames {
     /// Whether an ack-eliciting packet will be sent.
     pub(super) fn is_ack_eliciting(&self) -> bool {
         let Self {
-            acks,
+            acks: _,
             close,
             validation,
             space_id_only,
