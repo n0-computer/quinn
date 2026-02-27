@@ -585,7 +585,7 @@ pub(crate) fn initial_suite_from_provider(
         .flatten()
 }
 
-#[cfg(feature = "aws-lc-rs")]
+#[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
 pub(crate) fn configured_provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(rustls::crypto::aws_lc_rs::default_provider())
 }
