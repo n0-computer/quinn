@@ -389,7 +389,7 @@ dependencies = [
  "bytes",
  "clap",
  "hdrhistogram",
- "iroh-quinn",
+ "noq",
  "rcgen",
  "rustls",
  "tokio",
@@ -442,7 +442,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
- "iroh-quinn",
+ "noq",
  "rcgen",
  "rustls",
 ]
@@ -1065,8 +1065,8 @@ name = "fuzz"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "iroh-quinn-proto",
  "libfuzzer-sys",
+ "noq-proto",
 ]
 
 [[package]]
@@ -1429,100 +1429,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroh-quinn"
-version = "0.16.1"
-dependencies = [
- "anyhow",
- "async-executor",
- "async-fs",
- "async-global-executor",
- "async-io",
- "aws-lc-fips-sys",
- "aws-lc-sys 0.34.0",
- "bytes",
- "cfg_aliases",
- "clap",
- "crc",
- "criterion",
- "directories-next",
- "futures-io",
- "gcc",
- "http",
- "iroh-quinn-proto",
- "iroh-quinn-udp",
- "lazy_static",
- "pin-project-lite",
- "rand",
- "rcgen",
- "rustc-hash",
- "rustls",
- "sharded-slab",
- "smol",
- "socket2",
- "testresult",
- "thiserror 2.0.17",
- "tokio",
- "tokio-stream",
- "tracing",
- "tracing-futures",
- "tracing-subscriber",
- "url",
- "web-time",
-]
-
-[[package]]
-name = "iroh-quinn-proto"
-version = "0.15.1"
-dependencies = [
- "arbitrary",
- "assert_matches",
- "aws-lc-rs",
- "bytes",
- "criterion",
- "derive_more",
- "enum-assoc",
- "fastbloom",
- "getrandom 0.3.3",
- "hex-literal",
- "identity-hash",
- "lru-slab",
- "n0-qlog",
- "proptest",
- "rand",
- "rand_pcg",
- "rcgen",
- "ring",
- "rustc-hash",
- "rustls",
- "rustls-pki-types",
- "rustls-platform-verifier",
- "slab",
- "sorted-index-buffer",
- "test-strategy",
- "testresult",
- "thiserror 2.0.17",
- "tinyvec",
- "tracing",
- "tracing-subscriber",
- "wasm-bindgen-test",
- "web-time",
-]
-
-[[package]]
-name = "iroh-quinn-udp"
-version = "0.8.0"
-dependencies = [
- "cfg_aliases",
- "criterion",
- "libc",
- "log",
- "socket2",
- "tokio",
- "tracing",
- "windows-sys 0.61.1",
-]
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1754,6 +1660,100 @@ dependencies = [
 ]
 
 [[package]]
+name = "noq"
+version = "0.16.1"
+dependencies = [
+ "anyhow",
+ "async-executor",
+ "async-fs",
+ "async-global-executor",
+ "async-io",
+ "aws-lc-fips-sys",
+ "aws-lc-sys 0.34.0",
+ "bytes",
+ "cfg_aliases",
+ "clap",
+ "crc",
+ "criterion",
+ "directories-next",
+ "futures-io",
+ "gcc",
+ "http",
+ "lazy_static",
+ "noq-proto",
+ "noq-udp",
+ "pin-project-lite",
+ "rand",
+ "rcgen",
+ "rustc-hash",
+ "rustls",
+ "sharded-slab",
+ "smol",
+ "socket2",
+ "testresult",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "tracing-futures",
+ "tracing-subscriber",
+ "url",
+ "web-time",
+]
+
+[[package]]
+name = "noq-proto"
+version = "0.15.1"
+dependencies = [
+ "arbitrary",
+ "assert_matches",
+ "aws-lc-rs",
+ "bytes",
+ "criterion",
+ "derive_more",
+ "enum-assoc",
+ "fastbloom",
+ "getrandom 0.3.3",
+ "hex-literal",
+ "identity-hash",
+ "lru-slab",
+ "n0-qlog",
+ "proptest",
+ "rand",
+ "rand_pcg",
+ "rcgen",
+ "ring",
+ "rustc-hash",
+ "rustls",
+ "rustls-pki-types",
+ "rustls-platform-verifier",
+ "slab",
+ "sorted-index-buffer",
+ "test-strategy",
+ "testresult",
+ "thiserror 2.0.17",
+ "tinyvec",
+ "tracing",
+ "tracing-subscriber",
+ "wasm-bindgen-test",
+ "web-time",
+]
+
+[[package]]
+name = "noq-udp"
+version = "0.8.0"
+dependencies = [
+ "cfg_aliases",
+ "criterion",
+ "libc",
+ "log",
+ "socket2",
+ "tokio",
+ "tracing",
+ "windows-sys 0.61.1",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.50.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1874,8 +1874,8 @@ dependencies = [
  "clap",
  "console-subscriber",
  "hdrhistogram",
- "iroh-quinn",
- "iroh-quinn-proto",
+ "noq",
+ "noq-proto",
  "rcgen",
  "rustls",
  "serde",

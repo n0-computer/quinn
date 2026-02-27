@@ -4,7 +4,7 @@ use std::{io, net::SocketAddr, num::ParseIntError, str::FromStr, sync::Arc, time
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use quinn::{
+use noq::{
     AckFrequencyConfig, TransportConfig, VarInt,
     congestion::{self, ControllerFactory},
     udp::UdpSocketState,
