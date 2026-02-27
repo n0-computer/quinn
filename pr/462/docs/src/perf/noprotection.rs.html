@@ -2,7 +2,7 @@
 <a href=#2 id=2 data-nosnippet>2</a>
 <a href=#3 id=3 data-nosnippet>3</a><span class="kw">use </span>bytes::BytesMut;
 <a href=#4 id=4 data-nosnippet>4</a>
-<a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span>quinn_proto::{
+<a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span>noq_proto::{
 <a href=#6 id=6 data-nosnippet>6</a>    ConnectionId, PathId, Side, TransportError,
 <a href=#7 id=7 data-nosnippet>7</a>    crypto::{
 <a href=#8 id=8 data-nosnippet>8</a>        <span class="self">self</span>, CryptoError,
@@ -135,7 +135,7 @@
 <a href=#135 id=135 data-nosnippet>135</a>        version: u32,
 <a href=#136 id=136 data-nosnippet>136</a>        server_name: <span class="kw-2">&amp;</span>str,
 <a href=#137 id=137 data-nosnippet>137</a>        params: <span class="kw-2">&amp;</span>transport_parameters::TransportParameters,
-<a href=#138 id=138 data-nosnippet>138</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Box&lt;<span class="kw">dyn </span>crypto::Session&gt;, quinn::ConnectError&gt; {
+<a href=#138 id=138 data-nosnippet>138</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Box&lt;<span class="kw">dyn </span>crypto::Session&gt;, noq::ConnectError&gt; {
 <a href=#139 id=139 data-nosnippet>139</a>        <span class="kw">let </span>tls = <span class="self">self
 <a href=#140 id=140 data-nosnippet>140</a>            </span>.inner
 <a href=#141 id=141 data-nosnippet>141</a>            .clone()
