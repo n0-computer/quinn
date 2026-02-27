@@ -147,8 +147,25 @@ pub async fn send_data_on_stream(stream: &mut quinn::SendStream, stream_size: u6
     Ok(())
 }
 
-pub fn rt() -> Runtime {
-    Builder::new_current_thread().enable_all().build().unwrap()
+pub fn rt(runtime_type: RuntimeType) -> Runtime {
+    match runtime_type {
+        RuntimeType::Tokio => {
+            let counter = std::sync::atomic::AtomicUsize::new(0);
+            Builder::new_multi_thread()
+                .thread_name_fn(move || {
+                    format!(
+                        "tokio-runtime-{}",
+                        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    )
+                })
+                .enable_all()
+                .build()
+                .unwrap()
+        }
+        RuntimeType::TokioCurrentThread => {
+            Builder::new_current_thread().enable_all().build().unwrap()
+        }
+    }
 }
 
 pub fn transport_config(opt: &Opt) -> quinn::TransportConfig {
@@ -203,6 +220,27 @@ pub struct Opt {
     /// Starting guess for maximum UDP payload size
     #[clap(long, default_value = "1200")]
     pub initial_mtu: u16,
+    /// The runtime type to use
+    #[clap(long, default_value = "tokio")]
+    pub runtime_type: RuntimeType,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RuntimeType {
+    Tokio,
+    TokioCurrentThread,
+}
+
+impl FromStr for RuntimeType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "tokio" => Ok(RuntimeType::Tokio),
+            "tokio-current-thread" => Ok(RuntimeType::TokioCurrentThread),
+            _ => Err(anyhow::anyhow!("Unknown runtime type {}", s)),
+        }
+    }
 }
 
 fn parse_byte_size(s: &str) -> Result<u64, ParseIntError> {
