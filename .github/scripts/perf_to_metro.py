@@ -12,7 +12,7 @@ from datetime import datetime
 import time
 
 
-def parse_quinn_perf_json(path: Path) -> dict | None:
+def parse_perf_json(path: Path) -> dict | None:
     """Parse noq-perf JSON output and extract metrics."""
     try:
         with open(path) as f:
@@ -74,7 +74,7 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                 results_json = scenario_dir / 'results.json'
                 metadata_json = scenario_dir / 'metadata.json'
 
-                perf_data = parse_quinn_perf_json(results_json)
+                perf_data = parse_perf_json(results_json)
                 metadata = parse_metadata_json(metadata_json)
 
                 if perf_data:
@@ -131,7 +131,7 @@ def collect_metrics(raw_dir: Path, netsim_dir: Path, commit: str, bucket: str) -
                 # Extract condition from filename (e.g., ideal.json -> ideal)
                 condition = json_file.stem.split('_')[0] if '_' in json_file.stem else json_file.stem
 
-                perf_data = parse_quinn_perf_json(json_file)
+                perf_data = parse_perf_json(json_file)
                 if perf_data:
                     tag = f"netsim_{condition}.{impl}"
 

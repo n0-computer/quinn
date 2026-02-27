@@ -24,8 +24,8 @@ class PerfResult:
     cpu_max: float
 
 
-def parse_quinn_perf_json(path: Path) -> Optional[dict]:
-    """Parse quinn-perf JSON output."""
+def parse_perf_json(path: Path) -> Optional[dict]:
+    """Parse perf JSON output."""
     try:
         with open(path) as f:
             data = json.load(f)
@@ -90,7 +90,7 @@ def collect_results(raw_dir: Path, netsim_dir: Path) -> list[PerfResult]:
                 results_json = scenario_dir / 'results.json'
                 metadata_json = scenario_dir / 'metadata.json'
 
-                perf_data = parse_quinn_perf_json(results_json)
+                perf_data = parse_perf_json(results_json)
                 metadata = parse_metadata_json(metadata_json)
 
                 if perf_data:
@@ -119,7 +119,7 @@ def collect_results(raw_dir: Path, netsim_dir: Path) -> list[PerfResult]:
                 # Extract condition from filename (e.g., ideal_1_to_1 -> ideal)
                 condition = json_file.stem.split('_')[0] if '_' in json_file.stem else json_file.stem
 
-                perf_data = parse_quinn_perf_json(json_file)
+                perf_data = parse_perf_json(json_file)
                 if perf_data:
                     results.append(PerfResult(
                         scenario=f'netsim-{condition}',
@@ -135,12 +135,12 @@ def collect_results(raw_dir: Path, netsim_dir: Path) -> list[PerfResult]:
     return results
 
 
-def format_delta(iroh_val: float, upstream_val: float) -> str:
-    """Format the delta between iroh and upstream values."""
+def format_delta(noq_val: float, upstream_val: float) -> str:
+    """Format the delta between noq and upstream values."""
     if upstream_val == 0:
         return "N/A"
 
-    delta_pct = ((iroh_val - upstream_val) / upstream_val) * 100
+    delta_pct = ((noq_val - upstream_val) / upstream_val) * 100
 
     if abs(delta_pct) < 1:
         return "~0%"
@@ -155,7 +155,7 @@ def generate_markdown(results: list[PerfResult]) -> str:
     lines = []
 
     # Group by scenario
-    iroh_results = {r.scenario: r for r in results if 'noq' in r.impl.lower()}
+    noq_results = {r.scenario: r for r in results if 'noq' in r.impl.lower()}
     upstream_results = {r.scenario: r for r in results if 'upstream' in r.impl.lower()}
 
     # Raw benchmarks table
@@ -170,14 +170,14 @@ def generate_markdown(results: list[PerfResult]) -> str:
         lines.append("|----------|------------|----------|-------|---------------|")
 
         for scenario in raw_scenarios:
-            iroh = iroh_results.get(scenario)
+            noq = noq_results.get(scenario)
             upstream = upstream_results.get(scenario)
 
-            if iroh:
-                iroh_dl = f"{iroh.download_mbps:.1f} Mbps"
-                cpu = f"{iroh.cpu_avg:.1f}% / {iroh.cpu_max:.1f}%"
+            if noq:
+                noq_dl = f"{noq.download_mbps:.1f} Mbps"
+                cpu = f"{noq.cpu_avg:.1f}% / {noq.cpu_max:.1f}%"
             else:
-                iroh_dl = "N/A"
+                noq_dl = "N/A"
                 cpu = "N/A"
 
             if upstream:
@@ -185,12 +185,12 @@ def generate_markdown(results: list[PerfResult]) -> str:
             else:
                 upstream_dl = "N/A"
 
-            if iroh and upstream:
-                delta = format_delta(iroh.download_mbps, upstream.download_mbps)
+            if noq and upstream:
+                delta = format_delta(noq.download_mbps, upstream.download_mbps)
             else:
                 delta = "N/A"
 
-            lines.append(f"| {scenario} | {iroh_dl} | {upstream_dl} | {delta} | {cpu} |")
+            lines.append(f"| {scenario} | {noq_dl} | {upstream_dl} | {delta} | {cpu} |")
 
         lines.append("")
 
@@ -206,36 +206,36 @@ def generate_markdown(results: list[PerfResult]) -> str:
         lines.append("|-----------|------------|----------|-------|")
 
         for scenario in netsim_scenarios:
-            iroh = iroh_results.get(scenario)
+            noq = noq_results.get(scenario)
             upstream = upstream_results.get(scenario)
             condition = scenario.replace('netsim-', '')
 
-            if iroh:
-                iroh_dl = f"{iroh.download_mbps:.1f} Mbps"
+            if noq:
+                noq_dl = f"{noq.download_mbps:.1f} Mbps"
             else:
-                iroh_dl = "N/A"
+                noq_dl = "N/A"
 
             if upstream:
                 upstream_dl = f"{upstream.download_mbps:.1f} Mbps"
             else:
                 upstream_dl = "N/A"
 
-            if iroh and upstream:
-                delta = format_delta(iroh.download_mbps, upstream.download_mbps)
+            if noq and upstream:
+                delta = format_delta(noq.download_mbps, upstream.download_mbps)
             else:
                 delta = "N/A"
 
-            lines.append(f"| {condition} | {iroh_dl} | {upstream_dl} | {delta} |")
+            lines.append(f"| {condition} | {noq_dl} | {upstream_dl} | {delta} |")
 
         lines.append("")
 
     # Summary
-    if iroh_results and upstream_results:
-        common = set(iroh_results.keys()) & set(upstream_results.keys())
+    if noq_results and upstream_results:
+        common = set(noq_results.keys()) & set(upstream_results.keys())
         if common:
-            total_iroh = sum(iroh_results[s].download_mbps for s in common)
+            total_noq = sum(noq_results[s].download_mbps for s in common)
             total_upstream = sum(upstream_results[s].download_mbps for s in common)
-            avg_delta = ((total_iroh - total_upstream) / total_upstream) * 100 if total_upstream else 0
+            avg_delta = ((total_noq - total_upstream) / total_upstream) * 100 if total_upstream else 0
 
             lines.append("### Summary\n")
             if avg_delta > 5:
