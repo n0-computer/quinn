@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["configure_client","generate_self_signed_cert","main","read_certs_from_file"],"struct":["SkipServerVerification"]};
