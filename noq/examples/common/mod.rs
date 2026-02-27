@@ -1,4 +1,4 @@
-#![cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#![cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
 //! Commonly used code in most examples.
 
 use noq::{ClientConfig, Endpoint, ServerConfig};

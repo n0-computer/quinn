@@ -110,23 +110,23 @@ workspace = true
 
 [[example]]
 name = "server"
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [[example]]
 name = "client"
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [[example]]
 name = "insecure_connection"
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [[example]]
 name = "single_socket"
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [[example]]
 name = "connection"
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [[test]]
 name = "post_quantum"
@@ -135,8 +135,8 @@ required-features = ["__rustls-post-quantum-test"]
 [[bench]]
 name = "bench"
 harness = false
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [package.metadata.docs.rs]
 # all non-default features except fips (cannot build on docs.rs environment)
-features = ["lock_tracking", "rustls-aws-lc-rs", "rustls-ring", "runtime-tokio", "runtime-smol", "tracing-log", "rustls-log"]
+features = ["lock_tracking", "aws-lc-rs", "rustls", "ring", "runtime-tokio", "runtime-smol", "tracing-log", "rustls-log"]
