@@ -1,8 +1,8 @@
-#![cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#![cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
 
-#[cfg(all(feature = "rustls-aws-lc-rs", not(feature = "rustls-ring")))]
+#[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
 use rustls::crypto::aws_lc_rs::default_provider;
-#[cfg(feature = "rustls-ring")]
+#[cfg(feature = "ring")]
 use rustls::crypto::ring::default_provider;
 use testresult::TestResult;
 use tokio_stream::StreamExt;

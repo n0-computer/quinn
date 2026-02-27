@@ -13,20 +13,15 @@ workspace = ".."
 [features]
 # NOTE: Please keep this in sync with the feature list in `.github/workflows/codecov.yml`, see
 # comment in that file for more information.
-default = ["rustls-ring", "tracing-log", "bloom"]
+default = ["rustls", "ring", "tracing-log", "bloom"]
 arbitrary = ["dep:arbitrary"]
-aws-lc-rs = ["dep:aws-lc-rs", "aws-lc-rs?/aws-lc-sys", "aws-lc-rs?/prebuilt-nasm"]
+aws-lc-rs = ["dep:aws-lc-rs", "aws-lc-rs?/aws-lc-sys", "aws-lc-rs?/prebuilt-nasm", "rustls?/aws-lc-rs"] # TODO: Once released, we'll want to depend on the rustls-aws-lc-rs crate instead of rustls' aws-lc-rs feature.
 aws-lc-rs-fips = ["aws-lc-rs", "aws-lc-rs?/fips"]
+ring = ["dep:ring", "rustls?/ring"] # TODO: Once released, we'll want to depend on the rustls-ring crate instead of rustls' ring feature.
 # Enables BloomTokenLog, and uses it by default
 bloom = ["dep:fastbloom"]
 # For backwards compatibility, `rustls` forwards to `rustls-ring`
-rustls = ["rustls-ring"]
-# Enable rustls with the `aws-lc-rs` crypto provider
-rustls-aws-lc-rs = ["dep:rustls", "rustls?/aws-lc-rs", "aws-lc-rs"]
-rustls-aws-lc-rs-fips = ["rustls-aws-lc-rs", "aws-lc-rs-fips"]
-# Enable rustls with the `ring` crypto provider
-rustls-ring = ["dep:rustls", "rustls?/ring", "ring"]
-ring = ["dep:ring"]
+rustls = ["dep:rustls"]
 # Enable rustls ring provider and direct ring usage
 # Provides `ClientConfig::with_platform_verifier()` convenience method
 platform-verifier = ["dep:rustls-platform-verifier"]

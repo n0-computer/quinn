@@ -7,10 +7,11 @@ pub use rustls::Error;
 use rustls::NamedGroup;
 use rustls::{
     self, CipherSuite,
-    client::danger::ServerCertVerifier,
-    pki_types::{CertificateDer, PrivateKeyDer, ServerName},
+    pki_types::{CertificateDer, ServerName},
     quic::{Connection, HeaderProtectionKey, KeyChange, PacketKey, Secrets, Suite, Version},
 };
+#[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
+use rustls::{client::danger::ServerCertVerifier, pki_types::PrivateKeyDer};
 #[cfg(feature = "platform-verifier")]
 use rustls_platform_verifier::BuilderVerifierExt;
 
@@ -295,7 +296,10 @@ pub struct QuicClientConfig {
 }
 
 impl QuicClientConfig {
-    #[cfg(feature = "platform-verifier")]
+    #[cfg(all(
+        feature = "platform-verifier",
+        any(feature = "aws-lc-rs", feature = "ring")
+    ))]
     pub(crate) fn with_platform_verifier() -> Result<Self, Error> {
         // Keep in sync with `inner()` below
         let mut inner = rustls::ClientConfig::builder_with_provider(configured_provider())
@@ -317,6 +321,7 @@ impl QuicClientConfig {
     ///
     /// QUIC requires that TLS 1.3 be enabled. Advanced users can use any [`rustls::ClientConfig`] that
     /// satisfies this requirement.
+    #[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
     pub(crate) fn new(verifier: Arc<dyn ServerCertVerifier>) -> Self {
         let inner = Self::inner(verifier);
         Self {
@@ -340,6 +345,7 @@ impl QuicClientConfig {
         }
     }
 
+    #[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
     pub(crate) fn inner(verifier: Arc<dyn ServerCertVerifier>) -> rustls::ClientConfig {
         // Keep in sync with `with_platform_verifier()` above
         let mut config = rustls::ClientConfig::builder_with_provider(configured_provider())
@@ -444,6 +450,7 @@ pub struct QuicServerConfig {
 }
 
 impl QuicServerConfig {
+    #[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
     pub(crate) fn new(
         cert_chain: Vec<CertificateDer<'static>>,
         key: PrivateKeyDer<'static>,
@@ -475,6 +482,7 @@ impl QuicServerConfig {
     /// QUIC requires that TLS 1.3 be enabled, and that the maximum early data size is either 0 or
     /// `u32::MAX`. Advanced users can use any [`rustls::ServerConfig`] that satisfies these
     /// requirements.
+    #[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
     pub(crate) fn inner(
         cert_chain: Vec<CertificateDer<'static>>,
         key: PrivateKeyDer<'static>,
@@ -577,12 +585,14 @@ pub(crate) fn initial_suite_from_provider(
         .flatten()
 }
 
+#[cfg(feature = "aws-lc-rs")]
 pub(crate) fn configured_provider() -> Arc<rustls::crypto::CryptoProvider> {
-    #[cfg(all(feature = "rustls-aws-lc-rs", not(feature = "rustls-ring")))]
-    let provider = rustls::crypto::aws_lc_rs::default_provider();
-    #[cfg(feature = "rustls-ring")]
-    let provider = rustls::crypto::ring::default_provider();
-    Arc::new(provider)
+    Arc::new(rustls::crypto::aws_lc_rs::default_provider())
+}
+
+#[cfg(feature = "ring")]
+pub(crate) fn configured_provider() -> Arc<rustls::crypto::CryptoProvider> {
+    Arc::new(rustls::crypto::ring::default_provider())
 }
 
 fn to_vec(params: &TransportParameters) -> Vec<u8> {

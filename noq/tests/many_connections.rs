@@ -1,4 +1,4 @@
-#![cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#![cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
 use std::{
     convert::TryInto,
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -7,7 +7,7 @@ use std::{
 };
 
 use crc::Crc;
-use noq::{ConnectionError, ReadError, StoppedError, TransportConfig, WriteError};
+use noq::{self as quinn, ConnectionError, ReadError, StoppedError, TransportConfig, WriteError};
 use rand::{self, RngCore};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use tokio::runtime::Builder;

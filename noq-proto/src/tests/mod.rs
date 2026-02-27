@@ -13,10 +13,6 @@ use hex_literal::hex;
 use rand::RngCore;
 #[cfg(feature = "ring")]
 use ring::hmac;
-#[cfg(all(feature = "rustls-aws-lc-rs", not(feature = "rustls-ring")))]
-use rustls::crypto::aws_lc_rs::default_provider;
-#[cfg(feature = "rustls-ring")]
-use rustls::crypto::ring::default_provider;
 use rustls::{
     AlertDescription, RootCertStore,
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
@@ -29,7 +25,7 @@ use crate::{
     Duration, FourTuple, Instant,
     Side::*,
     cid_generator::{ConnectionIdGenerator, RandomConnectionIdGenerator},
-    crypto::rustls::QuicServerConfig,
+    crypto::rustls::{QuicServerConfig, configured_provider},
     frame::FrameStruct,
     transport_parameters::TransportParameters,
 };
@@ -459,7 +455,7 @@ fn reject_missing_client_cert() {
     let key = PrivatePkcs8KeyDer::from(CERTIFIED_KEY.signing_key.serialize_der());
     let cert = CERTIFIED_KEY.cert.der().clone();
 
-    let provider = Arc::new(default_provider());
+    let provider = configured_provider();
     let config = rustls::ServerConfig::builder_with_provider(provider.clone())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .unwrap()
