@@ -920,7 +920,7 @@ impl Connection {
 
         // To open a path locally we need to send a packet on the path. Sending a challenge
         // guarantees this.
-        data.tx_queue_on_path_challenge = true;
+        data.pending_on_path_challenge = true;
 
         let path = vacant_entry.insert(PathState { data, prev: None });
 
@@ -1837,10 +1837,10 @@ impl Connection {
         let (prev_cid, prev_path) = self.paths.get_mut(&path_id)?.prev.as_mut()?;
         // TODO (matheus23): We could use !prev_path.is_validating() here instead to
         // (possibly) also re-send challenges when they get lost.
-        if !prev_path.tx_queue_on_path_challenge {
+        if !prev_path.pending_on_path_challenge {
             return None;
         };
-        prev_path.tx_queue_on_path_challenge = false;
+        prev_path.pending_on_path_challenge = false;
         let token = self.rng.random();
         let network_path = prev_path.network_path;
         prev_path.record_path_challenge_sent(now, token, network_path);
@@ -2288,7 +2288,7 @@ impl Connection {
                                 continue;
                             };
                             trace!("path challenge deemed lost");
-                            path.data.tx_queue_on_path_challenge = true;
+                            path.data.pending_on_path_challenge = true;
                         }
                         PathTimer::PathOpen => {
                             let Some(path) = self.paths.get_mut(&path_id) else {
@@ -5238,7 +5238,7 @@ impl Connection {
                 addr: updated,
             }));
         }
-        new_path_data.tx_queue_on_path_challenge = true;
+        new_path_data.pending_on_path_challenge = true;
 
         let mut prev_path_data = mem::replace(&mut path.data, new_path_data);
 
@@ -5253,7 +5253,7 @@ impl Connection {
         if !prev_path_data.validated
             && let Some(cid) = self.remote_cids.get(&path_id).map(CidQueue::active)
         {
-            prev_path_data.tx_queue_on_path_challenge = true;
+            prev_path_data.pending_on_path_challenge = true;
             // We haven't updated the remote CID yet, this captures the remote CID we were using on
             // the previous path.
             path.prev = Some((cid, prev_path_data));
@@ -5644,11 +5644,11 @@ impl Connection {
         // PATH_CHALLENGE
         if builder.frame_space_remaining() > frame::PathChallenge::SIZE_BOUND
             && space_id == SpaceId::Data
-            && path.tx_queue_on_path_challenge
+            && path.pending_on_path_challenge
             && !self.state.is_closed()
         // we don't want to send new challenges if we are already closing
         {
-            path.tx_queue_on_path_challenge = false;
+            path.pending_on_path_challenge = false;
 
             let token = self.rng.random();
             path.record_path_challenge_sent(now, token, path.network_path);
@@ -5672,7 +5672,7 @@ impl Connection {
                 self.qlog.with_time(now),
             );
 
-            if is_multipath_negotiated && !path.validated && path.tx_queue_on_path_challenge {
+            if is_multipath_negotiated && !path.validated && path.pending_on_path_challenge {
                 // queue informing the path status along with the challenge
                 space.pending.path_status.insert(path_id);
             }
@@ -6365,7 +6365,7 @@ impl Connection {
     #[cfg(test)]
     pub(crate) fn trigger_path_validation(&mut self) {
         for path in self.paths.values_mut() {
-            path.data.tx_queue_on_path_challenge = true;
+            path.data.pending_on_path_challenge = true;
         }
     }
 
@@ -6395,11 +6395,11 @@ impl Connection {
     /// may need to be sent.
     fn can_send_1rtt(&self, path_id: PathId, max_size: usize) -> SendableFrames {
         let path_exclusive = self.paths.get(&path_id).is_some_and(|path| {
-            path.data.tx_queue_on_path_challenge
+            path.data.pending_on_path_challenge
                 || path
                     .prev
                     .as_ref()
-                    .is_some_and(|(_, path)| path.tx_queue_on_path_challenge)
+                    .is_some_and(|(_, path)| path.pending_on_path_challenge)
                 || !path.data.path_responses.is_empty()
         });
         let other = self.streams.can_send_stream_data()
