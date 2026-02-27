@@ -36,7 +36,7 @@ jobs:
       matrix:
         include:
           - impl: noq
-            artifact: noq-perf-noq
+            artifact: noq-perf
           - impl: upstream-quinn
             artifact: quinn-perf-upstream
     steps:
@@ -84,7 +84,7 @@ jobs:
         impl: [noq, upstream-quinn]
         include:
           - impl: noq
-            artifact: noq-perf-noq
+            artifact: noq-perf
           - impl: upstream-quinn
             artifact: quinn-perf-upstream
     steps:
@@ -118,7 +118,7 @@ jobs:
         impl: [noq, upstream-quinn]
         include:
           - impl: noq
-            artifact: noq-perf-noq
+            artifact: noq-perf
           - impl: upstream-quinn
             artifact: quinn-perf-upstream
     steps:
