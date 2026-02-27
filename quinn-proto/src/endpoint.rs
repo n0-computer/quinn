@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use rand::{Rng, RngCore, SeedableRng, rngs::StdRng};
 use rustc_hash::FxHashMap;
 use slab::Slab;
@@ -18,7 +18,7 @@ use crate::{
     Duration, FourTuple, INITIAL_MTU, Instant, MAX_CID_SIZE, MIN_INITIAL_SIZE, PathId,
     RESET_TOKEN_SIZE, ResetToken, Side, Transmit, TransportConfig, TransportError,
     cid_generator::ConnectionIdGenerator,
-    coding::{BufMutExt, Encodable},
+    coding::{BufMutExt, Decodable, Encodable, UnexpectedEnd},
     config::{ClientConfig, EndpointConfig, ServerConfig},
     connection::{Connection, ConnectionError, SideArgs},
     crypto::{self, Keys, UnsupportedVersion},
@@ -1264,6 +1264,203 @@ impl Incoming {
     pub fn orig_dst_cid(&self) -> ConnectionId {
         self.token.orig_dst_cid
     }
+
+    /// Decrypt the Initial packet payload
+    ///
+    /// This clones and decrypts the packet payload (~1200 bytes).
+    pub fn decrypt(&self) -> Option<DecryptedInitial> {
+        let packet_number = self.packet.header.number.expand(0);
+        let mut payload = self.packet.payload.clone();
+        self.crypto
+            .packet
+            .remote
+            .decrypt(
+                PathId::ZERO,
+                packet_number,
+                &self.packet.header_data,
+                &mut payload,
+            )
+            .ok()?;
+        Some(DecryptedInitial(payload.freeze()))
+    }
+}
+
+/// Decrypted payload of a QUIC Initial packet
+///
+/// Obtained via [`Incoming::decrypt`]. Can be used to extract information from
+/// the TLS ClientHello without completing the handshake.
+pub struct DecryptedInitial(Bytes);
+
+impl DecryptedInitial {
+    /// Best-effort extraction of the ALPN protocols from the TLS ClientHello
+    ///
+    /// Parses the CRYPTO frames to extract the ALPN extension. This is intended
+    /// for routing and filtering; it is not guaranteed to succeed if the
+    /// ClientHello spans multiple packets. Returns `None` if parsing fails.
+    pub fn alpns(&self) -> Option<IncomingAlpns> {
+        let frames = frame::Iter::new(self.0.clone()).ok()?;
+        let mut first = None;
+        let mut rest = Vec::new();
+        for frame in frames {
+            match frame {
+                Ok(frame::Frame::Crypto(crypto)) => match first {
+                    None => first = Some(crypto),
+                    Some(_) => rest.push(crypto),
+                },
+                Err(_) => return None,
+                _ => {}
+            }
+        }
+        let first = first?;
+
+        // Fast path: single CRYPTO frame at offset 0 (no extra allocation)
+        if rest.is_empty() && first.offset == 0 {
+            let data = find_alpn_data(&first.data).ok()?;
+            return Some(IncomingAlpns { data, pos: 0 });
+        }
+
+        // Slow path: reassemble multiple CRYPTO frames
+        rest.push(first);
+        let source = assemble_crypto_frames(&mut rest)?;
+        let data = find_alpn_data(&source).ok()?;
+        Some(IncomingAlpns { data, pos: 0 })
+    }
+}
+
+/// TLS handshake type for ClientHello messages
+/// <https://www.rfc-editor.org/rfc/rfc8446#section-4.1.2>
+const TLS_HANDSHAKE_TYPE_CLIENT_HELLO: u8 = 0x01;
+/// TLS extension type for Application-Layer Protocol Negotiation
+/// <https://www.rfc-editor.org/rfc/rfc7301#section-3.1>
+const TLS_EXTENSION_TYPE_ALPN: u16 = 0x0010;
+/// Size of the fixed-length fields in a ClientHello (client_version + random)
+/// <https://www.rfc-editor.org/rfc/rfc8446#section-4.1.2>
+const TLS_CLIENT_HELLO_FIXED_LEN: usize = 2 + 32;
+
+/// Iterator over ALPN protocol names from a TLS ClientHello
+///
+/// Yields protocol names as [`Bytes`] slices. On the common fast path (single
+/// CRYPTO frame), the only allocation is the payload clone for decryption.
+pub struct IncomingAlpns {
+    data: Bytes,
+    pos: usize,
+}
+
+impl Iterator for IncomingAlpns {
+    type Item = Result<Bytes, UnexpectedEnd>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos >= self.data.len() {
+            return None;
+        }
+        let len = self.data[self.pos] as usize;
+        self.pos += 1;
+        if self.pos + len > self.data.len() {
+            return Some(Err(UnexpectedEnd));
+        }
+        let proto = self.data.slice(self.pos..self.pos + len);
+        self.pos += len;
+        Some(Ok(proto))
+    }
+}
+
+/// Sort CRYPTO frames by offset and concatenate into a contiguous `Bytes`
+///
+/// Returns `None` if there are gaps in the stream.
+fn assemble_crypto_frames(frames: &mut [frame::Crypto]) -> Option<Bytes> {
+    frames.sort_by_key(|f| f.offset);
+    let capacity = frames.iter().map(|f| f.data.len()).sum();
+    let mut buf = Vec::with_capacity(capacity);
+    for f in frames.iter() {
+        let start = f.offset as usize;
+        if start > buf.len() {
+            return None;
+        }
+        let end = start + f.data.len();
+        if end > buf.len() {
+            buf.extend_from_slice(&f.data[buf.len() - start..]);
+        }
+    }
+    Some(Bytes::from(buf))
+}
+
+/// Locate the raw ALPN protocol list data within a TLS ClientHello message
+///
+/// Parses the ClientHello in `source` and returns a [`Bytes`] containing the
+/// u8-length-prefixed protocol names (after the outer ProtocolNameList u16
+/// length prefix). The returned `Bytes` is a zero-copy slice of `source`.
+fn find_alpn_data(source: &Bytes) -> Result<Bytes, UnexpectedEnd> {
+    let mut r = &**source;
+
+    if u8::decode(&mut r)? != TLS_HANDSHAKE_TYPE_CLIENT_HELLO {
+        return Err(UnexpectedEnd);
+    }
+
+    // Handshake message length (u24), scopes the remainder
+    let len = decode_u24(&mut r)?;
+    let mut body = take(&mut r, len)?;
+
+    // Client version + random
+    skip(&mut body, TLS_CLIENT_HELLO_FIXED_LEN)?;
+
+    // Session ID, cipher suites, compression methods
+    skip_u8_prefixed(&mut body)?;
+    skip_u16_prefixed(&mut body)?;
+    skip_u8_prefixed(&mut body)?;
+
+    // Extensions
+    let mut exts = take_u16_prefixed(&mut body)?;
+    while exts.has_remaining() {
+        let ext_type = u16::decode(&mut exts)?;
+        let ext_data = take_u16_prefixed(&mut exts)?;
+        if ext_type == TLS_EXTENSION_TYPE_ALPN {
+            let list = take_u16_prefixed(&mut &*ext_data)?;
+            return Ok(source.slice_ref(list));
+        }
+    }
+    Err(UnexpectedEnd)
+}
+
+/// Decode a big-endian u24 as usize
+fn decode_u24(r: &mut &[u8]) -> Result<usize, UnexpectedEnd> {
+    let a = u8::decode(r)?;
+    let b = u8::decode(r)?;
+    let c = u8::decode(r)?;
+    Ok(u32::from_be_bytes([0, a, b, c]) as usize)
+}
+
+/// Take `len` bytes from the front and return them as a sub-slice
+fn take<'a>(r: &mut &'a [u8], len: usize) -> Result<&'a [u8], UnexpectedEnd> {
+    if r.remaining() < len {
+        return Err(UnexpectedEnd);
+    }
+    let data = &r[..len];
+    r.advance(len);
+    Ok(data)
+}
+
+/// Read a u16 length prefix and return the sub-slice it covers
+fn take_u16_prefixed<'a>(r: &mut &'a [u8]) -> Result<&'a [u8], UnexpectedEnd> {
+    let len = u16::decode(r)? as usize;
+    take(r, len)
+}
+
+/// Advance past `n` bytes
+fn skip(r: &mut &[u8], len: usize) -> Result<(), UnexpectedEnd> {
+    take(r, len)?;
+    Ok(())
+}
+
+/// Skip a u8-length-prefixed field
+fn skip_u8_prefixed(r: &mut &[u8]) -> Result<(), UnexpectedEnd> {
+    let len = u8::decode(r)? as usize;
+    skip(r, len)
+}
+
+/// Skip a u16-length-prefixed field
+fn skip_u16_prefixed(r: &mut &[u8]) -> Result<(), UnexpectedEnd> {
+    let len = u16::decode(r)? as usize;
+    skip(r, len)
 }
 
 struct IncomingImproperDropWarner;
@@ -1369,5 +1566,67 @@ impl ResetTokenTable {
     fn get(&self, remote: SocketAddr, token: &[u8]) -> Option<&ConnectionHandle> {
         let token = ResetToken::from(<[u8; RESET_TOKEN_SIZE]>::try_from(token).ok()?);
         self.0.get(&remote)?.get(&token)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assemble_contiguous() {
+        let data = b"hello world";
+        let mut frames = vec![
+            frame::Crypto {
+                offset: 0,
+                data: Bytes::from_static(&data[..5]),
+            },
+            frame::Crypto {
+                offset: 5,
+                data: Bytes::from_static(&data[5..]),
+            },
+        ];
+        assert_eq!(&assemble_crypto_frames(&mut frames).unwrap()[..], &data[..]);
+    }
+
+    #[test]
+    fn assemble_out_of_order() {
+        let data = b"hello world";
+        let mut frames = vec![
+            frame::Crypto {
+                offset: 5,
+                data: Bytes::from_static(&data[5..]),
+            },
+            frame::Crypto {
+                offset: 0,
+                data: Bytes::from_static(&data[..5]),
+            },
+        ];
+        assert_eq!(&assemble_crypto_frames(&mut frames).unwrap()[..], &data[..]);
+    }
+
+    #[test]
+    fn assemble_with_overlap() {
+        let data = b"hello world";
+        let mut frames = vec![
+            frame::Crypto {
+                offset: 0,
+                data: Bytes::from_static(&data[..7]),
+            },
+            frame::Crypto {
+                offset: 5,
+                data: Bytes::from_static(&data[5..]),
+            },
+        ];
+        assert_eq!(&assemble_crypto_frames(&mut frames).unwrap()[..], &data[..]);
+    }
+
+    #[test]
+    fn assemble_with_gap() {
+        let mut frames = vec![frame::Crypto {
+            offset: 10,
+            data: Bytes::from_static(b"world"),
+        }];
+        assert!(assemble_crypto_frames(&mut frames).is_none());
     }
 }
