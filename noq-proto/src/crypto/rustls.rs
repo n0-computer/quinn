@@ -1,19 +1,17 @@
 use std::{any::Any, io, str, sync::Arc};
 
-#[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
-use aws_lc_rs::aead;
+use aes_gcm::{KeyInit, aead::AeadMutInPlace};
 use bytes::BytesMut;
-#[cfg(feature = "ring")]
-use ring::aead;
 pub use rustls::Error;
 #[cfg(feature = "__rustls-post-quantum-test")]
 use rustls::NamedGroup;
 use rustls::{
     self, CipherSuite,
-    client::danger::ServerCertVerifier,
-    pki_types::{CertificateDer, PrivateKeyDer, ServerName},
+    pki_types::{CertificateDer, ServerName},
     quic::{Connection, HeaderProtectionKey, KeyChange, PacketKey, Secrets, Suite, Version},
 };
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
+use rustls::{client::danger::ServerCertVerifier, pki_types::PrivateKeyDer};
 #[cfg(feature = "platform-verifier")]
 use rustls_platform_verifier::BuilderVerifierExt;
 
@@ -173,30 +171,33 @@ impl crypto::Session for TlsSession {
     }
 
     fn is_valid_retry(&self, orig_dst_cid: ConnectionId, header: &[u8], payload: &[u8]) -> bool {
-        let tag_start = match payload.len().checked_sub(16) {
-            Some(x) => x,
-            None => return false,
-        };
+        if payload.len() < 16 {
+            return false;
+        }
 
         let mut pseudo_packet =
             Vec::with_capacity(header.len() + payload.len() + orig_dst_cid.len() + 1);
         pseudo_packet.push(orig_dst_cid.len() as u8);
         pseudo_packet.extend_from_slice(&orig_dst_cid);
         pseudo_packet.extend_from_slice(header);
-        let tag_start = tag_start + pseudo_packet.len();
         pseudo_packet.extend_from_slice(payload);
 
         let (nonce, key) = match self.version {
-            Version::V1 => (RETRY_INTEGRITY_NONCE_V1, RETRY_INTEGRITY_KEY_V1),
-            Version::V1Draft => (RETRY_INTEGRITY_NONCE_DRAFT, RETRY_INTEGRITY_KEY_DRAFT),
+            Version::V1 => (&RETRY_INTEGRITY_NONCE_V1, &RETRY_INTEGRITY_KEY_V1),
+            Version::V1Draft => (&RETRY_INTEGRITY_NONCE_DRAFT, &RETRY_INTEGRITY_KEY_DRAFT),
             _ => unreachable!(),
         };
 
-        let nonce = aead::Nonce::assume_unique_for_key(nonce);
-        let key = aead::LessSafeKey::new(aead::UnboundKey::new(&aead::AES_128_GCM, &key).unwrap());
+        let Some((aad, tag)) = pseudo_packet.split_last_chunk::<16>() else {
+            return false; // But length is actually already checked above.
+        };
 
-        let (aad, tag) = pseudo_packet.split_at_mut(tag_start);
-        key.open_in_place(nonce, aead::Aad::from(aad), tag).is_ok()
+        let key = aes_gcm::Key::<aes_gcm::Aes128Gcm>::from_slice(key);
+        let nonce = aes_gcm::Nonce::from_slice(nonce);
+        let tag = aes_gcm::Tag::from_slice(tag);
+        aes_gcm::Aes128Gcm::new(key)
+            .decrypt_in_place_detached(nonce, aad, &mut [], tag)
+            .is_ok()
     }
 
     fn export_keying_material(
@@ -295,7 +296,10 @@ pub struct QuicClientConfig {
 }
 
 impl QuicClientConfig {
-    #[cfg(feature = "platform-verifier")]
+    #[cfg(all(
+        feature = "platform-verifier",
+        any(feature = "aws-lc-rs", feature = "ring")
+    ))]
     pub(crate) fn with_platform_verifier() -> Result<Self, Error> {
         // Keep in sync with `inner()` below
         let mut inner = rustls::ClientConfig::builder_with_provider(configured_provider())
@@ -317,6 +321,7 @@ impl QuicClientConfig {
     ///
     /// QUIC requires that TLS 1.3 be enabled. Advanced users can use any [`rustls::ClientConfig`] that
     /// satisfies this requirement.
+    #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
     pub(crate) fn new(verifier: Arc<dyn ServerCertVerifier>) -> Self {
         let inner = Self::inner(verifier);
         Self {
@@ -340,6 +345,7 @@ impl QuicClientConfig {
         }
     }
 
+    #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
     pub(crate) fn inner(verifier: Arc<dyn ServerCertVerifier>) -> rustls::ClientConfig {
         // Keep in sync with `with_platform_verifier()` above
         let mut config = rustls::ClientConfig::builder_with_provider(configured_provider())
@@ -444,6 +450,7 @@ pub struct QuicServerConfig {
 }
 
 impl QuicServerConfig {
+    #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
     pub(crate) fn new(
         cert_chain: Vec<CertificateDer<'static>>,
         key: PrivateKeyDer<'static>,
@@ -475,6 +482,7 @@ impl QuicServerConfig {
     /// QUIC requires that TLS 1.3 be enabled, and that the maximum early data size is either 0 or
     /// `u32::MAX`. Advanced users can use any [`rustls::ServerConfig`] that satisfies these
     /// requirements.
+    #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
     pub(crate) fn inner(
         cert_chain: Vec<CertificateDer<'static>>,
         key: PrivateKeyDer<'static>,
@@ -543,8 +551,8 @@ impl crypto::ServerConfig for QuicServerConfig {
         // Safe: `start_session()` is never called if `initial_keys()` rejected `version`
         let version = interpret_version(version).unwrap();
         let (nonce, key) = match version {
-            Version::V1 => (RETRY_INTEGRITY_NONCE_V1, RETRY_INTEGRITY_KEY_V1),
-            Version::V1Draft => (RETRY_INTEGRITY_NONCE_DRAFT, RETRY_INTEGRITY_KEY_DRAFT),
+            Version::V1 => (&RETRY_INTEGRITY_NONCE_V1, &RETRY_INTEGRITY_KEY_V1),
+            Version::V1Draft => (&RETRY_INTEGRITY_NONCE_DRAFT, &RETRY_INTEGRITY_KEY_DRAFT),
             _ => unreachable!(),
         };
 
@@ -553,15 +561,12 @@ impl crypto::ServerConfig for QuicServerConfig {
         pseudo_packet.extend_from_slice(&orig_dst_cid);
         pseudo_packet.extend_from_slice(packet);
 
-        let nonce = aead::Nonce::assume_unique_for_key(nonce);
-        let key = aead::LessSafeKey::new(aead::UnboundKey::new(&aead::AES_128_GCM, &key).unwrap());
-
-        let tag = key
-            .seal_in_place_separate_tag(nonce, aead::Aad::from(pseudo_packet), &mut [])
+        let nonce = aes_gcm::Nonce::from_slice(nonce);
+        let key = aes_gcm::Key::<aes_gcm::Aes128Gcm>::from_slice(key);
+        let tag = aes_gcm::Aes128Gcm::new(key)
+            .encrypt_in_place_detached(nonce, &pseudo_packet, &mut [])
             .unwrap();
-        let mut result = [0; 16];
-        result.copy_from_slice(tag.as_ref());
-        result
+        tag.into()
     }
 }
 
@@ -580,12 +585,14 @@ pub(crate) fn initial_suite_from_provider(
         .flatten()
 }
 
+#[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
 pub(crate) fn configured_provider() -> Arc<rustls::crypto::CryptoProvider> {
-    #[cfg(all(feature = "rustls-aws-lc-rs", not(feature = "rustls-ring")))]
-    let provider = rustls::crypto::aws_lc_rs::default_provider();
-    #[cfg(feature = "rustls-ring")]
-    let provider = rustls::crypto::ring::default_provider();
-    Arc::new(provider)
+    Arc::new(rustls::crypto::aws_lc_rs::default_provider())
+}
+
+#[cfg(feature = "ring")]
+pub(crate) fn configured_provider() -> Arc<rustls::crypto::CryptoProvider> {
+    Arc::new(rustls::crypto::ring::default_provider())
 }
 
 fn to_vec(params: &TransportParameters) -> Vec<u8> {

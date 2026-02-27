@@ -15,26 +15,28 @@ rust-version.workspace = true
 [features]
 # NOTE: Please keep this in sync with the feature list in `.github/workflows/codecov.yml`, see
 # comment in that file for more information.
-default = ["tracing-log", "platform-verifier", "runtime-tokio", "rustls-ring", "bloom"]
-# Enables `Endpoint::client` and `Endpoint::server` conveniences
+default = ["tracing-log", "platform-verifier", "runtime-tokio", "rustls", "ring", "bloom"]
+# Enables conveniences like `EndpointConfig::default`, and together with
+# enabling the `rustls` feature, this also enables the `aws-lc-rs` crypto provider
+# for the rustls TLS backend, making `Endpoint::client` and `Endpoint::server` available,
+# except when compiling to Wasm.
+# If both `aws-lc-rs` and `ring` are enabled, `ring` will actually be used.
 aws-lc-rs = ["proto/aws-lc-rs"]
 aws-lc-rs-fips = ["proto/aws-lc-rs-fips"]
+# Enables conveniences like `EndpointConfig::default`, and together with
+# enabling the `rustls` feature, this also enables the `ring` crypto provider
+# for the rustls TLS backend, making `Endpoint::client` and `Endpoint::server` available,
+# except when compiling to Wasm.
+# If both `aws-lc-rs` and `ring` are enabled, `ring` will actually be used.
+ring = ["proto/ring"]
 # Enables BloomTokenLog, and uses it by default
 bloom = ["proto/bloom"]
 # Records how long locks are held, and warns if they are held >= 1ms
 lock_tracking = []
 # Provides `ClientConfig::with_platform_verifier()` convenience method
 platform-verifier = ["proto/platform-verifier"]
-# For backwards compatibility, `rustls` forwards to `rustls-ring`
-rustls = ["rustls-ring"]
-# Enable rustls with the `aws-lc-rs` crypto provider
-rustls-aws-lc-rs = ["dep:rustls", "aws-lc-rs", "proto/rustls-aws-lc-rs", "proto/aws-lc-rs"]
-rustls-aws-lc-rs-fips = ["dep:rustls", "aws-lc-rs-fips", "proto/rustls-aws-lc-rs-fips", "proto/aws-lc-rs-fips"]
-# Enable rustls with the `ring` crypto provider
-rustls-ring = ["dep:rustls", "ring", "proto/rustls-ring", "proto/ring"]
-# Enable the `ring` crypto provider.
-# Outside wasm*-unknown-unknown targets, this enables `Endpoint::client` and `Endpoint::server` conveniences.
-ring = ["proto/ring"]
+# Enables rustls as the TLS implementation backend
+rustls = ["dep:rustls", "proto/rustls"]
 runtime-tokio = ["tokio/time", "tokio/rt", "tokio/net"]
 runtime-smol = ["dep:async-io", "dep:smol"]
 
@@ -50,7 +52,7 @@ fast-apple-datapath = ["udp/fast-apple-datapath"]
 # Internal (PRIVATE!) features used to aid testing.
 # Don't rely on these whatsoever. They may disappear at any time.
 
-__rustls-post-quantum-test =  ["rustls/prefer-post-quantum", "rustls-aws-lc-rs", "proto/__rustls-post-quantum-test"]
+__rustls-post-quantum-test =  ["rustls/prefer-post-quantum", "rustls", "aws-lc-rs", "proto/__rustls-post-quantum-test"]
 
 [dependencies]
 async-io = { workspace = true, optional = true }
@@ -108,23 +110,23 @@ workspace = true
 
 [[example]]
 name = "server"
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [[example]]
 name = "client"
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [[example]]
 name = "insecure_connection"
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [[example]]
 name = "single_socket"
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [[example]]
 name = "connection"
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [[test]]
 name = "post_quantum"
@@ -133,8 +135,8 @@ required-features = ["__rustls-post-quantum-test"]
 [[bench]]
 name = "bench"
 harness = false
-required-features = ["rustls-ring"]
+required-features = ["rustls", "ring"]
 
 [package.metadata.docs.rs]
 # all non-default features except fips (cannot build on docs.rs environment)
-features = ["lock_tracking", "rustls-aws-lc-rs", "rustls-ring", "runtime-tokio", "runtime-smol", "tracing-log", "rustls-log"]
+features = ["lock_tracking", "aws-lc-rs", "rustls", "ring", "runtime-tokio", "runtime-smol", "tracing-log", "rustls-log"]
