@@ -980,6 +980,52 @@ async fn test_multipath_negotiated() {
 }
 
 #[tokio::test]
+async fn test_open_path_ensure_existing_path() {
+    let _logging = subscribe();
+    let factory = EndpointFactory::new();
+
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_concurrent_multipath_paths(1);
+    let server = factory.endpoint_with_config("server", transport_config);
+    let server_addr = server.local_addr().unwrap();
+
+    let server_task = async move {
+        let conn = server.accept().await.unwrap().await.unwrap();
+        conn.closed().await;
+    }
+    .instrument(info_span!("server"));
+
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_concurrent_multipath_paths(1);
+    let client = factory.endpoint_with_config("client", transport_config);
+
+    let client_task = async move {
+        let conn = client
+            .connect(server_addr, "localhost")
+            .unwrap()
+            .await
+            .unwrap();
+
+        // Re-ensuring the already-established path (PathId::ZERO) takes the
+        // `existed` branch in `open_path_ensure`.
+        let fut = conn.open_path_ensure(server_addr, proto::PathStatus::Available);
+        let expected_path_id = fut
+            .path_id()
+            .expect("open_path_ensure should allocate or reuse a path id");
+
+        let path = tokio::time::timeout(Duration::from_millis(200), fut)
+            .await
+            .expect("open_path_ensure(existing path) timed out")
+            .expect("open_path_ensure(existing path) failed");
+        assert_eq!(path.id(), expected_path_id);
+        assert_eq!(path.remote_address().unwrap(), server_addr);
+    }
+    .instrument(info_span!("client"));
+
+    tokio::join!(server_task, client_task);
+}
+
+#[tokio::test]
 async fn test_multipath_observed_address() {
     let _logging = subscribe();
     let factory = EndpointFactory::new();
