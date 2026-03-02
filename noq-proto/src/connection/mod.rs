@@ -1373,7 +1373,7 @@ impl Connection {
                 }
             };
             let space_will_send = will_space_send();
-            tracing::warn!(?can_send, ?space_will_send, "can_send");
+            tracing::warn!(?space_id, ?path_id, ?can_send, ?space_will_send, "can_send");
 
             if !space_will_send {
                 // Nothing more to send. Previous iterations of this loop may have built
@@ -1798,7 +1798,6 @@ impl Connection {
                 max_packet_size,
                 connection_close_pending,
             );
-            tracing::warn!(?can_send, ?space_id, "has_pending_packet");
             if !can_send.is_empty() {
                 return true;
             }
