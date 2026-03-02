@@ -29,7 +29,7 @@ mod cid_queue;
 pub mod coding;
 mod constant_time;
 mod range_set;
-#[cfg(all(test, any(feature = "rustls-aws-lc-rs", feature = "rustls-ring")))]
+#[cfg(all(test, feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
 mod tests;
 pub mod transport_parameters;
 mod varint;

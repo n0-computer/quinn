@@ -18,19 +18,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@cargo-llvm-cov
       - shell: bash
-        # Run llvm-cov _without_ the "aws-lc-rs-fips" or "rustls-aws-lc-rs-fips" features, since
-        # they have complex build requirements:
+        # Run llvm-cov _without_ the "aws-lc-rs-fips" feature, since
+        # that has complex build requirements:
         #     https://github.com/aws/aws-lc/blob/3263ce2a553e4e917217fb487f8c6f488fcb1866/BUILDING.md#build-prerequisites
         #
         # This list of features was determined using:
         #     cargo metadata --format-version 1 --no-deps \
         #       | jq -r ' .packages[].features | keys[]' \
         #       | sort -u \
-        #       | grep -vFx -e 'default' -e 'aws-lc-rs-fips' -e 'rustls-aws-lc-rs-fips' \
+        #       | grep -vFx -e 'default' -e 'aws-lc-rs-fips' \
         #       | paste -sd ',' -
         run: |
           cargo llvm-cov \
-            --features="arbitrary,aws-lc-rs,bloom,fast-apple-datapath,futures-io,json-output,lock_tracking,log,platform-verifier,qlog,ring,runtime-smol,runtime-tokio,rustls,rustls-aws-lc-rs,rustls-log,rustls-ring,serde,serde_json,tracing,tracing-log" \
+            --features="arbitrary,aws-lc-rs,bloom,fast-apple-datapath,futures-io,json-output,lock_tracking,log,platform-verifier,qlog,ring,runtime-smol,runtime-tokio,rustls,rustls-log,rustls,ring,serde,serde_json,tracing,tracing-log" \
             --workspace --lcov --output-path lcov.info
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

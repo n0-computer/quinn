@@ -70,7 +70,7 @@ pub use proto::{
 };
 #[cfg(feature = "qlog")]
 pub use proto::{QlogConfig, QlogFactory, QlogFileFactory};
-#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#[cfg(feature = "rustls")]
 pub use rustls;
 pub use udp;
 

@@ -129,7 +129,7 @@ jobs:
     env:
       RUSTFLAGS: -Dwarnings
       # skip FIPS features outside of Linux
-      SKIP_FEATURES: ${{ matrix.os != 'linux' && 'rustls-aws-lc-rs-fips,aws-lc-rs-fips,aws-lc-fips-sys,__rustls-post-quantum-test' || '' }}
+      SKIP_FEATURES: ${{ matrix.os != 'linux' && 'aws-lc-rs-fips,aws-lc-fips-sys,__rustls-post-quantum-test' || '' }}
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable

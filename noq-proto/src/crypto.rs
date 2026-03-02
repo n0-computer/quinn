@@ -17,11 +17,13 @@ use crate::{
     transport_parameters::TransportParameters,
 };
 
-/// Cryptography interface based on *ring*
+/// Cryptography interface based on ring or aws-lc-rs.
+///
+/// Prefers ring, if both are enabled.
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 pub(crate) mod ring_like;
 /// TLS interface based on rustls
-#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#[cfg(feature = "rustls")]
 pub mod rustls;
 
 /// A cryptographic session (commonly TLS)
@@ -77,6 +79,8 @@ pub trait Session: Send + Sync + 'static {
     fn next_1rtt_keys(&mut self) -> Option<KeyPair<Box<dyn PacketKey>>>;
 
     /// Verify the integrity of a retry packet
+    ///
+    /// See the specification: <https://www.rfc-editor.org/rfc/rfc9001#name-retry-packet-integrity>
     fn is_valid_retry(&self, orig_dst_cid: ConnectionId, header: &[u8], payload: &[u8]) -> bool;
 
     /// Fill `output` with `output.len()` bytes of keying material derived
@@ -139,6 +143,8 @@ pub trait ServerConfig: Send + Sync {
     /// Generate the integrity tag for a retry packet
     ///
     /// Never called if `initial_keys` rejected `version`.
+    ///
+    /// See the specification: <https://www.rfc-editor.org/rfc/rfc9001#name-retry-packet-integrity>
     fn retry_tag(&self, version: u32, orig_dst_cid: ConnectionId, packet: &[u8]) -> [u8; 16];
 
     /// Start a server session with this configuration

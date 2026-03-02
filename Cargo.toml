@@ -12,6 +12,7 @@ keywords = ["quic"]
 categories = ["network-programming", "asynchronous"]
 
 [workspace.dependencies]
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes"] }
 anyhow = "1.0.22"
 arbitrary = { version = "1.0.1", features = ["derive"] }
 async-io = "2"

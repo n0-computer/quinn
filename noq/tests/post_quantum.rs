@@ -1,4 +1,4 @@
-#![cfg(feature = "rustls-aws-lc-rs")]
+#![cfg(all(feature = "rustls", feature = "aws-lc-rs"))]
 
 use std::{
     error::Error,

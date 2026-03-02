@@ -5,9 +5,9 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
 use rustls::client::WebPkiServerVerifier;
-#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use thiserror::Error;
 
@@ -15,7 +15,7 @@ use thiserror::Error;
 use crate::BloomTokenLog;
 #[cfg(not(feature = "bloom"))]
 use crate::NoneTokenLog;
-#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
 use crate::crypto::rustls::{QuicServerConfig, configured_provider};
 use crate::{
     DEFAULT_SUPPORTED_VERSIONS, Duration, MAX_CID_SIZE, RandomConnectionIdGenerator, SystemTime,
@@ -379,7 +379,7 @@ impl ServerConfig {
     }
 }
 
-#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
 impl ServerConfig {
     /// Create a server config with the given certificate chain to be presented to clients
     ///
@@ -624,7 +624,7 @@ impl ClientConfig {
     }
 }
 
-#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#[cfg(all(feature = "rustls", any(feature = "aws-lc-rs", feature = "ring")))]
 impl ClientConfig {
     /// Create a client configuration that trusts the platform's native roots
     #[cfg(feature = "platform-verifier")]
