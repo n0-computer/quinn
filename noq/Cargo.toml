@@ -49,6 +49,10 @@ qlog = ["proto/qlog"]
 # Use private Apple APIs to send multiple packets in a single syscall.
 fast-apple-datapath = ["udp/fast-apple-datapath"]
 
+# Backwards-compatibility features
+rustls-ring = ["rustls", "ring"]
+rustls-aws-lc-rs = ["rustls", "aws-lc-rs"]
+
 # Internal (PRIVATE!) features used to aid testing.
 # Don't rely on these whatsoever. They may disappear at any time.
 

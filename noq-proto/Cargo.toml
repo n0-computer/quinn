@@ -42,6 +42,10 @@ rustls-log = ["rustls?/logging"]
 qlog = ["dep:qlog"]
 bench = ["dep:criterion"]
 
+# Backwards-compatibility features
+rustls-ring = ["rustls", "ring"]
+rustls-aws-lc-rs = ["rustls", "aws-lc-rs"]
+
 # Internal (PRIVATE!) features used to aid testing.
 # Don't rely on these whatsoever. They may disappear at any time.
 
