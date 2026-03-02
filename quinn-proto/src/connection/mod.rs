@@ -6900,20 +6900,35 @@ fn should_send_data(all: &BTreeMap<PathId, PathSchedulingInfo>, current: PathId)
     // - not abandoned
     // - status-available unless there is no such path
     let this = all.get(&current).unwrap();
-    if !this.has_cids || !this.validated || this.abandoned {
+    if !this.has_cids || this.abandoned {
         return false;
     }
-    if this.status == PathStatus::Available {
-        return true;
-    }
-    !data_space_available(all)
-}
-
-/// Whether there is any path that can send SpaceKind::Data with PathStatus::Available
-fn data_space_available(all: &BTreeMap<PathId, PathSchedulingInfo>) -> bool {
-    all.values()
-        .filter(|info| info.has_cids && info.validated && !info.abandoned)
-        .any(|info| info.status == PathStatus::Available)
+    let have_better_path = if !this.validated {
+        all.values().any(|info| {
+            let PathSchedulingInfo {
+                has_cids,
+                validated,
+                abandoned,
+                status: _,
+            } = *info;
+            has_cids && !abandoned && validated
+        })
+    } else {
+        // path is validated
+        match this.status {
+            PathStatus::Available => return true,
+            PathStatus::Backup => all.values().any(|info| {
+                let PathSchedulingInfo {
+                    has_cids,
+                    validated,
+                    abandoned,
+                    status,
+                } = *info;
+                has_cids && !abandoned && validated && status == PathStatus::Available
+            }),
+        }
+    };
+    !have_better_path
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
