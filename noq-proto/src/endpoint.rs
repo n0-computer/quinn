@@ -96,15 +96,28 @@ impl Endpoint {
         event: EndpointEvent,
     ) -> Option<ConnectionEvent> {
         use EndpointEventInner::*;
+        let stale_event = |event_name: &str| {
+            // Endpoint events can race with cleanup; stale events should be ignored.
+            debug!(
+                id = ch.0,
+                event = event_name,
+                "ignoring stale endpoint event"
+            );
+        };
         match event.0 {
             NeedIdentifiers(path_id, now, n) => {
+                if !self.connections.contains(ch.0) {
+                    stale_event("NeedIdentifiers");
+                    return None;
+                }
                 return Some(self.send_new_identifiers(path_id, now, ch, n));
             }
             ResetToken(path_id, remote, token) => {
-                if let Some(old) = self.connections[ch]
-                    .reset_token
-                    .insert(path_id, (remote, token))
-                {
+                let Some(conn) = self.connections.get_mut(ch.0) else {
+                    stale_event("ResetToken");
+                    return None;
+                };
+                if let Some(old) = conn.reset_token.insert(path_id, (remote, token)) {
                     self.index.connection_reset_tokens.remove(old.0, old.1);
                 }
                 if self.index.connection_reset_tokens.insert(remote, token, ch) {
@@ -112,12 +125,20 @@ impl Endpoint {
                 }
             }
             RetireResetToken(path_id) => {
-                if let Some(old) = self.connections[ch].reset_token.remove(&path_id) {
+                let Some(conn) = self.connections.get_mut(ch.0) else {
+                    stale_event("RetireResetToken");
+                    return None;
+                };
+                if let Some(old) = conn.reset_token.remove(&path_id) {
                     self.index.connection_reset_tokens.remove(old.0, old.1);
                 }
             }
             RetireConnectionId(now, path_id, seq, allow_more_cids) => {
-                if let Some(cid) = self.connections[ch]
+                let Some(conn) = self.connections.get_mut(ch.0) else {
+                    stale_event("RetireConnectionId");
+                    return None;
+                };
+                if let Some(cid) = conn
                     .local_cids
                     .get_mut(&path_id)
                     .and_then(|pcid| pcid.cids.remove(&seq))

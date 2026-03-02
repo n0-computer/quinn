@@ -2,6 +2,7 @@ use std::{
     convert::TryInto,
     mem,
     net::{Ipv4Addr, Ipv6Addr, SocketAddr},
+    panic::{AssertUnwindSafe, catch_unwind},
     sync::{Arc, Mutex},
 };
 
@@ -31,6 +32,7 @@ use crate::{
     cid_generator::{ConnectionIdGenerator, RandomConnectionIdGenerator},
     crypto::rustls::QuicServerConfig,
     frame::FrameStruct,
+    shared::EndpointEventInner,
     transport_parameters::TransportParameters,
 };
 mod util;
@@ -155,6 +157,56 @@ fn lifecycle() {
     assert_eq!(pair.client.known_cids(), 0);
     assert_eq!(pair.server.known_connections(), 0);
     assert_eq!(pair.server.known_cids(), 0);
+}
+
+#[test]
+fn endpoint_ignores_stale_non_drained_events_after_drained() {
+    let _guard = subscribe();
+    let remote = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 4433);
+    let mut endpoint = Endpoint::new(Default::default(), None, true);
+    let now = Instant::now();
+    let (ch, _conn) = endpoint
+        .connect(now, client_config(), remote, "localhost")
+        .unwrap();
+
+    endpoint.handle_event(ch, EndpointEvent(EndpointEventInner::Drained));
+    assert_eq!(endpoint.known_connections(), 0);
+
+    let stale_events: Vec<(&str, EndpointEvent)> = vec![
+        (
+            "NeedIdentifiers",
+            EndpointEvent(EndpointEventInner::NeedIdentifiers(PathId::ZERO, now, 1)),
+        ),
+        (
+            "ResetToken",
+            EndpointEvent(EndpointEventInner::ResetToken(
+                PathId::ZERO,
+                remote,
+                [0u8; 16].into(),
+            )),
+        ),
+        (
+            "RetireResetToken",
+            EndpointEvent(EndpointEventInner::RetireResetToken(PathId::ZERO)),
+        ),
+        (
+            "RetireConnectionId",
+            EndpointEvent(EndpointEventInner::RetireConnectionId(
+                now,
+                PathId::ZERO,
+                0,
+                false,
+            )),
+        ),
+    ];
+
+    for (name, event) in stale_events {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            endpoint.handle_event(ch, event);
+        }));
+        assert!(result.is_ok(), "stale {name} after Drained must not panic");
+        assert_eq!(endpoint.known_connections(), 0);
+    }
 }
 
 #[test]
