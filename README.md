@@ -1,8 +1,8 @@
-# n0 Quinn
+# noq
 
 > This is a fork based on [quinn](https://github.com/quinn-rs/quinn), maintained
 > by [n0](https://github.com/n0-computer). Currently published to crates.io under
-> `iroh-quinn`.
+> `noq`.
 
 ## Main differences to upstream quinn
 
@@ -13,7 +13,7 @@
   - QNT
 - Expanded support for QLOG
 
-Quinn is a pure-rust, async-compatible implementation of the IETF
+noq is a pure-rust, async-compatible implementation of the IETF
 [QUIC][quic] transport protocol.
 
 - Simultaneous client/server operation

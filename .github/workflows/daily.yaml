@@ -66,7 +66,7 @@ jobs:
             rustc --version
             echo "===== freebsd-version ====="
             freebsd-version
-            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p iroh-quinn-udp --benches
+            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p noq-udp --benches
 
   build-solaris:
     # Tests disabled - too many hang in poll() on Solaris
@@ -112,7 +112,7 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           run: |
             . "$HOME/.cargo/env"
-            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p iroh-quinn-udp --benches
+            cargo build --locked --all-targets && cargo test --locked && cargo test --locked -- --ignored stress && cargo test --locked -p noq-udp --benches
 
   features:
     name: Feature powerset check
@@ -129,7 +129,7 @@ jobs:
     env:
       RUSTFLAGS: -Dwarnings
       # skip FIPS features outside of Linux
-      SKIP_FEATURES: ${{ matrix.os != 'linux' && 'rustls-aws-lc-rs-fips,aws-lc-rs-fips,aws-lc-fips-sys,__rustls-post-quantum-test' || '' }}
+      SKIP_FEATURES: ${{ matrix.os != 'linux' && 'aws-lc-rs-fips,aws-lc-fips-sys,__rustls-post-quantum-test' || '' }}
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
