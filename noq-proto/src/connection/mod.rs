@@ -1372,7 +1372,8 @@ impl Connection {
                     }
                 }
             };
-            let space_will_send = will_space_send();
+            let needs_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
+            let space_will_send = will_space_send() || needs_loss_probe;
             tracing::warn!(?space_id, ?path_id, ?can_send, ?space_will_send, "can_send");
 
             if !space_will_send {
@@ -1445,6 +1446,7 @@ impl Connection {
                         // We need something to send for a tail-loss probe.
                         let request_immediate_ack =
                             space_id == SpaceId::Data && self.peer_supports_ack_frequency();
+                        // TODO(flub): this is really scheduling logic hiding here.
                         self.spaces[space_id].maybe_queue_probe(
                             path_id,
                             request_immediate_ack,
