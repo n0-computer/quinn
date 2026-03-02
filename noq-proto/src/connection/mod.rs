@@ -1308,6 +1308,9 @@ impl Connection {
                 self.space_can_send(space_id, path_id, max_packet_size, connection_close_pending);
 
             let will_space_send = || {
+                if can_send.is_empty() {
+                    return false;
+                }
                 let this_path = scheduling_info.get(&path_id).unwrap();
                 if !this_path.has_cids {
                     // Without CIDs we can not send anything.
