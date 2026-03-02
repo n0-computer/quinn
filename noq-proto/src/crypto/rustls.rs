@@ -192,6 +192,7 @@ impl crypto::Session for TlsSession {
             return false; // But length is actually already checked above.
         };
 
+        // This implements https://www.rfc-editor.org/rfc/rfc9001#name-retry-packet-integrity
         let key = aes_gcm::Key::<aes_gcm::Aes128Gcm>::from_slice(key);
         let nonce = aes_gcm::Nonce::from_slice(nonce);
         let tag = aes_gcm::Tag::from_slice(tag);
