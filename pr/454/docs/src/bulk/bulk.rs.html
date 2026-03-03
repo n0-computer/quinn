@@ -65,7 +65,7 @@
 <a href=#65 id=65 data-nosnippet>65</a>    server_thread.join().expect(<span class="string">"server thread"</span>);
 <a href=#66 id=66 data-nosnippet>66</a>}
 <a href=#67 id=67 data-nosnippet>67</a>
-<a href=#68 id=68 data-nosnippet>68</a><span class="kw">async fn </span>server(endpoint: quinn::Endpoint, opt: Opt) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
+<a href=#68 id=68 data-nosnippet>68</a><span class="kw">async fn </span>server(endpoint: noq::Endpoint, opt: Opt) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
 <a href=#69 id=69 data-nosnippet>69</a>    <span class="kw">let </span><span class="kw-2">mut </span>server_tasks = Vec::new();
 <a href=#70 id=70 data-nosnippet>70</a>
 <a href=#71 id=71 data-nosnippet>71</a>    <span class="comment">// Handle only the expected amount of clients
@@ -76,7 +76,7 @@
 <a href=#76 id=76 data-nosnippet>76</a>        server_tasks.push(tokio::spawn(<span class="kw">async move </span>{
 <a href=#77 id=77 data-nosnippet>77</a>            <span class="kw">loop </span>{
 <a href=#78 id=78 data-nosnippet>78</a>                <span class="kw">let </span>(<span class="kw-2">mut </span>send_stream, recv_stream) = <span class="kw">match </span>connection.accept_bi().<span class="kw">await </span>{
-<a href=#79 id=79 data-nosnippet>79</a>                    <span class="prelude-val">Err</span>(quinn::ConnectionError::ApplicationClosed(<span class="kw">_</span>)) =&gt; <span class="kw">break</span>,
+<a href=#79 id=79 data-nosnippet>79</a>                    <span class="prelude-val">Err</span>(noq::ConnectionError::ApplicationClosed(<span class="kw">_</span>)) =&gt; <span class="kw">break</span>,
 <a href=#80 id=80 data-nosnippet>80</a>                    <span class="prelude-val">Err</span>(e) =&gt; {
 <a href=#81 id=81 data-nosnippet>81</a>                        <span class="macro">eprintln!</span>(<span class="string">"accepting stream failed: {e:?}"</span>);
 <a href=#82 id=82 data-nosnippet>82</a>                        <span class="kw">break</span>;
@@ -175,7 +175,7 @@
 <a href=#175 id=175 data-nosnippet>175</a>}
 <a href=#176 id=176 data-nosnippet>176</a>
 <a href=#177 id=177 data-nosnippet>177</a><span class="kw">async fn </span>handle_client_stream(
-<a href=#178 id=178 data-nosnippet>178</a>    connection: Arc&lt;quinn::Connection&gt;,
+<a href=#178 id=178 data-nosnippet>178</a>    connection: Arc&lt;noq::Connection&gt;,
 <a href=#179 id=179 data-nosnippet>179</a>    upload_size: u64,
 <a href=#180 id=180 data-nosnippet>180</a>    read_unordered: bool,
 <a href=#181 id=181 data-nosnippet>181</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(TransferResult, TransferResult)&gt; {
