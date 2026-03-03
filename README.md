@@ -52,7 +52,7 @@ standards:
   - [RFC 9287 - Greasing the QUIC Bit].
   - [RFC 9368 - Compatible Version Negotiation for QUIC].
 - Draft extensions:
-  - [log: Structured Logging for Network Protocols].
+  - [qlog: Structured Logging for Network Protocols].
   - [QUIC Multipath].
     - With experimental qlog support.
   - [QUIC Address Discovery] (QAD).
