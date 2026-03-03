@@ -98,6 +98,14 @@ impl Incoming {
     pub fn orig_dst_cid(&self) -> ConnectionId {
         self.0.as_ref().unwrap().inner.orig_dst_cid()
     }
+
+    /// Decrypt the Initial packet payload
+    ///
+    /// This clones and decrypts the packet payload (~1200 bytes).
+    /// Can be used to extract information from the TLS ClientHello without completing the handshake.
+    pub fn decrypt(&self) -> Option<proto::DecryptedInitial> {
+        self.0.as_ref()?.inner.decrypt()
+    }
 }
 
 impl Drop for Incoming {
