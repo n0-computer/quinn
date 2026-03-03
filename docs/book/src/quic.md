@@ -18,7 +18,7 @@ Key advantages of QUIC over TCP+TLS+HTTP2 include:
 While QUIC's intentions are originally web-oriented, it offers interesting opportunities in other areas like game networking.
 One thing is for sure, QUIC has many great potentials and will serve us in the future with HTTP/3. 
 
-In the upcoming chapter we will be discussing various aspects of QUIC also in relation to Quinn. 
+In the upcoming chapter we will be discussing various aspects of QUIC also in relation to noq. 
 
 [rfc]: https://www.rfc-editor.org/rfc/rfc9000.html
 [IETF]: https://www.ietf.org/

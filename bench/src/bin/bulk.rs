@@ -65,7 +65,7 @@ fn main() {
     server_thread.join().expect("server thread");
 }
 
-async fn server(endpoint: quinn::Endpoint, opt: Opt) -> Result<()> {
+async fn server(endpoint: noq::Endpoint, opt: Opt) -> Result<()> {
     let mut server_tasks = Vec::new();
 
     // Handle only the expected amount of clients
@@ -76,7 +76,7 @@ async fn server(endpoint: quinn::Endpoint, opt: Opt) -> Result<()> {
         server_tasks.push(tokio::spawn(async move {
             loop {
                 let (mut send_stream, recv_stream) = match connection.accept_bi().await {
-                    Err(quinn::ConnectionError::ApplicationClosed(_)) => break,
+                    Err(noq::ConnectionError::ApplicationClosed(_)) => break,
                     Err(e) => {
                         eprintln!("accepting stream failed: {e:?}");
                         break;
@@ -175,7 +175,7 @@ async fn client(
 }
 
 async fn handle_client_stream(
-    connection: Arc<quinn::Connection>,
+    connection: Arc<noq::Connection>,
     upload_size: u64,
     read_unordered: bool,
 ) -> Result<(TransferResult, TransferResult)> {

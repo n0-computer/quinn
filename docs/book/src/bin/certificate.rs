@@ -1,6 +1,6 @@
 use std::{error::Error, sync::Arc};
 
-use quinn::{
+use noq::{
     ClientConfig,
     crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},
 };
@@ -17,8 +17,8 @@ use rustls::{
 fn main() {
     let (self_signed_certs, self_signed_key) = generate_self_signed_cert().unwrap();
     let (certs, key) = read_certs_from_file().unwrap();
-    let server_config = quinn::ServerConfig::with_single_cert(certs, key);
-    let client_config = quinn::ClientConfig::try_with_platform_verifier().unwrap();
+    let server_config = noq::ServerConfig::with_single_cert(certs, key);
+    let client_config = noq::ClientConfig::try_with_platform_verifier().unwrap();
 }
 
 #[allow(dead_code)] // Included in `certificate.md`

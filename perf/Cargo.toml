@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [[bin]]
-name = "quinn-perf"
+name = "noq-perf"
 path = "src/bin/perf.rs"
 
 [features]
@@ -16,7 +16,7 @@ default = ["json-output", "qlog"]
 # Allow for json output from the perf client
 json-output = ["serde", "serde_json"]
 # Enable qlog support
-qlog = ["quinn/qlog"]
+qlog = ["noq/qlog"]
 # Enable tokio-console https://github.com/tokio-rs/console
 # See https://docs.rs/console-subscriber/latest/console_subscriber/struct.Builder.html#method.with_default_env
 #    for useful environment variables in particular to change listen addr and port
@@ -30,8 +30,8 @@ bytes = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { version = "0.5.0", features = ["parking_lot"], optional = true }
 hdrhistogram = { workspace = true }
-quinn = { package = "iroh-quinn", path = "../quinn" }
-quinn-proto = { package = "iroh-quinn-proto", path = "../quinn-proto" }
+noq = { package = "noq", path = "../noq" }
+noq-proto = { package = "noq-proto", path = "../noq-proto" }
 rcgen = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true, optional = true  }
