@@ -38,19 +38,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(any(unix, windows))]
+#[cfg(all(any(unix, windows), not(force_fallback)))]
 mod cmsg;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(force_fallback)))]
 #[path = "unix.rs"]
 mod imp;
 
-#[cfg(windows)]
+#[cfg(all(windows, not(force_fallback)))]
 #[path = "windows.rs"]
 mod imp;
 
 // No ECN support
-#[cfg(not(any(wasm_browser, unix, windows)))]
+#[cfg(any(force_fallback, not(any(wasm_browser, unix, windows))))]
 #[path = "fallback.rs"]
 mod imp;
 
@@ -161,6 +161,7 @@ impl Transmit<'_> {
     /// This case is actually quite common when splitting up a prepared GSO batch
     /// again after GSO has been disabled because the last datagram in a GSO
     /// batch is allowed to be smaller than the segment size.
+    #[cfg(any(test, all(any(unix, windows), not(force_fallback))))]
     fn effective_segment_size(&self) -> Option<usize> {
         match self.segment_size? {
             size if size >= self.contents.len() => None,
