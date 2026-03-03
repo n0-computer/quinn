@@ -952,11 +952,6 @@ impl TestEndpoint {
             }
 
             for (ch, event) in endpoint_events {
-                if !event.is_drained() && self.drained_connections.contains(&ch) {
-                    // Calling self.endpoint.handle_event with a drained connection panics.
-                    // For some reason, some tests rely on the fact that the drained event is handled twice?
-                    continue;
-                }
                 if event.is_drained() {
                     self.drained_connections.insert(ch);
                 }
