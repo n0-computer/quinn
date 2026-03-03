@@ -1,5 +1,11 @@
 # noq
 
+[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square)](https://docs.rs/noq/)
+[![Crates.io](https://img.shields.io/crates/v/iroh.svg?style=flat-square)](https://crates.io/crates/noq)
+[![Chat](https://img.shields.io/discord/1161119546170687619?logo=discord&style=flat-square)](https://discord.com/invite/DpmJgtU7cW)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE-MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE-APACHE)
+
 General purpose implementation of the [QUIC transport
 protocol](https://www.rfc-editor.org/rfc/rfc9000.html) in pure
 Rust. Noq is built as an async-friendly API in the `noq` crate on top
