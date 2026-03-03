@@ -161,7 +161,6 @@ impl PacketSpace {
         SendableFrames {
             acks,
             close: false,
-            validation: false, // see Connection::can_send_1rtt
             space_id_only,
             other,
         }
@@ -863,21 +862,17 @@ impl Dedup {
 
 /// Indicates which data is available for sending.
 ///
-/// This applies to a particular space ID that was queried.
+/// This applies to a particular space ID that was queried and all refers to on-path data.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) struct SendableFrames {
     /// Whether there are ACK frames to send, these are not ack-eliciting.
     pub(super) acks: bool,
     /// Whether there is a CONNECTION_CLOSE to send, this is not ack-eliciting.
     pub(super) close: bool,
-    /// Whether there are any frames to send to validate a path, these are ack-eliciting.
-    ///
-    /// These are frames such as PATH_CHALLENGE and PATH_RESPONSE.
-    pub(super) validation: bool,
     /// Whether there are any frames that must be sent on this specific space ID.
     ///
-    /// These are ack-eliciting. Some frames are scheduled per path, e.g. PING or
-    /// IMMEDIATE_ACK.
+    /// These are ack-eliciting. Some frames are scheduled per path, e.g. PING,
+    /// IMMEDIATE_ACK, PATH_CHALLENGE or PATH_RESPONSE.
     pub(super) space_id_only: bool,
     /// Whether there are any other frames to send, these are ack-eliciting.
     pub(super) other: bool,
@@ -889,7 +884,6 @@ impl SendableFrames {
         Self {
             acks: false,
             close: false,
-            validation: false,
             space_id_only: false,
             other: false,
         }
@@ -900,7 +894,6 @@ impl SendableFrames {
         let Self {
             acks: _,
             close,
-            validation,
             space_id_only,
             other,
         } = *self;
@@ -908,7 +901,7 @@ impl SendableFrames {
             // No ack-eliciting frames are included with a CONNECTION_CLOSE, only acks.
             return false;
         }
-        validation || space_id_only || other
+        space_id_only || other
     }
 
     /// Whether no data is sendable.
@@ -916,11 +909,10 @@ impl SendableFrames {
         let Self {
             acks,
             close,
-            validation,
             space_id_only,
             other,
         } = *self;
-        !acks && !close && !validation && !space_id_only && !other
+        !acks && !close && !space_id_only && !other
     }
 }
 
@@ -929,14 +921,12 @@ impl ::std::ops::BitOrAssign for SendableFrames {
         let Self {
             acks,
             close,
-            validation,
             space_id_only,
             other,
         } = rhs;
 
         self.acks |= acks;
         self.close |= close;
-        self.validation |= validation;
         self.space_id_only |= space_id_only;
         self.other |= other;
     }

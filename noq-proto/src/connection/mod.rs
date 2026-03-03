@@ -1323,8 +1323,7 @@ impl Connection {
                     trace!(?path_id, "path abandoned");
                     return false;
                 }
-                // TODO: these two probably need to be merged?
-                if can_send.validation || can_send.space_id_only {
+                if can_send.space_id_only {
                     // If we need to send stuff to validate the path, we're definitely
                     // sending.
                     return true;
@@ -1616,7 +1615,7 @@ impl Connection {
             debug_assert!(
                 !(builder.sent_frames().is_ack_only(&self.streams)
                     && !can_send.acks
-                    && (can_send.other || can_send.validation || can_send.space_id_only)
+                    && (can_send.other || can_send.space_id_only)
                     && builder.buf.segment_size()
                         == self.path_data(path_id).current_mtu() as usize
                     && self.datagrams.outgoing.is_empty()),
@@ -6457,7 +6456,7 @@ impl Connection {
     /// See also [`PacketSpace::can_send`] which keeps track of all other frame types that
     /// may need to be sent.
     fn can_send_1rtt(&self, path_id: PathId, max_size: usize) -> SendableFrames {
-        let validation = self.paths.get(&path_id).is_some_and(|path| {
+        let space_id_only = self.paths.get(&path_id).is_some_and(|path| {
             path.data.pending_on_path_challenge || !path.data.path_responses.is_empty()
         });
 
@@ -6473,8 +6472,7 @@ impl Connection {
         SendableFrames {
             acks: false,
             close: false,
-            validation,
-            space_id_only: false,
+            space_id_only,
             other,
         }
     }
