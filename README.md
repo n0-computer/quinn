@@ -21,8 +21,8 @@ extensions:
 - 0-RTT and 0.5-RTT data support.
 - Ordered and unordered stream reads.
 - Custom and zero-length connection identifiers.
-- Pluggable crypto API using [Rustls] with the [ring] or [aws-lc-rs]
-  backends.
+- Fully pluggable crypto API with a [Rustls] implementation using
+  [ring] or [aws-lc-rs] provided by default for convenience.
 - Broad platform support, including Linux, Windows, macOS, android,
   iOS and wasm.
 
