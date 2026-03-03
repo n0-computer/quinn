@@ -45,7 +45,6 @@ standards:
   - [RFC 9221 - An Unreliable Datagram Extension to QUIC].
   - [RFC 9287 - Greasing the QUIC Bit].
   - [RFC 9368 - Compatible Version Negotiation for QUIC].
-  - [RFC 9369 - QUIC Version 2].
 - Draft extensions:
   - [log: Structured Logging for Network Protocols].
   - [QUIC Multipath].
