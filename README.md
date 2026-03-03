@@ -81,10 +81,11 @@ $ cargo run --example server ./
 $ cargo run --example client https://localhost:4433/Cargo.toml
 ```
 
-This launches an HTTP 0.9 server on the loopback address serving the
-current working directory, with the client fetching ./Cargo.toml. By
-default, the server generates a self-signed certificate and stores it
-to disk, where the client will automatically find and trust it.
+This launches an HTTP 0.9 server over the QUIC transport on the
+loopback address serving the current working directory, with the
+client fetching ./Cargo.toml. By default, the server generates a
+self-signed certificate and stores it to disk, where the client will
+automatically find and trust it.
 
 ## License
 
