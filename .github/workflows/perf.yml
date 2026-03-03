@@ -232,7 +232,7 @@ jobs:
           path: |
             comparison.md
             metro.json
-          retention-days: 30
+          retention-days: 7
 
       - name: Publish metrics to Metro
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

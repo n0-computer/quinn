@@ -147,7 +147,7 @@ jobs:
     name: Android Emulator Tests
     if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
     timeout-minutes: 45
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, X64]
     strategy:
       fail-fast: false
       matrix:
@@ -166,12 +166,15 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
-
       - name: Install cargo-ndk
-        run: cargo install --version 3.5.4 cargo-ndk
+        run: |
+          if ! cargo ndk --version 2>/dev/null | grep -q "3.5.4"; then
+            cargo install --version 3.5.4 cargo-ndk
+          fi
 
       - name: Build unit tests for Android
+        env:
+          RUSTC_WRAPPER: "sccache"
         run: cargo ndk -t ${{ matrix.target }} test --no-run
 
       - name: Enable KVM group perms
