@@ -143,9 +143,11 @@ impl PacketSpace {
 
     /// Whether there is anything to send in this space
     ///
-    /// For the data space [`Connection::can_send_1rtt`] also needs to be consulted.
+    /// For the data space [`Connection::can_send_1rtt`] also needs to be consulted. Prefer
+    /// to use [`Connection::space_can_send`] which handles this.
     ///
     /// [`Connection::can_send_1rtt`]: super::Connection::can_send_1rtt
+    /// [`Connection::space_can_send`]: super::Connection::space_can_send
     pub(super) fn can_send(&self, path_id: PathId, streams: &StreamsState) -> SendableFrames {
         let acks = self
             .number_spaces

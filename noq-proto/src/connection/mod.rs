@@ -1374,7 +1374,6 @@ impl Connection {
             };
             let needs_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
             let space_will_send = will_space_send() || needs_loss_probe;
-            tracing::warn!(?space_id, ?path_id, ?can_send, ?space_will_send, "can_send");
 
             if !space_will_send {
                 // Nothing more to send. Previous iterations of this loop may have built
