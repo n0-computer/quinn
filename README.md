@@ -39,7 +39,7 @@ standards:
 - Supports the core QUIC specifications:
   - [RFC 8999 - Version-Independent Properties of QUIC].
   - [RFC 9000 - QUIC: A UDP-Based Multiplexed and Secure Transport].
-  - [RFC 9001 - Using TL'S to Secure QUIC].
+  - [RFC 9001 - Using TLS to Secure QUIC].
   - [RFC 9002 - QUIC Loss Detection and Congestion Control].
 - The standardised QUIC extensions:
   - [RFC 9221 - An Unreliable Datagram Extension to QUIC].
