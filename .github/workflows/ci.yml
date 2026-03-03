@@ -166,6 +166,8 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
