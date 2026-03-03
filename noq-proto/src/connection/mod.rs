@@ -2329,15 +2329,14 @@ impl Connection {
                             // remaining state and install stateless reset token.
                             self.timers.stop_per_path(path_id, self.qlog.with_time(now));
                             if let Some(local_cid_state) = self.local_cid_state.remove(&path_id) {
-                                if !self.state.is_drained() {
-                                    let (min_seq, max_seq) = local_cid_state.active_seq();
-                                    for seq in min_seq..=max_seq {
-                                        self.endpoint_events.push_back(
-                                            EndpointEventInner::RetireConnectionId(
-                                                now, path_id, seq, false,
-                                            ),
-                                        );
-                                    }
+                                debug_assert!(!self.state.is_drained()); // requirement for endpoint_events. All timers should be cleared in drained connections.
+                                let (min_seq, max_seq) = local_cid_state.active_seq();
+                                for seq in min_seq..=max_seq {
+                                    self.endpoint_events.push_back(
+                                        EndpointEventInner::RetireConnectionId(
+                                            now, path_id, seq, false,
+                                        ),
+                                    );
                                 }
                             }
                             self.discard_path(path_id, now);
