@@ -1,5 +1,5 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `perf/src/stats.rs`."><title>stats.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="perf" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0-nightly (b6f0945e4 2025-10-08)" data-channel="nightly" data-search-js="search-8d3311b9.js" data-stringdex-js="stringdex-828709d0.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-263c88ec.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">perf/</div>stats.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="kw">use </span>hdrhistogram::Histogram;
-<a href=#2 id=2 data-nosnippet>2</a><span class="kw">use </span>quinn::StreamId;
+<a href=#2 id=2 data-nosnippet>2</a><span class="kw">use </span>noq::StreamId;
 <a href=#3 id=3 data-nosnippet>3</a><span class="kw">use </span>std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 <a href=#4 id=4 data-nosnippet>4</a><span class="kw">use </span>std::sync::{Arc, Mutex};
 <a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span>std::time::{Duration, Instant, SystemTime};
@@ -136,7 +136,7 @@
 <a href=#136 id=136 data-nosnippet>136</a></span><span class="kw">pub struct </span>OpenStreamStats(Arc&lt;Mutex&lt;Vec&lt;Arc&lt;StreamStats&gt;&gt;&gt;&gt;);
 <a href=#137 id=137 data-nosnippet>137</a>
 <a href=#138 id=138 data-nosnippet>138</a><span class="kw">impl </span>OpenStreamStats {
-<a href=#139 id=139 data-nosnippet>139</a>    <span class="kw">pub fn </span>new_sender(<span class="kw-2">&amp;</span><span class="self">self</span>, stream: <span class="kw-2">&amp;</span>quinn::SendStream, upload_size: u64) -&gt; Arc&lt;StreamStats&gt; {
+<a href=#139 id=139 data-nosnippet>139</a>    <span class="kw">pub fn </span>new_sender(<span class="kw-2">&amp;</span><span class="self">self</span>, stream: <span class="kw-2">&amp;</span>noq::SendStream, upload_size: u64) -&gt; Arc&lt;StreamStats&gt; {
 <a href=#140 id=140 data-nosnippet>140</a>        <span class="kw">let </span>send_stream_stats = StreamStats {
 <a href=#141 id=141 data-nosnippet>141</a>            id: stream.id(),
 <a href=#142 id=142 data-nosnippet>142</a>            request_size: upload_size,
@@ -151,7 +151,7 @@
 <a href=#151 id=151 data-nosnippet>151</a>        send_stream_stats
 <a href=#152 id=152 data-nosnippet>152</a>    }
 <a href=#153 id=153 data-nosnippet>153</a>
-<a href=#154 id=154 data-nosnippet>154</a>    <span class="kw">pub fn </span>new_receiver(<span class="kw-2">&amp;</span><span class="self">self</span>, stream: <span class="kw-2">&amp;</span>quinn::RecvStream, download_size: u64) -&gt; Arc&lt;StreamStats&gt; {
+<a href=#154 id=154 data-nosnippet>154</a>    <span class="kw">pub fn </span>new_receiver(<span class="kw-2">&amp;</span><span class="self">self</span>, stream: <span class="kw-2">&amp;</span>noq::RecvStream, download_size: u64) -&gt; Arc&lt;StreamStats&gt; {
 <a href=#155 id=155 data-nosnippet>155</a>        <span class="kw">let </span>recv_stream_stats = StreamStats {
 <a href=#156 id=156 data-nosnippet>156</a>            id: stream.id(),
 <a href=#157 id=157 data-nosnippet>157</a>            request_size: download_size,
@@ -247,7 +247,7 @@
 <a href=#247 id=247 data-nosnippet>247</a></span><span class="kw">mod </span>json {
 <a href=#248 id=248 data-nosnippet>248</a>    <span class="kw">use </span><span class="kw">crate</span>::stats;
 <a href=#249 id=249 data-nosnippet>249</a>    <span class="kw">use </span><span class="kw">crate</span>::stats::{Stats, StreamIntervalStats};
-<a href=#250 id=250 data-nosnippet>250</a>    <span class="kw">use </span>quinn::StreamId;
+<a href=#250 id=250 data-nosnippet>250</a>    <span class="kw">use </span>noq::StreamId;
 <a href=#251 id=251 data-nosnippet>251</a>    <span class="kw">use </span>serde::{<span class="self">self</span>, Serialize, Serializer, ser::SerializeStruct};
 <a href=#252 id=252 data-nosnippet>252</a>    <span class="kw">use </span>std::io::Write;
 <a href=#253 id=253 data-nosnippet>253</a>    <span class="kw">use </span>std::time::{SystemTime, UNIX_EPOCH};
