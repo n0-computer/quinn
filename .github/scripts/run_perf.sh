@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Run all quinn-perf benchmark scenarios with CPU monitoring
+# Run all noq-perf benchmark scenarios with CPU monitoring
 # Usage: run_perf.sh <binary> <output_dir>
 
 BINARY="$1"

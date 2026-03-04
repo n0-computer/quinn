@@ -23,7 +23,7 @@ env:
   RUSTFLAGS: -Dwarnings
   RUSTDOCFLAGS: -Dwarnings
   SCCACHE_CACHE_SIZE: "10G"
-  CRATES_LIST: "iroh-quinn,iroh-quinn-proto,iroh-quinn-udp"
+  CRATES_LIST: "noq,noq-proto,noq-udp"
   NEXTEST_VERSION: "0.9.80"
 
 jobs:
@@ -128,7 +128,7 @@ jobs:
         with:
           name: libtest_run_${{ github.run_number }}-${{ github.run_attempt }}-${{ matrix.name }}_${{ matrix.features }}_${{ matrix.rust }}.json
           path: output
-          retention-days: 45
+          retention-days: 7
           compression-level: 0
 
       - name: doctests

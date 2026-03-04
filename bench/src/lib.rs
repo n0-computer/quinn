@@ -10,7 +10,7 @@ use std::{
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use clap::Parser;
-use quinn::crypto::rustls::QuicClientConfig;
+use noq::crypto::rustls::QuicClientConfig;
 use rustls::{
     RootCertStore,
     pki_types::{CertificateDer, PrivateKeyDer},
@@ -35,14 +35,14 @@ pub fn server_endpoint(
     cert: CertificateDer<'static>,
     key: PrivateKeyDer<'static>,
     opt: &Opt,
-) -> (SocketAddr, quinn::Endpoint) {
+) -> (SocketAddr, noq::Endpoint) {
     let cert_chain = vec![cert];
-    let mut server_config = quinn::ServerConfig::with_single_cert(cert_chain, key).unwrap();
+    let mut server_config = noq::ServerConfig::with_single_cert(cert_chain, key).unwrap();
     server_config.transport = Arc::new(transport_config(opt));
 
     let endpoint = {
         let _guard = rt.enter();
-        quinn::Endpoint::server(
+        noq::Endpoint::server(
             server_config,
             SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0),
         )
@@ -57,9 +57,9 @@ pub async fn connect_client(
     server_addr: SocketAddr,
     server_cert: CertificateDer<'_>,
     opt: Opt,
-) -> Result<(quinn::Endpoint, quinn::Connection)> {
+) -> Result<(noq::Endpoint, noq::Connection)> {
     let endpoint =
-        quinn::Endpoint::client(SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0)).unwrap();
+        noq::Endpoint::client(SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0)).unwrap();
 
     let mut roots = RootCertStore::empty();
     roots.add(server_cert)?;
@@ -76,7 +76,7 @@ pub async fn connect_client(
         .with_root_certificates(roots)
         .with_no_client_auth();
 
-    let mut client_config = quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(crypto)?));
+    let mut client_config = noq::ClientConfig::new(Arc::new(QuicClientConfig::try_from(crypto)?));
     client_config.transport_config(Arc::new(transport_config(&opt)));
 
     let connection = endpoint
@@ -89,7 +89,7 @@ pub async fn connect_client(
     Ok((endpoint, connection))
 }
 
-pub async fn drain_stream(mut stream: quinn::RecvStream, read_unordered: bool) -> Result<usize> {
+pub async fn drain_stream(mut stream: noq::RecvStream, read_unordered: bool) -> Result<usize> {
     let mut read = 0;
 
     if read_unordered {
@@ -119,7 +119,7 @@ pub async fn drain_stream(mut stream: quinn::RecvStream, read_unordered: bool) -
     Ok(read)
 }
 
-pub async fn send_data_on_stream(stream: &mut quinn::SendStream, stream_size: u64) -> Result<()> {
+pub async fn send_data_on_stream(stream: &mut noq::SendStream, stream_size: u64) -> Result<()> {
     const DATA: &[u8] = &[0xAB; 1024 * 1024];
     let bytes_data = Bytes::from_static(DATA);
 
@@ -151,14 +151,14 @@ pub fn rt() -> Runtime {
     Builder::new_current_thread().enable_all().build().unwrap()
 }
 
-pub fn transport_config(opt: &Opt) -> quinn::TransportConfig {
+pub fn transport_config(opt: &Opt) -> noq::TransportConfig {
     // High stream windows are chosen because the amount of concurrent streams
     // is configurable as a parameter.
-    let mut config = quinn::TransportConfig::default();
+    let mut config = noq::TransportConfig::default();
     config.max_concurrent_uni_streams(opt.max_streams.try_into().unwrap());
     config.initial_mtu(opt.initial_mtu);
 
-    let mut acks = quinn::AckFrequencyConfig::default();
+    let mut acks = noq::AckFrequencyConfig::default();
     acks.ack_eliciting_threshold(10u32.into());
     config.ack_frequency_config(Some(acks));
 

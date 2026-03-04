@@ -1,5 +1,5 @@
 {
-    "name": "quinn_perf",
+    "name": "noq_perf",
     "cases": [
         {
             "name": "ideal_1_to_1",
@@ -8,7 +8,7 @@
                 {
                     "name": "srv",
                     "count": 1,
-                    "cmd": "./bins/quinn-perf server",
+                    "cmd": "./bins/noq-perf server",
                     "type": "public",
                     "wait": 3,
                     "connect": {
@@ -18,7 +18,7 @@
                 {
                     "name": "cli",
                     "count": 1,
-                    "cmd": "./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/ideal.json %s:4433",
+                    "cmd": "./bins/noq-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/ideal.json %s:4433",
                     "type": "public",
                     "connect": {
                         "strategy": "plain",
@@ -35,7 +35,7 @@
                 {
                     "name": "srv",
                     "count": 1,
-                    "cmd": "./bins/quinn-perf server",
+                    "cmd": "./bins/noq-perf server",
                     "type": "public",
                     "wait": 3,
                     "connect": {
@@ -45,7 +45,7 @@
                 {
                     "name": "cli",
                     "count": 1,
-                    "cmd": "./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/lan.json %s:4433",
+                    "cmd": "./bins/noq-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/lan.json %s:4433",
                     "type": "public",
                     "connect": {
                         "strategy": "plain",
@@ -67,7 +67,7 @@
                 {
                     "name": "srv",
                     "count": 1,
-                    "cmd": "./bins/quinn-perf server",
+                    "cmd": "./bins/noq-perf server",
                     "type": "public",
                     "wait": 3,
                     "connect": {
@@ -77,7 +77,7 @@
                 {
                     "name": "cli",
                     "count": 1,
-                    "cmd": "./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/wan.json %s:4433",
+                    "cmd": "./bins/noq-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/wan.json %s:4433",
                     "type": "public",
                     "connect": {
                         "strategy": "plain",
@@ -99,7 +99,7 @@
                 {
                     "name": "srv",
                     "count": 1,
-                    "cmd": "./bins/quinn-perf server",
+                    "cmd": "./bins/noq-perf server",
                     "type": "public",
                     "wait": 3,
                     "connect": {
@@ -109,7 +109,7 @@
                 {
                     "name": "cli",
                     "count": 1,
-                    "cmd": "./bins/quinn-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/lossy.json %s:4433",
+                    "cmd": "./bins/noq-perf client --bi-requests 1 --upload-size 100M --download-size 100M --duration 60 --json ./report/lossy.json %s:4433",
                     "type": "public",
                     "connect": {
                         "strategy": "plain",
