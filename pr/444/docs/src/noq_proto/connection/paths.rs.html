@@ -950,7 +950,7 @@
 <a href=#950 id=950 data-nosnippet>950</a>/// See section "3.3 Path Status Management":
 <a href=#951 id=951 data-nosnippet>951</a>/// &lt;https://quicwg.org/multipath/draft-ietf-quic-multipath.html#name-path-status-management&gt;
 <a href=#952 id=952 data-nosnippet>952</a></span><span class="attr">#[cfg_attr(test, derive(test_strategy::Arbitrary))]
-<a href=#953 id=953 data-nosnippet>953</a>#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+<a href=#953 id=953 data-nosnippet>953</a>#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 <a href=#954 id=954 data-nosnippet>954</a></span><span class="kw">pub enum </span>PathStatus {
 <a href=#955 id=955 data-nosnippet>955</a>    <span class="doccomment">/// Paths marked with as available will be used when scheduling packets
 <a href=#956 id=956 data-nosnippet>956</a>    ///
