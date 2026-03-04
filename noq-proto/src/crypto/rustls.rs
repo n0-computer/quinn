@@ -12,8 +12,6 @@ use rustls::{
 };
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use rustls::{client::danger::ServerCertVerifier, pki_types::PrivateKeyDer};
-#[cfg(feature = "platform-verifier")]
-use rustls_platform_verifier::BuilderVerifierExt;
 
 use crate::{
     ConnectError, ConnectionId, PathId, Side, TransportError, TransportErrorCode,
@@ -302,6 +300,8 @@ impl QuicClientConfig {
         any(feature = "aws-lc-rs", feature = "ring")
     ))]
     pub(crate) fn with_platform_verifier() -> Result<Self, Error> {
+        use rustls_platform_verifier::BuilderVerifierExt;
+
         // Keep in sync with `inner()` below
         let mut inner = rustls::ClientConfig::builder_with_provider(configured_provider())
             .with_protocol_versions(&[&rustls::version::TLS13])
