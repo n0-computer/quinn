@@ -1314,7 +1314,7 @@ impl Connection {
                 let this_path = scheduling_info.get(&path_id).unwrap();
                 if !this_path.has_cids {
                     // Without CIDs we can not send anything.
-                    trace!(?path_id, "no destination CIDs available");
+                    trace!(?path_id, "no CIDs available");
                     return false;
                 }
                 if this_path.abandoned {
@@ -1333,43 +1333,24 @@ impl Connection {
                 // path available. It does not matter if the better path was already checked
                 // in this poll_transmit call however, because we would never have made it
                 // past there. We could go out of our way to debug_assert that.
-
-                if !this_path.validated {
-                    let have_better_path = scheduling_info.values().any(|info| {
-                        // We do not want to send if there is a better path to send on.
-                        let PathSchedulingInfo {
-                            has_cids,
-                            validated,
-                            abandoned,
-                            status: _,
-                        } = *info;
-                        has_cids && !abandoned && validated
-                    });
-                    return !have_better_path;
-                } else {
-                    // This path is validated, a better path depends on the status.
-                    match this_path.status {
-                        PathStatus::Available => {
-                            // Can't get better than this.
-                            return true;
+                let have_better_path = scheduling_info.values().any(|info| {
+                    let PathSchedulingInfo {
+                        has_cids,
+                        validated,
+                        abandoned,
+                        status,
+                    } = *info;
+                    has_cids
+                        && !abandoned
+                        && if !this_path.validated {
+                            // Any validated path is better than an non-validated path.
+                            validated
+                        } else {
+                            // A status-available path is better than status-backup path.
+                            validated && status < this_path.status
                         }
-                        PathStatus::Backup => {
-                            let have_better_path = scheduling_info.values().any(|info| {
-                                let PathSchedulingInfo {
-                                    has_cids,
-                                    validated,
-                                    abandoned,
-                                    status,
-                                } = *info;
-                                has_cids
-                                    && !abandoned
-                                    && validated
-                                    && status == PathStatus::Available
-                            });
-                            return !have_better_path;
-                        }
-                    }
-                }
+                });
+                !have_better_path
             };
             let needs_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
             let space_will_send = will_space_send() || needs_loss_probe;

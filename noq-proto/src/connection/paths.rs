@@ -950,7 +950,7 @@ impl PathStatusState {
 /// See section "3.3 Path Status Management":
 /// <https://quicwg.org/multipath/draft-ietf-quic-multipath.html#name-path-status-management>
 #[cfg_attr(test, derive(test_strategy::Arbitrary))]
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PathStatus {
     /// Paths marked with as available will be used when scheduling packets
     ///
