@@ -150,6 +150,7 @@ pub struct Transmit<'a> {
     pub src_ip: Option<IpAddr>,
 }
 
+#[cfg(not(posix_minimal))]
 impl Transmit<'_> {
     /// Computes the effective segment-size of the packet.
     ///
@@ -258,7 +259,7 @@ impl EcnCodepoint {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(posix_minimal)))]
 mod tests {
     use std::net::Ipv4Addr;
 
