@@ -1458,7 +1458,14 @@ impl State {
                     self.buffered_transmit = Some(t);
                     return Ok(false);
                 }
-                Poll::Ready(Err(e)) => return Err(e),
+                Poll::Ready(Err(e)) => {
+                    // Treat send errors as dropped packets rather than
+                    // killing the connection. UDP is unreliable by nature,
+                    // and transient errors (e.g. ENOMEM on embedded lwIP)
+                    // should not terminate a QUIC connection. If the socket
+                    // is truly dead, QUIC idle timeout will clean up.
+                    tracing::debug!("UDP send error (packet dropped): {e}");
+                }
                 Poll::Ready(Ok(())) => {}
             }
 
