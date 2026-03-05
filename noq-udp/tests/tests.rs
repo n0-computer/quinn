@@ -388,9 +388,13 @@ fn test_send_recv(send: &Socket, recv: &Socket, transmit: Transmit<'_>) {
             IpAddr::V6(a) => a.to_ipv4_mapped().is_some(),
         };
 
+        // posix_minimal doesn't support ECN (no CMSG parsing)
         // On Android API level <= 25 the IPv4 `IP_TOS` control message is
         // not supported and thus ECN bits can not be received.
-        if ipv4_or_ipv4_mapped_ipv6
+        #[allow(clippy::if_same_then_else)]
+        if cfg!(posix_minimal) {
+            assert_eq!(meta.ecn, None);
+        } else if ipv4_or_ipv4_mapped_ipv6
             && cfg!(target_os = "android")
             && std::env::var("API_LEVEL")
                 .ok()

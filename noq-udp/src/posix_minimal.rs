@@ -1,5 +1,6 @@
 use std::{
     io::{self, IoSliceMut},
+    num::NonZeroUsize,
     sync::Mutex,
     time::Instant,
 };
@@ -78,8 +79,8 @@ impl UdpSocketState {
     }
 
     #[inline]
-    pub fn max_gso_segments(&self) -> usize {
-        1
+    pub fn max_gso_segments(&self) -> NonZeroUsize {
+        NonZeroUsize::MIN
     }
 
     #[inline]
@@ -121,7 +122,8 @@ fn send(socket: UdpSockRef<'_>, transmit: &Transmit<'_>) -> io::Result<()> {
     socket.0.send_to(
         transmit.contents,
         &socket2::SockAddr::from(transmit.destination),
-    )
+    )?;
+    Ok(())
 }
 
 pub(crate) const BATCH_SIZE: usize = 1;
