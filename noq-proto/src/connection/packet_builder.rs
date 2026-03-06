@@ -327,6 +327,10 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             self.buf.len() <= self.buf.datagram_max_offset() - self.tag_len,
             "packet exceeds maximum size"
         );
+        debug_assert!(
+            !self.sent_frames.is_empty(&conn.streams),
+            "constructed empty packet"
+        );
         let pad = self.buf.len() < self.min_size;
         if pad {
             let padding = self.min_size - self.buf.len();
