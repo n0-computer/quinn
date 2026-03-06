@@ -60,6 +60,7 @@ pub struct TransportConfig {
     pub(crate) mtu_discovery_config: Option<MtuDiscoveryConfig>,
     pub(crate) pad_to_mtu: bool,
     pub(crate) ack_frequency_config: Option<AckFrequencyConfig>,
+    pub(crate) max_outgoing_bytes_per_second: Option<u64>,
 
     pub(crate) persistent_congestion_threshold: u32,
     pub(crate) keep_alive_interval: Option<Duration>,
@@ -269,6 +270,14 @@ impl TransportConfig {
     /// extension and may use it in other ways.
     pub fn ack_frequency_config(&mut self, value: Option<AckFrequencyConfig>) -> &mut Self {
         self.ack_frequency_config = value;
+        self
+    }
+
+    /// Configures an outbound rate limit (in bytes per second) for each connection.
+    ///
+    /// Defaults to `None`, which disables rate limiting.
+    pub fn max_outgoing_bytes_per_second(&mut self, value: Option<u64>) -> &mut Self {
+        self.max_outgoing_bytes_per_second = value;
         self
     }
 
@@ -558,6 +567,7 @@ impl Default for TransportConfig {
             mtu_discovery_config: Some(MtuDiscoveryConfig::default()),
             pad_to_mtu: false,
             ack_frequency_config: None,
+            max_outgoing_bytes_per_second: None,
 
             persistent_congestion_threshold: 3,
             keep_alive_interval: None,
@@ -606,6 +616,7 @@ impl fmt::Debug for TransportConfig {
             mtu_discovery_config,
             pad_to_mtu,
             ack_frequency_config,
+            max_outgoing_bytes_per_second,
             persistent_congestion_threshold,
             keep_alive_interval,
             crypto_buffer_size,
@@ -641,6 +652,10 @@ impl fmt::Debug for TransportConfig {
             .field("mtu_discovery_config", mtu_discovery_config)
             .field("pad_to_mtu", pad_to_mtu)
             .field("ack_frequency_config", ack_frequency_config)
+            .field(
+                "max_outgoing_bytes_per_second",
+                max_outgoing_bytes_per_second,
+            )
             .field(
                 "persistent_congestion_threshold",
                 persistent_congestion_threshold,
