@@ -19,6 +19,17 @@ impl crypto::HmacKey for hmac::Key {
     }
 }
 
+/// Implements retry token encryption using HKDF followed by AES-256-GCM.
+///
+/// This construction was originally defined in https://github.com/quinn-rs/quinn/issues/783
+/// The goal is to produce tokens that look random to clients, but contain decryptable
+/// information for the server.
+///
+/// The problem is the 12-byte nonce in AES-GCM: I suspect the original authors of this
+/// code didn't like the fact that it limits you to ~2^32 safe encryptions before you're getting
+/// into "dangerous" nonce-reuse territory with randomly-generated nonces.
+/// You can't use sequence numbers either, though, because that doesn't look random to
+/// clients and leaks information.
 pub(crate) struct RetryTokenKey(hkdf::Prk);
 
 impl RetryTokenKey {
@@ -45,16 +56,16 @@ impl RetryTokenKey {
 impl crypto::HandshakeTokenKey for RetryTokenKey {
     fn seal(&self, token_nonce: u128, data: &mut Vec<u8>) -> Result<(), CryptoError> {
         let aead_key = self.derive_aead(token_nonce);
-        let nonce = aead::Nonce::assume_unique_for_key([0u8; 12]);
+        let nonce = aead::Nonce::assume_unique_for_key([0u8; 12]); // See docs for RetryTokenKey
         let aad = aead::Aad::empty();
         aead_key.seal_in_place_append_tag(nonce, aad, data)?;
         Ok(())
     }
 
-    fn open<'a>(&self, token_nonce: u128, data: &'a mut [u8]) -> Result<&'a mut [u8], CryptoError> {
+    fn open<'a>(&self, token_nonce: u128, data: &'a mut [u8]) -> Result<&'a [u8], CryptoError> {
         let aead_key = self.derive_aead(token_nonce);
         let aad = aead::Aad::empty();
-        let nonce = aead::Nonce::assume_unique_for_key([0u8; 12]);
+        let nonce = aead::Nonce::assume_unique_for_key([0u8; 12]); // See docs for RetryTokenKey
         Ok(aead_key.open_in_place(nonce, aad, data)?)
     }
 }

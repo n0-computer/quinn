@@ -204,12 +204,17 @@ pub trait HmacKey: Send + Sync {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ExportKeyingMaterialError;
 
-/// The trait for encrypting tokens that power retry packets and anti-amplification short-circuiting.
+/// The trait for encrypting tokens that power retry packets and NEW_TOKEN frames.
 pub trait HandshakeTokenKey: Send + Sync {
-    /// Method for sealing a token
+    /// Method for sealing a token in-place.
+    ///
+    /// The nonce doesn't need to be attached to the ciphertext,
+    /// but the authentication tag is expected to be appended to `data`.
     fn seal(&self, token_nonce: u128, data: &mut Vec<u8>) -> Result<(), CryptoError>;
-    /// Method for opening a sealed message `data`
-    fn open<'a>(&self, token_nonce: u128, data: &'a mut [u8]) -> Result<&'a mut [u8], CryptoError>;
+    /// Method for opening a sealed message `data` in-place.
+    ///
+    /// Returns the portion of `data` that contains the decrypted plaintext.
+    fn open<'a>(&self, token_nonce: u128, data: &'a mut [u8]) -> Result<&'a [u8], CryptoError>;
 }
 
 /// Generic crypto errors
