@@ -6175,19 +6175,19 @@ impl Connection {
                         if max_initial_paths.as_u32() < max_remote_addresses as u32 + 1 {
                             // in this case the client might try to open `max_remote_addresses` new
                             // paths, but the current multipath configuration will not allow it
-                            warn!(%max_initial_paths, %max_remote_addresses, "local client configuration might cause nat traversal issues")
+                            debug!(%max_initial_paths, %max_remote_addresses, "local client configuration might cause nat traversal issues")
                         } else if max_local_addresses as u64
                             > params.active_connection_id_limit.into_inner()
                         {
                             // the server allows us to send at most `params.active_connection_id_limit`
                             // but they might need at least `max_local_addresses` to effectively send
                             // `PATH_CHALLENGE` frames to each advertised local address
-                            warn!(%max_local_addresses, remote_cid_limit=%params.active_connection_id_limit.into_inner(), "remote server configuration might cause nat traversal issues")
+                            debug!(%max_local_addresses, remote_cid_limit=%params.active_connection_id_limit.into_inner(), "remote server configuration might cause nat traversal issues")
                         }
                     }
                     Side::Server => {
                         if (max_initial_paths.as_u32() as u64) < crate::LOCAL_CID_COUNT {
-                            warn!(%max_initial_paths, local_cid_limit=%crate::LOCAL_CID_COUNT, "local server configuration might cause nat traversal issues")
+                            debug!(%max_initial_paths, local_cid_limit=%crate::LOCAL_CID_COUNT, "local server configuration might cause nat traversal issues")
                         }
                     }
                 }
