@@ -204,22 +204,17 @@ pub trait HmacKey: Send + Sync {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ExportKeyingMaterialError;
 
-/// A pseudo random key for HKDF
+/// The trait for encrypting tokens that power retry packets and NEW_TOKEN frames.
 pub trait HandshakeTokenKey: Send + Sync {
-    /// Derive AEAD using hkdf
-    fn aead_from_hkdf(&self, random_bytes: &[u8]) -> Box<dyn AeadKey>;
-}
-
-/// A key for sealing data with AEAD-based algorithms
-pub trait AeadKey {
-    /// Method for sealing message `data`
-    fn seal(&self, data: &mut Vec<u8>, additional_data: &[u8]) -> Result<(), CryptoError>;
-    /// Method for opening a sealed message `data`
-    fn open<'a>(
-        &self,
-        data: &'a mut [u8],
-        additional_data: &[u8],
-    ) -> Result<&'a mut [u8], CryptoError>;
+    /// Method for sealing a token in-place.
+    ///
+    /// The nonce doesn't need to be attached to the ciphertext,
+    /// but the authentication tag is expected to be appended to `data`.
+    fn seal(&self, token_nonce: u128, data: &mut Vec<u8>) -> Result<(), CryptoError>;
+    /// Method for opening a sealed message `data` in-place.
+    ///
+    /// Returns the portion of `data` that contains the decrypted plaintext.
+    fn open<'a>(&self, token_nonce: u128, data: &'a mut [u8]) -> Result<&'a [u8], CryptoError>;
 }
 
 /// Generic crypto errors
