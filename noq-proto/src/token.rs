@@ -250,23 +250,22 @@ impl Token {
         let nonce = u128::from_le_bytes(*nonce_bytes);
 
         let mut sealed_token = sealed_token.to_vec();
-        let data = key.open(nonce, &mut sealed_token).ok()?;
+        let mut data = key.open(nonce, &mut sealed_token).ok()?;
 
         // Decode payload
-        let mut reader = &data[..];
-        let payload = match TokenType::from_byte((&mut reader).get::<u8>().ok()?)? {
+        let payload = match TokenType::from_byte((&mut data).get::<u8>().ok()?)? {
             TokenType::Retry => TokenPayload::Retry {
-                address: decode_addr(&mut reader)?,
-                orig_dst_cid: ConnectionId::decode_long(&mut reader)?,
-                issued: decode_unix_secs(&mut reader)?,
+                address: decode_addr(&mut data)?,
+                orig_dst_cid: ConnectionId::decode_long(&mut data)?,
+                issued: decode_unix_secs(&mut data)?,
             },
             TokenType::Validation => TokenPayload::Validation {
-                ip: decode_ip(&mut reader)?,
-                issued: decode_unix_secs(&mut reader)?,
+                ip: decode_ip(&mut data)?,
+                issued: decode_unix_secs(&mut data)?,
             },
         };
 
-        if !reader.is_empty() {
+        if !data.is_empty() {
             // Consider extra bytes a decoding error (it may be from an incompatible endpoint)
             return None;
         }
