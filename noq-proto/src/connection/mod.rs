@@ -1007,21 +1007,63 @@ impl Connection {
                 && self.peer_supports_ack_frequency();
         }
 
-        let scheduling_info: BTreeMap<PathId, PathSchedulingInfo> = self
-            .paths
-            .iter()
-            .map(|(path_id, path)| {
-                (
-                    *path_id,
-                    PathSchedulingInfo {
-                        has_cids: self.remote_cids.contains_key(&path_id),
-                        validated: path.data.validated,
-                        abandoned: self.abandoned_paths.contains(&path_id),
-                        status: path.data.local_status(),
-                    },
-                )
-            })
-            .collect();
+        // Build up some packet scheduling information about all paths.
+        let scheduling_info: BTreeMap<PathId, PathSchedulingInfo> = {
+            let have_validated_status_available_space = self.paths.iter().any(|(path_id, path)| {
+                self.remote_cids.contains_key(path_id)
+                    && !self.abandoned_paths.contains(path_id)
+                    && path.data.validated
+                    && path.data.local_status() == PathStatus::Available
+            });
+            let is_handshaking = self.is_handshaking();
+            tracing::warn!(?is_handshaking);
+            self.paths
+                .iter()
+                .map(|(path_id, path)| {
+                    let has_cids = self.remote_cids.contains_key(&path_id);
+                    let validated = path.data.validated;
+                    let abandoned = self.abandoned_paths.contains(&path_id);
+                    let status = path.data.local_status();
+
+                    // This is the core packet scheduling, whether this space ID may send
+                    // SpaceKind::Data frames.
+                    let may_send_data = has_cids
+                        && !abandoned
+                        && if is_handshaking {
+                            // There is only one path during the handshake. We want to
+                            // already send 0-RTT and 0.5-RTT (permitting anti-amplification
+                            // limit) data.
+                            true
+                        } else if !validated {
+                            // TODO(flub): When we have a network change we might end up
+                            //    having to abandon all paths and re-open new ones to the
+                            //    same remotes. This leaves us without any validated
+                            //    path. Perhaps we should have a way to figure out if the
+                            //    path is to a previously-validated remote address and allow
+                            //    sending data to such remotes immediately.
+                            false
+                        } else {
+                            match status {
+                                PathStatus::Available => {
+                                    // Best possible space to send data on.
+                                    true
+                                }
+                                PathStatus::Backup => {
+                                    // If there is an status-available path we prefer that.
+                                    !have_validated_status_available_space
+                                }
+                            }
+                        };
+                    (
+                        *path_id,
+                        PathSchedulingInfo {
+                            abandoned,
+                            may_send_data,
+                        },
+                    )
+                })
+                .collect()
+        };
 
         // TODO: how to avoid the allocation? Cannot use a for loop because of
         // borrowing. Maybe SmallVec or similar.
@@ -1031,7 +1073,7 @@ impl Connection {
         // nothing to send or because we were congestion blocked.
         let mut congestion_blocked = false;
 
-        for &path_id in &path_ids {
+        for (&path_id, info) in scheduling_info.iter() {
             if !connection_close_pending
                 && let Some(transmit) = self.poll_transmit_off_path(now, buf, path_id)
             {
@@ -1044,7 +1086,7 @@ impl Connection {
                 buf,
                 path_id,
                 max_datagrams,
-                &scheduling_info,
+                &info,
                 connection_close_pending,
             ) {
                 PollPathStatus::Send(transmit) => {
@@ -1159,7 +1201,7 @@ impl Connection {
         buf: &mut Vec<u8>,
         path_id: PathId,
         max_datagrams: NonZeroUsize,
-        scheduling_info: &BTreeMap<PathId, PathSchedulingInfo>,
+        scheduling_info: &PathSchedulingInfo,
         connection_close_pending: bool,
     ) -> PollPathStatus {
         // Check if there is at least one active CID to use for sending
@@ -1270,7 +1312,7 @@ impl Connection {
         path_id: PathId,
         space_id: SpaceId,
         remote_cid: ConnectionId,
-        scheduling_info: &BTreeMap<PathId, PathSchedulingInfo>,
+        scheduling_info: &PathSchedulingInfo,
         // If we need to send a CONNECTION_CLOSE frame.
         connection_close_pending: bool,
         // Whether the current datagram needs to be padded to a certain size.
@@ -1296,7 +1338,7 @@ impl Connection {
         //   space. The TransmitBuf will contain a started datagram with space if
         //   coalescing, or completely filled datagram if not coalescing.
         loop {
-            // Determine if anything can be sent in this packet number space (SpaceId + PathId).
+            // Determine if anything can be sent in this packet number space.
             let max_packet_size = if transmit.datagram_remaining_mut() > 0 {
                 // A datagram is started already, we are coalescing another packet into it.
                 transmit.datagram_remaining_mut()
@@ -1306,54 +1348,25 @@ impl Connection {
             };
             let can_send =
                 self.space_can_send(space_id, path_id, max_packet_size, connection_close_pending);
-
-            let will_space_send = || {
-                if can_send.is_empty() {
-                    return false;
-                }
-                let this_path = scheduling_info.get(&path_id).unwrap();
-                if !this_path.has_cids {
-                    // Without CIDs we can not send anything.
-                    trace!(?path_id, "no CIDs available");
-                    return false;
-                }
-                if this_path.abandoned {
-                    // Don't currently send on an abandoned path. We could in the future use
-                    // this to decide to send PATH_ABANDON on the abandoned path.
-                    trace!(?path_id, "path abandoned");
-                    return false;
-                }
-                if can_send.space_id_only {
-                    // If we need to send stuff to validate the path, we're definitely
-                    // sending.
-                    return true;
-                }
-
-                // From here on we only want to send on this path, if there is no better
-                // path available. It does not matter if the better path was already checked
-                // in this poll_transmit call however, because we would never have made it
-                // past there. We could go out of our way to debug_assert that.
-                let have_better_path = scheduling_info.values().any(|info| {
-                    let PathSchedulingInfo {
-                        has_cids,
-                        validated,
-                        abandoned,
-                        status,
-                    } = *info;
-                    has_cids
-                        && !abandoned
-                        && if !this_path.validated {
-                            // Any validated path is better than an non-validated path.
-                            validated
-                        } else {
-                            // A status-available path is better than status-backup path.
-                            validated && status < this_path.status
-                        }
-                });
-                !have_better_path
-            };
             let needs_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
-            let space_will_send = will_space_send() || needs_loss_probe;
+            let space_will_send = {
+                if scheduling_info.abandoned {
+                    // Currently we don't send on an abandoned path, PATH_ABANDON is always
+                    // sent on a different path.
+                    false
+                } else if needs_loss_probe {
+                    // We always send if a loss probe if the path is not abandoned.
+                    true
+                } else if can_send.space_id_only {
+                    // We always send space-specific frames if not abandoned.
+                    true
+                } else {
+                    // Anything else we only send if we're the best path for SpaceKind::Data
+                    // frames.
+                    !can_send.is_empty() && scheduling_info.may_send_data
+                }
+            };
+            tracing::warn!(?can_send, ?scheduling_info, ?space_will_send, "checking");
 
             if !space_will_send {
                 // Nothing more to send. Previous iterations of this loop may have built
@@ -5533,11 +5546,9 @@ impl Connection {
         now: Instant,
         space_id: SpaceId,
         path_id: PathId,
-        scheduling_info: &BTreeMap<PathId, PathSchedulingInfo>,
+        scheduling_info: &PathSchedulingInfo,
         builder: &mut PacketBuilder<'a, 'b>,
     ) {
-        let this_path = scheduling_info.get(&path_id).unwrap();
-        debug_assert!(this_path.has_cids, "must have CIDs to populate packet");
         let is_multipath_negotiated = self.is_multipath_negotiated();
         let space_has_keys = self.crypto_state.has_keys(space_id.encryption_level());
         let is_0rtt = space_id == SpaceId::Data && !space_has_keys;
@@ -5551,7 +5562,7 @@ impl Connection {
 
         // HANDSHAKE_DONE
         if !is_0rtt
-            && should_send_data(&scheduling_info, path_id)
+            && scheduling_info.may_send_data
             && mem::replace(&mut space.pending.handshake_done, false)
         {
             builder.write_frame(frame::HandshakeDone, stats);
@@ -5559,7 +5570,7 @@ impl Connection {
 
         // REACH_OUT
         if let Some((round, addresses)) = space.pending.reach_out.as_mut()
-            && should_send_data(&scheduling_info, path_id)
+            && scheduling_info.may_send_data
         {
             while let Some(local_addr) = addresses.iter().next().copied() {
                 let local_addr = addresses.take(&local_addr).expect("found from iter");
@@ -5577,7 +5588,7 @@ impl Connection {
         }
 
         // OBSERVED_ADDR
-        if should_send_data(&scheduling_info, path_id)
+        if scheduling_info.may_send_data
             && space_id == SpaceId::Data
             && self
                 .config
@@ -5613,7 +5624,7 @@ impl Connection {
         }
 
         // ACK
-        if should_send_data(&scheduling_info, path_id) {
+        if scheduling_info.may_send_data {
             for path_id in space
                 .number_spaces
                 .iter_mut()
@@ -5633,29 +5644,10 @@ impl Connection {
                     space_has_keys,
                 );
             }
-        } else if this_path.abandoned {
-            // If we are abandoning this very path, also include ACKs for this path,
-            // together with the PATH_ABANDON that will be sent. Normally we don't do this
-            // though and send the PATH_ABANDON on a different path.
-            if !space.for_path(path_id).pending_acks.ranges().is_empty() {
-                Self::populate_acks(
-                    now,
-                    self.receiving_ecn,
-                    path_id,
-                    space_id,
-                    space,
-                    is_multipath_negotiated,
-                    builder,
-                    stats,
-                    space_has_keys,
-                )
-            }
         }
 
         // ACK_FREQUENCY
-        if should_send_data(&scheduling_info, path_id)
-            && mem::replace(&mut space.pending.ack_frequency, false)
-        {
+        if scheduling_info.may_send_data && mem::replace(&mut space.pending.ack_frequency, false) {
             let sequence_number = self.ack_frequency.next_sequence_number();
 
             // Safe to unwrap because this is always provided when ACK frequency is enabled
@@ -5777,7 +5769,7 @@ impl Connection {
 
         // CRYPTO
         while !is_0rtt
-            && (space_id < SpaceId::Data || should_send_data(&scheduling_info, path_id))
+            && (space_id < SpaceId::Data || scheduling_info.may_send_data)
             && builder.frame_space_remaining() > frame::Crypto::SIZE_BOUND
         {
             let mut frame = match space.pending.crypto.pop_front() {
@@ -5814,7 +5806,7 @@ impl Connection {
         // TODO(flub): maybe this is much higher priority?
         // PATH_ABANDON
         while space_id == SpaceId::Data
-            && should_send_data(&scheduling_info, path_id)
+            && scheduling_info.may_send_data
             && frame::PathAbandon::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let Some((abandoned_path_id, error_code)) = space.pending.path_abandon.pop_first()
@@ -5830,7 +5822,7 @@ impl Connection {
 
         // PATH_STATUS_AVAILABLE & PATH_STATUS_BACKUP
         while space_id == SpaceId::Data
-            && should_send_data(&scheduling_info, path_id)
+            && scheduling_info.may_send_data
             && frame::PathStatusAvailable::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let Some(path_id) = space.pending.path_status.pop_first() else {
@@ -5862,7 +5854,7 @@ impl Connection {
 
         // MAX_PATH_ID
         if space_id == SpaceId::Data
-            && should_send_data(&scheduling_info, path_id)
+            && scheduling_info.may_send_data
             && space.pending.max_path_id
             && frame::MaxPathId::SIZE_BOUND <= builder.frame_space_remaining()
         {
@@ -5873,7 +5865,7 @@ impl Connection {
 
         // PATHS_BLOCKED
         if space_id == SpaceId::Data
-            && should_send_data(&scheduling_info, path_id)
+            && scheduling_info.may_send_data
             && space.pending.paths_blocked
             && frame::PathsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
@@ -5884,7 +5876,7 @@ impl Connection {
 
         // PATH_CIDS_BLOCKED
         while space_id == SpaceId::Data
-            && should_send_data(&scheduling_info, path_id)
+            && scheduling_info.may_send_data
             && frame::PathCidsBlocked::SIZE_BOUND <= builder.frame_space_remaining()
         {
             let Some(path_id) = space.pending.path_cids_blocked.pop_first() else {
@@ -5899,7 +5891,7 @@ impl Connection {
         }
 
         // RESET_STREAM, STOP_SENDING, MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS
-        if space_id == SpaceId::Data && should_send_data(&scheduling_info, path_id) {
+        if space_id == SpaceId::Data && scheduling_info.may_send_data {
             self.streams
                 .write_control_frames(builder, &mut space.pending, stats);
         }
@@ -5913,8 +5905,7 @@ impl Connection {
             .expect("some local CID state must exist");
         let new_cid_size_bound =
             frame::NewConnectionId::size_bound(is_multipath_negotiated, cid_len);
-        while should_send_data(&scheduling_info, path_id)
-            && builder.frame_space_remaining() > new_cid_size_bound
+        while scheduling_info.may_send_data && builder.frame_space_remaining() > new_cid_size_bound
         {
             let issued = match space.pending.new_cids.pop() {
                 Some(x) => x,
@@ -5945,9 +5936,7 @@ impl Connection {
 
         // RETIRE_CONNECTION_ID
         let retire_cid_bound = frame::RetireConnectionId::size_bound(is_multipath_negotiated);
-        while should_send_data(&scheduling_info, path_id)
-            && builder.frame_space_remaining() > retire_cid_bound
-        {
+        while scheduling_info.may_send_data && builder.frame_space_remaining() > retire_cid_bound {
             let (path_id, sequence) = match space.pending.retire_cids.pop() {
                 Some((PathId::ZERO, seq)) if !is_multipath_negotiated => (None, seq),
                 Some((path_id, seq)) => (Some(path_id), seq),
@@ -5959,7 +5948,7 @@ impl Connection {
 
         // DATAGRAM
         let mut sent_datagrams = false;
-        while should_send_data(&scheduling_info, path_id)
+        while scheduling_info.may_send_data
             && builder.frame_space_remaining() > Datagram::SIZE_BOUND
             && space_id == SpaceId::Data
         {
@@ -5978,7 +5967,7 @@ impl Connection {
         let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
 
         // NEW_TOKEN
-        if should_send_data(&scheduling_info, path_id) {
+        if scheduling_info.may_send_data {
             while let Some(network_path) = space.pending.new_tokens.pop() {
                 debug_assert_eq!(space_id, SpaceId::Data);
                 let ConnectionSide::Server { server_config } = &self.side else {
@@ -6015,14 +6004,14 @@ impl Connection {
         }
 
         // STREAM
-        if should_send_data(&scheduling_info, path_id) && space_id == SpaceId::Data {
+        if scheduling_info.may_send_data && space_id == SpaceId::Data {
             self.streams
                 .write_stream_frames(builder, self.config.send_fairness, stats);
         }
 
         // ADD_ADDRESS
         while space_id == SpaceId::Data
-            && should_send_data(&scheduling_info, path_id)
+            && scheduling_info.may_send_data
             && frame::AddAddress::SIZE_BOUND <= builder.frame_space_remaining()
         {
             if let Some(added_address) = space.pending.add_address.pop_last() {
@@ -6034,7 +6023,7 @@ impl Connection {
 
         // REMOVE_ADDRESS
         while space_id == SpaceId::Data
-            && should_send_data(&scheduling_info, path_id)
+            && scheduling_info.may_send_data
             && frame::RemoveAddress::SIZE_BOUND <= builder.frame_space_remaining()
         {
             if let Some(removed_address) = space.pending.remove_address.pop_last() {
@@ -6849,74 +6838,29 @@ enum PollPathSpaceStatus {
     },
 }
 
-struct SchedulingInfo {
-    paths: BTreeMap<PathId, PathSchedulingInfo>,
-    current: PathId,
-    // is_multipath_negotiated
-    // is_0rtt
-    // space_has_keys
-}
-
-impl SchedulingInfo {}
-
-/// TODO(flub): this really is duplicate info, but it makes it easy to reason about what
-/// info is used for scheduling right now.
+/// Information used to decide what frames to schedule into which packets.
+///
+/// Primarily used by [`Connection::poll_transmit_on_path`] and the functions that help
+/// building packets for it: [`Connection::poll_transmit_path_space`] and
+/// [`Connection::populate_packet`].
 #[derive(Debug, Copy, Clone)]
 struct PathSchedulingInfo {
-    /// Whether the path has an active CID.
-    has_cids: bool,
-    /// Whether the path is validated.
-    validated: bool,
     /// Whether the path is abandoned.
     ///
     /// Note that a path that is abandoned but still has CIDs can still send a packet. After
     /// sending that packet the CIDs have to be considered retired as well and
     /// [`Self::has_cids`] should turn `false`.
     abandoned: bool,
-    /// The status of the path.
-    status: PathStatus,
-}
-
-/// Whether we should send data on the `current` path.
-///
-/// Here "data" means any frames which may be sent on any path. It does not necessarily
-/// match to the [`SpaceKind::Data`] spaces, e.g. frames sent in 0-RTT also count.
-fn should_send_data(all: &BTreeMap<PathId, PathSchedulingInfo>, current: PathId) -> bool {
-    // To send SpaceKind::Data we want a path:
-    // - with CIDs
-    // - validated
-    // - not abandoned
-    // - status-available unless there is no such path
-    let this = all.get(&current).unwrap();
-    if !this.has_cids || this.abandoned {
-        return false;
-    }
-    let have_better_path = if !this.validated {
-        all.values().any(|info| {
-            let PathSchedulingInfo {
-                has_cids,
-                validated,
-                abandoned,
-                status: _,
-            } = *info;
-            has_cids && !abandoned && validated
-        })
-    } else {
-        // path is validated
-        match this.status {
-            PathStatus::Available => return true,
-            PathStatus::Backup => all.values().any(|info| {
-                let PathSchedulingInfo {
-                    has_cids,
-                    validated,
-                    abandoned,
-                    status,
-                } = *info;
-                has_cids && !abandoned && validated && status == PathStatus::Available
-            }),
-        }
-    };
-    !have_better_path
+    /// Whether the path may send [`SpaceKind::Data`] frames.
+    ///
+    /// Some paths should only send frames from [`SendableFrames::space_id_only`]. All other
+    /// frames are essentially frames that can be sent on any [`SpaceKind::Data`] space. For
+    /// those we want to respect packet scheduling rules however.
+    ///
+    /// Roughly speaking data frames are only sent on spaces that have CIDs, are not
+    /// abandoned and have no *better* spaces. However see to comments where this is
+    /// populated for the exact packet scheduling implementation.
+    may_send_data: bool,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
