@@ -400,15 +400,9 @@ impl ServerConfig {
     ///
     /// Uses a randomized handshake token key.
     pub fn with_crypto(crypto: Arc<dyn crypto::ServerConfig>) -> Self {
-        #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
-        use aws_lc_rs::aead;
-        #[cfg(feature = "ring")]
-        use ring::aead;
+        use crate::crypto::ring_like::RetryTokenKey;
 
-        let retry_token_key = aead::LessSafeKey::new(
-            aead::UnboundKey::new(&aead::AES_256_GCM, &rand::random::<[u8; 32]>()).unwrap(),
-        );
-
+        let retry_token_key = RetryTokenKey::new(&mut rand::rng());
         Self::new(crypto, Arc::new(retry_token_key))
     }
 }

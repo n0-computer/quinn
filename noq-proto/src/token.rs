@@ -404,19 +404,15 @@ impl fmt::Display for ResetToken {
 
 #[cfg(all(test, any(feature = "aws-lc-rs", feature = "ring")))]
 mod test {
+    use crate::crypto::ring_like::RetryTokenKey;
+
     use super::*;
-    #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
-    use aws_lc_rs::aead;
     use rand::prelude::*;
-    #[cfg(feature = "ring")]
-    use ring::aead;
 
     fn token_round_trip(payload: TokenPayload) -> TokenPayload {
         let rng = &mut rand::rng();
         let token = Token::new(payload, rng);
-        let master_key = aead::LessSafeKey::new(
-            aead::UnboundKey::new(&aead::AES_256_GCM, &rng.random::<[u8; 32]>()).unwrap(),
-        );
+        let master_key = RetryTokenKey::new(rng);
         let encoded = token.encode(&master_key);
         let decoded = Token::decode(&master_key, &encoded).expect("token didn't decrypt / decode");
         assert_eq!(token.nonce, decoded.nonce);
@@ -482,9 +478,7 @@ mod test {
     fn invalid_token_returns_err() {
         use super::*;
 
-        let master_key = aead::LessSafeKey::new(
-            aead::UnboundKey::new(&aead::AES_256_GCM, &rand::random::<[u8; 32]>()).unwrap(),
-        );
+        let master_key = RetryTokenKey::new(&mut rand::rng());
 
         let mut invalid_token = Vec::new();
 
