@@ -163,7 +163,7 @@ pub(super) struct PathData {
     ///
     /// Initially equal to `use_stateless_retry` for servers, and becomes false again on every
     /// migration. Always true for clients.
-    pub(super) validated: bool,
+    pub(super) remote_address_validated: bool,
     /// Total size of all UDP datagrams sent on this path
     pub(super) total_sent: u64,
     /// Total size of all UDP datagrams received on this path
@@ -268,7 +268,7 @@ impl PathData {
             off_path_challenges_unconfirmed: Default::default(),
             pending_on_path_challenge: false,
             path_responses: PathResponses::default(),
-            validated: false,
+            remote_address_validated: false,
             total_sent: 0,
             total_recvd: 0,
             mtud: config
@@ -324,7 +324,7 @@ impl PathData {
             off_path_challenges_unconfirmed: Default::default(),
             pending_on_path_challenge: false,
             path_responses: PathResponses::default(),
-            validated: false,
+            remote_address_validated: false,
             total_sent: 0,
             total_recvd: 0,
             mtud: prev.mtud.clone(),
@@ -353,7 +353,7 @@ impl PathData {
     /// Indicates whether we're a server that hasn't validated the peer's address and hasn't
     /// received enough data from the peer to permit sending `bytes_to_send` additional bytes
     pub(super) fn anti_amplification_blocked(&self, bytes_to_send: u64) -> bool {
-        !self.validated && self.total_recvd * 3 < self.total_sent + bytes_to_send
+        !self.remote_address_validated && self.total_recvd * 3 < self.total_sent + bytes_to_send
     }
 
     /// Returns the path's current MTU
@@ -402,7 +402,7 @@ impl PathData {
     /// Increment the total size of sent UDP datagrams
     pub(super) fn inc_total_sent(&mut self, inc: u64) {
         self.total_sent = self.total_sent.saturating_add(inc);
-        if !self.validated {
+        if !self.remote_address_validated {
             trace!(
                 network_path = %self.network_path,
                 anti_amplification_budget = %(self.total_recvd * 3).saturating_sub(self.total_sent),
@@ -414,7 +414,7 @@ impl PathData {
     /// Increment the total size of received UDP datagrams
     pub(super) fn inc_total_recvd(&mut self, inc: u64) {
         self.total_recvd = self.total_recvd.saturating_add(inc);
-        if !self.validated {
+        if !self.remote_address_validated {
             trace!(
                 network_path = %self.network_path,
                 anti_amplification_budget = %(self.total_recvd * 3).saturating_sub(self.total_sent),
@@ -461,7 +461,7 @@ impl PathData {
             Some(info) if info.network_path.is_probably_same_path(&self.network_path) => {
                 self.network_path.update_local_if_same_remote(&network_path);
                 let sent_instant = info.sent_instant;
-                if !std::mem::replace(&mut self.validated, true) {
+                if !std::mem::replace(&mut self.remote_address_validated, true) {
                     trace!("new path validated");
                 }
                 // Clear any other on-path sent challenge

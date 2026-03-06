@@ -645,7 +645,7 @@ impl Endpoint {
             SideArgs::Server {
                 server_config,
                 pref_addr_cid,
-                path_validated: remote_address_validated,
+                remote_address_validated,
             },
             &params,
         );

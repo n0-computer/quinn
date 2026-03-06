@@ -332,7 +332,7 @@ impl Connection {
         qlog: QlogSink,
     ) -> Self {
         let pref_addr_cid = side_args.pref_addr_cid();
-        let path_validated = side_args.path_validated();
+        let path_validated = side_args.remote_address_validated();
         let connection_side = ConnectionSide::from(side_args);
         let side = connection_side.side();
         let mut rng = StdRng::from_seed(rng_seed);
@@ -436,7 +436,7 @@ impl Connection {
             qlog,
         };
         if path_validated {
-            this.on_path_validated(PathId::ZERO);
+            this.on_remote_address_validated(PathId::ZERO);
         }
         if side.is_client() {
             // Kick off the connection
@@ -646,7 +646,9 @@ impl Connection {
 
         if reason.is_locally_initiated() {
             let has_remaining_validated_paths = self.paths.iter().any(|(id, path)| {
-                *id != path_id && !self.abandoned_paths.contains(id) && path.data.validated
+                *id != path_id
+                    && !self.abandoned_paths.contains(id)
+                    && path.data.remote_address_validated
             });
             if !has_remaining_validated_paths {
                 return Err(ClosePathError::LastOpenPath);
@@ -875,7 +877,7 @@ impl Connection {
         network_path: FourTuple,
     ) -> Option<(&PathId, &PathState)> {
         self.paths.iter().find(|(path_id, path_state)| {
-            path_state.data.validated
+            path_state.data.remote_address_validated
                 // Would this use the same network path, if network_path were used to send right now?
                 && network_path.is_probably_same_path(&path_state.data.network_path)
                 && !self.abandoned_paths.contains(path_id)
@@ -918,7 +920,7 @@ impl Connection {
             &self.config,
         );
 
-        data.validated = validated;
+        data.remote_address_validated = validated;
         if let Some(initial_rtt) = initial_rtt {
             data.rtt.reset_initial_rtt(initial_rtt);
         }
@@ -1035,7 +1037,7 @@ impl Connection {
         // Is there any open, validated and status available path with dst CIDs? If so we'll
         // want to set path_exclusive_only for any other paths.
         let have_available_path = self.paths.iter().any(|(id, path)| {
-            path.data.validated
+            path.data.remote_address_validated
                 && path.data.local_status() == PathStatus::Available
                 && self.remote_cids.contains_key(id)
         });
@@ -1718,7 +1720,7 @@ impl Connection {
     /// - The MTU Discovery subsystem wants to probe the path.
     fn get_mtu_probe_data(&mut self, now: Instant, path_id: PathId) -> Option<(ConnectionId, u16)> {
         let active_cid = self.remote_cids.get(&path_id).map(CidQueue::active)?;
-        let is_eligible = self.path_data(path_id).validated
+        let is_eligible = self.path_data(path_id).remote_address_validated
             && !self.path_data(path_id).is_validating_path()
             && !self.abandoned_paths.contains(&path_id);
 
@@ -1947,7 +1949,7 @@ impl Connection {
     ) -> Option<Transmit> {
         let server_side = self.n0_nat_traversal.server_side_mut().ok()?;
         let probe = server_side.next_probe()?;
-        if !self.paths.get(&path_id)?.data.validated {
+        if !self.paths.get(&path_id)?.data.remote_address_validated {
             // Path is not usable for probing
             return None;
         }
@@ -4081,7 +4083,7 @@ impl Connection {
             if self
                 .paths
                 .get(&path_id)
-                .map(|p| p.data.validated && p.data.network_path == network_path)
+                .map(|p| p.data.remote_address_validated && p.data.network_path == network_path)
                 .unwrap_or(false)
             {
                 self.connection_close_pending = true;
@@ -4270,7 +4272,7 @@ impl Connection {
                     );
                     return Ok(());
                 }
-                self.on_path_validated(path_id);
+                self.on_remote_address_validated(path_id);
 
                 self.process_early_payload(now, path_id, packet, qlog)?;
                 if self.state.is_closed() {
@@ -5258,7 +5260,7 @@ impl Connection {
         // yet. In this case we would never have sent on this path yet and would not be able
         // to send a PATH_CHALLENGE either, which is currently a fire-and-forget affair
         // anyway. So don't store such a path either.
-        if !prev_path_data.validated
+        if !prev_path_data.remote_address_validated
             && let Some(cid) = self.remote_cids.get(&path_id).map(CidQueue::active)
         {
             prev_path_data.pending_on_path_challenge = true;
@@ -5686,7 +5688,10 @@ impl Connection {
                 self.qlog.with_time(now),
             );
 
-            if is_multipath_negotiated && !path.validated && path.pending_on_path_challenge {
+            if is_multipath_negotiated
+                && !path.remote_address_validated
+                && path.pending_on_path_challenge
+            {
                 // queue informing the path status along with the challenge
                 space.pending.path_status.insert(path_id);
             }
@@ -6507,9 +6512,10 @@ impl Connection {
         packet_crypto.map_or(16, |x| x.tag_len())
     }
 
-    /// Mark the path as validated, and enqueue NEW_TOKEN frames to be sent as appropriate
-    fn on_path_validated(&mut self, path_id: PathId) {
-        self.path_data_mut(path_id).validated = true;
+    /// Mark the address of the given path as validated, and enqueue NEW_TOKEN frames to be sent as
+    /// appropriate.
+    fn on_remote_address_validated(&mut self, path_id: PathId) {
+        self.path_data_mut(path_id).remote_address_validated = true;
         let ConnectionSide::Server { server_config } = &self.side else {
             return;
         };
@@ -6682,7 +6688,7 @@ impl Connection {
             if !addresses_to_probe
                 .iter()
                 .any(|(_, probe)| *probe == (ip, port))
-                && !path.validated
+                && !path.remote_address_validated
                 && !self.abandoned_paths.contains(&path_id)
             {
                 trace!(%path_id, "closing path from previous round");
@@ -6889,7 +6895,7 @@ impl From<SideArgs> for ConnectionSide {
             SideArgs::Server {
                 server_config,
                 pref_addr_cid: _,
-                path_validated: _,
+                remote_address_validated: _,
             } => Self::Server { server_config },
         }
     }
@@ -6904,7 +6910,7 @@ pub(crate) enum SideArgs {
     Server {
         server_config: Arc<ServerConfig>,
         pref_addr_cid: Option<ConnectionId>,
-        path_validated: bool,
+        remote_address_validated: bool,
     },
 }
 
@@ -6916,10 +6922,13 @@ impl SideArgs {
         }
     }
 
-    pub(crate) fn path_validated(&self) -> bool {
+    pub(crate) fn remote_address_validated(&self) -> bool {
         match *self {
             Self::Client { .. } => true,
-            Self::Server { path_validated, .. } => path_validated,
+            Self::Server {
+                remote_address_validated,
+                ..
+            } => remote_address_validated,
         }
     }
 
