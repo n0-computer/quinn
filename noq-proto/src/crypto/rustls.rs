@@ -3,8 +3,6 @@ use std::{any::Any, io, str, sync::Arc};
 use aes_gcm::{KeyInit, aead::AeadMutInPlace};
 use bytes::BytesMut;
 pub use rustls::Error;
-#[cfg(feature = "__rustls-post-quantum-test")]
-use rustls::NamedGroup;
 use rustls::{
     self, CipherSuite,
     pki_types::{CertificateDer, ServerName},
@@ -268,7 +266,7 @@ pub struct HandshakeData {
     pub server_name: Option<String>,
     /// The key exchange group negotiated with the peer
     #[cfg(feature = "__rustls-post-quantum-test")]
-    pub negotiated_key_exchange_group: NamedGroup,
+    pub negotiated_key_exchange_group: rustls::NamedGroup,
 }
 
 /// A QUIC-compatible TLS client configuration

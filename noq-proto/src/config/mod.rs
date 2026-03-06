@@ -401,17 +401,15 @@ impl ServerConfig {
     /// Uses a randomized handshake token key.
     pub fn with_crypto(crypto: Arc<dyn crypto::ServerConfig>) -> Self {
         #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
-        use aws_lc_rs::hkdf;
-        use rand::RngCore;
+        use aws_lc_rs::aead;
         #[cfg(feature = "ring")]
-        use ring::hkdf;
+        use ring::aead;
 
-        let rng = &mut rand::rng();
-        let mut master_key = [0u8; 64];
-        rng.fill_bytes(&mut master_key);
-        let master_key = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
+        let retry_token_key = aead::LessSafeKey::new(
+            aead::UnboundKey::new(&aead::AES_256_GCM, &rand::random::<[u8; 32]>()).unwrap(),
+        );
 
-        Self::new(crypto, Arc::new(master_key))
+        Self::new(crypto, Arc::new(retry_token_key))
     }
 }
 
