@@ -332,7 +332,7 @@ impl Connection {
         qlog: QlogSink,
     ) -> Self {
         let pref_addr_cid = side_args.pref_addr_cid();
-        let path_validated = side_args.remote_address_validated();
+        let remote_address_validated = side_args.remote_address_validated();
         let connection_side = ConnectionSide::from(side_args);
         let side = connection_side.side();
         let mut rng = StdRng::from_seed(rng_seed);
@@ -435,7 +435,7 @@ impl Connection {
             n0_nat_traversal: Default::default(),
             qlog,
         };
-        if path_validated {
+        if remote_address_validated {
             this.on_remote_address_validated(PathId::ZERO);
         }
         if side.is_client() {
