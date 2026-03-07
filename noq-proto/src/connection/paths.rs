@@ -461,9 +461,9 @@ impl PathData {
             Some(info) if info.network_path.is_probably_same_path(&self.network_path) => {
                 self.network_path.update_local_if_same_remote(&network_path);
                 let sent_instant = info.sent_instant;
-                if !std::mem::replace(&mut self.remote_address_validated, true) {
-                    trace!("new path validated");
-                }
+                // Path validation implies address validation.
+                self.remote_address_validated = true;
+
                 // Clear any other on-path sent challenge
                 self.on_path_challenges_unconfirmed.clear();
 
@@ -477,12 +477,17 @@ impl PathData {
                 let prev_status = std::mem::replace(&mut self.open_status, OpenStatus::Informed);
                 OnPathResponseReceived::OnPath {
                     was_open: prev_status == OpenStatus::Informed,
+                    validated_network_path: self.network_path, // validates the updated path
                 }
             }
-            // Response to an on-path PathChallenge that does not validate this path
+            // Response to an on-path PathChallenge that does not validate the current network
+            // path.
             Some(info) => {
                 // This is a valid path response, but this validates a path we no longer have in
-                // use. Keep only sent challenges for the current path.
+                // use. This might happen if a challenge is sent using a local address, but the
+                // path migrates to a new local one.
+                //
+                // Keep only sent challenges for the current path.
 
                 self.on_path_challenges_unconfirmed
                     .retain(|_token, i| i.network_path == self.network_path);
@@ -492,18 +497,20 @@ impl PathData {
                     self.pending_on_path_challenge = true;
                 }
                 OnPathResponseReceived::Ignored {
-                    sent_on: info.network_path,
-                    current_path: self.network_path,
+                    validated_network_path: info.network_path,
                 }
             }
             None => match self.off_path_challenges_unconfirmed.remove(&token) {
                 // Response to an off-path PathChallenge
-                Some(info) => {
+                Some(mut info) => {
                     // Since we do not store validation state for these paths, we only really care
                     // about reaching the same remote
                     self.off_path_challenges_unconfirmed
                         .retain(|_token, i| i.network_path.remote != info.network_path.remote);
-                    OnPathResponseReceived::OffPath
+                    info.network_path.update_local_if_same_remote(&network_path);
+                    OnPathResponseReceived::OffPath {
+                        validated_network_path: info.network_path,
+                    }
                 }
                 // Response to an unknown PathChallenge. Does not indicate failure
                 None => OnPathResponseReceived::Unknown,
@@ -602,17 +609,24 @@ impl PathData {
 }
 
 pub(super) enum OnPathResponseReceived {
-    /// This response validates the path on its current remote address.
-    OnPath { was_open: bool },
+    /// This response validates the current network path.
+    OnPath {
+        was_open: bool,
+        /// The FourTuple that was confirmed reachable (the one the challenge was sent on).
+        validated_network_path: FourTuple,
+    },
     /// This response is valid, but it's for a remote other than the path's current remote address.
-    OffPath,
+    OffPath {
+        /// The network path that was confirmed reachable (the one the off-path challenge was sent on).
+        validated_network_path: FourTuple,
+    },
+    /// The response is valid but it's not usable for this multipath path.
+    Ignored {
+        /// The FourTuple that was confirmed reachable (the one the challenge was sent on).
+        validated_network_path: FourTuple,
+    },
     /// The received token is unknown.
     Unknown,
-    /// The response is valid but it's not usable for path validation.
-    Ignored {
-        sent_on: FourTuple,
-        current_path: FourTuple,
-    },
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

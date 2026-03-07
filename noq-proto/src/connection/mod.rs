@@ -309,6 +309,10 @@ pub struct Connection {
     //    paths.  Or a set together with a minimum.  Or something.
     abandoned_paths: FxHashSet<PathId>,
 
+    /// Set of [`FourTuple`]s for which path validation (as defined in RFC9000 §8.2) has succeeded.
+    // TODO(@divma): this needs expiry or a max size.
+    validated_network_paths: ValidatedNetworkPaths,
+
     /// State for n0's (<https://n0.computer>) nat traversal protocol.
     n0_nat_traversal: n0_nat_traversal::State,
     qlog: QlogSink,
@@ -431,6 +435,7 @@ impl Connection {
             remote_max_path_id: PathId::ZERO,
             max_path_id_with_cids: PathId::ZERO,
             abandoned_paths: Default::default(),
+            validated_network_paths: Default::default(),
 
             n0_nat_traversal: Default::default(),
             qlog,
@@ -4628,7 +4633,13 @@ impl Connection {
                         .data
                         .on_path_response_received(now, response.0, network_path)
                     {
-                        OnPath { was_open } => {
+                        OnPath {
+                            was_open,
+                            validated_network_path,
+                        } => {
+                            debug!(%response, %validated_network_path, "on path response");
+                            self.validated_network_paths
+                                .insert(validated_network_path, now);
                             let qlog = self.qlog.with_time(now);
 
                             self.timers
@@ -4663,14 +4674,20 @@ impl Connection {
                                 prev.reset_on_path_challenges();
                             }
                         }
-                        OffPath => {
-                            debug!(%response, "Valid response to off-path PATH_CHALLENGE");
+                        OffPath {
+                            validated_network_path,
+                        } => {
+                            debug!(%response, %validated_network_path, "off path response");
+                            self.validated_network_paths
+                                .insert(validated_network_path, now)
                         }
                         Ignored {
-                            sent_on,
-                            current_path,
+                            validated_network_path,
                         } => {
-                            debug!(%sent_on, %current_path, %response, "ignoring valid PATH_RESPONSE")
+                            debug!(%response, %validated_network_path, "valid path response for oudated network path");
+
+                            self.validated_network_paths
+                                .insert(validated_network_path, now)
                         }
                         Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
@@ -6764,6 +6781,19 @@ impl fmt::Debug for Connection {
             .field("handshake_cid", &self.handshake_cid)
             .finish()
     }
+}
+
+#[derive(Debug, derive_more::Deref, derive_more::DerefMut, Default)]
+struct ValidatedNetworkPaths(FxHashMap<FourTuple, Instant>);
+
+impl ValidatedNetworkPaths {
+    fn insert(&mut self, network_path: FourTuple, now: Instant) {
+        if network_path.local_ip.is_some() && self.0.insert(network_path, now).is_none() {
+            debug!(%network_path, "network path validated");
+        }
+    }
+
+    // fn
 }
 
 /// Hints when the caller identifies a network change.
