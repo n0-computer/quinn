@@ -5786,7 +5786,7 @@ impl Connection {
 
         // CRYPTO
         while !is_0rtt
-            && (space_id < SpaceId::Data || scheduling_info.may_send_data)
+            && scheduling_info.may_send_data
             && builder.frame_space_remaining() > frame::Crypto::SIZE_BOUND
         {
             let mut frame = match space.pending.crypto.pop_front() {
