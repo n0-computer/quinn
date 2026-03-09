@@ -981,8 +981,8 @@ impl Connection {
                 return None;
             }
             StateType::Draining | StateType::Closed => {
-                // self.close is only reset once the associated packet had been
-                // encoded successfully
+                // self.connection_close_pending is only reset once the associated packet
+                // had been encoded successfully
                 if !self.connection_close_pending {
                     self.app_limited = true;
                     return None;
@@ -6861,6 +6861,10 @@ struct PathSchedulingInfo {
     /// abandoned and have no *better* spaces. However see to comments where this is
     /// populated for the exact packet scheduling implementation.
     may_send_data: bool,
+    /// Whether the path may send a CONNECTION_CLOSE frame.
+    ///
+    /// Is this a good idea?
+    may_send_close: bool,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
