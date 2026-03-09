@@ -1025,9 +1025,9 @@
 <a href=#1025 id=1025 data-nosnippet>1025</a>            <span class="self">self</span>.paths
 <a href=#1026 id=1026 data-nosnippet>1026</a>                .iter()
 <a href=#1027 id=1027 data-nosnippet>1027</a>                .map(|(path_id, path)| {
-<a href=#1028 id=1028 data-nosnippet>1028</a>                    <span class="kw">let </span>has_cids = <span class="self">self</span>.remote_cids.contains_key(<span class="kw-2">&amp;</span>path_id);
+<a href=#1028 id=1028 data-nosnippet>1028</a>                    <span class="kw">let </span>has_cids = <span class="self">self</span>.remote_cids.contains_key(path_id);
 <a href=#1029 id=1029 data-nosnippet>1029</a>                    <span class="kw">let </span>validated = path.data.validated;
-<a href=#1030 id=1030 data-nosnippet>1030</a>                    <span class="kw">let </span>abandoned = <span class="self">self</span>.abandoned_paths.contains(<span class="kw-2">&amp;</span>path_id);
+<a href=#1030 id=1030 data-nosnippet>1030</a>                    <span class="kw">let </span>abandoned = <span class="self">self</span>.abandoned_paths.contains(path_id);
 <a href=#1031 id=1031 data-nosnippet>1031</a>                    <span class="kw">let </span>status = path.data.local_status();
 <a href=#1032 id=1032 data-nosnippet>1032</a>
 <a href=#1033 id=1033 data-nosnippet>1033</a>                    <span class="comment">// This is the core packet scheduling, whether this space ID may send
@@ -1105,7 +1105,7 @@
 <a href=#1105 id=1105 data-nosnippet>1105</a>                buf,
 <a href=#1106 id=1106 data-nosnippet>1106</a>                path_id,
 <a href=#1107 id=1107 data-nosnippet>1107</a>                max_datagrams,
-<a href=#1108 id=1108 data-nosnippet>1108</a>                <span class="kw-2">&amp;</span>info,
+<a href=#1108 id=1108 data-nosnippet>1108</a>                info,
 <a href=#1109 id=1109 data-nosnippet>1109</a>                connection_close_pending,
 <a href=#1110 id=1110 data-nosnippet>1110</a>            ) {
 <a href=#1111 id=1111 data-nosnippet>1111</a>                PollPathStatus::Send(transmit) =&gt; {
