@@ -1020,9 +1020,9 @@ impl Connection {
             self.paths
                 .iter()
                 .map(|(path_id, path)| {
-                    let has_cids = self.remote_cids.contains_key(&path_id);
+                    let has_cids = self.remote_cids.contains_key(path_id);
                     let validated = path.data.validated;
-                    let abandoned = self.abandoned_paths.contains(&path_id);
+                    let abandoned = self.abandoned_paths.contains(path_id);
                     let status = path.data.local_status();
 
                     // This is the core packet scheduling, whether this space ID may send
@@ -1100,7 +1100,7 @@ impl Connection {
                 buf,
                 path_id,
                 max_datagrams,
-                &info,
+                info,
                 connection_close_pending,
             ) {
                 PollPathStatus::Send(transmit) => {
