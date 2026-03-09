@@ -5800,7 +5800,7 @@
 <a href=#5800 id=5800 data-nosnippet>5800</a>
 <a href=#5801 id=5801 data-nosnippet>5801</a>        <span class="comment">// CRYPTO
 <a href=#5802 id=5802 data-nosnippet>5802</a>        </span><span class="kw">while </span>!is_0rtt
-<a href=#5803 id=5803 data-nosnippet>5803</a>            &amp;&amp; (space_id &lt; SpaceId::Data || scheduling_info.may_send_data)
+<a href=#5803 id=5803 data-nosnippet>5803</a>            &amp;&amp; scheduling_info.may_send_data
 <a href=#5804 id=5804 data-nosnippet>5804</a>            &amp;&amp; builder.frame_space_remaining() &gt; frame::Crypto::SIZE_BOUND
 <a href=#5805 id=5805 data-nosnippet>5805</a>        {
 <a href=#5806 id=5806 data-nosnippet>5806</a>            <span class="kw">let </span><span class="kw-2">mut </span>frame = <span class="kw">match </span>space.pending.crypto.pop_front() {
