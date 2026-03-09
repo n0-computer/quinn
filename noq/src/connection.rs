@@ -1458,14 +1458,14 @@ impl State {
                     self.buffered_transmit = Some(t);
                     return Ok(false);
                 }
-                Poll::Ready(Err(e)) => {
-                    // Treat send errors as dropped packets rather than
-                    // killing the connection. UDP is unreliable by nature,
-                    // and transient errors (e.g. ENOMEM on embedded lwIP)
-                    // should not terminate a QUIC connection. If the socket
-                    // is truly dead, QUIC idle timeout will clean up.
+                Poll::Ready(Err(e)) if is_transient_send_error(&e) => {
+                    // Treat transient send errors as dropped packets rather
+                    // than killing the connection. UDP is unreliable by
+                    // nature, and errors like ENOMEM or ENETUNREACH should
+                    // not terminate a QUIC connection.
                     tracing::debug!("UDP send error (packet dropped): {e}");
                 }
+                Poll::Ready(Err(e)) => return Err(e),
                 Poll::Ready(Ok(())) => {}
             }
 
@@ -1837,3 +1837,11 @@ const MAX_TRANSMIT_DATAGRAMS: usize = 20;
 /// memory allocations when calling `poll_transmit()`. Benchmarks have shown
 /// that numbers around 10 are a good compromise.
 const MAX_TRANSMIT_SEGMENTS: NonZeroUsize = NonZeroUsize::new(10).expect("known");
+
+/// Whether a UDP send error is transient and can be treated as a dropped packet.
+///
+/// Permanent errors like `EBADF` or `ENOTSOCK` indicate a fundamentally broken
+/// socket and should be propagated to tear down the connection immediately.
+fn is_transient_send_error(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::OutOfMemory
+}
