@@ -1054,11 +1054,25 @@ impl Connection {
                                 }
                             }
                         };
+                    // CONNECTION_CLOSE is allowed to be sent on an non-validated
+                    // path. Particularly during the handshake we want to send it before the
+                    // path is validated. Later if there is no validated path available we
+                    // will also accept sending it on an un-validated path.
+                    let may_send_close = has_cids
+                        && !abandoned
+                        && if !validated && have_validated_status_available_space {
+                            // We have a better space to send on.
+                            false
+                        } else {
+                            // No other validated space, this is as good as it gets.
+                            true
+                        };
                     (
                         *path_id,
                         PathSchedulingInfo {
                             abandoned,
                             may_send_data,
+                            may_send_close,
                         },
                     )
                 })
@@ -1354,6 +1368,9 @@ impl Connection {
                     // Currently we don't send on an abandoned path, PATH_ABANDON is always
                     // sent on a different path.
                     false
+                } else if can_send.close && scheduling_info.may_send_close {
+                    // This is the best path to send a CONNECTION_CLOSE on.
+                    true
                 } else if needs_loss_probe {
                     // We always send if a loss probe if the path is not abandoned.
                     true
@@ -6860,10 +6877,17 @@ struct PathSchedulingInfo {
     /// Roughly speaking data frames are only sent on spaces that have CIDs, are not
     /// abandoned and have no *better* spaces. However see to comments where this is
     /// populated for the exact packet scheduling implementation.
+    ///
+    /// This is essentially marks this paths as the best validated space ID, though other
+    /// paths could be qually good. Except during the handshake in which case it does not
+    /// need to be validated. Note that once in the closed or draining states this will
+    /// never be true.
     may_send_data: bool,
     /// Whether the path may send a CONNECTION_CLOSE frame.
     ///
-    /// Is this a good idea?
+    /// This is essentially marks this path as the best validated space ID with a fallback
+    /// to unvalidated spaces if there are no validated spaces. Though other paths could be
+    /// equally good.
     may_send_close: bool,
 }
 
