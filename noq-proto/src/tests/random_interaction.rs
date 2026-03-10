@@ -5,7 +5,7 @@ use std::{
 
 use bytes::Bytes;
 use test_strategy::Arbitrary;
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::{
     Connection, ConnectionHandle, Dir, FourTuple, PathId, PathStatus, Side, StreamId,
@@ -330,12 +330,12 @@ pub(super) fn run_random_interaction(
     client_cfg.transport = Arc::new(transport_config);
     let (client_ch, server_ch) = pair.connect_with(client_cfg);
     pair.drive(); // finish establishing the connection;
-    debug!("INTERACTION SETUP FINISHED");
+    info!("INTERACTION SETUP FINISHED");
     let mut client = State::new(Side::Client, client_ch);
     let mut server = State::new(Side::Server, server_ch);
 
     for interaction in interactions {
-        debug!(?interaction, "INTERACTION STEP");
+        info!(?interaction, "INTERACTION STEP");
         interaction.run(pair, &mut client, &mut server);
     }
     (client.handle, server.handle)

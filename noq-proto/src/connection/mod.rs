@@ -1016,7 +1016,6 @@ impl Connection {
                     && path.data.local_status() == PathStatus::Available
             });
             let is_handshaking = self.is_handshaking();
-            tracing::warn!(?is_handshaking);
             self.paths
                 .iter()
                 .map(|(path_id, path)| {
@@ -1383,7 +1382,6 @@ impl Connection {
                     !can_send.is_empty() && scheduling_info.may_send_data
                 }
             };
-            tracing::warn!(?can_send, ?scheduling_info, ?space_will_send, "checking");
 
             if !space_will_send {
                 // Nothing more to send. Previous iterations of this loop may have built
