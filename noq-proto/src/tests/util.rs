@@ -1302,7 +1302,7 @@ impl RoutingTable {
         }
     }
 
-    /// Each interface has an outgoing link to the same index of the peer.
+    /// Each interface has an outgoing link to the peer's interface with the same index.
     ///
     /// This produces a routing table where each link is bi-directional (or symmetric) and
     /// connected to the corresponding index of the peer interfaces.
