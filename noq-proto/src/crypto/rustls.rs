@@ -287,6 +287,7 @@ pub struct HandshakeData {
 ///
 /// [root_certs]: crate::config::ClientConfig::with_root_certificates()
 /// [platform]: crate::config::ClientConfig::try_with_platform_verifier()
+#[derive(Clone)] // cheap clone: Only one arc clone and some copied pointers
 pub struct QuicClientConfig {
     pub(crate) inner: Arc<rustls::ClientConfig>,
     initial: Suite,
@@ -361,7 +362,7 @@ impl QuicClientConfig {
 
 impl crypto::ClientConfig for QuicClientConfig {
     fn start_session(
-        self: Arc<Self>,
+        &self,
         version: u32,
         server_name: &str,
         params: &TransportParameters,
@@ -443,6 +444,7 @@ impl std::error::Error for NoInitialCipherSuite {}
 /// - The `rustls::ServerConfig` must have TLS 1.3 support enabled for conversion to succeed.
 ///
 /// [single]: crate::config::ServerConfig::with_single_cert()
+#[derive(Clone)] // clone is cheap: Just an Arc clone and some copied pointers
 pub struct QuicServerConfig {
     inner: Arc<rustls::ServerConfig>,
     initial: Suite,
@@ -519,7 +521,7 @@ impl TryFrom<Arc<rustls::ServerConfig>> for QuicServerConfig {
 
 impl crypto::ServerConfig for QuicServerConfig {
     fn start_session(
-        self: Arc<Self>,
+        &self,
         version: u32,
         params: &TransportParameters,
     ) -> Box<dyn crypto::Session> {

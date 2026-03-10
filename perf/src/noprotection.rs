@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bytes::BytesMut;
 
 use noq_proto::{
@@ -42,22 +40,24 @@ impl NoProtectionPacketKey {
     }
 }
 
+#[derive(Clone)]
 pub struct NoProtectionClientConfig {
-    inner: Arc<QuicClientConfig>,
+    inner: QuicClientConfig,
 }
 
 impl NoProtectionClientConfig {
-    pub fn new(config: Arc<QuicClientConfig>) -> Self {
+    pub fn new(config: QuicClientConfig) -> Self {
         Self { inner: config }
     }
 }
 
+#[derive(Clone)]
 pub struct NoProtectionServerConfig {
-    inner: Arc<QuicServerConfig>,
+    inner: QuicServerConfig,
 }
 
 impl NoProtectionServerConfig {
-    pub fn new(config: Arc<QuicServerConfig>) -> Self {
+    pub fn new(config: QuicServerConfig) -> Self {
         Self { inner: config }
     }
 }
@@ -131,7 +131,7 @@ impl crypto::Session for NoProtectionSession {
 
 impl crypto::ClientConfig for NoProtectionClientConfig {
     fn start_session(
-        self: std::sync::Arc<Self>,
+        &self,
         version: u32,
         server_name: &str,
         params: &transport_parameters::TransportParameters,
@@ -159,11 +159,11 @@ impl crypto::ServerConfig for NoProtectionServerConfig {
     }
 
     fn start_session(
-        self: Arc<Self>,
+        &self,
         version: u32,
         params: &transport_parameters::TransportParameters,
     ) -> Box<dyn crypto::Session> {
-        let tls = self.inner.clone().start_session(version, params);
+        let tls = self.inner.start_session(version, params);
 
         Box::new(NoProtectionSession::new(tls))
     }

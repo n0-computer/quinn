@@ -8,7 +8,7 @@
 //! Note that usage of any protocol (version) other than TLS 1.3 does not conform to any
 //! published versions of the specification, and will not be supported in QUIC v1.
 
-use std::{any::Any, str, sync::Arc};
+use std::{any::Any, str};
 
 use bytes::BytesMut;
 
@@ -127,7 +127,7 @@ impl Keys {
 pub trait ClientConfig: Send + Sync {
     /// Start a client session with this configuration
     fn start_session(
-        self: Arc<Self>,
+        &self,
         version: u32,
         server_name: &str,
         params: &TransportParameters,
@@ -150,11 +150,7 @@ pub trait ServerConfig: Send + Sync {
     /// Start a server session with this configuration
     ///
     /// Never called if `initial_keys` rejected `version`.
-    fn start_session(
-        self: Arc<Self>,
-        version: u32,
-        params: &TransportParameters,
-    ) -> Box<dyn Session>;
+    fn start_session(&self, version: u32, params: &TransportParameters) -> Box<dyn Session>;
 }
 
 /// Keys used to protect packet payloads
