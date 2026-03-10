@@ -478,6 +478,12 @@ impl QuicServerConfig {
         }
     }
 
+    /// Updates the set of ALPN protocols configured in the server config.
+    pub fn set_alpn_protocols(&mut self, alpn_protocols: Vec<Vec<u8>>) {
+        let config = Arc::make_mut(&mut self.inner);
+        config.alpn_protocols = alpn_protocols;
+    }
+
     /// Initialize a sane QUIC-compatible TLS server configuration
     ///
     /// QUIC requires that TLS 1.3 be enabled, and that the maximum early data size is either 0 or
