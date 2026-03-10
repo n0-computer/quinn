@@ -167,6 +167,10 @@ impl crypto::ServerConfig for NoProtectionServerConfig {
 
         Box::new(NoProtectionSession::new(tls))
     }
+
+    fn set_alpn_protocols(&mut self, alpn_protocols: Vec<Vec<u8>>) {
+        self.inner.set_alpn_protocols(alpn_protocols);
+    }
 }
 
 // forward all calls to inner except those related to packet encryption/decryption

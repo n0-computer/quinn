@@ -151,6 +151,9 @@ pub trait ServerConfig: Send + Sync {
     ///
     /// Never called if `initial_keys` rejected `version`.
     fn start_session(&self, version: u32, params: &TransportParameters) -> Box<dyn Session>;
+
+    /// Updates the set of allowed ALPN protocols for this config.
+    fn set_alpn_protocols(&mut self, alpn_protocols: Vec<Vec<u8>>);
 }
 
 /// Keys used to protect packet payloads
