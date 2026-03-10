@@ -569,11 +569,6 @@ impl crypto::ServerConfig for QuicServerConfig {
             .unwrap();
         tag.into()
     }
-
-    fn set_alpn_protocols(&mut self, alpn_protocols: Vec<Vec<u8>>) {
-        let config = Arc::make_mut(&mut self.inner);
-        config.alpn_protocols = alpn_protocols;
-    }
 }
 
 pub(crate) fn initial_suite_from_provider(
