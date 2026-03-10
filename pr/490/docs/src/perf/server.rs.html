@@ -67,10 +67,10 @@
 <a href=#67 id=67 data-nosnippet>67</a>        </span><span class="string">"perf-server"</span>,
 <a href=#68 id=68 data-nosnippet>68</a>    )<span class="question-mark">?</span>;
 <a href=#69 id=69 data-nosnippet>69</a>
-<a href=#70 id=70 data-nosnippet>70</a>    <span class="kw">let </span>crypto = Arc::new(QuicServerConfig::try_from(crypto)<span class="question-mark">?</span>);
+<a href=#70 id=70 data-nosnippet>70</a>    <span class="kw">let </span>crypto = QuicServerConfig::try_from(crypto)<span class="question-mark">?</span>;
 <a href=#71 id=71 data-nosnippet>71</a>    <span class="kw">let </span><span class="kw-2">mut </span>config = noq::ServerConfig::with_crypto(<span class="kw">match </span>opt.common.no_protection {
 <a href=#72 id=72 data-nosnippet>72</a>        <span class="bool-val">true </span>=&gt; Arc::new(NoProtectionServerConfig::new(crypto)),
-<a href=#73 id=73 data-nosnippet>73</a>        <span class="bool-val">false </span>=&gt; crypto,
+<a href=#73 id=73 data-nosnippet>73</a>        <span class="bool-val">false </span>=&gt; Arc::new(crypto),
 <a href=#74 id=74 data-nosnippet>74</a>    });
 <a href=#75 id=75 data-nosnippet>75</a>    config.transport_config(Arc::new(transport));
 <a href=#76 id=76 data-nosnippet>76</a>
