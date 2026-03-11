@@ -38,20 +38,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(any(all(unix, not(posix_minimal)), windows))]
+#[cfg(any(unix, windows))]
 mod cmsg;
 
-#[cfg(all(unix, not(posix_minimal)))]
+#[cfg(unix)]
 #[path = "unix.rs"]
 mod imp;
 
 #[cfg(windows)]
 #[path = "windows.rs"]
-mod imp;
-
-// Minimal POSIX UDP for platforms without advanced socket APIs (cmsg, GSO, GRO)
-#[cfg(posix_minimal)]
-#[path = "posix_minimal.rs"]
 mod imp;
 
 #[allow(unused_imports, unused_macros)]
