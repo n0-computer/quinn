@@ -877,7 +877,7 @@ impl Connection {
     /// Find an open, validated path that's on the same network path as the given network path.
     ///
     /// Returns the first path matching, even if there's multiple.
-    fn find_validated_path_on_network_path(
+    fn find_address_validated_path_on_network_path(
         &self,
         network_path: FourTuple,
     ) -> Option<(&PathId, &PathState)> {
@@ -887,9 +887,6 @@ impl Connection {
                 && network_path.is_probably_same_path(&path_state.data.network_path)
                 && !self.abandoned_paths.contains(path_id)
         })
-        // TODO(@divma): we might want to ensure the path has been recently active to consider the
-        // address validated
-        // matheus23: Perhaps looking at !self.abandoned_paths.contains(path_id) is enough, given keep-alives?
     }
 
     /// Creates the [`PathData`] for a new [`PathId`].
@@ -902,9 +899,10 @@ impl Connection {
         now: Instant,
         pn: Option<u64>,
     ) -> &mut PathData {
-        let valid_path = self.find_validated_path_on_network_path(network_path);
-        let validated = valid_path.is_some();
-        let initial_rtt = valid_path.map(|(_, path)| path.data.rtt.conservative());
+        let initial_rtt = self
+            .find_address_validated_path_on_network_path(network_path)
+            .map(|(_, path)| path.data.rtt.conservative());
+
         let vacant_entry = match self.paths.entry(path_id) {
             btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
             btree_map::Entry::Occupied(occupied_entry) => {
@@ -912,7 +910,10 @@ impl Connection {
             }
         };
 
-        debug!(%validated, %path_id, %network_path, "path added");
+        let remote_address_validated = self
+            .validated_network_paths
+            .is_remote_address_validated(network_path);
+        debug!(%remote_address_validated, %path_id, %network_path, "path added");
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
         self.path_generation_counter = self.path_generation_counter.wrapping_add(1);
@@ -925,7 +926,7 @@ impl Connection {
             &self.config,
         );
 
-        data.remote_address_validated = validated;
+        data.remote_address_validated = remote_address_validated;
         if let Some(initial_rtt) = initial_rtt {
             data.rtt.reset_initial_rtt(initial_rtt);
         }
@@ -5265,6 +5266,9 @@ impl Connection {
                 addr: updated,
             }));
         }
+        new_path_data.remote_address_validated = self
+            .validated_network_paths
+            .is_remote_address_validated(network_path);
         new_path_data.pending_on_path_challenge = true;
 
         let mut prev_path_data = mem::replace(&mut path.data, new_path_data);
@@ -6793,7 +6797,11 @@ impl ValidatedNetworkPaths {
         }
     }
 
-    // fn
+    fn is_remote_address_validated(&self, network_path: FourTuple) -> bool {
+        self.0
+            .keys()
+            .any(|validated_network_path| validated_network_path.remote == network_path.remote)
+    }
 }
 
 /// Hints when the caller identifies a network change.
