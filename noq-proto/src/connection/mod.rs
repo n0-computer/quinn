@@ -1048,7 +1048,7 @@ impl Connection {
                                     true
                                 }
                                 PathStatus::Backup => {
-                                    // If there is an status-available path we prefer that.
+                                    // If there is a status-available path we prefer that.
                                     !have_validated_status_available_space
                                 }
                             }
