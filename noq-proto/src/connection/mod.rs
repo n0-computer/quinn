@@ -1368,7 +1368,7 @@ impl Connection {
                     // This is the best path to send a CONNECTION_CLOSE on.
                     true
                 } else if needs_loss_probe {
-                    // We always send if a loss probe if the path is not abandoned.
+                    // We always send a loss probe if the path is not abandoned.
                     true
                 } else if can_send.space_id_only {
                     // We always send space-specific frames if not abandoned.
