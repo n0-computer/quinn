@@ -10,13 +10,13 @@ fail-fast = false
 #    cargo nextest run --ignore-default-filter -E 'test(~proptest::)'
 # Or use the proptests profile below which has a longer slow-timeout:
 #    PROPTEST_CASES=10000 cargo nextest run -P proptests
-default-filter = 'not test(~proptest::)'
+default-filter = 'not test(~proptests::)'
 
 [profile.proptests]
 # Select this profile with -P proptests
 # To give proptests a proper spin, run with PROPTEST_CASES=10000
 slow-timeout = '300s'
-default-filter = 'test(~proptest::)'
+default-filter = 'test(~proptests::)'
 
 [profile.ci]
 slow-timeout = { period = "5s", terminate-after = 3 }
