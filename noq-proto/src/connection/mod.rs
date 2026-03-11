@@ -5753,6 +5753,7 @@ impl Connection {
             && let Some(token) = path.path_responses.pop_on_path(path.network_path)
         {
             let response = frame::PathResponse(token);
+            trace!(frame = %response);
             builder.write_frame(response, stats);
             builder.require_padding();
 
