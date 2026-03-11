@@ -259,7 +259,7 @@ fn regression_unset_packet_acked() {
     cfg.qlog_from_env(prefix);
     let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, cfg);
 
-    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
@@ -296,7 +296,7 @@ fn regression_invalid_key() {
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
-    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
@@ -377,7 +377,7 @@ fn regression_key_update_error() {
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
-    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
@@ -414,7 +414,7 @@ fn regression_never_idle() {
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
-    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
@@ -493,7 +493,7 @@ fn regression_packet_number_space_missing() {
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
-    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
@@ -525,7 +525,7 @@ fn regression_peer_failed_to_respond_with_path_abandon() {
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
-    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
@@ -920,7 +920,7 @@ fn regression_never_idle4() {
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
-    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));

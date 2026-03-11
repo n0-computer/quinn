@@ -5,7 +5,7 @@ use std::{
 
 use bytes::Bytes;
 use test_strategy::Arbitrary;
-use tracing::{debug, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::{
     Connection, ConnectionHandle, Dir, FourTuple, PathId, PathStatus, Side, StreamId,
@@ -168,7 +168,9 @@ impl TestOp {
                     remote,
                     local_ip: None,
                 };
-                conn.open_path(network_path, status, now).ok();
+                conn.open_path(network_path, status, now)
+                    .inspect_err(|err| error!(?err, "OpenPath failed"))
+                    .ok();
             }
             Self::ClosePath {
                 side,
@@ -181,7 +183,9 @@ impl TestOp {
                 };
                 let conn = state.conn(pair)?;
                 let path_id = get_path_id(conn, path_idx)?;
-                conn.close_path(now, path_id, error_code.into()).ok();
+                conn.close_path(now, path_id, error_code.into())
+                    .inspect_err(|err| error!(?err, "ClosePath failed"))
+                    .ok();
             }
             Self::PathSetStatus {
                 side,
@@ -194,7 +198,9 @@ impl TestOp {
                 };
                 let conn = state.conn(pair)?;
                 let path_id = get_path_id(conn, path_idx)?;
-                conn.set_path_status(path_id, status).ok();
+                conn.set_path_status(path_id, status)
+                    .inspect_err(|err| error!(?err, "PathSetStatus failed"))
+                    .ok();
             }
             Self::StreamOp { side, stream_op } => {
                 let state = match side {
@@ -222,7 +228,9 @@ impl TestOp {
                     Side::Server => server,
                 };
                 let conn = state.conn(pair)?;
-                conn.add_nat_traversal_address(address).ok();
+                conn.add_nat_traversal_address(address)
+                    .inspect_err(|err| error!(?err, "AddHpAddr failed"))
+                    .ok();
             }
             Self::InitiateHpRound { side } => {
                 let state = match side {
@@ -230,7 +238,10 @@ impl TestOp {
                     Side::Server => server,
                 };
                 let conn = state.conn(pair)?;
-                let addrs = conn.initiate_nat_traversal_round(now).ok()?;
+                let addrs = conn
+                    .initiate_nat_traversal_round(now)
+                    .inspect_err(|err| error!(?err, "InitiateHpRound failed"))
+                    .ok()?;
                 trace!(?addrs, "initiating NAT Traversal");
             }
         }
@@ -330,12 +341,12 @@ pub(super) fn run_random_interaction(
     client_cfg.transport = Arc::new(transport_config);
     let (client_ch, server_ch) = pair.connect_with(client_cfg);
     pair.drive(); // finish establishing the connection;
-    debug!("INTERACTION SETUP FINISHED");
+    info!("INTERACTION SETUP FINISHED");
     let mut client = State::new(Side::Client, client_ch);
     let mut server = State::new(Side::Server, server_ch);
 
     for interaction in interactions {
-        debug!(?interaction, "INTERACTION STEP");
+        info!(?interaction, "INTERACTION STEP");
         interaction.run(pair, &mut client, &mut server);
     }
     (client.handle, server.handle)
