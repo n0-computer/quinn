@@ -5,7 +5,7 @@ use std::{
 
 use bytes::Bytes;
 use test_strategy::Arbitrary;
-use tracing::{debug, info, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::{
     Connection, ConnectionHandle, Dir, FourTuple, PathId, PathStatus, Side, StreamId,
@@ -181,7 +181,9 @@ impl TestOp {
                 };
                 let conn = state.conn(pair)?;
                 let path_id = get_path_id(conn, path_idx)?;
-                conn.close_path(now, path_id, error_code.into()).ok();
+                conn.close_path(now, path_id, error_code.into())
+                    .map_err(|err| error!(?err, "failed to close path"))
+                    .ok();
             }
             Self::PathSetStatus {
                 side,
