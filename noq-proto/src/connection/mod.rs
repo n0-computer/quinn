@@ -660,6 +660,8 @@ impl Connection {
             }
         }
 
+        trace!(%path_id, ?reason, "closing path");
+
         // Send PATH_ABANDON
         self.spaces[SpaceId::Data]
             .pending
@@ -1849,7 +1851,13 @@ impl Connection {
         if can_send.other && !need_loss_probe && !can_send.close {
             let path = self.path_data(path_id);
             if path.in_flight.bytes + bytes_to_send >= path.congestion.window() {
-                trace!(?space_id, %path_id, "blocked by congestion control");
+                trace!(
+                    ?space_id,
+                    %path_id,
+                    in_flight=%path.in_flight.bytes,
+                    congestion_window=%path.congestion.window(),
+                    "blocked by congestion control",
+                );
                 return PathBlocked::Congestion;
             }
         }
@@ -5753,7 +5761,6 @@ impl Connection {
             && let Some(token) = path.path_responses.pop_on_path(path.network_path)
         {
             let response = frame::PathResponse(token);
-            trace!(frame = %response);
             builder.write_frame(response, stats);
             builder.require_padding();
 
