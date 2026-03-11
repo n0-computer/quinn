@@ -660,8 +660,6 @@ impl Connection {
             }
         }
 
-        trace!(%path_id, ?reason, "closing path");
-
         // Send PATH_ABANDON
         self.spaces[SpaceId::Data]
             .pending
@@ -983,8 +981,8 @@ impl Connection {
                 return None;
             }
             StateType::Draining | StateType::Closed => {
-                // self.connection_close_pending is only reset once the associated packet
-                // had been encoded successfully
+                // self.close is only reset once the associated packet had been
+                // encoded successfully
                 if !self.connection_close_pending {
                     self.app_limited = true;
                     return None;
