@@ -60,7 +60,7 @@ jobs:
         run: cargo test --locked -p noq-udp
 
   esp32_check:
-    name: ESP32-C3 build check (noq-udp)
+    name: ESP32-C3 build check (noq-udp, noq-proto, noq)
     if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
     timeout-minutes: 30
     runs-on: ubuntu-latest
