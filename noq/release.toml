@@ -1,0 +1,3 @@
+release = true
+tag-prefix = "noq-"
+pre-release-hook = ["git", "cliff", "--workdir", "../", "-o", "../CHANGELOG.md", "--tag", "{{version}}"]

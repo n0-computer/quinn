@@ -176,6 +176,10 @@ fn random_interaction_with_multipath_complex_routing(
     )));
 }
 
+/// All outgoing links go to first destination interface.
+///
+/// Client and server have multiple interfaces, but all outgoing links go to the first
+/// interface of defined for the peer.
 fn old_routing_table() -> RoutingTable {
     let mut routes = RoutingTable::simple_symmetric([CLIENT_ADDRS[0]], [SERVER_ADDRS[0]]);
     for addr in CLIENT_ADDRS.into_iter().skip(1) {

@@ -418,7 +418,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bench"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1763,7 +1763,7 @@ dependencies = [
 
 [[package]]
 name = "noq"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-executor",
@@ -1805,7 +1805,7 @@ dependencies = [
 
 [[package]]
 name = "noq-proto"
-version = "0.15.1"
+version = "0.16.0"
 dependencies = [
  "aes-gcm",
  "arbitrary",
@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "noq-udp"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "cfg_aliases",
  "criterion",
@@ -1976,7 +1976,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "perf"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytes",

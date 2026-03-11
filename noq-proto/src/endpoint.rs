@@ -630,7 +630,7 @@ impl Endpoint {
             });
         }
 
-        let tls = server_config.crypto.clone().start_session(version, &params);
+        let tls = server_config.crypto.start_session(version, &params);
         let transport_config = server_config.transport.clone();
         let mut conn = self.add_connection(
             ch,
