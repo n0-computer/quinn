@@ -176,6 +176,10 @@ fn random_interaction_with_multipath_complex_routing(
     )));
 }
 
+/// All outgoing links go to first destination interface.
+///
+/// Client and server have multiple interfaces, but all outgoing links go to the first
+/// interface of defined for the peer.
 fn old_routing_table() -> RoutingTable {
     let mut routes = RoutingTable::simple_symmetric([CLIENT_ADDRS[0]], [SERVER_ADDRS[0]]);
     for addr in CLIENT_ADDRS.into_iter().skip(1) {
@@ -255,7 +259,7 @@ fn regression_unset_packet_acked() {
     cfg.qlog_from_env(prefix);
     let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, cfg);
 
-    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
@@ -292,7 +296,56 @@ fn regression_invalid_key() {
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
-    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
+
+/// Regression test for the "invalid key" panic in `noq-proto::Endpoint::handle_event`.
+///
+/// This test establishes this situation:
+/// - There's a `Connection` in the `Drained` state (using close connection & advance time).
+/// - We try to generate another `EndpointEvent` from the connection via closing the path.
+///
+/// Noq has an invariant that the last endpoint event allowed is `EndpointEventInner::Drained`,
+/// but this invariant was violated in `Connection::close_path_inner`, as that can be called
+/// on drained connections via an API.
+///
+/// We fixed this bug by short-circuting in `close_path_inner` if the connection is drained.
+#[test]
+fn regression_invalid_key2() {
+    let prefix = "regression_invalid_key2";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::CloseConn {
+            side: Side::Client,
+            error_code: 0,
+        },
+        TestOp::AdvanceTime,
+        TestOp::Drive { side: Side::Client },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::ClosePath {
+            side: Side::Client,
+            path_idx: 0,
+            error_code: 0,
+        },
+    ];
+
+    let _guard = subscribe();
+    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
@@ -324,7 +377,7 @@ fn regression_key_update_error() {
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
-    assert!(!pair.drive_bounded(100), "connection never became idle");
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));

@@ -630,6 +630,10 @@ impl Connection {
         path_id: PathId,
         reason: PathAbandonReason,
     ) -> Result<(), ClosePathError> {
+        if self.state.is_drained() {
+            return Ok(());
+        }
+
         if !self.is_multipath_negotiated() {
             return Err(ClosePathError::MultipathNotNegotiated);
         }
@@ -660,6 +664,8 @@ impl Connection {
             }
         }
 
+        trace!(%path_id, ?reason, "closing path");
+
         // Send PATH_ABANDON
         self.spaces[SpaceId::Data]
             .pending
@@ -689,6 +695,7 @@ impl Connection {
         // to-be-abandoned path.  However it is recommended to send it on another path, and
         // we do not allow abandoning the last path anyway.
         self.remote_cids.remove(&path_id);
+        debug_assert!(!self.state.is_drained()); // requirement for endpoint_events, checked above
         self.endpoint_events
             .push_back(EndpointEventInner::RetireResetToken(path_id));
 
@@ -981,8 +988,8 @@ impl Connection {
                 return None;
             }
             StateType::Draining | StateType::Closed => {
-                // self.close is only reset once the associated packet had been
-                // encoded successfully
+                // self.connection_close_pending is only reset once the associated packet
+                // had been encoded successfully
                 if !self.connection_close_pending {
                     self.app_limited = true;
                     return None;
@@ -2252,6 +2259,8 @@ impl Connection {
                 Timer::Conn(timer) => match timer {
                     ConnTimer::Close => {
                         self.state.move_to_drained(None);
+                        // move_to_drained checks that we weren't in drained before.
+                        // Adding events to endpoint_events is only legal if `Drained` was never queued before.
                         self.endpoint_events.push_back(EndpointEventInner::Drained);
                     }
                     ConnTimer::Idle => {
@@ -2370,6 +2379,7 @@ impl Connection {
                             // remaining state and install stateless reset token.
                             self.timers.stop_per_path(path_id, self.qlog.with_time(now));
                             if let Some(local_cid_state) = self.local_cid_state.remove(&path_id) {
+                                debug_assert!(!self.state.is_drained()); // requirement for endpoint_events. All timers should be cleared in drained connections.
                                 let (min_seq, max_seq) = local_cid_state.active_seq();
                                 for seq in min_seq..=max_seq {
                                     self.endpoint_events.push_back(
@@ -4361,8 +4371,8 @@ impl Connection {
                         }
                     }
                     if let Some(token) = params.stateless_reset_token {
-                        // TODO(matheus23): Reset token for a remote, or for a 4-tuple?
                         let remote = self.path_data(path_id).network_path.remote;
+                        debug_assert!(!self.state.is_drained()); // requirement for endpoint events, checked above
                         self.endpoint_events
                             .push_back(EndpointEventInner::ResetToken(path_id, remote, token));
                     }
@@ -4785,6 +4795,7 @@ impl Connection {
                             let has_path = !self.abandoned_paths.contains(&path_id);
                             let allow_more_cids = allow_more_cids && has_path;
 
+                            debug_assert!(!self.state.is_drained()); // required for adding endpoint events, process_payload is never called for drained connections
                             self.endpoint_events
                                 .push_back(EndpointEventInner::RetireConnectionId(
                                     now,
@@ -4860,7 +4871,6 @@ impl Connection {
                                 ));
                             }
                             pending_retired.extend(retired.map(|seq| (path_id, seq)));
-                            // TODO(matheus23): Reset token for a remote or a full 4-tuple?
                             self.set_reset_token(path_id, network_path.remote, reset_token);
                         }
                         Err(InsertError::ExceedsLimit) => {
@@ -5335,6 +5345,9 @@ impl Connection {
     // lacking <https://github.com/n0-computer/noq/issues/364>
     pub fn handle_network_change(&mut self, hint: Option<&dyn NetworkChangeHint>, now: Instant) {
         debug!("network changed");
+        if self.state.is_drained() {
+            return;
+        }
         if self.highest_space < SpaceKind::Data {
             for path in self.paths.values_mut() {
                 // Clear the local address for it to be obtained from the socket again.
@@ -5460,6 +5473,7 @@ impl Connection {
                 .retire_cids
                 .extend(retired.map(|seq| (path_id, seq)));
 
+            debug_assert!(!self.state.is_drained()); // required for endpoint_events, checked above
             self.endpoint_events
                 .push_back(EndpointEventInner::ResetToken(path_id, remote, reset_token));
         }
@@ -5493,6 +5507,7 @@ impl Connection {
     /// Reset tokens are different for each path, the endpoint identifies paths by peer
     /// socket address however, not by path ID.
     fn set_reset_token(&mut self, path_id: PathId, remote: SocketAddr, reset_token: ResetToken) {
+        debug_assert!(!self.state.is_drained()); // required for endpoint events, set_reset_token is never called for drained connections
         self.endpoint_events
             .push_back(EndpointEventInner::ResetToken(path_id, remote, reset_token));
 
@@ -5526,6 +5541,7 @@ impl Connection {
             // We also sent a CID in the transport parameters
             n -= 1;
         }
+        debug_assert!(!self.state.is_drained()); // requirement for endpoint_events
         self.endpoint_events
             .push_back(EndpointEventInner::NeedIdentifiers(PathId::ZERO, now, n));
     }
@@ -6208,19 +6224,19 @@ impl Connection {
                         if max_initial_paths.as_u32() < max_remote_addresses as u32 + 1 {
                             // in this case the client might try to open `max_remote_addresses` new
                             // paths, but the current multipath configuration will not allow it
-                            warn!(%max_initial_paths, %max_remote_addresses, "local client configuration might cause nat traversal issues")
+                            debug!(%max_initial_paths, %max_remote_addresses, "local client configuration might cause nat traversal issues")
                         } else if max_local_addresses as u64
                             > params.active_connection_id_limit.into_inner()
                         {
                             // the server allows us to send at most `params.active_connection_id_limit`
                             // but they might need at least `max_local_addresses` to effectively send
                             // `PATH_CHALLENGE` frames to each advertised local address
-                            warn!(%max_local_addresses, remote_cid_limit=%params.active_connection_id_limit.into_inner(), "remote server configuration might cause nat traversal issues")
+                            debug!(%max_local_addresses, remote_cid_limit=%params.active_connection_id_limit.into_inner(), "remote server configuration might cause nat traversal issues")
                         }
                     }
                     Side::Server => {
                         if (max_initial_paths.as_u32() as u64) < crate::LOCAL_CID_COUNT {
-                            warn!(%max_initial_paths, local_cid_limit=%crate::LOCAL_CID_COUNT, "local server configuration might cause nat traversal issues")
+                            debug!(%max_initial_paths, local_cid_limit=%crate::LOCAL_CID_COUNT, "local server configuration might cause nat traversal issues")
                         }
                     }
                 }
@@ -6392,6 +6408,7 @@ impl Connection {
             .get_mut(&PathId::ZERO)
             .unwrap()
             .assign_retire_seq(v);
+        debug_assert!(!self.state.is_drained()); // requirement for endpoint_events
         self.endpoint_events
             .push_back(EndpointEventInner::NeedIdentifiers(PathId::ZERO, now, n));
     }
@@ -6466,6 +6483,8 @@ impl Connection {
     fn kill(&mut self, reason: ConnectionError) {
         self.close_common();
         self.state.move_to_drained(Some(reason));
+        // move_to_drained checks that we were never in drained before, so we
+        // never sent a `Drained` event before (it's illegal to send more events after drained).
         self.endpoint_events.push_back(EndpointEventInner::Drained);
     }
 

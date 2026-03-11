@@ -8,7 +8,7 @@
 //! Note that usage of any protocol (version) other than TLS 1.3 does not conform to any
 //! published versions of the specification, and will not be supported in QUIC v1.
 
-use std::{any::Any, str, sync::Arc};
+use std::{any::Any, str};
 
 use bytes::BytesMut;
 
@@ -127,7 +127,7 @@ impl Keys {
 pub trait ClientConfig: Send + Sync {
     /// Start a client session with this configuration
     fn start_session(
-        self: Arc<Self>,
+        &self,
         version: u32,
         server_name: &str,
         params: &TransportParameters,
@@ -150,11 +150,7 @@ pub trait ServerConfig: Send + Sync {
     /// Start a server session with this configuration
     ///
     /// Never called if `initial_keys` rejected `version`.
-    fn start_session(
-        self: Arc<Self>,
-        version: u32,
-        params: &TransportParameters,
-    ) -> Box<dyn Session>;
+    fn start_session(&self, version: u32, params: &TransportParameters) -> Box<dyn Session>;
 }
 
 /// Keys used to protect packet payloads
@@ -204,22 +200,17 @@ pub trait HmacKey: Send + Sync {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ExportKeyingMaterialError;
 
-/// A pseudo random key for HKDF
+/// The trait for encrypting tokens that power retry packets and NEW_TOKEN frames.
 pub trait HandshakeTokenKey: Send + Sync {
-    /// Derive AEAD using hkdf
-    fn aead_from_hkdf(&self, random_bytes: &[u8]) -> Box<dyn AeadKey>;
-}
-
-/// A key for sealing data with AEAD-based algorithms
-pub trait AeadKey {
-    /// Method for sealing message `data`
-    fn seal(&self, data: &mut Vec<u8>, additional_data: &[u8]) -> Result<(), CryptoError>;
-    /// Method for opening a sealed message `data`
-    fn open<'a>(
-        &self,
-        data: &'a mut [u8],
-        additional_data: &[u8],
-    ) -> Result<&'a mut [u8], CryptoError>;
+    /// Method for sealing a token in-place.
+    ///
+    /// The nonce doesn't need to be attached to the ciphertext,
+    /// but the authentication tag is expected to be appended to `data`.
+    fn seal(&self, token_nonce: u128, data: &mut Vec<u8>) -> Result<(), CryptoError>;
+    /// Method for opening a sealed message `data` in-place.
+    ///
+    /// Returns the portion of `data` that contains the decrypted plaintext.
+    fn open<'a>(&self, token_nonce: u128, data: &'a mut [u8]) -> Result<&'a [u8], CryptoError>;
 }
 
 /// Generic crypto errors

@@ -1,6 +1,5 @@
 use std::{
     fmt,
-    mem::size_of,
     net::{IpAddr, SocketAddr},
 };
 
@@ -236,8 +235,7 @@ impl Token {
         }
 
         // Encrypt
-        let aead_key = key.aead_from_hkdf(&self.nonce.to_le_bytes());
-        aead_key.seal(&mut buf, &[]).unwrap();
+        key.seal(self.nonce, &mut buf).unwrap();
         buf.extend(&self.nonce.to_le_bytes());
 
         buf
@@ -247,30 +245,27 @@ impl Token {
     fn decode(key: &dyn HandshakeTokenKey, raw_token_bytes: &[u8]) -> Option<Self> {
         // Decrypt
 
-        let nonce_slice_start = raw_token_bytes.len().checked_sub(size_of::<u128>())?;
-        let (sealed_token, nonce_bytes) = raw_token_bytes.split_at_checked(nonce_slice_start)?;
+        let (sealed_token, nonce_bytes) = raw_token_bytes.split_last_chunk()?;
 
-        let nonce = u128::from_le_bytes(nonce_bytes.try_into().unwrap());
+        let nonce = u128::from_le_bytes(*nonce_bytes);
 
-        let aead_key = key.aead_from_hkdf(nonce_bytes);
         let mut sealed_token = sealed_token.to_vec();
-        let data = aead_key.open(&mut sealed_token, &[]).ok()?;
+        let mut data = key.open(nonce, &mut sealed_token).ok()?;
 
         // Decode payload
-        let mut reader = &data[..];
-        let payload = match TokenType::from_byte((&mut reader).get::<u8>().ok()?)? {
+        let payload = match TokenType::from_byte((&mut data).get::<u8>().ok()?)? {
             TokenType::Retry => TokenPayload::Retry {
-                address: decode_addr(&mut reader)?,
-                orig_dst_cid: ConnectionId::decode_long(&mut reader)?,
-                issued: decode_unix_secs(&mut reader)?,
+                address: decode_addr(&mut data)?,
+                orig_dst_cid: ConnectionId::decode_long(&mut data)?,
+                issued: decode_unix_secs(&mut data)?,
             },
             TokenType::Validation => TokenPayload::Validation {
-                ip: decode_ip(&mut reader)?,
-                issued: decode_unix_secs(&mut reader)?,
+                ip: decode_ip(&mut data)?,
+                issued: decode_unix_secs(&mut data)?,
             },
         };
 
-        if !reader.is_empty() {
+        if !data.is_empty() {
             // Consider extra bytes a decoding error (it may be from an incompatible endpoint)
             return None;
         }
@@ -408,21 +403,17 @@ impl fmt::Display for ResetToken {
 
 #[cfg(all(test, any(feature = "aws-lc-rs", feature = "ring")))]
 mod test {
+    use crate::crypto::ring_like::RetryTokenKey;
+
     use super::*;
-    #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
-    use aws_lc_rs::hkdf;
     use rand::prelude::*;
-    #[cfg(feature = "ring")]
-    use ring::hkdf;
 
     fn token_round_trip(payload: TokenPayload) -> TokenPayload {
         let rng = &mut rand::rng();
         let token = Token::new(payload, rng);
-        let mut master_key = [0; 64];
-        rng.fill_bytes(&mut master_key);
-        let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
-        let encoded = token.encode(&prk);
-        let decoded = Token::decode(&prk, &encoded).expect("token didn't decrypt / decode");
+        let master_key = RetryTokenKey::new(rng);
+        let encoded = token.encode(&master_key);
+        let decoded = Token::decode(&master_key, &encoded).expect("token didn't decrypt / decode");
         assert_eq!(token.nonce, decoded.nonce);
         decoded.payload
     }
@@ -485,14 +476,8 @@ mod test {
     #[test]
     fn invalid_token_returns_err() {
         use super::*;
-        use rand::RngCore;
 
-        let rng = &mut rand::rng();
-
-        let mut master_key = [0; 64];
-        rng.fill_bytes(&mut master_key);
-
-        let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, &[]).extract(&master_key);
+        let master_key = RetryTokenKey::new(&mut rand::rng());
 
         let mut invalid_token = Vec::new();
 
@@ -501,6 +486,6 @@ mod test {
         invalid_token.put_slice(&random_data);
 
         // Assert: garbage sealed data returns err
-        assert!(Token::decode(&prk, &invalid_token).is_none());
+        assert!(Token::decode(&master_key, &invalid_token).is_none());
     }
 }

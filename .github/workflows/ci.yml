@@ -45,6 +45,39 @@ jobs:
       - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path noq-proto/Cargo.toml --no-default-features --features rustls,aws-lc-rs-fips
       - run: RUST_BACKTRACE=1 cargo test --locked --manifest-path noq/Cargo.toml --no-default-features --features rustls,aws-lc-rs-fips,runtime-tokio,__rustls-post-quantum-test
 
+  test_posix_minimal:
+    name: Test posix_minimal (noq-udp)
+    if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: "sccache"
+      SCCACHE_GHA_ENABLED: "on"
+      RUSTFLAGS: "-Dwarnings --cfg posix_minimal"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Build and test noq-udp (posix_minimal)
+        run: cargo test --locked -p noq-udp
+
+  esp32_check:
+    name: ESP32-C3 build check (noq-udp, noq-proto, noq)
+    if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: "sccache"
+      SCCACHE_GHA_ENABLED: "on"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Check noq for ESP32-C3
+        run: cargo check -Z build-std=std,panic_abort --target riscv32imc-esp-espidf -p noq -p noq-proto -p noq-udp --no-default-features
+
   wasm_test:
     name: Build & test wasm32
     if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
@@ -147,7 +180,7 @@ jobs:
     name: Android Emulator Tests
     if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
     timeout-minutes: 45
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, X64]
     strategy:
       fail-fast: false
       matrix:
@@ -166,12 +199,34 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Android NDK
+        uses: arqu/setup-ndk@main
+        id: setup-ndk
+        with:
+          ndk-version: r23
+          add-to-path: true
 
       - name: Install cargo-ndk
-        run: cargo install --version 3.5.4 cargo-ndk
+        run: |
+          if ! cargo ndk --version 2>/dev/null | grep -q "3.5.4"; then
+            cargo install --version 3.5.4 cargo-ndk
+          fi
 
       - name: Build unit tests for Android
+        env:
+          RUSTC_WRAPPER: "sccache"
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: cargo ndk -t ${{ matrix.target }} test --no-run
 
       - name: Enable KVM group perms
@@ -183,6 +238,7 @@ jobs:
       - name: Set up Android Emulator and run tests
         env:
           TARGET: ${{ matrix.target }}
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}

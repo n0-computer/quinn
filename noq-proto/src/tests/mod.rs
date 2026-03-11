@@ -36,7 +36,7 @@ pub(crate) use util::*;
 mod encode_decode;
 mod multipath;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-mod proptest;
+mod proptests;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod random_interaction;
 mod token;
@@ -861,6 +861,35 @@ fn alpn_success() {
         .downcast::<crate::crypto::rustls::HandshakeData>()
         .unwrap();
     assert_eq!(hd.protocol.unwrap(), &b"bar"[..]);
+}
+
+#[test]
+fn incoming_alpns() {
+    let _guard = subscribe();
+    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto_with_alpn(vec![
+        "foo".into(),
+        "bar".into(),
+    ])));
+    let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
+
+    let client_alpns: Vec<Vec<u8>> = vec!["bar".into(), "quux".into()];
+    let expected = client_alpns.clone();
+    pair.server.handle_incoming = Box::new(move |incoming| {
+        let alpns: Vec<Vec<u8>> = incoming
+            .decrypt()
+            .expect("decrypt should succeed")
+            .alpns()
+            .expect("alpns should be parseable")
+            .map(|a| a.unwrap().to_vec())
+            .collect();
+        assert_eq!(alpns, expected);
+        IncomingConnectionBehavior::Accept
+    });
+
+    let client_config = ClientConfig::new(Arc::new(client_crypto_with_alpn(client_alpns)));
+    pair.begin_connect(client_config);
+    pair.drive();
+    pair.server.assert_accept();
 }
 
 #[test]

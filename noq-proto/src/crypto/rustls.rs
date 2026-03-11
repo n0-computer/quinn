@@ -3,8 +3,6 @@ use std::{any::Any, io, str, sync::Arc};
 use aes_gcm::{KeyInit, aead::AeadMutInPlace};
 use bytes::BytesMut;
 pub use rustls::Error;
-#[cfg(feature = "__rustls-post-quantum-test")]
-use rustls::NamedGroup;
 use rustls::{
     self, CipherSuite,
     pki_types::{CertificateDer, ServerName},
@@ -12,8 +10,6 @@ use rustls::{
 };
 #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 use rustls::{client::danger::ServerCertVerifier, pki_types::PrivateKeyDer};
-#[cfg(feature = "platform-verifier")]
-use rustls_platform_verifier::BuilderVerifierExt;
 
 use crate::{
     ConnectError, ConnectionId, PathId, Side, TransportError, TransportErrorCode,
@@ -270,7 +266,7 @@ pub struct HandshakeData {
     pub server_name: Option<String>,
     /// The key exchange group negotiated with the peer
     #[cfg(feature = "__rustls-post-quantum-test")]
-    pub negotiated_key_exchange_group: NamedGroup,
+    pub negotiated_key_exchange_group: rustls::NamedGroup,
 }
 
 /// A QUIC-compatible TLS client configuration
@@ -291,6 +287,7 @@ pub struct HandshakeData {
 ///
 /// [root_certs]: crate::config::ClientConfig::with_root_certificates()
 /// [platform]: crate::config::ClientConfig::try_with_platform_verifier()
+#[derive(Clone)] // cheap clone: Only one arc clone and some copied pointers
 pub struct QuicClientConfig {
     pub(crate) inner: Arc<rustls::ClientConfig>,
     initial: Suite,
@@ -302,6 +299,8 @@ impl QuicClientConfig {
         any(feature = "aws-lc-rs", feature = "ring")
     ))]
     pub(crate) fn with_platform_verifier() -> Result<Self, Error> {
+        use rustls_platform_verifier::BuilderVerifierExt;
+
         // Keep in sync with `inner()` below
         let mut inner = rustls::ClientConfig::builder_with_provider(configured_provider())
             .with_protocol_versions(&[&rustls::version::TLS13])
@@ -363,7 +362,7 @@ impl QuicClientConfig {
 
 impl crypto::ClientConfig for QuicClientConfig {
     fn start_session(
-        self: Arc<Self>,
+        &self,
         version: u32,
         server_name: &str,
         params: &TransportParameters,
@@ -445,6 +444,7 @@ impl std::error::Error for NoInitialCipherSuite {}
 /// - The `rustls::ServerConfig` must have TLS 1.3 support enabled for conversion to succeed.
 ///
 /// [single]: crate::config::ServerConfig::with_single_cert()
+#[derive(Clone)] // clone is cheap: Just an Arc clone and some copied pointers
 pub struct QuicServerConfig {
     inner: Arc<rustls::ServerConfig>,
     initial: Suite,
@@ -521,7 +521,7 @@ impl TryFrom<Arc<rustls::ServerConfig>> for QuicServerConfig {
 
 impl crypto::ServerConfig for QuicServerConfig {
     fn start_session(
-        self: Arc<Self>,
+        &self,
         version: u32,
         params: &TransportParameters,
     ) -> Box<dyn crypto::Session> {

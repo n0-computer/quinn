@@ -67,10 +67,10 @@ pub async fn run(opt: Opt) -> Result<()> {
         "perf-server",
     )?;
 
-    let crypto = Arc::new(QuicServerConfig::try_from(crypto)?);
+    let crypto = QuicServerConfig::try_from(crypto)?;
     let mut config = noq::ServerConfig::with_crypto(match opt.common.no_protection {
         true => Arc::new(NoProtectionServerConfig::new(crypto)),
-        false => crypto,
+        false => Arc::new(crypto),
     });
     config.transport_config(Arc::new(transport));
 

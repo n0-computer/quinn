@@ -28,10 +28,10 @@ jobs:
       - name: Clean docs branch
         run: |
           cd pr/
-          # keep the last 25 prs
+          # keep the last 10 prs
           dirs=$(ls -1d [0-9]* | sort -n)
           total_dirs=$(echo "$dirs" | wc -l)
-          dirs_to_remove=$(echo "$dirs" | head -n $(($total_dirs - 25)))
+          dirs_to_remove=$(echo "$dirs" | head -n $(($total_dirs - 10)))
           if [ -n "$dirs_to_remove" ]; then
             echo "$dirs_to_remove" | xargs rm -rf
           fi

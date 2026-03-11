@@ -952,11 +952,6 @@ impl TestEndpoint {
             }
 
             for (ch, event) in endpoint_events {
-                if !event.is_drained() && self.drained_connections.contains(&ch) {
-                    // Calling self.endpoint.handle_event with a drained connection panics.
-                    // For some reason, some tests rely on the fact that the drained event is handled twice?
-                    continue;
-                }
                 if event.is_drained() {
                     self.drained_connections.insert(ch);
                 }
@@ -1274,6 +1269,16 @@ impl TokenLog for SimpleTokenLog {
     }
 }
 
+/// Set of uni-directional links between interfaces of a client and server.
+///
+/// Each entry on the client or server side represents a single interface in a /32
+/// subnet. Each interface has exactly one uni-directional outgoing link to a peer
+/// interface. The destination interface is identified by the `usize` index into the peer's
+/// interfaces `Vec`.
+///
+/// An interface may only appear once for a peer, so each interface only has a single
+/// outgoing link. However interfaces can have multiple incoming links if multiple
+/// interfaces of the peer have an outgoing link to it.
 #[derive(Debug, Clone)]
 pub(super) struct RoutingTable {
     client_routes: Vec<(SocketAddr, usize)>,
@@ -1297,6 +1302,12 @@ impl RoutingTable {
         }
     }
 
+    /// Each interface has an outgoing link to the peer's interface with the same index.
+    ///
+    /// This produces a routing table where each link is bi-directional (or symmetric) and
+    /// connected to the corresponding index of the peer interfaces.
+    ///
+    /// Client and server have the same number of interfaces.
     pub(super) fn simple_symmetric(
         client_addrs: impl IntoIterator<Item = SocketAddr>,
         server_addrs: impl IntoIterator<Item = SocketAddr>,

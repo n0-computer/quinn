@@ -79,7 +79,8 @@ use crate::{
 
 mod endpoint;
 pub use crate::endpoint::{
-    AcceptError, ConnectError, ConnectionHandle, DatagramEvent, Endpoint, Incoming, RetryError,
+    AcceptError, ConnectError, ConnectionHandle, DatagramEvent, DecryptedInitial, Endpoint,
+    Incoming, IncomingAlpns, RetryError,
 };
 
 mod packet;

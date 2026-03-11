@@ -38,10 +38,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(any(unix, windows))]
+#[cfg(any(all(unix, not(posix_minimal)), windows))]
 mod cmsg;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(posix_minimal)))]
 #[path = "unix.rs"]
 mod imp;
 
@@ -49,9 +49,9 @@ mod imp;
 #[path = "windows.rs"]
 mod imp;
 
-// No ECN support
-#[cfg(not(any(wasm_browser, unix, windows)))]
-#[path = "fallback.rs"]
+// Minimal POSIX UDP for platforms without advanced socket APIs (cmsg, GSO, GRO)
+#[cfg(posix_minimal)]
+#[path = "posix_minimal.rs"]
 mod imp;
 
 #[allow(unused_imports, unused_macros)]
@@ -150,6 +150,7 @@ pub struct Transmit<'a> {
     pub src_ip: Option<IpAddr>,
 }
 
+#[cfg(not(posix_minimal))]
 impl Transmit<'_> {
     /// Computes the effective segment-size of the packet.
     ///
@@ -258,7 +259,7 @@ impl EcnCodepoint {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(posix_minimal)))]
 mod tests {
     use std::net::Ipv4Addr;
 
