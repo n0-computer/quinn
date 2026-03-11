@@ -5,7 +5,7 @@ use std::{
 
 use bytes::Bytes;
 use test_strategy::Arbitrary;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, trace};
 
 use crate::{
     Connection, ConnectionHandle, Dir, FourTuple, PathId, PathStatus, Side, StreamId,
@@ -181,9 +181,7 @@ impl TestOp {
                 };
                 let conn = state.conn(pair)?;
                 let path_id = get_path_id(conn, path_idx)?;
-                conn.close_path(now, path_id, error_code.into())
-                    .map_err(|err| error!(?err, "failed to close path"))
-                    .ok();
+                conn.close_path(now, path_id, error_code.into()).ok();
             }
             Self::PathSetStatus {
                 side,
@@ -332,12 +330,12 @@ pub(super) fn run_random_interaction(
     client_cfg.transport = Arc::new(transport_config);
     let (client_ch, server_ch) = pair.connect_with(client_cfg);
     pair.drive(); // finish establishing the connection;
-    info!("INTERACTION SETUP FINISHED");
+    debug!("INTERACTION SETUP FINISHED");
     let mut client = State::new(Side::Client, client_ch);
     let mut server = State::new(Side::Server, server_ch);
 
     for interaction in interactions {
-        info!(?interaction, "INTERACTION STEP");
+        debug!(?interaction, "INTERACTION STEP");
         interaction.run(pair, &mut client, &mut server);
     }
     (client.handle, server.handle)
