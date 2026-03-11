@@ -51,13 +51,32 @@ jobs:
     timeout-minutes: 30
     runs-on: ubuntu-latest
     env:
+      RUSTC_WRAPPER: "sccache"
+      SCCACHE_GHA_ENABLED: "on"
       RUSTFLAGS: "-Dwarnings --cfg posix_minimal"
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Build and test noq-udp (posix_minimal)
         run: cargo test --locked -p noq-udp
+
+  esp32_check:
+    name: ESP32-C3 build check (noq-udp, noq-proto, noq)
+    if: "github.event_name != 'pull_request' || ! contains(github.event.pull_request.labels.*.name, 'flaky-test')"
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: "sccache"
+      SCCACHE_GHA_ENABLED: "on"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Check noq for ESP32-C3
+        run: cargo check -Z build-std=std,panic_abort --target riscv32imc-esp-espidf -p noq -p noq-proto -p noq-udp --no-default-features
 
   wasm_test:
     name: Build & test wasm32
