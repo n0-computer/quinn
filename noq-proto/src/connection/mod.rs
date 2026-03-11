@@ -1797,7 +1797,7 @@ impl Connection {
         loop {
             let can_send = self.space_can_send(
                 space_id,
-                PathId::ZERO, // TODO: why only PathId 0?????
+                PathId::ZERO,
                 max_packet_size,
                 connection_close_pending,
             );
