@@ -169,7 +169,7 @@ impl TestOp {
                     local_ip: None,
                 };
                 conn.open_path(network_path, status, now)
-                    .map_err(|err| error!(?err, "OpenPath failed"))
+                    .inspect_err(|err| error!(?err, "OpenPath failed"))
                     .ok();
             }
             Self::ClosePath {
@@ -184,7 +184,7 @@ impl TestOp {
                 let conn = state.conn(pair)?;
                 let path_id = get_path_id(conn, path_idx)?;
                 conn.close_path(now, path_id, error_code.into())
-                    .map_err(|err| error!(?err, "ClosePath failed"))
+                    .inspect_err(|err| error!(?err, "ClosePath failed"))
                     .ok();
             }
             Self::PathSetStatus {
@@ -199,7 +199,7 @@ impl TestOp {
                 let conn = state.conn(pair)?;
                 let path_id = get_path_id(conn, path_idx)?;
                 conn.set_path_status(path_id, status)
-                    .map_err(|err| error!(?err, "PathSetStatus failed"))
+                    .inspect_err(|err| error!(?err, "PathSetStatus failed"))
                     .ok();
             }
             Self::StreamOp { side, stream_op } => {
@@ -229,7 +229,7 @@ impl TestOp {
                 };
                 let conn = state.conn(pair)?;
                 conn.add_nat_traversal_address(address)
-                    .map_err(|err| error!(?err, "AddHpAddr failed"))
+                    .inspect_err(|err| error!(?err, "AddHpAddr failed"))
                     .ok();
             }
             Self::InitiateHpRound { side } => {
@@ -240,7 +240,7 @@ impl TestOp {
                 let conn = state.conn(pair)?;
                 let addrs = conn
                     .initiate_nat_traversal_round(now)
-                    .map_err(|err| error!(?err, "InitiateHpRound failed"))
+                    .inspect_err(|err| error!(?err, "InitiateHpRound failed"))
                     .ok()?;
                 trace!(?addrs, "initiating NAT Traversal");
             }
