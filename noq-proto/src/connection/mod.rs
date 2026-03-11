@@ -1079,10 +1079,6 @@ impl Connection {
                 .collect()
         };
 
-        // TODO: how to avoid the allocation? Cannot use a for loop because of
-        // borrowing. Maybe SmallVec or similar.
-        let path_ids: Vec<_> = self.paths.keys().copied().collect();
-
         // If we end up not sending anything, we need to know if that was because there was
         // nothing to send or because we were congestion blocked.
         let mut congestion_blocked = false;
@@ -1130,8 +1126,8 @@ impl Connection {
 
         if self.state.is_established() {
             // Try MTU probing now
-            for path_id in path_ids {
-                if let Some(transmit) = self.poll_transmit_mtu_probe(now, buf, path_id) {
+            for path_id in scheduling_info.keys() {
+                if let Some(transmit) = self.poll_transmit_mtu_probe(now, buf, *path_id) {
                     return Some(transmit);
                 }
             }
