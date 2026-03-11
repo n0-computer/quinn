@@ -6875,16 +6875,19 @@ struct PathSchedulingInfo {
     /// abandoned and have no *better* spaces. However see to comments where this is
     /// populated for the exact packet scheduling implementation.
     ///
-    /// This is essentially marks this paths as the best validated space ID, though other
-    /// paths could be qually good. Except during the handshake in which case it does not
-    /// need to be validated. Note that once in the closed or draining states this will
-    /// never be true.
+    /// This is essentially marks this paths as the best validated space ID. Except during
+    /// the handshake in which case it does not need to be validated. Several paths could be
+    /// equally good and all have this set to `true`, in that case packet scheduling can
+    /// choose which path to use. Currently it chooses the lowest path that is not
+    /// congestion blocked.
+    ///
+    /// Note that once in the closed or draining states this will never be true.
     may_send_data: bool,
     /// Whether the path may send a CONNECTION_CLOSE frame.
     ///
     /// This is essentially marks this path as the best validated space ID with a fallback
-    /// to unvalidated spaces if there are no validated spaces. Though other paths could be
-    /// equally good.
+    /// to unvalidated spaces if there are no validated spaces. Like for
+    /// [`Self::may_send_data`] other paths could be equally good.
     may_send_close: bool,
 }
 
