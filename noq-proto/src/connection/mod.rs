@@ -1367,11 +1367,9 @@ impl Connection {
                 } else if can_send.close && scheduling_info.may_send_close {
                     // This is the best path to send a CONNECTION_CLOSE on.
                     true
-                } else if needs_loss_probe {
-                    // We always send a loss probe if the path is not abandoned.
-                    true
-                } else if can_send.space_id_only {
-                    // We always send space-specific frames if not abandoned.
+                } else if needs_loss_probe || can_send.space_id_only {
+                    // We always send a loss probe or space-specific frames if the path is
+                    // not abandoned.
                     true
                 } else {
                     // Anything else we only send if we're the best path for SpaceKind::Data
