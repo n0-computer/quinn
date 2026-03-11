@@ -1053,6 +1053,7 @@ impl Connection {
                                 }
                             }
                         };
+
                     // CONNECTION_CLOSE is allowed to be sent on an non-validated
                     // path. Particularly during the handshake we want to send it before the
                     // path is validated. Later if there is no validated path available we
