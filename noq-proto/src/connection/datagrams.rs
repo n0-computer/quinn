@@ -177,9 +177,8 @@ impl DatagramState {
         buf: &mut PacketBuilder<'a, 'b>,
         stat: &mut FrameStats,
     ) -> bool {
-        let datagram = match self.outgoing.pop_front() {
-            Some(x) => x,
-            None => return false,
+        let Some(datagram) = self.outgoing.pop_front() else {
+            return false;
         };
 
         if buf.frame_space_remaining() < datagram.size(true) {

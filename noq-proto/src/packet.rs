@@ -514,9 +514,8 @@ impl PartialEncode {
         crypto: Option<(u64, PathId, &dyn crypto::PacketKey)>,
     ) {
         let Self { header_len, pn, .. } = self;
-        let (pn_len, write_len) = match pn {
-            Some((pn_len, write_len)) => (pn_len, write_len),
-            None => return,
+        let Some((pn_len, write_len)) = pn else {
+            return;
         };
 
         let pn_pos = header_len - pn_len;
@@ -1019,7 +1018,9 @@ mod tests {
     #[test]
     fn header_encoding() {
         use crate::Side;
-        use crate::crypto::rustls::{configured_provider, initial_keys, initial_suite_from_provider};
+        use crate::crypto::rustls::{
+            configured_provider, initial_keys, initial_suite_from_provider,
+        };
         use rustls::quic::Version;
 
         let dcid = ConnectionId::new(&hex!("06b858ec6f80452b"));
