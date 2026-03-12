@@ -126,10 +126,10 @@
 <a href=#126 id=126 data-nosnippet>126</a>        </span><span class="string">"perf-client"</span>,
 <a href=#127 id=127 data-nosnippet>127</a>    )<span class="question-mark">?</span>;
 <a href=#128 id=128 data-nosnippet>128</a>
-<a href=#129 id=129 data-nosnippet>129</a>    <span class="kw">let </span>crypto = Arc::new(QuicClientConfig::try_from(crypto)<span class="question-mark">?</span>);
+<a href=#129 id=129 data-nosnippet>129</a>    <span class="kw">let </span>crypto = QuicClientConfig::try_from(crypto)<span class="question-mark">?</span>;
 <a href=#130 id=130 data-nosnippet>130</a>    <span class="kw">let </span><span class="kw-2">mut </span>config = noq::ClientConfig::new(<span class="kw">match </span>opt.common.no_protection {
 <a href=#131 id=131 data-nosnippet>131</a>        <span class="bool-val">true </span>=&gt; Arc::new(NoProtectionClientConfig::new(crypto)),
-<a href=#132 id=132 data-nosnippet>132</a>        <span class="bool-val">false </span>=&gt; crypto,
+<a href=#132 id=132 data-nosnippet>132</a>        <span class="bool-val">false </span>=&gt; Arc::new(crypto),
 <a href=#133 id=133 data-nosnippet>133</a>    });
 <a href=#134 id=134 data-nosnippet>134</a>    config.transport_config(Arc::new(transport));
 <a href=#135 id=135 data-nosnippet>135</a>
