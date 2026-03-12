@@ -1743,7 +1743,7 @@
 <a href=#1743 id=1743 data-nosnippet>1743</a>    /// In other words this is predicting whether the next call to
 <a href=#1744 id=1744 data-nosnippet>1744</a>    /// [`Connection::space_can_send`] issued will return some frames to be sent. Including
 <a href=#1745 id=1745 data-nosnippet>1745</a>    /// having to predict which packet number space it will be invoked with. This depends on
-<a href=#1746 id=1746 data-nosnippet>1746</a>    /// how both [`Connection::poll_transmit_path`] and
+<a href=#1746 id=1746 data-nosnippet>1746</a>    /// how both [`Connection::poll_transmit_on_path`] and
 <a href=#1747 id=1747 data-nosnippet>1747</a>    /// [`Connection::poll_transmit_path_space`] behave.
 <a href=#1748 id=1748 data-nosnippet>1748</a>    ///
 <a href=#1749 id=1749 data-nosnippet>1749</a>    /// This is needed to determine if packet coalescing can happen. Because the last packet
@@ -6774,7 +6774,7 @@
 <a href=#6774 id=6774 data-nosnippet>6774</a>    </span><span class="kw">fn </span>is_path_recoverable(<span class="kw-2">&amp;</span><span class="self">self</span>, path_id: PathId, network_path: FourTuple) -&gt; bool;
 <a href=#6775 id=6775 data-nosnippet>6775</a>}
 <a href=#6776 id=6776 data-nosnippet>6776</a>
-<a href=#6777 id=6777 data-nosnippet>6777</a><span class="doccomment">/// Return value for [`Connection::poll_transmit_path`].
+<a href=#6777 id=6777 data-nosnippet>6777</a><span class="doccomment">/// Return value for [`Connection::poll_transmit_on_path`].
 <a href=#6778 id=6778 data-nosnippet>6778</a></span><span class="attr">#[derive(Debug)]
 <a href=#6779 id=6779 data-nosnippet>6779</a></span><span class="kw">enum </span>PollPathStatus {
 <a href=#6780 id=6780 data-nosnippet>6780</a>    <span class="doccomment">/// Nothing to send on the path, nothing was written into the [`TransmitBuf`].
