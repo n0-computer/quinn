@@ -105,8 +105,10 @@ impl Future for OpenPath {
 
 /// An open network transmission within a multipath-enabled connection.
 ///
-/// As long as a [`Path`] or [`WeakPathHandle`] is alive, it is ensured that the [`PathStats`] for this path
-/// are not dropped even after the path is abandoned.
+/// As long as a [`Path`] or [`WeakPathHandle`] is alive, it is ensured that the
+/// [`PathStats`] for this path are not dropped even after the path is abandoned.
+///
+/// [`WeakPathHandle`]: crate::path::WeakPathHandle
 #[derive(Debug)]
 pub struct Path {
     id: PathId,

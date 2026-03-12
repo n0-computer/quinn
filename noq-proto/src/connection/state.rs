@@ -2,7 +2,9 @@ use bytes::Bytes;
 use tracing::trace;
 
 use crate::frame::Close;
-use crate::{ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode};
+use crate::{
+    ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode,
+};
 
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
@@ -158,6 +160,7 @@ impl State {
     ///
     /// Panics if the state is later than established.
     ///
+    /// [`Connection`]: super::Connection
     /// [`ConnectionLost`]: crate::Event::ConnectionLost
     /// [`Connection::poll`]: super::Connection::poll
     pub(super) fn move_to_closed<R: Into<CloseReason>>(&mut self, reason: R) {

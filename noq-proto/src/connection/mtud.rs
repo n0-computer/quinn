@@ -245,6 +245,8 @@ impl EnabledMtuDiscovery {
     /// Called when a packet is acknowledged in [`SpaceId::Data`]
     ///
     /// Returns the new `current_mtu` if the packet number corresponds to the in-flight MTU probe
+    ///
+    /// [`SpaceId::Data`]: crate::packet::SpaceId
     fn on_probe_acked(&mut self, pn: u64) -> Option<u16> {
         match &mut self.phase {
             Phase::Searching(state) if state.in_flight_probe == Some(pn) => {
