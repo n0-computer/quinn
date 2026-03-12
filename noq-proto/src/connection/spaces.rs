@@ -6,7 +6,7 @@ use std::{
     ops::{Bound, Index, IndexMut},
 };
 
-use rand::Rng;
+use rand::{CryptoRng, Rng};
 use rustc_hash::{FxHashMap, FxHashSet};
 use sorted_index_buffer::SortedIndexBuffer;
 use tracing::trace;
@@ -34,7 +34,7 @@ pub(super) struct PacketSpace {
 }
 
 impl PacketSpace {
-    pub(super) fn new(now: Instant, space: SpaceId, rng: &mut (impl Rng + ?Sized)) -> Self {
+    pub(super) fn new(now: Instant, space: SpaceId, rng: &mut (impl CryptoRng + ?Sized)) -> Self {
         let number_space_0 = PacketNumberSpace::new(now, space, rng);
         Self {
             pending: Retransmits::default(),
@@ -276,7 +276,7 @@ pub(super) struct PacketNumberSpace {
 }
 
 impl PacketNumberSpace {
-    pub(super) fn new(now: Instant, space: SpaceId, rng: &mut (impl Rng + ?Sized)) -> Self {
+    pub(super) fn new(now: Instant, space: SpaceId, rng: &mut (impl CryptoRng + ?Sized)) -> Self {
         let pn_filter = match space {
             SpaceId::Initial | SpaceId::Handshake => None,
             SpaceId::Data => Some(PacketNumberFilter::new(rng)),
@@ -335,7 +335,7 @@ impl PacketNumberSpace {
     ///
     /// In the Data space, the connection's [`PacketNumberFilter`] must be used rather than calling
     /// this directly.
-    pub(super) fn get_tx_number(&mut self, rng: &mut (impl Rng + ?Sized)) -> u64 {
+    pub(super) fn get_tx_number(&mut self, rng: &mut (impl CryptoRng + ?Sized)) -> u64 {
         // TODO: Handle packet number overflow gracefully
         assert!(self.next_packet_number < 2u64.pow(62));
         let mut pn = self.next_packet_number;
@@ -1169,7 +1169,7 @@ pub(super) struct PacketNumberFilter {
 }
 
 impl PacketNumberFilter {
-    pub(super) fn new(rng: &mut (impl Rng + ?Sized)) -> Self {
+    pub(super) fn new(rng: &mut (impl CryptoRng + ?Sized)) -> Self {
         // First skipped PN is in 0..64
         let exponent = 6;
         Self {
@@ -1189,7 +1189,7 @@ impl PacketNumberFilter {
     }
 
     /// Whether to use the provided packet number (false) or to skip it (true)
-    pub(super) fn skip_pn(&mut self, n: u64, rng: &mut (impl Rng + ?Sized)) -> bool {
+    pub(super) fn skip_pn(&mut self, n: u64, rng: &mut (impl CryptoRng + ?Sized)) -> bool {
         if n != self.next_skipped_packet_number {
             return false;
         }
