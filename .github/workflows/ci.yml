@@ -290,7 +290,11 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: noq doc-rs
-        run: cargo docs-rs -p noq -p noq-proto -p noq-udp
+        run: cargo docs-rs -p noq
+      - name: noq-proto doc-rs
+        run: cargo docs-rs -p noq-proto
+      - name: noq-udp doc-rs
+        run: cargo docs-rs -p noq-udp
       - name: noq internal docs
         run: cargo doc --workspace --no-deps --document-private-items
 
