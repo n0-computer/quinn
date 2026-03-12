@@ -21,9 +21,9 @@ impl crypto::HmacKey for hmac::Key {
 
 /// Implements retry token encryption using HKDF followed by AES-256-GCM.
 ///
-/// This construction was originally defined in https://github.com/quinn-rs/quinn/issues/783
-/// The goal is to produce tokens that look random to clients, but contain decryptable
-/// information for the server.
+/// This construction was originally defined in
+/// <https://github.com/quinn-rs/quinn/issues/783>. The goal is to produce tokens that look
+/// random to clients, but contain decryptable information for the server.
 ///
 /// The problem is the 12-byte nonce in AES-GCM: I suspect the original authors of this
 /// code didn't like the fact that it limits you to ~2^32 safe encryptions before you're getting

@@ -1743,7 +1743,7 @@ impl Connection {
     /// In other words this is predicting whether the next call to
     /// [`Connection::space_can_send`] issued will return some frames to be sent. Including
     /// having to predict which packet number space it will be invoked with. This depends on
-    /// how both [`Connection::poll_transmit_path`] and
+    /// how both [`Connection::poll_transmit_on_path`] and
     /// [`Connection::poll_transmit_path_space`] behave.
     ///
     /// This is needed to determine if packet coalescing can happen. Because the last packet
@@ -6774,7 +6774,7 @@ pub trait NetworkChangeHint: std::fmt::Debug + 'static {
     fn is_path_recoverable(&self, path_id: PathId, network_path: FourTuple) -> bool;
 }
 
-/// Return value for [`Connection::poll_transmit_path`].
+/// Return value for [`Connection::poll_transmit_on_path`].
 #[derive(Debug)]
 enum PollPathStatus {
     /// Nothing to send on the path, nothing was written into the [`TransmitBuf`].

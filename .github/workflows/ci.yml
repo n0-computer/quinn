@@ -292,12 +292,14 @@ jobs:
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: noq docs
+      - name: noq docs-rs
         run: cargo docs-rs -p noq
-      - name: noq-proto docs
+      - name: noq-proto docs-rs
         run: cargo docs-rs -p noq-proto
-      - name: noq-udp docs
+      - name: noq-udp docs-rs
         run: cargo docs-rs -p noq-udp
+      - name: noq internal docs
+        run: cargo doc --workspace --no-deps --document-private-items
 
   clippy_check:
     timeout-minutes: 30

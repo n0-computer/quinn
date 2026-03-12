@@ -1352,7 +1352,11 @@ pub(crate) struct State {
     pub(crate) error: Option<ConnectionError>,
     /// Tracks paths being opened
     open_path: FxHashMap<PathId, watch::Sender<Result<(), PathError>>>,
-    /// Tracks reference counts for paths, i.e. how many [`Path`] and [`WeakPathHandle`] structs are alive for a path
+    /// Tracks reference counts for paths.
+    ///
+    /// I.e. how many [`Path`] and [`WeakPathHandle`] structs are alive for a path.
+    ///
+    /// [`WeakPathHandle`]: crate::path::WeakPathHandle
     pub(crate) path_refs: FxHashMap<PathId, usize>,
     /// Final path stats for discarded paths.
     ///
@@ -1733,7 +1737,10 @@ impl State {
     /// Increment the reference counter for a path in this connection.
     ///
     /// This counts how many [`Path`] or [`WeakPathHandle`] structs exist for a path.
-    /// Currently this is used to determine whether to store the final stats after a path is abandoned.
+    /// Currently this is used to determine whether to store the final stats after a path is
+    /// abandoned.
+    ///
+    /// [`WeakPathHandle`]: crate::path::WeakPathHandle
     pub(crate) fn increment_path_refs(&mut self, path_id: PathId) {
         *self.path_refs.entry(path_id).or_default() += 1;
     }

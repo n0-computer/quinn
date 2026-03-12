@@ -530,7 +530,7 @@ enum StreamHalf {
     Recv,
 }
 
-/// A helper trait to unify Bytes, Vec<u8> and &[u8] as sources of bytes
+/// A helper trait to unify Bytes, `Vec<u8>` and `&[u8]` as sources of bytes
 pub(super) trait BytesOrSlice<'a>: AsRef<[u8]> + 'a {
     fn len(&self) -> usize {
         self.as_ref().len()
