@@ -6882,8 +6882,8 @@ struct PathSchedulingInfo {
     /// Whether the path is abandoned.
     ///
     /// Note that a path that is abandoned but still has CIDs can still send a packet. After
-    /// sending that packet the CIDs have to be considered retired as well and
-    /// [`Self::has_cids`] should turn `false`.
+    /// sending that packet the CIDs issued by the remote have to be considered retired as
+    /// well.
     abandoned: bool,
     /// Whether the path may send [`SpaceKind::Data`] frames.
     ///
