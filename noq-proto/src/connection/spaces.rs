@@ -705,15 +705,8 @@ impl PendingNewCids {
     /// Inserts an issued CID into the queue.
     pub(super) fn push(&mut self, cid: IssuedCid) {
         self.0.push(cid);
-        self.0.sort_by(|a, b| match a.path_id.cmp(&b.path_id) {
-            cmp::Ordering::Less => cmp::Ordering::Greater,
-            cmp::Ordering::Equal => match a.sequence.cmp(&b.sequence) {
-                cmp::Ordering::Less => cmp::Ordering::Greater,
-                cmp::Ordering::Equal => cmp::Ordering::Equal,
-                cmp::Ordering::Greater => cmp::Ordering::Less,
-            },
-            cmp::Ordering::Greater => cmp::Ordering::Less,
-        });
+        self.0
+            .sort_by_key(|cid| cmp::Reverse((cid.path_id, cid.sequence)));
     }
 
     /// Pops the next issued CID to transmit from the queue.
