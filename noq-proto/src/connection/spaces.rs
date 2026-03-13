@@ -1469,24 +1469,26 @@ mod test {
         rand::rng().fill_bytes(&mut reset_key);
         let hmac = hmac::Key::new(hmac::HMAC_SHA256, &reset_key);
 
-        let cid = cid_generator.generate_cid();
+        let cid_a = cid_generator.generate_cid();
         let a = IssuedCid {
             path_id: PathId::ZERO,
             sequence: 1,
-            id: cid,
-            reset_token: ResetToken::new(&hmac, cid),
+            id: cid_a,
+            reset_token: ResetToken::new(&hmac, cid_a),
         };
+        let cid_b = cid_generator.generate_cid();
         let b = IssuedCid {
             path_id: PathId::ZERO,
             sequence: 2,
-            id: cid,
-            reset_token: ResetToken::new(&hmac, cid),
+            id: cid_b,
+            reset_token: ResetToken::new(&hmac, cid_b),
         };
+        let cid_c = cid_generator.generate_cid();
         let c = IssuedCid {
             path_id: PathId(1),
             sequence: 1,
-            id: cid,
-            reset_token: ResetToken::new(&hmac, cid),
+            id: cid_c,
+            reset_token: ResetToken::new(&hmac, cid_c),
         };
 
         let mut pending_cids = PendingNewCids::default();
