@@ -1459,46 +1459,51 @@
 <a href=#1459 id=1459 data-nosnippet>1459</a>
 <a href=#1460 id=1460 data-nosnippet>1460</a>    <span class="attr">#[test]
 <a href=#1461 id=1461 data-nosnippet>1461</a>    </span><span class="kw">fn </span>pending_new_cids() {
-<a href=#1462 id=1462 data-nosnippet>1462</a>        <span class="kw">let </span><span class="kw-2">mut </span>cid_generator = RandomConnectionIdGenerator::new(<span class="number">8</span>);
-<a href=#1463 id=1463 data-nosnippet>1463</a>        <span class="kw">let </span><span class="kw-2">mut </span>reset_key = [<span class="number">0</span>; <span class="number">64</span>];
-<a href=#1464 id=1464 data-nosnippet>1464</a>        rand::rng().fill_bytes(<span class="kw-2">&amp;mut </span>reset_key);
-<a href=#1465 id=1465 data-nosnippet>1465</a>        <span class="kw">let </span>hmac = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, <span class="kw-2">&amp;</span>reset_key);
+<a href=#1462 id=1462 data-nosnippet>1462</a>        <span class="attr">#[cfg(all(feature = <span class="string">"aws-lc-rs"</span>, not(feature = <span class="string">"ring"</span>)))]
+<a href=#1463 id=1463 data-nosnippet>1463</a>        </span><span class="kw">use </span>aws_lc_rs::hmac;
+<a href=#1464 id=1464 data-nosnippet>1464</a>        <span class="attr">#[cfg(feature = <span class="string">"ring"</span>)]
+<a href=#1465 id=1465 data-nosnippet>1465</a>        </span><span class="kw">use </span>ring::hmac;
 <a href=#1466 id=1466 data-nosnippet>1466</a>
-<a href=#1467 id=1467 data-nosnippet>1467</a>        <span class="kw">let </span>cid = cid_generator.generate_cid();
-<a href=#1468 id=1468 data-nosnippet>1468</a>        <span class="kw">let </span>a = IssuedCid {
-<a href=#1469 id=1469 data-nosnippet>1469</a>            path_id: PathId::ZERO,
-<a href=#1470 id=1470 data-nosnippet>1470</a>            sequence: <span class="number">1</span>,
-<a href=#1471 id=1471 data-nosnippet>1471</a>            id: cid,
-<a href=#1472 id=1472 data-nosnippet>1472</a>            reset_token: ResetToken::new(<span class="kw-2">&amp;</span>hmac, cid),
-<a href=#1473 id=1473 data-nosnippet>1473</a>        };
-<a href=#1474 id=1474 data-nosnippet>1474</a>        <span class="kw">let </span>b = IssuedCid {
-<a href=#1475 id=1475 data-nosnippet>1475</a>            path_id: PathId::ZERO,
-<a href=#1476 id=1476 data-nosnippet>1476</a>            sequence: <span class="number">2</span>,
-<a href=#1477 id=1477 data-nosnippet>1477</a>            id: cid,
-<a href=#1478 id=1478 data-nosnippet>1478</a>            reset_token: ResetToken::new(<span class="kw-2">&amp;</span>hmac, cid),
-<a href=#1479 id=1479 data-nosnippet>1479</a>        };
-<a href=#1480 id=1480 data-nosnippet>1480</a>        <span class="kw">let </span>c = IssuedCid {
-<a href=#1481 id=1481 data-nosnippet>1481</a>            path_id: PathId(<span class="number">1</span>),
-<a href=#1482 id=1482 data-nosnippet>1482</a>            sequence: <span class="number">1</span>,
-<a href=#1483 id=1483 data-nosnippet>1483</a>            id: cid,
-<a href=#1484 id=1484 data-nosnippet>1484</a>            reset_token: ResetToken::new(<span class="kw-2">&amp;</span>hmac, cid),
-<a href=#1485 id=1485 data-nosnippet>1485</a>        };
-<a href=#1486 id=1486 data-nosnippet>1486</a>
-<a href=#1487 id=1487 data-nosnippet>1487</a>        <span class="kw">let </span><span class="kw-2">mut </span>pending_cids = PendingNewCids::default();
-<a href=#1488 id=1488 data-nosnippet>1488</a>
-<a href=#1489 id=1489 data-nosnippet>1489</a>        <span class="kw">for _ in </span><span class="number">0</span>..<span class="number">9 </span>{
-<a href=#1490 id=1490 data-nosnippet>1490</a>            <span class="comment">// Push CIDs in a random order
-<a href=#1491 id=1491 data-nosnippet>1491</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>input = <span class="macro">vec!</span>[a, b, c];
-<a href=#1492 id=1492 data-nosnippet>1492</a>            input.shuffle(<span class="kw-2">&amp;mut </span>rand::rng());
-<a href=#1493 id=1493 data-nosnippet>1493</a>            <span class="kw">for </span>cid <span class="kw">in </span>input {
-<a href=#1494 id=1494 data-nosnippet>1494</a>                pending_cids.push(cid);
-<a href=#1495 id=1495 data-nosnippet>1495</a>            }
-<a href=#1496 id=1496 data-nosnippet>1496</a>
-<a href=#1497 id=1497 data-nosnippet>1497</a>            <span class="comment">// Pop order is always the same
-<a href=#1498 id=1498 data-nosnippet>1498</a>            </span><span class="macro">assert_eq!</span>(pending_cids.pop().map(|i| i.id), <span class="prelude-val">Some</span>(a.id));
-<a href=#1499 id=1499 data-nosnippet>1499</a>            <span class="macro">assert_eq!</span>(pending_cids.pop().map(|i| i.id), <span class="prelude-val">Some</span>(b.id));
-<a href=#1500 id=1500 data-nosnippet>1500</a>            <span class="macro">assert_eq!</span>(pending_cids.pop().map(|i| i.id), <span class="prelude-val">Some</span>(c.id));
-<a href=#1501 id=1501 data-nosnippet>1501</a>            <span class="macro">assert!</span>(pending_cids.pop().is_none());
-<a href=#1502 id=1502 data-nosnippet>1502</a>        }
-<a href=#1503 id=1503 data-nosnippet>1503</a>    }
-<a href=#1504 id=1504 data-nosnippet>1504</a>}</code></pre></div></section></main></body></html>
+<a href=#1467 id=1467 data-nosnippet>1467</a>        <span class="kw">let </span><span class="kw-2">mut </span>cid_generator = RandomConnectionIdGenerator::new(<span class="number">8</span>);
+<a href=#1468 id=1468 data-nosnippet>1468</a>        <span class="kw">let </span><span class="kw-2">mut </span>reset_key = [<span class="number">0</span>; <span class="number">64</span>];
+<a href=#1469 id=1469 data-nosnippet>1469</a>        rand::rng().fill_bytes(<span class="kw-2">&amp;mut </span>reset_key);
+<a href=#1470 id=1470 data-nosnippet>1470</a>        <span class="kw">let </span>hmac = hmac::Key::new(ring::hmac::HMAC_SHA256, <span class="kw-2">&amp;</span>reset_key);
+<a href=#1471 id=1471 data-nosnippet>1471</a>
+<a href=#1472 id=1472 data-nosnippet>1472</a>        <span class="kw">let </span>cid = cid_generator.generate_cid();
+<a href=#1473 id=1473 data-nosnippet>1473</a>        <span class="kw">let </span>a = IssuedCid {
+<a href=#1474 id=1474 data-nosnippet>1474</a>            path_id: PathId::ZERO,
+<a href=#1475 id=1475 data-nosnippet>1475</a>            sequence: <span class="number">1</span>,
+<a href=#1476 id=1476 data-nosnippet>1476</a>            id: cid,
+<a href=#1477 id=1477 data-nosnippet>1477</a>            reset_token: ResetToken::new(<span class="kw-2">&amp;</span>hmac, cid),
+<a href=#1478 id=1478 data-nosnippet>1478</a>        };
+<a href=#1479 id=1479 data-nosnippet>1479</a>        <span class="kw">let </span>b = IssuedCid {
+<a href=#1480 id=1480 data-nosnippet>1480</a>            path_id: PathId::ZERO,
+<a href=#1481 id=1481 data-nosnippet>1481</a>            sequence: <span class="number">2</span>,
+<a href=#1482 id=1482 data-nosnippet>1482</a>            id: cid,
+<a href=#1483 id=1483 data-nosnippet>1483</a>            reset_token: ResetToken::new(<span class="kw-2">&amp;</span>hmac, cid),
+<a href=#1484 id=1484 data-nosnippet>1484</a>        };
+<a href=#1485 id=1485 data-nosnippet>1485</a>        <span class="kw">let </span>c = IssuedCid {
+<a href=#1486 id=1486 data-nosnippet>1486</a>            path_id: PathId(<span class="number">1</span>),
+<a href=#1487 id=1487 data-nosnippet>1487</a>            sequence: <span class="number">1</span>,
+<a href=#1488 id=1488 data-nosnippet>1488</a>            id: cid,
+<a href=#1489 id=1489 data-nosnippet>1489</a>            reset_token: ResetToken::new(<span class="kw-2">&amp;</span>hmac, cid),
+<a href=#1490 id=1490 data-nosnippet>1490</a>        };
+<a href=#1491 id=1491 data-nosnippet>1491</a>
+<a href=#1492 id=1492 data-nosnippet>1492</a>        <span class="kw">let </span><span class="kw-2">mut </span>pending_cids = PendingNewCids::default();
+<a href=#1493 id=1493 data-nosnippet>1493</a>
+<a href=#1494 id=1494 data-nosnippet>1494</a>        <span class="kw">for _ in </span><span class="number">0</span>..<span class="number">9 </span>{
+<a href=#1495 id=1495 data-nosnippet>1495</a>            <span class="comment">// Push CIDs in a random order
+<a href=#1496 id=1496 data-nosnippet>1496</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>input = <span class="macro">vec!</span>[a, b, c];
+<a href=#1497 id=1497 data-nosnippet>1497</a>            input.shuffle(<span class="kw-2">&amp;mut </span>rand::rng());
+<a href=#1498 id=1498 data-nosnippet>1498</a>            <span class="kw">for </span>cid <span class="kw">in </span>input {
+<a href=#1499 id=1499 data-nosnippet>1499</a>                pending_cids.push(cid);
+<a href=#1500 id=1500 data-nosnippet>1500</a>            }
+<a href=#1501 id=1501 data-nosnippet>1501</a>
+<a href=#1502 id=1502 data-nosnippet>1502</a>            <span class="comment">// Pop order is always the same
+<a href=#1503 id=1503 data-nosnippet>1503</a>            </span><span class="macro">assert_eq!</span>(pending_cids.pop().map(|i| i.id), <span class="prelude-val">Some</span>(a.id));
+<a href=#1504 id=1504 data-nosnippet>1504</a>            <span class="macro">assert_eq!</span>(pending_cids.pop().map(|i| i.id), <span class="prelude-val">Some</span>(b.id));
+<a href=#1505 id=1505 data-nosnippet>1505</a>            <span class="macro">assert_eq!</span>(pending_cids.pop().map(|i| i.id), <span class="prelude-val">Some</span>(c.id));
+<a href=#1506 id=1506 data-nosnippet>1506</a>            <span class="macro">assert!</span>(pending_cids.pop().is_none());
+<a href=#1507 id=1507 data-nosnippet>1507</a>        }
+<a href=#1508 id=1508 data-nosnippet>1508</a>    }
+<a href=#1509 id=1509 data-nosnippet>1509</a>}</code></pre></div></section></main></body></html>
