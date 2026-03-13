@@ -285,7 +285,18 @@ impl Future for ConnectionDriver {
             return Poll::Pending;
         }
         if conn.error.is_none() {
-            unreachable!("drained connections always have an error");
+            // This condition should not normally occur, but has been observed in
+            // practice — a connection can reach the drained state without an error
+            // being set. Rather than panicking (which poisons the state mutex and
+            // causes a double-panic abort in ConnectionRef::drop), synthesize an
+            // internal error so the driver can shut down cleanly.
+            conn.terminate(
+                ConnectionError::TransportError(TransportError::new(
+                    TransportErrorCode::INTERNAL_ERROR,
+                    "drained connection had no error".to_string(),
+                )),
+                &self.0.shared,
+            );
         }
         Poll::Ready(Ok(()))
     }
@@ -1768,7 +1779,10 @@ impl Drop for State {
 
         if !self.on_closed.is_empty() {
             // Ensure that all on_closed oneshot senders are triggered before dropping.
-            let reason = self.error.as_ref().expect("closed without error reason");
+            let reason = match self.error.as_ref() {
+                Some(r) => r,
+                None => return, // No error set; nothing meaningful to send
+            };
             let stats = self.inner.stats();
             for tx in self.on_closed.drain(..) {
                 tx.send((reason.clone(), stats.clone())).ok();
