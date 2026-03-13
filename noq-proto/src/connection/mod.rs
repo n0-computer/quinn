@@ -242,7 +242,7 @@ pub struct Connection {
     next_observed_addr_seq_no: VarInt,
 
     streams: StreamsState,
-    /// Surplus remote CIDs for future use on new paths
+    /// Active and surplus CIDs issued by the remote, for future use on new paths.
     ///
     /// These are given out before multiple paths exist, also for paths that will never
     /// exist.  So if multipath is supported the number of paths here will be higher than
