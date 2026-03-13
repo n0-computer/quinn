@@ -345,7 +345,7 @@ impl QuicClientConfig {
         }
     }
 
-    /// Updates the set of ALPN protocols configured in the server config.
+    /// Updates the set of ALPN protocols configured in the client config.
     pub fn set_alpn_protocols(&mut self, alpn_protocols: Vec<Vec<u8>>) {
         let config = Arc::make_mut(&mut self.inner);
         config.alpn_protocols = alpn_protocols;
