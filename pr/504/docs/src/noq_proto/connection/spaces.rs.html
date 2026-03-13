@@ -1467,7 +1467,7 @@
 <a href=#1467 id=1467 data-nosnippet>1467</a>        <span class="kw">let </span><span class="kw-2">mut </span>cid_generator = RandomConnectionIdGenerator::new(<span class="number">8</span>);
 <a href=#1468 id=1468 data-nosnippet>1468</a>        <span class="kw">let </span><span class="kw-2">mut </span>reset_key = [<span class="number">0</span>; <span class="number">64</span>];
 <a href=#1469 id=1469 data-nosnippet>1469</a>        rand::rng().fill_bytes(<span class="kw-2">&amp;mut </span>reset_key);
-<a href=#1470 id=1470 data-nosnippet>1470</a>        <span class="kw">let </span>hmac = hmac::Key::new(ring::hmac::HMAC_SHA256, <span class="kw-2">&amp;</span>reset_key);
+<a href=#1470 id=1470 data-nosnippet>1470</a>        <span class="kw">let </span>hmac = hmac::Key::new(hmac::HMAC_SHA256, <span class="kw-2">&amp;</span>reset_key);
 <a href=#1471 id=1471 data-nosnippet>1471</a>
 <a href=#1472 id=1472 data-nosnippet>1472</a>        <span class="kw">let </span>cid = cid_generator.generate_cid();
 <a href=#1473 id=1473 data-nosnippet>1473</a>        <span class="kw">let </span>a = IssuedCid {
