@@ -508,7 +508,7 @@ pub struct Retransmits {
     pub(super) stop_sending: Vec<frame::StopSending>,
     pub(super) max_stream_data: FxHashSet<StreamId>,
     pub(super) crypto: VecDeque<frame::Crypto>,
-    pub(super) new_cids: Vec<IssuedCid>,
+    pub(super) new_cids: PendingNewCids,
     pub(super) retire_cids: Vec<(PathId, u64)>,
     pub(super) ack_frequency: bool,
     pub(super) handshake_done: bool,
@@ -689,6 +689,46 @@ impl ::std::iter::FromIterator<Self> for Retransmits {
             result |= packet;
         }
         result
+    }
+}
+
+/// The queue of new CIDs to be transmitted to the peer.
+///
+/// This queue is always sorted, so that popping off the last item is always the lowest
+/// sequence number of the lowest path ID. Which is the CID you want to be issued next.
+///
+/// This is but a newtype over a `Vec` to enforce the sorted invariant.
+#[derive(Clone, Debug, Default)]
+pub(super) struct PendingNewCids(Vec<IssuedCid>);
+
+impl PendingNewCids {
+    /// Inserts an issued CID into the queue.
+    pub(super) fn push(&mut self, cid: IssuedCid) {
+        self.0.push(cid);
+        self.0
+            .sort_by_key(|cid| cmp::Reverse((cid.path_id, cid.sequence)));
+    }
+
+    /// Pops the next issued CID to transmit from the queue.
+    pub(super) fn pop(&mut self) -> Option<IssuedCid> {
+        self.0.pop()
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub(super) fn extend(&mut self, other: &Self) {
+        for cid in other.0.iter() {
+            self.push(*cid);
+        }
+    }
+
+    pub(super) fn retain<F>(&mut self, f: F)
+    where
+        F: FnMut(&IssuedCid) -> bool,
+    {
+        self.0.retain(f);
     }
 }
 
@@ -1210,6 +1250,12 @@ const MAX_ACK_BLOCKS: usize = 64;
 
 #[cfg(test)]
 mod test {
+    use rand::RngCore;
+    use rand::seq::SliceRandom;
+
+    use crate::token::ResetToken;
+    use crate::{ConnectionIdGenerator, RandomConnectionIdGenerator};
+
     use super::*;
 
     #[test]
@@ -1402,5 +1448,57 @@ mod test {
         // The tracking state of sent packets should be minimal, and not grow
         // over time.
         assert!(std::mem::size_of::<SentPacket>() <= 128);
+    }
+
+    #[test]
+    fn pending_new_cids() {
+        #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
+        use aws_lc_rs::hmac;
+        #[cfg(feature = "ring")]
+        use ring::hmac;
+
+        let mut cid_generator = RandomConnectionIdGenerator::new(8);
+        let mut reset_key = [0; 64];
+        rand::rng().fill_bytes(&mut reset_key);
+        let hmac = hmac::Key::new(hmac::HMAC_SHA256, &reset_key);
+
+        let cid_a = cid_generator.generate_cid();
+        let a = IssuedCid {
+            path_id: PathId::ZERO,
+            sequence: 1,
+            id: cid_a,
+            reset_token: ResetToken::new(&hmac, cid_a),
+        };
+        let cid_b = cid_generator.generate_cid();
+        let b = IssuedCid {
+            path_id: PathId::ZERO,
+            sequence: 2,
+            id: cid_b,
+            reset_token: ResetToken::new(&hmac, cid_b),
+        };
+        let cid_c = cid_generator.generate_cid();
+        let c = IssuedCid {
+            path_id: PathId(1),
+            sequence: 1,
+            id: cid_c,
+            reset_token: ResetToken::new(&hmac, cid_c),
+        };
+
+        let mut pending_cids = PendingNewCids::default();
+
+        for _ in 0..9 {
+            // Push CIDs in a random order
+            let mut input = vec![a, b, c];
+            input.shuffle(&mut rand::rng());
+            for cid in input {
+                pending_cids.push(cid);
+            }
+
+            // Pop order is always the same
+            assert_eq!(pending_cids.pop().map(|i| i.id), Some(a.id));
+            assert_eq!(pending_cids.pop().map(|i| i.id), Some(b.id));
+            assert_eq!(pending_cids.pop().map(|i| i.id), Some(c.id));
+            assert!(pending_cids.pop().is_none());
+        }
     }
 }
