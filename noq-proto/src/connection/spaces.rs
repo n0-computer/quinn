@@ -1467,7 +1467,7 @@ mod test {
         let mut cid_generator = RandomConnectionIdGenerator::new(8);
         let mut reset_key = [0; 64];
         rand::rng().fill_bytes(&mut reset_key);
-        let hmac = hmac::Key::new(ring::hmac::HMAC_SHA256, &reset_key);
+        let hmac = hmac::Key::new(hmac::HMAC_SHA256, &reset_key);
 
         let cid = cid_generator.generate_cid();
         let a = IssuedCid {
