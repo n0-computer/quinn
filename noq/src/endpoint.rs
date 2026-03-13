@@ -443,7 +443,9 @@ impl Future for EndpointDriver {
 
 impl Drop for EndpointDriver {
     fn drop(&mut self) {
-        let mut endpoint = self.0.state.lock().unwrap();
+        let mut endpoint = self.0.state.lock().unwrap_or_else(|poisoned| {
+            poisoned.into_inner()
+        });
         endpoint.driver_lost = true;
         self.0.shared.incoming.notify_waiters();
         // Drop all outgoing channels, signaling the termination of the endpoint to the associated
@@ -801,7 +803,9 @@ impl Clone for EndpointRef {
 
 impl Drop for EndpointRef {
     fn drop(&mut self) {
-        let endpoint = &mut *self.0.state.lock().unwrap();
+        let endpoint = &mut *self.0.state.lock().unwrap_or_else(|poisoned| {
+            poisoned.into_inner()
+        });
         if let Some(x) = endpoint.ref_count.checked_sub(1) {
             endpoint.ref_count = x;
             if x == 0 {
