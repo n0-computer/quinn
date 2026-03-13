@@ -345,6 +345,12 @@ impl QuicClientConfig {
         }
     }
 
+    /// Updates the set of ALPN protocols configured in the client config.
+    pub fn set_alpn_protocols(&mut self, alpn_protocols: Vec<Vec<u8>>) {
+        let config = Arc::make_mut(&mut self.inner);
+        config.alpn_protocols = alpn_protocols;
+    }
+
     #[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
     pub(crate) fn inner(verifier: Arc<dyn ServerCertVerifier>) -> rustls::ClientConfig {
         // Keep in sync with `with_platform_verifier()` above
@@ -476,6 +482,12 @@ impl QuicServerConfig {
             CipherSuite::TLS13_AES_128_GCM_SHA256 => Ok(Self { inner, initial }),
             _ => Err(NoInitialCipherSuite { specific: true }),
         }
+    }
+
+    /// Updates the set of ALPN protocols configured in the server config.
+    pub fn set_alpn_protocols(&mut self, alpn_protocols: Vec<Vec<u8>>) {
+        let config = Arc::make_mut(&mut self.inner);
+        config.alpn_protocols = alpn_protocols;
     }
 
     /// Initialize a sane QUIC-compatible TLS server configuration

@@ -2929,12 +2929,9 @@ impl Connection {
             return;
         }
 
-        let (_, space) = match self.pto_time_and_space(now, path_id) {
-            Some(x) => x,
-            None => {
-                error!(%path_id, "PTO expired while unset");
-                return;
-            }
+        let Some((_, space)) = self.pto_time_and_space(now, path_id) else {
+            error!(%path_id, "PTO expired while unset");
+            return;
         };
         trace!(
             in_flight = self.path_data(path_id).in_flight.bytes,
@@ -3439,9 +3436,8 @@ impl Connection {
             }
         }
 
-        let packet = match packet {
-            Some(x) => x,
-            None => return,
+        let Some(packet) = packet else {
+            return;
         };
         match &self.side {
             ConnectionSide::Client { .. } => {
@@ -3621,9 +3617,8 @@ impl Connection {
     }
 
     fn init_0rtt(&mut self, now: Instant) {
-        let (header, packet) = match self.crypto_state.session.early_crypto() {
-            Some(x) => x,
-            None => return,
+        let Some((header, packet)) = self.crypto_state.session.early_crypto() else {
+            return;
         };
         if self.side.is_client() {
             match self.crypto_state.session.transport_parameters() {
@@ -5756,9 +5751,8 @@ impl Connection {
             && builder.frame_space_remaining() > frame::Crypto::SIZE_BOUND
             && !is_0rtt
         {
-            let mut frame = match space.pending.crypto.pop_front() {
-                Some(x) => x,
-                None => break,
+            let Some(mut frame) = space.pending.crypto.pop_front() else {
+                break;
             };
 
             // Calculate the maximum amount of crypto data we can store in the buffer.
@@ -5890,9 +5884,8 @@ impl Connection {
         let new_cid_size_bound =
             frame::NewConnectionId::size_bound(is_multipath_negotiated, cid_len);
         while !path_exclusive_only && builder.frame_space_remaining() > new_cid_size_bound {
-            let issued = match space.pending.new_cids.pop() {
-                Some(x) => x,
-                None => break,
+            let Some(issued) = space.pending.new_cids.pop() else {
+                break;
             };
             let retire_prior_to = self
                 .local_cid_state
@@ -6216,9 +6209,8 @@ impl Connection {
             .crypto_state
             .decrypt_packet_body(packet, path_id, &self.spaces)?;
 
-        let result = match result {
-            Some(r) => r,
-            None => return Ok(None),
+        let Some(result) = result else {
+            return Ok(None);
         };
 
         if result.outgoing_key_update_acked
@@ -6260,14 +6252,14 @@ impl Connection {
     /// Decodes a packet, returning its decrypted payload, so it can be inspected in tests
     #[cfg(test)]
     pub(crate) fn decode_packet(&self, event: &ConnectionEvent) -> Option<Vec<u8>> {
-        let (path_id, first_decode, remaining) = match &event.0 {
-            ConnectionEventInner::Datagram(DatagramConnectionEvent {
-                path_id,
-                first_decode,
-                remaining,
-                ..
-            }) => (path_id, first_decode, remaining),
-            _ => return None,
+        let ConnectionEventInner::Datagram(DatagramConnectionEvent {
+            path_id,
+            first_decode,
+            remaining,
+            ..
+        }) = &event.0
+        else {
+            return None;
         };
 
         if remaining.is_some() {

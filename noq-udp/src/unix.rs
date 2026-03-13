@@ -836,11 +836,10 @@ mod gso {
             return 1;
         }
 
-        let socket = match std::net::UdpSocket::bind("[::]:0")
+        let Ok(socket) = std::net::UdpSocket::bind("[::]:0")
             .or_else(|_| std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
-        {
-            Ok(socket) => socket,
-            Err(_) => return 1,
+        else {
+            return 1;
         };
 
         // As defined in linux/udp.h
@@ -1006,11 +1005,10 @@ mod gro {
     use super::*;
 
     pub(crate) fn gro_segments() -> NonZeroUsize {
-        let socket = match std::net::UdpSocket::bind("[::]:0")
+        let Ok(socket) = std::net::UdpSocket::bind("[::]:0")
             .or_else(|_| std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
-        {
-            Ok(socket) => socket,
-            Err(_) => return NonZeroUsize::MIN,
+        else {
+            return NonZeroUsize::MIN;
         };
 
         // As defined in net/ipv4/udp_offload.c
