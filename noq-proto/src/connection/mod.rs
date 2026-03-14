@@ -309,6 +309,10 @@ pub struct Connection {
     //    paths.  Or a set together with a minimum.  Or something.
     abandoned_paths: FxHashSet<PathId>,
 
+    /// Set of [`FourTuple`]s for which path validation (as defined in RFC9000 §8.2) has succeeded.
+    // TODO(@divma): this needs expiry or a max size.
+    validated_network_paths: ValidatedNetworkPaths,
+
     /// State for n0's (<https://n0.computer>) nat traversal protocol.
     n0_nat_traversal: n0_nat_traversal::State,
     qlog: QlogSink,
@@ -332,7 +336,7 @@ impl Connection {
         qlog: QlogSink,
     ) -> Self {
         let pref_addr_cid = side_args.pref_addr_cid();
-        let path_validated = side_args.path_validated();
+        let remote_address_validated = side_args.remote_address_validated();
         let connection_side = ConnectionSide::from(side_args);
         let side = connection_side.side();
         let mut rng = StdRng::from_seed(rng_seed);
@@ -431,12 +435,13 @@ impl Connection {
             remote_max_path_id: PathId::ZERO,
             max_path_id_with_cids: PathId::ZERO,
             abandoned_paths: Default::default(),
+            validated_network_paths: Default::default(),
 
             n0_nat_traversal: Default::default(),
             qlog,
         };
-        if path_validated {
-            this.on_path_validated(PathId::ZERO);
+        if remote_address_validated {
+            this.on_remote_address_validated(PathId::ZERO);
         }
         if side.is_client() {
             // Kick off the connection
@@ -646,7 +651,9 @@ impl Connection {
 
         if reason.is_locally_initiated() {
             let has_remaining_validated_paths = self.paths.iter().any(|(id, path)| {
-                *id != path_id && !self.abandoned_paths.contains(id) && path.data.validated
+                *id != path_id
+                    && !self.abandoned_paths.contains(id)
+                    && path.data.remote_address_validated
             });
             if !has_remaining_validated_paths {
                 return Err(ClosePathError::LastOpenPath);
@@ -872,19 +879,16 @@ impl Connection {
     /// Find an open, validated path that's on the same network path as the given network path.
     ///
     /// Returns the first path matching, even if there's multiple.
-    fn find_validated_path_on_network_path(
+    fn find_address_validated_path_on_network_path(
         &self,
         network_path: FourTuple,
     ) -> Option<(&PathId, &PathState)> {
         self.paths.iter().find(|(path_id, path_state)| {
-            path_state.data.validated
+            path_state.data.remote_address_validated
                 // Would this use the same network path, if network_path were used to send right now?
                 && network_path.is_probably_same_path(&path_state.data.network_path)
                 && !self.abandoned_paths.contains(path_id)
         })
-        // TODO(@divma): we might want to ensure the path has been recently active to consider the
-        // address validated
-        // matheus23: Perhaps looking at !self.abandoned_paths.contains(path_id) is enough, given keep-alives?
     }
 
     /// Creates the [`PathData`] for a new [`PathId`].
@@ -897,9 +901,10 @@ impl Connection {
         now: Instant,
         pn: Option<u64>,
     ) -> &mut PathData {
-        let valid_path = self.find_validated_path_on_network_path(network_path);
-        let validated = valid_path.is_some();
-        let initial_rtt = valid_path.map(|(_, path)| path.data.rtt.conservative());
+        let initial_rtt = self
+            .find_address_validated_path_on_network_path(network_path)
+            .map(|(_, path)| path.data.rtt.conservative());
+
         let vacant_entry = match self.paths.entry(path_id) {
             btree_map::Entry::Vacant(vacant_entry) => vacant_entry,
             btree_map::Entry::Occupied(occupied_entry) => {
@@ -907,7 +912,10 @@ impl Connection {
             }
         };
 
-        debug!(%validated, %path_id, %network_path, "path added");
+        let remote_address_validated = self
+            .validated_network_paths
+            .is_remote_address_validated(network_path);
+        debug!(%remote_address_validated, %path_id, %network_path, "path added");
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
         self.path_generation_counter = self.path_generation_counter.wrapping_add(1);
@@ -920,7 +928,7 @@ impl Connection {
             &self.config,
         );
 
-        data.validated = validated;
+        data.remote_address_validated = remote_address_validated;
         if let Some(initial_rtt) = initial_rtt {
             data.rtt.reset_initial_rtt(initial_rtt);
         }
@@ -1037,7 +1045,7 @@ impl Connection {
         // Is there any open, validated and status available path with dst CIDs? If so we'll
         // want to set path_exclusive_only for any other paths.
         let have_available_path = self.paths.iter().any(|(id, path)| {
-            path.data.validated
+            path.data.remote_address_validated
                 && path.data.local_status() == PathStatus::Available
                 && self.remote_cids.contains_key(id)
         });
@@ -1720,7 +1728,7 @@ impl Connection {
     /// - The MTU Discovery subsystem wants to probe the path.
     fn get_mtu_probe_data(&mut self, now: Instant, path_id: PathId) -> Option<(ConnectionId, u16)> {
         let active_cid = self.remote_cids.get(&path_id).map(CidQueue::active)?;
-        let is_eligible = self.path_data(path_id).validated
+        let is_eligible = self.path_data(path_id).remote_address_validated
             && !self.path_data(path_id).is_validating_path()
             && !self.abandoned_paths.contains(&path_id);
 
@@ -1949,7 +1957,7 @@ impl Connection {
     ) -> Option<Transmit> {
         let server_side = self.n0_nat_traversal.server_side_mut().ok()?;
         let probe = server_side.next_probe()?;
-        if !self.paths.get(&path_id)?.data.validated {
+        if !self.paths.get(&path_id)?.data.remote_address_validated {
             // Path is not usable for probing
             return None;
         }
@@ -4078,7 +4086,7 @@ impl Connection {
             if self
                 .paths
                 .get(&path_id)
-                .map(|p| p.data.validated && p.data.network_path == network_path)
+                .map(|p| p.data.remote_address_validated && p.data.network_path == network_path)
                 .unwrap_or(false)
             {
                 self.connection_close_pending = true;
@@ -4267,7 +4275,7 @@ impl Connection {
                     );
                     return Ok(());
                 }
-                self.on_path_validated(path_id);
+                self.on_remote_address_validated(path_id);
 
                 self.process_early_payload(now, path_id, packet, qlog)?;
                 if self.state.is_closed() {
@@ -4623,7 +4631,13 @@ impl Connection {
                         .data
                         .on_path_response_received(now, response.0, network_path)
                     {
-                        OnPath { was_open } => {
+                        OnPath {
+                            was_open,
+                            validated_network_path,
+                        } => {
+                            debug!(%response, %validated_network_path, "on path response");
+                            self.validated_network_paths
+                                .insert(validated_network_path, now);
                             let qlog = self.qlog.with_time(now);
 
                             self.timers
@@ -4658,14 +4672,20 @@ impl Connection {
                                 prev.reset_on_path_challenges();
                             }
                         }
-                        OffPath => {
-                            debug!(%response, "Valid response to off-path PATH_CHALLENGE");
+                        OffPath {
+                            validated_network_path,
+                        } => {
+                            debug!(%response, %validated_network_path, "off path response");
+                            self.validated_network_paths
+                                .insert(validated_network_path, now)
                         }
                         Ignored {
-                            sent_on,
-                            current_path,
+                            validated_network_path,
                         } => {
-                            debug!(%sent_on, %current_path, %response, "ignoring valid PATH_RESPONSE")
+                            debug!(%response, %validated_network_path, "valid path response for oudated network path");
+
+                            self.validated_network_paths
+                                .insert(validated_network_path, now)
                         }
                         Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
@@ -5243,6 +5263,9 @@ impl Connection {
                 addr: updated,
             }));
         }
+        new_path_data.remote_address_validated = self
+            .validated_network_paths
+            .is_remote_address_validated(network_path);
         new_path_data.pending_on_path_challenge = true;
 
         let mut prev_path_data = mem::replace(&mut path.data, new_path_data);
@@ -5255,7 +5278,7 @@ impl Connection {
         // yet. In this case we would never have sent on this path yet and would not be able
         // to send a PATH_CHALLENGE either, which is currently a fire-and-forget affair
         // anyway. So don't store such a path either.
-        if !prev_path_data.validated
+        if !prev_path_data.remote_address_validated
             && let Some(cid) = self.remote_cids.get(&path_id).map(CidQueue::active)
         {
             prev_path_data.pending_on_path_challenge = true;
@@ -5683,7 +5706,10 @@ impl Connection {
                 self.qlog.with_time(now),
             );
 
-            if is_multipath_negotiated && !path.validated && path.pending_on_path_challenge {
+            if is_multipath_negotiated
+                && !path.remote_address_validated
+                && path.pending_on_path_challenge
+            {
                 // queue informing the path status along with the challenge
                 space.pending.path_status.insert(path_id);
             }
@@ -6500,9 +6526,10 @@ impl Connection {
         packet_crypto.map_or(16, |x| x.tag_len())
     }
 
-    /// Mark the path as validated, and enqueue NEW_TOKEN frames to be sent as appropriate
-    fn on_path_validated(&mut self, path_id: PathId) {
-        self.path_data_mut(path_id).validated = true;
+    /// Mark the address of the given path as validated, and enqueue NEW_TOKEN frames to be sent as
+    /// appropriate.
+    fn on_remote_address_validated(&mut self, path_id: PathId) {
+        self.path_data_mut(path_id).remote_address_validated = true;
         let ConnectionSide::Server { server_config } = &self.side else {
             return;
         };
@@ -6675,7 +6702,7 @@ impl Connection {
             if !addresses_to_probe
                 .iter()
                 .any(|(_, probe)| *probe == (ip, port))
-                && !path.validated
+                && !path.remote_address_validated
                 && !self.abandoned_paths.contains(&path_id)
             {
                 trace!(%path_id, "closing path from previous round");
@@ -6750,6 +6777,23 @@ impl fmt::Debug for Connection {
         f.debug_struct("Connection")
             .field("handshake_cid", &self.handshake_cid)
             .finish()
+    }
+}
+
+#[derive(Debug, derive_more::Deref, derive_more::DerefMut, Default)]
+struct ValidatedNetworkPaths(FxHashMap<FourTuple, Instant>);
+
+impl ValidatedNetworkPaths {
+    fn insert(&mut self, network_path: FourTuple, now: Instant) {
+        if network_path.local_ip.is_some() && self.0.insert(network_path, now).is_none() {
+            debug!(%network_path, "network path validated");
+        }
+    }
+
+    fn is_remote_address_validated(&self, network_path: FourTuple) -> bool {
+        self.0
+            .keys()
+            .any(|validated_network_path| validated_network_path.remote == network_path.remote)
     }
 }
 
@@ -6882,7 +6926,7 @@ impl From<SideArgs> for ConnectionSide {
             SideArgs::Server {
                 server_config,
                 pref_addr_cid: _,
-                path_validated: _,
+                remote_address_validated: _,
             } => Self::Server { server_config },
         }
     }
@@ -6897,7 +6941,7 @@ pub(crate) enum SideArgs {
     Server {
         server_config: Arc<ServerConfig>,
         pref_addr_cid: Option<ConnectionId>,
-        path_validated: bool,
+        remote_address_validated: bool,
     },
 }
 
@@ -6909,10 +6953,13 @@ impl SideArgs {
         }
     }
 
-    pub(crate) fn path_validated(&self) -> bool {
+    pub(crate) fn remote_address_validated(&self) -> bool {
         match *self {
             Self::Client { .. } => true,
-            Self::Server { path_validated, .. } => path_validated,
+            Self::Server {
+                remote_address_validated,
+                ..
+            } => remote_address_validated,
         }
     }
 
