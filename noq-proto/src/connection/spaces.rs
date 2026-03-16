@@ -153,15 +153,15 @@ impl PacketSpace {
             .number_spaces
             .values()
             .any(|pns| pns.pending_acks.can_send());
-        let space_id_only = self
+        let space_only = self
             .number_spaces
             .get(&path_id)
             .is_some_and(|s| s.ping_pending || s.immediate_ack_pending);
-        let other = !self.pending.is_empty(streams) || space_id_only;
+        let other = !self.pending.is_empty(streams) || space_only;
         SendableFrames {
             acks,
             close: false,
-            space_id_only,
+            space_only,
             other,
         }
     }
@@ -916,11 +916,14 @@ pub(super) struct SendableFrames {
     pub(super) acks: bool,
     /// Whether there is a CONNECTION_CLOSE to send, this is not ack-eliciting.
     pub(super) close: bool,
-    /// Whether there are any frames that must be sent on this specific space ID.
+    /// Whether there are any frames that must be sent on this specific space.
+    ///
+    /// A space here in the sense of a QUIC Multipath packet number space: `Initial`,
+    /// `Handshake` and all `Data(PathId)` spaces.
     ///
     /// These are ack-eliciting. Some frames are scheduled per path, e.g. PING,
     /// IMMEDIATE_ACK, PATH_CHALLENGE or PATH_RESPONSE.
-    pub(super) space_id_only: bool,
+    pub(super) space_only: bool,
     /// Whether there are any other frames to send, these are ack-eliciting.
     pub(super) other: bool,
 }
@@ -931,7 +934,7 @@ impl SendableFrames {
         Self {
             acks: false,
             close: false,
-            space_id_only: false,
+            space_only: false,
             other: false,
         }
     }
@@ -941,14 +944,14 @@ impl SendableFrames {
         let Self {
             acks: _,
             close,
-            space_id_only,
+            space_only,
             other,
         } = *self;
         if close {
             // No ack-eliciting frames are included with a CONNECTION_CLOSE, only acks.
             return false;
         }
-        space_id_only || other
+        space_only || other
     }
 
     /// Whether no data is sendable.
@@ -956,10 +959,10 @@ impl SendableFrames {
         let Self {
             acks,
             close,
-            space_id_only,
+            space_only,
             other,
         } = *self;
-        !acks && !close && !space_id_only && !other
+        !acks && !close && !space_only && !other
     }
 }
 
@@ -968,13 +971,13 @@ impl ::std::ops::BitOrAssign for SendableFrames {
         let Self {
             acks,
             close,
-            space_id_only,
+            space_only,
             other,
         } = rhs;
 
         self.acks |= acks;
         self.close |= close;
-        self.space_id_only |= space_id_only;
+        self.space_only |= space_only;
         self.other |= other;
     }
 }
