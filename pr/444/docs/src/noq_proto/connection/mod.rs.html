@@ -1389,7 +1389,7 @@
 <a href=#1389 id=1389 data-nosnippet>1389</a>                </span>} <span class="kw">else if </span>can_send.close &amp;&amp; scheduling_info.may_send_close {
 <a href=#1390 id=1390 data-nosnippet>1390</a>                    <span class="comment">// This is the best path to send a CONNECTION_CLOSE on.
 <a href=#1391 id=1391 data-nosnippet>1391</a>                    </span><span class="bool-val">true
-<a href=#1392 id=1392 data-nosnippet>1392</a>                </span>} <span class="kw">else if </span>needs_loss_probe || can_send.space_id_only {
+<a href=#1392 id=1392 data-nosnippet>1392</a>                </span>} <span class="kw">else if </span>needs_loss_probe || can_send.space_only {
 <a href=#1393 id=1393 data-nosnippet>1393</a>                    <span class="comment">// We always send a loss probe or space-specific frames if the path is
 <a href=#1394 id=1394 data-nosnippet>1394</a>                    // not abandoned.
 <a href=#1395 id=1395 data-nosnippet>1395</a>                    </span><span class="bool-val">true
@@ -1640,7 +1640,7 @@
 <a href=#1640 id=1640 data-nosnippet>1640</a>            </span><span class="macro">debug_assert!</span>(
 <a href=#1641 id=1641 data-nosnippet>1641</a>                !(builder.sent_frames().is_ack_only(<span class="kw-2">&amp;</span><span class="self">self</span>.streams)
 <a href=#1642 id=1642 data-nosnippet>1642</a>                    &amp;&amp; !can_send.acks
-<a href=#1643 id=1643 data-nosnippet>1643</a>                    &amp;&amp; (can_send.other || can_send.space_id_only)
+<a href=#1643 id=1643 data-nosnippet>1643</a>                    &amp;&amp; (can_send.other || can_send.space_only)
 <a href=#1644 id=1644 data-nosnippet>1644</a>                    &amp;&amp; builder.buf.segment_size()
 <a href=#1645 id=1645 data-nosnippet>1645</a>                        == <span class="self">self</span>.path_data(path_id).current_mtu() <span class="kw">as </span>usize
 <a href=#1646 id=1646 data-nosnippet>1646</a>                    &amp;&amp; <span class="self">self</span>.datagrams.outgoing.is_empty()),
@@ -6464,7 +6464,7 @@
 <a href=#6464 id=6464 data-nosnippet>6464</a>    /// See also [`PacketSpace::can_send`] which keeps track of all other frame types that
 <a href=#6465 id=6465 data-nosnippet>6465</a>    /// may need to be sent.
 <a href=#6466 id=6466 data-nosnippet>6466</a>    </span><span class="kw">fn </span>can_send_1rtt(<span class="kw-2">&amp;</span><span class="self">self</span>, path_id: PathId, max_size: usize) -&gt; SendableFrames {
-<a href=#6467 id=6467 data-nosnippet>6467</a>        <span class="kw">let </span>space_id_only = <span class="self">self</span>.paths.get(<span class="kw-2">&amp;</span>path_id).is_some_and(|path| {
+<a href=#6467 id=6467 data-nosnippet>6467</a>        <span class="kw">let </span>space_only = <span class="self">self</span>.paths.get(<span class="kw-2">&amp;</span>path_id).is_some_and(|path| {
 <a href=#6468 id=6468 data-nosnippet>6468</a>            path.data.pending_on_path_challenge || !path.data.path_responses.is_empty()
 <a href=#6469 id=6469 data-nosnippet>6469</a>        });
 <a href=#6470 id=6470 data-nosnippet>6470</a>
@@ -6480,7 +6480,7 @@
 <a href=#6480 id=6480 data-nosnippet>6480</a>        </span>SendableFrames {
 <a href=#6481 id=6481 data-nosnippet>6481</a>            acks: <span class="bool-val">false</span>,
 <a href=#6482 id=6482 data-nosnippet>6482</a>            close: <span class="bool-val">false</span>,
-<a href=#6483 id=6483 data-nosnippet>6483</a>            space_id_only,
+<a href=#6483 id=6483 data-nosnippet>6483</a>            space_only,
 <a href=#6484 id=6484 data-nosnippet>6484</a>            other,
 <a href=#6485 id=6485 data-nosnippet>6485</a>        }
 <a href=#6486 id=6486 data-nosnippet>6486</a>    }
