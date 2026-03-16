@@ -258,16 +258,13 @@ impl StreamsState {
             debug!("received illegal STREAM frame");
         })?;
 
-        let rs = match self
+        let Some(rs) = self
             .recv
             .get_mut(&id)
             .map(get_or_insert_recv(self.stream_receive_window))
-        {
-            Some(rs) => rs,
-            None => {
-                trace!("dropping frame for closed stream");
-                return Ok(ShouldTransmit(false));
-            }
+        else {
+            trace!("dropping frame for closed stream");
+            return Ok(ShouldTransmit(false));
         };
 
         if !rs.is_receiving() {
@@ -311,16 +308,13 @@ impl StreamsState {
             debug!("received illegal RESET_STREAM frame");
         })?;
 
-        let rs = match self
+        let Some(rs) = self
             .recv
             .get_mut(&id)
             .map(get_or_insert_recv(self.stream_receive_window))
-        {
-            Some(stream) => stream,
-            None => {
-                trace!("received RESET_STREAM on closed stream");
-                return Ok(ShouldTransmit(false));
-            }
+        else {
+            trace!("received RESET_STREAM on closed stream");
+            return Ok(ShouldTransmit(false));
         };
 
         // State transition
@@ -359,13 +353,12 @@ impl StreamsState {
     #[allow(unreachable_pub)] // fuzzing only
     pub fn received_stop_sending(&mut self, id: StreamId, error_code: VarInt) {
         let max_send_data = self.max_send_data(id);
-        let stream = match self
+        let Some(stream) = self
             .send
             .get_mut(&id)
             .map(get_or_insert_send(max_send_data))
-        {
-            Some(ss) => ss,
-            None => return,
+        else {
+            return;
         };
 
         if stream.try_stop(error_code) {
@@ -415,13 +408,11 @@ impl StreamsState {
     ) {
         // RESET_STREAM
         while builder.frame_space_remaining() > frame::ResetStream::SIZE_BOUND {
-            let (id, error_code) = match pending.reset_stream.pop() {
-                Some(x) => x,
-                None => break,
+            let Some((id, error_code)) = pending.reset_stream.pop() else {
+                break;
             };
-            let stream = match self.send.get_mut(&id).and_then(|s| s.as_mut()) {
-                Some(x) => x,
-                None => continue,
+            let Some(stream) = self.send.get_mut(&id).and_then(|s| s.as_mut()) else {
+                continue;
             };
             let frame = frame::ResetStream {
                 id,
@@ -433,9 +424,8 @@ impl StreamsState {
 
         // STOP_SENDING
         while builder.frame_space_remaining() > frame::StopSending::SIZE_BOUND {
-            let frame = match pending.stop_sending.pop() {
-                Some(x) => x,
-                None => break,
+            let Some(frame) = pending.stop_sending.pop() else {
+                break;
             };
             // We may need to transmit STOP_SENDING even for streams whose state we have discarded,
             // because we are able to discard local state for stopped streams immediately upon
@@ -473,14 +463,13 @@ impl StreamsState {
                 None => break,
             };
             pending.max_stream_data.remove(&id);
-            let rs = match self
+            let Some(rs) = self
                 .recv
                 .get_mut(&id)
                 .and_then(|s| s.as_mut())
                 .and_then(|s| s.as_open_recv_mut())
-            {
-                Some(x) => x,
-                None => continue,
+            else {
+                continue;
             };
             if !rs.can_send_flow_control() {
                 continue;
@@ -520,10 +509,9 @@ impl StreamsState {
 
             let id = stream.id;
 
-            let stream = match self.send.get_mut(&id).and_then(|s| s.as_mut()) {
-                Some(s) => s,
+            let Some(stream) = self.send.get_mut(&id).and_then(|s| s.as_mut()) else {
                 // Stream was reset with pending data and the reset was acknowledged
-                None => continue,
+                continue;
             };
 
             // Reset streams aren't removed from the pending list and still exist while the peer
@@ -597,15 +585,12 @@ impl StreamsState {
             hash_map::Entry::Occupied(e) => e,
         };
 
-        let stream = match entry.get_mut().as_mut() {
-            Some(s) => s,
-            None => {
-                // Because we only call this after sending data on this stream,
-                // this closure should be unreachable. If we did somehow screw that up,
-                // then we might hit an underflow below with unpredictable effects down
-                // the line. Best to short-circuit.
-                return;
-            }
+        let Some(stream) = entry.get_mut().as_mut() else {
+            // Because we only call this after sending data on this stream,
+            // this closure should be unreachable. If we did somehow screw that up,
+            // then we might hit an underflow below with unpredictable effects down
+            // the line. Best to short-circuit.
+            return;
         };
 
         if stream.is_reset() {
@@ -625,10 +610,9 @@ impl StreamsState {
     }
 
     pub(crate) fn retransmit(&mut self, frame: frame::StreamMeta) {
-        let stream = match self.send.get_mut(&frame.id).and_then(|s| s.as_mut()) {
+        let Some(stream) = self.send.get_mut(&frame.id).and_then(|s| s.as_mut()) else {
             // Loss of data on a closed stream is a noop
-            None => return,
-            Some(x) => x,
+            return;
         };
         if !stream.is_pending() {
             self.pending.push_pending(frame.id, stream.priority);
@@ -641,9 +625,8 @@ impl StreamsState {
         for dir in Dir::iter() {
             for index in 0..self.next[dir as usize] {
                 let id = StreamId::new(Side::Client, dir, index);
-                let stream = match self.send.get_mut(&id).and_then(|s| s.as_mut()) {
-                    Some(stream) => stream,
-                    None => continue,
+                let Some(stream) = self.send.get_mut(&id).and_then(|s| s.as_mut()) else {
+                    continue;
                 };
                 if stream.pending.is_fully_acked() && !stream.fin_pending {
                     // Stream data can't be acked in 0-RTT, so we must not have sent anything on
@@ -740,9 +723,8 @@ impl StreamsState {
 
         if self.write_limit() > 0 {
             while let Some(id) = self.connection_blocked.pop() {
-                let stream = match self.send.get_mut(&id).and_then(|s| s.as_mut()) {
-                    None => continue,
-                    Some(s) => s,
+                let Some(stream) = self.send.get_mut(&id).and_then(|s| s.as_mut()) else {
+                    continue;
                 };
 
                 debug_assert!(stream.connection_blocked);

@@ -242,7 +242,7 @@ pub struct Connection {
     next_observed_addr_seq_no: VarInt,
 
     streams: StreamsState,
-    /// Surplus remote CIDs for future use on new paths
+    /// Active and surplus CIDs issued by the remote, for future use on new paths.
     ///
     /// These are given out before multiple paths exist, also for paths that will never
     /// exist.  So if multipath is supported the number of paths here will be higher than
@@ -1798,7 +1798,7 @@ impl Connection {
     /// In other words this is predicting whether the next call to
     /// [`Connection::space_can_send`] issued will return some frames to be sent. Including
     /// having to predict which packet number space it will be invoked with. This depends on
-    /// how both [`Connection::poll_transmit_path`] and
+    /// how both [`Connection::poll_transmit_on_path`] and
     /// [`Connection::poll_transmit_path_space`] behave.
     ///
     /// This is needed to determine if packet coalescing can happen. Because the last packet
@@ -2992,12 +2992,9 @@ impl Connection {
             return;
         }
 
-        let (_, space) = match self.pto_time_and_space(now, path_id) {
-            Some(x) => x,
-            None => {
-                error!(%path_id, "PTO expired while unset");
-                return;
-            }
+        let Some((_, space)) = self.pto_time_and_space(now, path_id) else {
+            error!(%path_id, "PTO expired while unset");
+            return;
         };
         trace!(
             in_flight = self.path_data(path_id).in_flight.bytes,
@@ -3502,9 +3499,8 @@ impl Connection {
             }
         }
 
-        let packet = match packet {
-            Some(x) => x,
-            None => return,
+        let Some(packet) = packet else {
+            return;
         };
         match &self.side {
             ConnectionSide::Client { .. } => {
@@ -3684,9 +3680,8 @@ impl Connection {
     }
 
     fn init_0rtt(&mut self, now: Instant) {
-        let (header, packet) = match self.crypto_state.session.early_crypto() {
-            Some(x) => x,
-            None => return,
+        let Some((header, packet)) = self.crypto_state.session.early_crypto() else {
+            return;
         };
         if self.side.is_client() {
             match self.crypto_state.session.transport_parameters() {
@@ -5784,7 +5779,6 @@ impl Connection {
             && let Some(token) = path.path_responses.pop_on_path(path.network_path)
         {
             let response = frame::PathResponse(token);
-            trace!(frame = %response);
             builder.write_frame(response, stats);
             builder.require_padding();
 
@@ -5818,9 +5812,8 @@ impl Connection {
             && scheduling_info.may_send_data
             && builder.frame_space_remaining() > frame::Crypto::SIZE_BOUND
         {
-            let mut frame = match space.pending.crypto.pop_front() {
-                Some(x) => x,
-                None => break,
+            let Some(mut frame) = space.pending.crypto.pop_front() else {
+                break;
             };
 
             // Calculate the maximum amount of crypto data we can store in the buffer.
@@ -5953,9 +5946,8 @@ impl Connection {
             frame::NewConnectionId::size_bound(is_multipath_negotiated, cid_len);
         while scheduling_info.may_send_data && builder.frame_space_remaining() > new_cid_size_bound
         {
-            let issued = match space.pending.new_cids.pop() {
-                Some(x) => x,
-                None => break,
+            let Some(issued) = space.pending.new_cids.pop() else {
+                break;
             };
             let retire_prior_to = self
                 .local_cid_state
@@ -6279,9 +6271,8 @@ impl Connection {
             .crypto_state
             .decrypt_packet_body(packet, path_id, &self.spaces)?;
 
-        let result = match result {
-            Some(r) => r,
-            None => return Ok(None),
+        let Some(result) = result else {
+            return Ok(None);
         };
 
         if result.outgoing_key_update_acked
@@ -6323,14 +6314,14 @@ impl Connection {
     /// Decodes a packet, returning its decrypted payload, so it can be inspected in tests
     #[cfg(test)]
     pub(crate) fn decode_packet(&self, event: &ConnectionEvent) -> Option<Vec<u8>> {
-        let (path_id, first_decode, remaining) = match &event.0 {
-            ConnectionEventInner::Datagram(DatagramConnectionEvent {
-                path_id,
-                first_decode,
-                remaining,
-                ..
-            }) => (path_id, first_decode, remaining),
-            _ => return None,
+        let ConnectionEventInner::Datagram(DatagramConnectionEvent {
+            path_id,
+            first_decode,
+            remaining,
+            ..
+        }) = &event.0
+        else {
+            return None;
         };
 
         if remaining.is_some() {
@@ -6836,7 +6827,7 @@ pub trait NetworkChangeHint: std::fmt::Debug + 'static {
     fn is_path_recoverable(&self, path_id: PathId, network_path: FourTuple) -> bool;
 }
 
-/// Return value for [`Connection::poll_transmit_path`].
+/// Return value for [`Connection::poll_transmit_on_path`].
 #[derive(Debug)]
 enum PollPathStatus {
     /// Nothing to send on the path, nothing was written into the [`TransmitBuf`].

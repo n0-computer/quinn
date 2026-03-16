@@ -318,6 +318,7 @@ impl Pair {
             self.client_conn_mut(client_ch).poll(),
             Some(Event::HandshakeConfirmed)
         );
+        info!("connected");
     }
 
     pub(super) fn client_conn_mut(&mut self, ch: ConnectionHandle) -> &mut Connection {
@@ -1201,9 +1202,8 @@ const MAX_DATAGRAMS: NonZeroUsize = NonZeroUsize::new(10).expect("known");
 
 fn split_transmit(transmit: Transmit, buffer: &[u8]) -> Vec<(Transmit, Bytes)> {
     let mut buffer = Bytes::copy_from_slice(buffer);
-    let segment_size = match transmit.segment_size {
-        Some(segment_size) => segment_size,
-        _ => return vec![(transmit, buffer)],
+    let Some(segment_size) = transmit.segment_size else {
+        return vec![(transmit, buffer)];
     };
 
     let mut transmits = Vec::new();

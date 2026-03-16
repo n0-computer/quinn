@@ -158,6 +158,7 @@ impl State {
     ///
     /// Panics if the state is later than established.
     ///
+    /// [`Connection`]: super::Connection
     /// [`ConnectionLost`]: crate::Event::ConnectionLost
     /// [`Connection::poll`]: super::Connection::poll
     pub(super) fn move_to_closed<R: Into<CloseReason>>(&mut self, reason: R) {

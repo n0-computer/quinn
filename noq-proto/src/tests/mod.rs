@@ -1805,6 +1805,7 @@ fn cid_retirement() {
     let mut pair = Pair::default();
     let (client_ch, server_ch) = pair.connect();
 
+    info!("retire one");
     // Server retires current active remote CIDs
     let now = pair.time;
     pair.server_conn_mut(server_ch).rotate_local_cid(1, now);
@@ -1818,6 +1819,7 @@ fn cid_retirement() {
     let mut active_cid_num = CidQueue::LEN as u64;
     active_cid_num = active_cid_num.min(LOCAL_CID_COUNT);
 
+    info!("retire CidQueue::LEN");
     let now = pair.time;
     let next_retire_prior_to = active_cid_num + 1;
     pair.client_conn_mut(client_ch).ping();

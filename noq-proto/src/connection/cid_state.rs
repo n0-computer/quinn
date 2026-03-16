@@ -141,9 +141,8 @@ impl CidState {
     /// and tracks their lifetime.
     pub(crate) fn new_cids(&mut self, ids: &[IssuedCid], now: Instant) {
         // `ids` could be `None` once active_connection_id_limit is set to 1 by peer
-        let last_cid = match ids.last() {
-            Some(cid) => cid,
-            None => return,
+        let Some(last_cid) = ids.last() else {
+            return;
         };
         self.issued += ids.len() as u64;
         // Record the timestamp of CID with the largest seq number
