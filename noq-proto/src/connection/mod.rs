@@ -1014,96 +1014,25 @@ impl Connection {
                 && self.peer_supports_ack_frequency();
         }
 
-        // Build up some packet scheduling information about all paths.
-        let scheduling_info: BTreeMap<PathId, PathSchedulingInfo> = {
-            let have_validated_status_available_space = self.paths.iter().any(|(path_id, path)| {
-                self.remote_cids.contains_key(path_id)
-                    && !self.abandoned_paths.contains(path_id)
-                    && path.data.validated
-                    && path.data.local_status() == PathStatus::Available
-            });
-            let is_handshaking = self.is_handshaking();
-            self.paths
-                .iter()
-                .map(|(path_id, path)| {
-                    let has_cids = self.remote_cids.contains_key(path_id);
-                    let validated = path.data.validated;
-                    let abandoned = self.abandoned_paths.contains(path_id);
-                    let status = path.data.local_status();
-
-                    // This is the core packet scheduling, whether this space ID may send
-                    // SpaceKind::Data frames.
-                    let may_send_data = has_cids
-                        && !abandoned
-                        && if is_handshaking {
-                            // There is only one path during the handshake. We want to
-                            // already send 0-RTT and 0.5-RTT (permitting anti-amplification
-                            // limit) data.
-                            true
-                        } else if !validated {
-                            // TODO(flub): When we have a network change we might end up
-                            //    having to abandon all paths and re-open new ones to the
-                            //    same remotes. This leaves us without any validated
-                            //    path. Perhaps we should have a way to figure out if the
-                            //    path is to a previously-validated remote address and allow
-                            //    sending data to such remotes immediately.
-                            false
-                        } else {
-                            match status {
-                                PathStatus::Available => {
-                                    // Best possible space to send data on.
-                                    true
-                                }
-                                PathStatus::Backup => {
-                                    // If there is a status-available path we prefer that.
-                                    !have_validated_status_available_space
-                                }
-                            }
-                        };
-
-                    // CONNECTION_CLOSE is allowed to be sent on a non-validated
-                    // path. Particularly during the handshake we want to send it before the
-                    // path is validated. Later if there is no validated path available we
-                    // will also accept sending it on an un-validated path.
-                    let may_send_close = has_cids
-                        && !abandoned
-                        && if !validated && have_validated_status_available_space {
-                            // We have a better space to send on.
-                            false
-                        } else {
-                            // No other validated space, this is as good as it gets.
-                            true
-                        };
-                    (
-                        *path_id,
-                        PathSchedulingInfo {
-                            abandoned,
-                            may_send_data,
-                            may_send_close,
-                        },
-                    )
-                })
-                .collect()
-        };
-
         // If we end up not sending anything, we need to know if that was because there was
         // nothing to send or because we were congestion blocked.
         let mut congestion_blocked = false;
 
-        for (&path_id, info) in scheduling_info.iter() {
+        let mut next_path_id = self.paths.first_entry().map(|e| *e.key());
+        while let Some(path_id) = next_path_id {
             if !connection_close_pending
                 && let Some(transmit) = self.poll_transmit_off_path(now, buf, path_id)
             {
                 return Some(transmit);
             }
 
-            // Poll for on-path transmits.
+            let info = self.scheduling_info(path_id);
             match self.poll_transmit_on_path(
                 now,
                 buf,
                 path_id,
                 max_datagrams,
-                info,
+                &info,
                 connection_close_pending,
             ) {
                 PollPathStatus::Send(transmit) => {
@@ -1121,6 +1050,8 @@ impl Connection {
                     );
                 }
             }
+
+            next_path_id = self.paths.keys().find(|i| **i > path_id).copied();
         }
 
         // We didn't produce any application data packet
@@ -1133,14 +1064,98 @@ impl Connection {
 
         if self.state.is_established() {
             // Try MTU probing now
-            for path_id in scheduling_info.keys() {
-                if let Some(transmit) = self.poll_transmit_mtu_probe(now, buf, *path_id) {
+            let mut next_path_id = self.paths.first_entry().map(|e| *e.key());
+            while let Some(path_id) = next_path_id {
+                if let Some(transmit) = self.poll_transmit_mtu_probe(now, buf, path_id) {
                     return Some(transmit);
                 }
+                next_path_id = self.paths.keys().find(|i| **i > path_id).copied();
             }
         }
 
         None
+    }
+
+    /// Computes the packet scheduling information for this path.
+    ///
+    /// While this information is only returned for a single path, it is important to know
+    /// that this information remains static for the entire span of a single
+    /// [`Connection::poll_transmit`] call. In other words, the return value is purely
+    /// functional and only depends on the [`PathId`] **during a single** `poll_transmit`
+    /// call. It can be computed up-front for all paths but we don't do that because it
+    /// involves an allocation.
+    ///
+    /// See the inline comments for how the  packet scheduling works.
+    ///
+    /// # Panics
+    ///
+    /// This will panic if called for a path for which we do not have any [`PathData`], like
+    /// so many other functions we have. But this is the only one to document this in its
+    /// doc comment. Maybe that should change. Eventually we'll refactor things for this
+    /// panic to go away.
+    fn scheduling_info(&self, path_id: PathId) -> PathSchedulingInfo {
+        let have_validated_status_available_space = self.paths.iter().any(|(path_id, path)| {
+            self.remote_cids.contains_key(path_id)
+                && !self.abandoned_paths.contains(path_id)
+                && path.data.validated
+                && path.data.local_status() == PathStatus::Available
+        });
+        let is_handshaking = self.is_handshaking();
+        let has_cids = self.remote_cids.contains_key(&path_id);
+        let abandoned = self.abandoned_paths.contains(&path_id);
+        let path_data = self.path_data(path_id);
+        let validated = path_data.validated;
+        let status = path_data.local_status();
+
+        // This is the core packet scheduling, whether this space ID may send
+        // SpaceKind::Data frames.
+        let may_send_data = has_cids
+            && !abandoned
+            && if is_handshaking {
+                // There is only one path during the handshake. We want to
+                // already send 0-RTT and 0.5-RTT (permitting anti-amplification
+                // limit) data.
+                true
+            } else if !validated {
+                // TODO(flub): When we have a network change we might end up
+                //    having to abandon all paths and re-open new ones to the
+                //    same remotes. This leaves us without any validated
+                //    path. Perhaps we should have a way to figure out if the
+                //    path is to a previously-validated remote address and allow
+                //    sending data to such remotes immediately.
+                false
+            } else {
+                match status {
+                    PathStatus::Available => {
+                        // Best possible space to send data on.
+                        true
+                    }
+                    PathStatus::Backup => {
+                        // If there is a status-available path we prefer that.
+                        !have_validated_status_available_space
+                    }
+                }
+            };
+
+        // CONNECTION_CLOSE is allowed to be sent on a non-validated
+        // path. Particularly during the handshake we want to send it before the
+        // path is validated. Later if there is no validated path available we
+        // will also accept sending it on an un-validated path.
+        let may_send_close = has_cids
+            && !abandoned
+            && if !validated && have_validated_status_available_space {
+                // We have a better space to send on.
+                false
+            } else {
+                // No other validated space, this is as good as it gets.
+                true
+            };
+
+        PathSchedulingInfo {
+            abandoned,
+            may_send_data,
+            may_send_close,
+        }
     }
 
     fn build_transmit(&mut self, path_id: PathId, transmit: TransmitBuf<'_>) -> Transmit {
