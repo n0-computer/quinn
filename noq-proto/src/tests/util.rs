@@ -318,6 +318,7 @@ impl Pair {
             self.client_conn_mut(client_ch).poll(),
             Some(Event::HandshakeConfirmed)
         );
+        info!("connected");
     }
 
     pub(super) fn client_conn_mut(&mut self, ch: ConnectionHandle) -> &mut Connection {

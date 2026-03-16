@@ -65,7 +65,14 @@ pub(crate) enum EndpointEventInner {
     /// This is like `ResetToken` above, but without replacing the `ResetToken` with a new
     /// one. See `ConnectionIndex::connection_reset_tokens`.
     RetireResetToken(PathId),
-    /// The connection needs connection identifiers
+    /// The connection needs connection identifiers.
+    ///
+    /// The fields are:
+    /// - The path ID for which the identifiers are needed.
+    /// - The time when the identifiers were needed, not used to generate the CIDs but sent
+    ///   back via the [`ConnectionEventInner::NewIdentifiers`] so the connection can track
+    ///   the lifetime of when it needs to be rotated.  should be rotated.
+    /// - The number of CIDs needed.
     NeedIdentifiers(PathId, Instant, u64),
     /// Retire a locally issued CID
     ///
