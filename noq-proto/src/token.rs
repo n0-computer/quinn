@@ -4,7 +4,7 @@ use std::{
 };
 
 use bytes::{Buf, BufMut, Bytes};
-use rand::Rng;
+use rand::{CryptoRng, Rng};
 
 use crate::{
     Duration, RESET_TOKEN_SIZE, ServerConfig, SystemTime, UNIX_EPOCH,
@@ -204,7 +204,7 @@ pub(crate) struct Token {
 
 impl Token {
     /// Construct with newly sampled randomness
-    pub(crate) fn new(payload: TokenPayload, rng: &mut impl Rng) -> Self {
+    pub(crate) fn new(payload: TokenPayload, rng: &mut impl CryptoRng) -> Self {
         Self {
             nonce: rng.random(),
             payload,

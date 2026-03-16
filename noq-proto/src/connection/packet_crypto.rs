@@ -8,7 +8,7 @@ use crate::connection::assembler::Assembler;
 use crate::crypto::{self, HeaderKey, KeyPair, Keys, PacketKey};
 use crate::packet::{Packet, PartialDecode};
 use crate::token::ResetToken;
-use rand::Rng;
+use rand::{CryptoRng, Rng};
 
 use crate::{ConnectionId, Instant, Side};
 use crate::{RESET_TOKEN_SIZE, TransportError};
@@ -110,7 +110,7 @@ impl CryptoState {
         session: Box<dyn crypto::Session>,
         init_cid: ConnectionId,
         side: Side,
-        rng: &mut impl Rng,
+        rng: &mut impl CryptoRng,
     ) -> Self {
         let initial_keys = session.initial_keys(init_cid, side);
         let initial_space = CryptoSpace {
