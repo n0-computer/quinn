@@ -699,36 +699,43 @@ impl ::std::iter::FromIterator<Self> for Retransmits {
 ///
 /// This is but a newtype over a `Vec` to enforce the sorted invariant.
 #[derive(Clone, Debug, Default)]
-pub(super) struct PendingNewCids(Vec<IssuedCid>);
+pub(super) struct PendingNewCids {
+    /// The CIDs themselves.
+    cids: Vec<IssuedCid>,
+    /// Whether [`Self::cids`] is sorted or not.
+    sorted: bool,
+}
 
 impl PendingNewCids {
     /// Inserts an issued CID into the queue.
     pub(super) fn push(&mut self, cid: IssuedCid) {
-        self.0.push(cid);
-        self.0
-            .sort_by_key(|cid| cmp::Reverse((cid.path_id, cid.sequence)));
+        self.cids.push(cid);
+        self.sorted = false;
     }
 
     /// Pops the next issued CID to transmit from the queue.
     pub(super) fn pop(&mut self) -> Option<IssuedCid> {
-        self.0.pop()
+        if !std::mem::replace(&mut self.sorted, true) {
+            self.cids
+                .sort_by_key(|cid| cmp::Reverse((cid.path_id, cid.sequence)));
+        }
+        self.cids.pop()
     }
 
     pub(super) fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.cids.is_empty()
     }
 
     pub(super) fn extend(&mut self, other: &Self) {
-        for cid in other.0.iter() {
-            self.push(*cid);
-        }
+        self.cids.extend(&other.cids);
+        self.sorted = false;
     }
 
     pub(super) fn retain<F>(&mut self, f: F)
     where
         F: FnMut(&IssuedCid) -> bool,
     {
-        self.0.retain(f);
+        self.cids.retain(f);
     }
 }
 
