@@ -23,7 +23,7 @@ bytes = "1"
 clap = { version = "4.5", features = ["derive"] }
 crc = "3"
 directories-next = "2"
-fastbloom = "0.14"
+fastbloom = "0.17"
 futures-io = "0.3.19"
 getrandom = { version = "0.3", default-features = false }
 hdrhistogram = { version = "7.2", default-features = false }
@@ -34,7 +34,7 @@ log = "0.4"
 pin-project-lite = "0.2"
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }
 qlog = { package = "n0-qlog", version = "0.1.0" }
-rand = "0.9"
+rand = "0.10"
 rcgen = "0.14"
 ring = "0.17"
 rustc-hash = "2"
@@ -89,3 +89,6 @@ unreachable_pub = "warn"
 manual_let_else = "warn"
 or_fun_call = "warn"
 use_self = "warn"
+
+[patch.crates-io]
+fastbloom = { git = "https://github.com/matheus23/fastbloom", branch = "matheus23/rand-0.10" }

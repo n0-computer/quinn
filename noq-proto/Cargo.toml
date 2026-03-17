@@ -86,7 +86,7 @@ web-time = { workspace = true }
 assert_matches = { workspace = true }
 hex-literal = { workspace = true  }
 proptest = { workspace = true }
-rand_pcg = "0.9"
+rand_pcg = "0.10"
 rcgen = { workspace = true }
 test-strategy = { workspace = true }
 testresult = "0.4.1"

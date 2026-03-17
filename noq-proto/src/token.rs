@@ -4,7 +4,7 @@ use std::{
 };
 
 use bytes::{Buf, BufMut, Bytes};
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, RngExt};
 
 use crate::{
     Duration, RESET_TOKEN_SIZE, ServerConfig, SystemTime, UNIX_EPOCH,
@@ -403,10 +403,11 @@ impl fmt::Display for ResetToken {
 
 #[cfg(all(test, any(feature = "aws-lc-rs", feature = "ring")))]
 mod test {
+    use rand::Rng;
+
     use crate::crypto::ring_like::RetryTokenKey;
 
     use super::*;
-    use rand::prelude::*;
 
     fn token_round_trip(payload: TokenPayload) -> TokenPayload {
         let rng = &mut rand::rng();
