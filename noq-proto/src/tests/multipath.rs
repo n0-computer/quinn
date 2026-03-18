@@ -12,8 +12,8 @@ use tracing::info;
 use crate::tests::RoutingTable;
 use crate::tests::util::{CLIENT_PORTS, ConnPair, SERVER_PORTS};
 use crate::{
-    ClientConfig, ClosePathError, ConnectionId, ConnectionIdGenerator, Endpoint, EndpointConfig,
-    FourTuple, LOCAL_CID_COUNT, NetworkChangeHint, PathId, PathStatus, RandomConnectionIdGenerator,
+    ClientConfig, ConnectionId, ConnectionIdGenerator, Endpoint, EndpointConfig, FourTuple,
+    LOCAL_CID_COUNT, NetworkChangeHint, PathId, PathStatus, RandomConnectionIdGenerator,
     ServerConfig, Side::*, TransportConfig, cid_queue::CidQueue,
 };
 use crate::{Dir, Event, PathAbandonReason, PathEvent, StreamEvent, TransportErrorCode};
@@ -139,10 +139,14 @@ fn path_close_last_path() {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
-    assert_matches!(
-        pair.close_path(Client, PathId::ZERO, 0u8.into()),
-        Err(ClosePathError::LastOpenPath)
-    );
+    // Closing the last path is allowed — it triggers connection close via PATH_ABANDON
+    // followed by CONNECTION_CLOSE.
+    assert_matches!(pair.close_path(Client, PathId::ZERO, 0u8.into()), Ok(()));
+    pair.drive();
+
+    // Both sides should be closed
+    assert!(pair.is_closed(Client));
+    assert!(pair.is_closed(Server));
 }
 
 #[test]
