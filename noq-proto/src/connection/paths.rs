@@ -1038,11 +1038,6 @@ pub enum PathAbandonReason {
 }
 
 impl PathAbandonReason {
-    /// Returns `true` if the closing of this path was initiated locally.
-    pub(crate) fn is_locally_initiated(&self) -> bool {
-        !matches!(self, Self::RemoteAbandoned { .. })
-    }
-
     /// Returns the error code to send with a PATH_ABANDON frame.
     pub(crate) fn error_code(&self) -> TransportErrorCode {
         match self {
