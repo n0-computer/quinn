@@ -2351,14 +2351,20 @@ impl Connection {
                         // Grace period expired: all paths were abandoned and no new path
                         // was opened. Close the connection with CONNECTION_CLOSE.
                         // See draft-ietf-quic-multipath-21 Section 3.4 para 7.
-                        trace!("no viable path grace period expired, closing connection");
-                        let err = TransportError::NO_VIABLE_PATH(
-                            "last path abandoned, no new path opened",
-                        );
-                        self.close_common();
-                        self.set_close_timer(now);
-                        self.connection_close_pending = true;
-                        self.state.move_to_closed(err);
+                        if self.state.is_closed() || self.state.is_drained() {
+                            // Connection already closing/drained (e.g. application called
+                            // close() before the grace timer fired). Nothing to do.
+                            trace!("no viable path timer fired, but connection already closing");
+                        } else {
+                            trace!("no viable path grace period expired, closing connection");
+                            let err = TransportError::NO_VIABLE_PATH(
+                                "last path abandoned, no new path opened",
+                            );
+                            self.close_common();
+                            self.set_close_timer(now);
+                            self.connection_close_pending = true;
+                            self.state.move_to_closed(err);
+                        }
                     }
                 },
                 // TODO: add path_id as span somehow
