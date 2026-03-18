@@ -1031,6 +1031,199 @@ fn path_scheduling_path_status() -> TestResult {
     Ok(())
 }
 
+// --- Tests for data continuity during network change path replacement ---
+//
+// When handle_network_change replaces paths, data should keep flowing with minimal
+// interruption. Picoquic achieves this by keeping demoted paths alive during transition.
+// noq achieves it differently:
+// - open_first mode (all non-recoverable): replacement opens BEFORE old path closes,
+//   so the new path inherits validation from the still-alive old path.
+// - !open_first mode (mixed): recoverable path carries data while replacement validates.
+
+/// When all paths are non-recoverable (open_first mode), the replacement path should
+/// inherit validated status from the still-alive old path, allowing immediate data flow.
+///
+/// This avoids the "data blackout" that would occur if the replacement were unvalidated.
+/// The open_first logic in handle_network_change opens the replacement BEFORE closing
+/// the old path, so find_validated_path_on_network_path finds the old (still validated,
+/// not yet abandoned) path and transfers validation to the new path.
+#[test]
+fn network_change_single_path_replacement_inherits_validation() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Open a stream and send+receive initial data to establish baseline
+    let s = pair.streams(Client).open(Dir::Uni).unwrap();
+    const BEFORE: &[u8] = b"before change";
+    const AFTER: &[u8] = b"after change payload";
+    pair.send_stream(Client, s).write(BEFORE).unwrap();
+    pair.drive();
+
+    // Accept the stream on server side, read the "before" data
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
+    );
+    assert_matches!(pair.streams(Server).accept(Dir::Uni), Some(stream) if stream == s);
+    let mut recv = pair.recv_stream(Server, s);
+    let mut chunks = recv.read(false).unwrap();
+    assert_matches!(
+        chunks.next(usize::MAX),
+        Ok(Some(chunk)) if chunk.bytes == BEFORE
+    );
+    let _ = chunks.finalize();
+
+    // Drain remaining events
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Single non-recoverable path → open_first = true
+    pair.passive_migration(Client);
+    pair.handle_network_change(Client, None);
+
+    // Write data immediately after network change
+    pair.send_stream(Client, s).write(AFTER).unwrap();
+    pair.send_stream(Client, s).finish().unwrap();
+
+    // Drive to completion
+    pair.drive();
+
+    // Verify the replacement path was opened and inherited validation
+    let paths = pair.paths(Client);
+    assert!(
+        paths.iter().any(|p| *p != PathId::ZERO),
+        "replacement path should exist"
+    );
+
+    // Read exactly the "after" data on the server — proves stream data was sent
+    // on the replacement path (the only non-abandoned path after network change).
+    let mut recv = pair.recv_stream(Server, s);
+    let mut chunks = recv.read(false).unwrap();
+    assert_matches!(
+        chunks.next(usize::MAX),
+        Ok(Some(chunk)) if chunk.bytes == AFTER,
+        "server should receive exact data sent after network change"
+    );
+    assert_matches!(
+        chunks.next(usize::MAX),
+        Ok(None),
+        "stream should be finished"
+    );
+    let _ = chunks.finalize();
+
+    assert!(!pair.is_closed(Client));
+    assert!(!pair.is_closed(Server));
+
+    Ok(())
+}
+
+/// With 2 paths where one is recoverable (relay) and one is not (direct),
+/// data continues flowing on the recoverable path while the non-recoverable
+/// path's replacement validates. No data blackout.
+#[test]
+fn network_change_mixed_paths_data_continues_on_recoverable() -> TestResult {
+    let _guard = subscribe();
+
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(MAX_PATHS);
+    cfg.initial_rtt(Duration::from_millis(10));
+
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
+    pair.drive();
+
+    // Set up 3 address pairs
+    let mut addrs_client = vec![pair.client.addr];
+    let mut addrs_server = vec![pair.server.addr];
+    for i in 1..3u16 {
+        let mut ca = pair.client.addr;
+        ca.set_port(ca.port() + i);
+        addrs_client.push(ca);
+        let mut sa = pair.server.addr;
+        sa.set_port(sa.port() + i);
+        addrs_server.push(sa);
+    }
+    pair.routes = Some(RoutingTable::simple_symmetric(
+        addrs_client.clone(),
+        addrs_server.clone(),
+    ));
+
+    // Open second path (simulating "direct" alongside "relay" on path 0)
+    let path1_net = FourTuple {
+        local_ip: Some(addrs_client[1].ip()),
+        remote: addrs_server[1],
+    };
+    let _path1 = pair.open_path(Client, path1_net, PathStatus::Available)?;
+    pair.drive();
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Open stream, send+receive initial data
+    let s = pair.streams(Client).open(Dir::Uni).unwrap();
+    const BEFORE: &[u8] = b"before change";
+    const AFTER: &[u8] = b"after change on recoverable";
+    pair.send_stream(Client, s).write(BEFORE).unwrap();
+    pair.drive();
+
+    // Accept stream and read "before" data
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
+    );
+    assert_matches!(pair.streams(Server).accept(Dir::Uni), Some(stream) if stream == s);
+    let mut recv = pair.recv_stream(Server, s);
+    let mut chunks = recv.read(false).unwrap();
+    assert_matches!(
+        chunks.next(usize::MAX),
+        Ok(Some(chunk)) if chunk.bytes == BEFORE
+    );
+    let _ = chunks.finalize();
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Network change: path 0 recoverable ("relay"), path 1 non-recoverable ("direct")
+    #[derive(Debug)]
+    struct RelayRecoverable;
+    impl NetworkChangeHint for RelayRecoverable {
+        fn is_path_recoverable(&self, path_id: PathId, _network_path: FourTuple) -> bool {
+            path_id == PathId::ZERO
+        }
+    }
+
+    pair.passive_migration(Client);
+    pair.handle_network_change(Client, Some(&RelayRecoverable));
+
+    // Write data after network change and finish the stream
+    pair.send_stream(Client, s).write(AFTER).unwrap();
+    pair.send_stream(Client, s).finish().unwrap();
+
+    // Drive to completion
+    pair.drive();
+
+    // Read the "after" data — proves data flowed on the recoverable path
+    // (the non-recoverable path was closed, so only path 0 could carry it)
+    let mut recv = pair.recv_stream(Server, s);
+    let mut chunks = recv.read(false).unwrap();
+    assert_matches!(
+        chunks.next(usize::MAX),
+        Ok(Some(chunk)) if chunk.bytes == AFTER,
+        "server should receive data sent after network change via recoverable path"
+    );
+    assert_matches!(
+        chunks.next(usize::MAX),
+        Ok(None),
+        "stream should be finished"
+    );
+    let _ = chunks.finalize();
+
+    assert!(!pair.is_closed(Client));
+    assert!(!pair.is_closed(Server));
+
+    Ok(())
+}
+
 // --- Tests for PR #444: packet scheduling for unvalidated paths ---
 //
 // PR #444 (flub/packet-scheduling-1) fixes packet scheduling so that unvalidated
