@@ -200,7 +200,7 @@ fn allowed_error(err: Option<ConnectionError>) -> bool {
         None => true,
         Some(ConnectionError::TransportError(err)) => {
             // keep in sync with connection/mod.rs
-            &err.reason == "last path abandoned by peer"
+            &err.reason == "last path abandoned, no new path opened"
         }
         Some(ConnectionError::ConnectionClosed(ConnectionClose { error_code, .. })) => {
             *error_code != TransportErrorCode::PROTOCOL_VIOLATION
