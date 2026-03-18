@@ -27,15 +27,20 @@ pub(crate) enum ConnTimer {
     KeepAlive = 3,
     /// When to invalidate old CID and proactively push new one via NEW_CONNECTION_ID frame
     PushNewCid = 4,
+    /// Grace period after all paths are abandoned by the remote.
+    /// If no new path is opened before this fires, close the connection.
+    /// See draft-ietf-quic-multipath-21 Section 3.4 para 7.
+    NoViablePath = 5,
 }
 
 impl ConnTimer {
-    const VALUES: [Self; 5] = [
+    const VALUES: [Self; 6] = [
         Self::Idle,
         Self::Close,
         Self::KeyDiscard,
         Self::KeepAlive,
         Self::PushNewCid,
+        Self::NoViablePath,
     ];
 }
 

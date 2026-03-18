@@ -644,25 +644,17 @@ impl Connection {
             return Err(ClosePathError::ClosedPath);
         }
 
-        if reason.is_locally_initiated() {
-            let has_remaining_validated_paths = self.paths.iter().any(|(id, path)| {
-                *id != path_id && !self.abandoned_paths.contains(id) && path.data.validated
-            });
-            if !has_remaining_validated_paths {
-                return Err(ClosePathError::LastOpenPath);
-            }
-        } else {
-            // The remote abandoned this path. We should always "accept" this. Doing so right now,
-            // however, breaks assumptions throughout the code. We error instead, for the
-            // connection to be killed. See <https://github.com/n0-computer/noq/issues/397>
-            let has_remaining_paths = self
-                .paths
-                .keys()
-                .any(|id| *id != path_id && !self.abandoned_paths.contains(id));
-            if !has_remaining_paths {
-                return Err(ClosePathError::LastOpenPath);
-            }
-        }
+        let is_last_path = !self
+            .paths
+            .keys()
+            .any(|id| *id != path_id && !self.abandoned_paths.contains(id));
+
+        // All cases are accepted:
+        // - Locally-initiated last-path close: the caller wants to end the connection via
+        //   PATH_ABANDON; the connection will close after it is sent.
+        // - Remote PATH_ABANDON: non-optional per draft-ietf-quic-multipath-21 Section 3.4
+        //   para 4, always accepted, even for the last path.
+        // - Locally-initiated non-last-path close: normal path close.
 
         trace!(%path_id, ?reason, "closing path");
 
@@ -689,6 +681,9 @@ impl Connection {
             }
         }
 
+        // Note: remote CIDs are NOT removed here. They are removed when the PATH_ABANDON
+        // frame is actually written to a packet (in populate_packet). This allows sending
+        // PATH_ABANDON on the abandoned path itself when no other path exists (#509).
         debug_assert!(!self.state.is_drained()); // requirement for endpoint_events, checked above
         self.endpoint_events
             .push_back(EndpointEventInner::RetireResetToken(path_id));
@@ -732,8 +727,24 @@ impl Connection {
         // Emit event to the application.
         self.events.push_back(Event::Path(PathEvent::Abandoned {
             id: path_id,
-            reason,
+            reason: reason.clone(),
         }));
+
+        // Handle last-path scenarios.
+        // draft-ietf-quic-multipath-21 Section 3.4 para 7:
+        // - Remote-initiated: the application may open a new path within the grace period.
+        // - Locally-initiated: the PATH_ABANDON needs to be sent before CONNECTION_CLOSE.
+        // In both cases, start a grace timer (~1 PTO). When it fires, close the connection
+        // unless a new path has been opened (which cancels the timer in open_path).
+        if is_last_path {
+            let pto =
+                self.path_data(path_id).rtt.pto_base() + self.ack_frequency.max_ack_delay_for_pto();
+            self.timers.set(
+                Timer::Conn(ConnTimer::NoViablePath),
+                now + pto,
+                self.qlog.with_time(now),
+            );
+        }
 
         Ok(())
     }
@@ -902,6 +913,12 @@ impl Connection {
         };
 
         debug!(%validated, %path_id, %network_path, "path added");
+
+        // A new path appeared — cancel any pending no-viable-path grace timer.
+        self.timers.stop(
+            Timer::Conn(ConnTimer::NoViablePath),
+            self.qlog.with_time(now),
+        );
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
         self.path_generation_counter = self.path_generation_counter.wrapping_add(1);
@@ -2329,6 +2346,19 @@ impl Connection {
                                 }
                             }
                         }
+                    }
+                    ConnTimer::NoViablePath => {
+                        // Grace period expired: all paths were abandoned and no new path
+                        // was opened. Close the connection with CONNECTION_CLOSE.
+                        // See draft-ietf-quic-multipath-21 Section 3.4 para 7.
+                        trace!("no viable path grace period expired, closing connection");
+                        let err = TransportError::NO_VIABLE_PATH(
+                            "last path abandoned, no new path opened",
+                        );
+                        self.close_common();
+                        self.set_close_timer(now);
+                        self.connection_close_pending = true;
+                        self.state.move_to_closed(err);
                     }
                 },
                 // TODO: add path_id as span somehow
@@ -5048,12 +5078,6 @@ impl Connection {
                         Ok(()) => {
                             trace!("peer abandoned path");
                         }
-                        Err(ClosePathError::LastOpenPath) => {
-                            trace!("peer abandoned last path, closing connection");
-                            return Err(TransportError::NO_VIABLE_PATH(
-                                "last path abandoned by peer",
-                            ));
-                        }
                         Err(ClosePathError::ClosedPath) => {
                             trace!("peer abandoned already closed path");
                         }
@@ -5061,6 +5085,11 @@ impl Connection {
                             return Err(TransportError::PROTOCOL_VIOLATION(
                                 "received PATH_ABANDON frame when multipath was not negotiated",
                             ));
+                        }
+                        Err(ClosePathError::LastOpenPath) => {
+                            unreachable!(
+                                "close_path_inner no longer returns LastOpenPath for remote abandons"
+                            );
                         }
                     };
 

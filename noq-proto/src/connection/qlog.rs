@@ -312,6 +312,7 @@ impl QlogSink {
                 ConnTimer::KeyDiscard => Some(TimerType::custom("key_discard")),
                 ConnTimer::KeepAlive => Some(TimerType::custom("keep_alive")),
                 ConnTimer::PushNewCid => Some(TimerType::custom("push_new_cid")),
+                ConnTimer::NoViablePath => Some(TimerType::custom("no_viable_path")),
             },
             Timer::PerPath(_, path_timer) => match path_timer {
                 PathTimer::LossDetection => Some(QlogTimerType::LossTimeout.into()),
