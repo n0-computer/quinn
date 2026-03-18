@@ -1837,3 +1837,235 @@ fn abandon_cycle() -> TestResult {
 // which is already tested in `network_change_multipath_no_hint_replaces_path` and
 // `network_change_selective_hint`. Link-breaking via silent drop is covered by the
 // existing `open_path_validation_fails_client_side` test using `blackhole_step`.
+
+// --- Tests for #398/#400: last-path and last-validated-path abandon scenarios ---
+//
+// These are regression tests for issues #398 and #400. Both were fixed by our #397 fix
+// (commit fd562f184) which:
+// - Always accepts remote PATH_ABANDONs (even for the last path)
+// - Starts a NoViablePath grace timer (~1 PTO) when the last path is abandoned
+// - Cancels the timer when a new path appears (in ensure_path)
+//
+// History: the old code had separate checks for local vs remote abandon:
+// - Local: blocked if no remaining *validated* paths (checked path.data.validated)
+// - Remote: blocked if no remaining paths at all
+// Both returned Err(LastOpenPath), killing the connection.
+//
+// The fix unified both: always accept, start grace timer for last-path case.
+// This means #400 ("connection killed when remote abandons last validated path")
+// is also fixed — the old remote check didn't care about validation state, and the
+// new code doesn't block at all.
+
+/// Regression test for #400: remote abandons the only validated path while an
+/// unvalidated path exists. The connection should survive if the unvalidated
+/// path validates.
+///
+/// Pre-fix: the remote check didn't consider validation, so this case was
+/// accepted (the bug in #400 was actually about the *local* check blocking
+/// when only unvalidated paths remained). Post-fix (#397): always accepted,
+/// no guard at all.
+///
+/// draft-ietf-quic-multipath-21 Section 3.4 para 4 (MUST accept)
+#[test]
+fn remote_abandon_last_validated_path_unvalidated_remains() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    // Set up routing for two address pairs
+    let mut second_client_addr = pair.client.addr;
+    let mut second_server_addr = pair.server.addr;
+    second_client_addr.set_port(second_client_addr.port() + 1);
+    second_server_addr.set_port(second_server_addr.port() + 1);
+    pair.routes = Some(RoutingTable::simple_symmetric(
+        [pair.client.addr, second_client_addr],
+        [pair.server.addr, second_server_addr],
+    ));
+
+    // Open path 1 from client but don't fully drive — leave it unvalidated.
+    let path1_net = FourTuple {
+        local_ip: Some(second_client_addr.ip()),
+        remote: second_server_addr,
+    };
+    info!("client opens path 1 (will remain unvalidated)");
+    let path1 = pair.open_path(Client, path1_net, PathStatus::Available)?;
+    // Drive client → server: PATH_CHALLENGE sent and received
+    pair.drive_client();
+    pair.drive_server();
+    // Don't drive further — PATH_RESPONSE not yet delivered to client
+
+    // Server abandons path 0 — the only validated path from the client's perspective.
+    info!("server abandons path 0 (client's only validated path)");
+    pair.close_path(Server, PathId::ZERO, 0u8.into())?;
+    pair.drive();
+
+    // Client must accept the abandon (Section 3.4 para 4)
+    let client_stats = pair.stats(Client);
+    assert!(
+        client_stats.frame_rx.path_abandon >= 1,
+        "client should have received PATH_ABANDON for path 0"
+    );
+
+    // Drive to let path 1 validate (PATH_RESPONSE arrives during drive)
+    pair.drive();
+
+    // After path 1 validates, the connection should survive
+    assert!(
+        !pair.is_closed(Client),
+        "client should survive — path 1 validated"
+    );
+    assert!(
+        !pair.is_closed(Server),
+        "server should survive — path 1 is usable"
+    );
+    assert!(
+        pair.path_status(Client, path1).is_ok(),
+        "path 1 should still be alive"
+    );
+
+    Ok(())
+}
+
+/// Regression test for #398/#400: remote abandons the only validated path and
+/// the remaining unvalidated path fails validation. The connection should
+/// eventually close.
+///
+/// The close happens through the chain: path validation timeout → path 1
+/// abandoned → is_last_path = true → NoViablePath grace timer → CONNECTION_CLOSE.
+///
+/// draft-ietf-quic-multipath-21 Section 3.4 para 7
+#[test]
+fn remote_abandon_last_validated_path_validation_fails() -> TestResult {
+    let _guard = subscribe();
+
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(MAX_PATHS);
+    cfg.initial_rtt(Duration::from_millis(10));
+
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
+    pair.drive();
+
+    // Use an unreachable address for path 1 so validation will fail
+    let unreachable_server: SocketAddr = SocketAddr::new(
+        [9, 8, 7, 6].into(),
+        SERVER_PORTS.lock()?.next().ok_or("no port")?,
+    );
+
+    // Open path 1 to unreachable address — it will never validate
+    let path1_net = FourTuple {
+        remote: unreachable_server,
+        local_ip: None,
+    };
+    info!("client opens path 1 to unreachable address");
+    let _path1 = pair.open_path(Client, path1_net, PathStatus::Available)?;
+    pair.drive_client();
+    pair.drive_server();
+
+    // Server abandons path 0 — the only validated path
+    info!("server abandons path 0");
+    pair.close_path(Server, PathId::ZERO, 0u8.into())?;
+
+    // Drive to idle — path 1 validation will time out, then connection closes
+    pair.drive();
+    while pair.step() {}
+
+    // The connection should be closed:
+    // - path 0: abandoned by server
+    // - path 1: validation failed (unreachable) → abandoned → NoViablePath timer fires
+    assert!(
+        pair.is_closed(Client),
+        "client should close — no viable path after validation failure"
+    );
+
+    let mut saw_connection_lost = false;
+    while let Some(event) = pair.poll(Client) {
+        if matches!(&event, Event::ConnectionLost { .. }) {
+            saw_connection_lost = true;
+        }
+    }
+    assert!(
+        saw_connection_lost,
+        "client should emit ConnectionLost after no viable path"
+    );
+
+    Ok(())
+}
+
+/// Regression test for #398: when the remote abandons all paths, the client
+/// can recover by opening a new path within the grace period.
+///
+/// Tests the combination of:
+/// - #400: last validated path abandoned with unvalidated remaining
+/// - #398: application opens new path to recover
+///
+/// draft-ietf-quic-multipath-21 Section 3.4 para 7:
+///   "Alternatively, a client MAY instead try to open a new path"
+#[test]
+fn remote_abandon_last_validated_path_recovery_via_new_path() -> TestResult {
+    let _guard = subscribe();
+
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(4);
+    cfg.initial_rtt(Duration::from_millis(10));
+
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
+    pair.drive();
+
+    // Set up 3 address pairs
+    let mut addrs_client = vec![pair.client.addr];
+    let mut addrs_server = vec![pair.server.addr];
+    for i in 1..3u16 {
+        let mut ca = pair.client.addr;
+        ca.set_port(ca.port() + i);
+        addrs_client.push(ca);
+        let mut sa = pair.server.addr;
+        sa.set_port(sa.port() + i);
+        addrs_server.push(sa);
+    }
+    pair.routes = Some(RoutingTable::simple_symmetric(
+        addrs_client.clone(),
+        addrs_server.clone(),
+    ));
+
+    // Open path 1 but leave it unvalidated
+    let path1_net = FourTuple {
+        local_ip: Some(addrs_client[1].ip()),
+        remote: addrs_server[1],
+    };
+    info!("client opens path 1 (will remain unvalidated)");
+    let _path1 = pair.open_path(Client, path1_net, PathStatus::Available)?;
+    pair.drive_client();
+    pair.drive_server();
+
+    // Server abandons path 0 (only validated path)
+    info!("server abandons path 0");
+    pair.close_path(Server, PathId::ZERO, 0u8.into())?;
+    pair.drive_server();
+    pair.drive_client();
+
+    // Client opens a new path (path 2) to a reachable address
+    let path2_net = FourTuple {
+        local_ip: Some(addrs_client[2].ip()),
+        remote: addrs_server[2],
+    };
+    info!("client opens path 2 within grace period");
+    let path2 = pair.open_path(Client, path2_net, PathStatus::Available)?;
+
+    // Full drive — path 2 should validate
+    pair.drive();
+
+    // Connection should survive
+    assert!(
+        !pair.is_closed(Client),
+        "client should survive — new path validated"
+    );
+    assert!(
+        !pair.is_closed(Server),
+        "server should survive — new path validated"
+    );
+    assert!(
+        pair.path_status(Client, path2).is_ok(),
+        "path 2 should be alive"
+    );
+
+    Ok(())
+}
