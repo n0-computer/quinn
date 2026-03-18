@@ -762,6 +762,78 @@ fn add_address_not_delayed_by_cid_frames() -> TestResult {
     Ok(())
 }
 
+/// Off-path NAT traversal challenges consume CIDs from the sending path's queue.
+/// When probes fail (no PATH_RESPONSE), the CIDs must be retired so the peer can
+/// issue new ones. Otherwise, after enough failed probes, no more probes can be
+/// sent (remaining() < 2) and holepunching is permanently broken.
+///
+/// This is the root cause of holepunch failure after 5G→WiFi switch: the initial
+/// 5G rounds consume all probe CIDs, and after switching to WiFi, the server can't
+/// probe the client's new address.
+///
+/// Related: #410 (apply timers to off-path challenges)
+#[test]
+fn off_path_probe_cids_recovered_after_timeout() -> TestResult {
+    let _guard = subscribe();
+
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(12);
+    cfg.initial_rtt(Duration::from_millis(10));
+    cfg.set_max_remote_nat_traversal_addresses(12);
+
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
+    pair.drive();
+
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Client initiates NAT traversal round — sends REACH_OUT with 4 addresses.
+    // These get queued as pending_probes on the server.
+    pair.add_nat_traversal_address(Client, "10.0.0.1:1234".parse().unwrap())?;
+    pair.add_nat_traversal_address(Client, "10.0.0.2:1234".parse().unwrap())?;
+    pair.add_nat_traversal_address(Client, "203.0.113.1:1234".parse().unwrap())?;
+    pair.add_nat_traversal_address(Client, "203.0.113.2:1234".parse().unwrap())?;
+    pair.initiate_nat_traversal_round(Client)?;
+
+    // Drive to deliver REACH_OUT and let server send off-path challenges.
+    // The challenges go to unreachable addresses, so no PATH_RESPONSE.
+    pair.drive();
+
+    let server_challenges_r1 = pair.stats(Server).frame_tx.path_challenge;
+    info!("round 1: server sent {server_challenges_r1} PATH_CHALLENGEs total");
+
+    // Run time forward so the probes time out. No direct traffic gets through.
+    // The relay path keeps the connection alive.
+    while pair.step() {}
+
+    // Second round: client changes addresses (simulates WiFi switch) and
+    // initiates a new NAT traversal round.
+    pair.add_nat_traversal_address(Client, "192.168.1.100:5678".parse().unwrap())?;
+    pair.initiate_nat_traversal_round(Client)?;
+
+    // Drive to deliver new REACH_OUT and let server attempt new probes.
+    pair.drive();
+
+    let server_challenges_r2 = pair.stats(Server).frame_tx.path_challenge;
+    let new_challenges = server_challenges_r2 - server_challenges_r1;
+    info!("round 2: server sent {new_challenges} new PATH_CHALLENGEs");
+
+    // The server should be able to probe the new addresses. After the first
+    // round's probes timed out, the consumed CIDs should have been retired
+    // and the peer should have issued new ones.
+    //
+    // BUG (#410): off-path challenges have no timeout. The CIDs consumed by
+    // round 1 probes are never retired. `remaining() < 2` permanently blocks
+    // new probes.
+    assert!(
+        new_challenges > 0,
+        "server should send off-path challenges for new round after CIDs recovered, \
+         but sent 0 new challenges (total: {server_challenges_r2})"
+    );
+
+    Ok(())
+}
+
 #[test]
 fn mtud_on_two_paths() -> TestResult {
     let _guard = subscribe();

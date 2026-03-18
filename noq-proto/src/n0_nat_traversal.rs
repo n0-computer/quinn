@@ -335,6 +335,11 @@ impl ServerState {
         self.local_addresses.remove(address).map(RemoveAddress::new)
     }
 
+    /// Returns the current NAT traversal round number.
+    pub(crate) fn current_round(&self) -> VarInt {
+        self.round
+    }
+
     /// Handles a received [`ReachOut`].
     ///
     /// This might ignore the reach out frame if it belongs to an older round or if

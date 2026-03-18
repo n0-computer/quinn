@@ -5253,10 +5253,48 @@ impl Connection {
                         }
                     };
 
+                    let is_new_round = reach_out.round > server_state.current_round();
+
                     if let Err(err) = server_state.handle_reach_out(reach_out, ipv6) {
                         return Err(TransportError::PROTOCOL_VIOLATION(format!(
                             "Nat traversal(REACH_OUT): {err}"
                         )));
+                    }
+
+                    // When the client starts a new NAT traversal round, the previous
+                    // round's off-path challenges are obsolete. Clear the unconfirmed
+                    // challenges and rotate the CID queue to retire the CIDs consumed
+                    // by the old probes. This ensures fresh CIDs are available for the
+                    // new round's probes. Without this, CID exhaustion after failed
+                    // rounds permanently prevents future holepunching (#410).
+                    if is_new_round {
+                        let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
+                        if path.has_off_path_challenges() {
+                            trace!(
+                                "clearing stale off-path challenges for new NAT traversal round"
+                            );
+                            path.clear_off_path_challenges();
+
+                            // Rotate the CID: retire the active + reserved CIDs and
+                            // switch to the next available one. This triggers the peer
+                            // to issue replacement CIDs via NEW_CONNECTION_ID.
+                            if let Some(remote_cids) = self.remote_cids.get_mut(&path_id)
+                                && let Some((reset_token, retired)) = remote_cids.next()
+                            {
+                                self.spaces[SpaceId::Data]
+                                    .pending
+                                    .retire_cids
+                                    .extend(retired.map(|seq| (path_id, seq)));
+                                let remote = self
+                                    .paths
+                                    .get(&path_id)
+                                    .expect("known path")
+                                    .data
+                                    .network_path
+                                    .remote;
+                                self.set_reset_token(path_id, remote, reset_token);
+                            }
+                        }
                     }
                 }
             }
