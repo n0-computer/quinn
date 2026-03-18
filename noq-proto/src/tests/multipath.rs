@@ -709,6 +709,59 @@ fn per_path_observed_address() -> TestResult {
     Ok(())
 }
 
+/// ADD_ADDRESS frames must be sent in the first data packet, not delayed behind
+/// bulk PATH_NEW_CONNECTION_ID frames.
+///
+/// Regression test: the server adds both its public and private IP to NAT traversal
+/// before the first data packet. Both ADD_ADDRESS frames should be sent immediately.
+/// Previously, ADD_ADDRESS was scheduled after NEW_CONNECTION_ID, so 35+ CID frames
+/// could fill the packet and push ADD_ADDRESS to a later packet (10+ seconds later
+/// with pacing under load).
+///
+/// draft-seemann-quic-nat-traversal-02: ADD_ADDRESS frames advertise addresses for
+/// NAT traversal. The client can't probe addresses it doesn't know about, so delays
+/// directly impact holepunching success.
+#[test]
+fn add_address_not_delayed_by_cid_frames() -> TestResult {
+    let _guard = subscribe();
+
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(12); // high path count = many CID frames
+    cfg.initial_rtt(Duration::from_millis(10));
+    cfg.set_max_remote_nat_traversal_addresses(12); // enable NAT traversal
+
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
+    pair.drive();
+
+    // Drain handshake events
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Server adds two NAT traversal addresses (simulating public + private IP)
+    let addr1: SocketAddr = "10.0.0.1:1234".parse().unwrap();
+    let addr2: SocketAddr = "203.0.113.1:1234".parse().unwrap();
+    pair.add_nat_traversal_address(Server, addr1)?;
+    pair.add_nat_traversal_address(Server, addr2)?;
+
+    // Record frame stats before driving
+    let stats_before = pair.stats(Server);
+
+    // Drive just the server to send ONE round of packets
+    pair.drive_server();
+
+    let stats_after = pair.stats(Server);
+
+    // Both ADD_ADDRESS frames should have been sent in the first burst.
+    // Previously only 1 would fit because CID frames consumed all packet space.
+    let add_addr_sent = stats_after.frame_tx.add_address - stats_before.frame_tx.add_address;
+    assert_eq!(
+        add_addr_sent, 2,
+        "both ADD_ADDRESS frames should be sent immediately, not delayed behind CID frames"
+    );
+
+    Ok(())
+}
+
 #[test]
 fn mtud_on_two_paths() -> TestResult {
     let _guard = subscribe();
