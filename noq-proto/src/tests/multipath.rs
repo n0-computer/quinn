@@ -1031,6 +1031,201 @@ fn path_scheduling_path_status() -> TestResult {
     Ok(())
 }
 
+// --- Tests for PR #444: packet scheduling for unvalidated paths ---
+//
+// PR #444 (flub/packet-scheduling-1) fixes packet scheduling so that unvalidated
+// paths only send path-specific frames (PATH_CHALLENGE, PATH_RESPONSE) and not
+// stream/datagram data. Data is only sent on validated paths with Available status.
+
+/// Unvalidated paths must not carry stream data — only PATH_CHALLENGE/RESPONSE.
+///
+/// After opening a new path, it's unvalidated until PATH_CHALLENGE/RESPONSE completes.
+/// Stream data should only flow on the existing validated path, not the new one.
+///
+/// PR #444: `may_send_data = false` when `!validated` (line 1139-1146 of mod.rs)
+#[test]
+fn scheduling_unvalidated_path_no_stream_data() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    // Set up routing for two paths
+    let mut second_client_addr = pair.client.addr;
+    let mut second_server_addr = pair.server.addr;
+    second_client_addr.set_port(second_client_addr.port() + 1);
+    second_server_addr.set_port(second_server_addr.port() + 1);
+    pair.routes = Some(RoutingTable::simple_symmetric(
+        [pair.client.addr, second_client_addr],
+        [pair.server.addr, second_server_addr],
+    ));
+
+    // Open second path — don't fully drive, so it stays unvalidated
+    let path1_net = FourTuple {
+        local_ip: Some(second_client_addr.ip()),
+        remote: second_server_addr,
+    };
+    let path1 = pair.open_path(Client, path1_net, PathStatus::Available)?;
+
+    // Record stats before sending data
+    let path0_tx_before = pair
+        .path_stats(Client, PathId::ZERO)
+        .map(|s| s.udp_tx.datagrams)
+        .unwrap_or(0);
+    let path1_tx_before = pair
+        .path_stats(Client, path1)
+        .map(|s| s.udp_tx.datagrams)
+        .unwrap_or(0);
+
+    // Write stream data while path 1 is unvalidated
+    let s = pair.streams(Client).open(Dir::Uni).unwrap();
+    pair.send_stream(Client, s)
+        .write(b"should go on validated path only")
+        .unwrap();
+
+    // Drive just client to send packets
+    pair.drive_client();
+
+    let path0_tx_after = pair
+        .path_stats(Client, PathId::ZERO)
+        .map(|s| s.udp_tx.datagrams)
+        .unwrap_or(0);
+    let path1_tx_after = pair
+        .path_stats(Client, path1)
+        .map(|s| s.udp_tx.datagrams)
+        .unwrap_or(0);
+
+    let path0_new = path0_tx_after - path0_tx_before;
+    let path1_new = path1_tx_after - path1_tx_before;
+
+    // Stream data should go on path 0 (validated), not path 1 (unvalidated).
+    // Path 1 may have sent PATH_CHALLENGE (1 datagram) but no stream data.
+    assert!(
+        path0_new > 0,
+        "validated path 0 should have sent stream data"
+    );
+    // Path 1 should only have sent PATH_CHALLENGE (at most 1-2 datagrams)
+    assert!(
+        path1_new <= 2,
+        "unvalidated path 1 should not carry stream data, sent {path1_new} datagrams"
+    );
+
+    // Drive to completion — path validates, data arrives
+    pair.drive();
+    assert!(!pair.is_closed(Client));
+
+    Ok(())
+}
+
+// --- Tests for PR #509: send PATH_ABANDON on the abandoned path itself ---
+//
+// PR #509 (flub/abandon-on-self) allows sending PATH_ABANDON on the path being
+// abandoned when no other validated path exists. This is needed after network change
+// when the only validated path is being replaced.
+
+/// When the last validated path is abandoned, PATH_ABANDON should be sent on
+/// the abandoned path itself (since there's no other validated path to carry it).
+///
+/// PR #509: `may_self_abandon = has_cids && validated && !have_validated_space`
+///
+/// draft-ietf-quic-multipath-21 Section 3.4 para 3:
+///   "An endpoint [...] SHOULD send the PATH_ABANDON frame on another
+///    open path, if possible."
+/// The "if possible" allows sending on the path itself when necessary.
+#[test]
+fn path_abandon_sent_on_self_when_no_other_validated_path() -> TestResult {
+    let _guard = subscribe();
+
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(MAX_PATHS);
+    cfg.initial_rtt(Duration::from_millis(10));
+
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
+    pair.drive();
+
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    let stats_before = pair.stats(Client);
+
+    // Close the only path — PATH_ABANDON must be sent on this path itself
+    info!("client closes path 0 (the only path)");
+    pair.close_path(Client, PathId::ZERO, 42u8.into())?;
+
+    // Drive client to send the PATH_ABANDON
+    pair.drive_client();
+
+    let stats_after = pair.stats(Client);
+
+    // PATH_ABANDON should have been sent
+    assert!(
+        stats_after.frame_tx.path_abandon > stats_before.frame_tx.path_abandon,
+        "PATH_ABANDON frame should have been sent on the abandoned path itself"
+    );
+
+    // Drive to completion — server receives it, connection closes
+    pair.drive();
+
+    // Server should have received the PATH_ABANDON
+    let server_stats = pair.stats(Server);
+    assert!(
+        server_stats.frame_rx.path_abandon >= 1,
+        "server should have received PATH_ABANDON"
+    );
+
+    Ok(())
+}
+
+/// After network change replaces the only validated path, the PATH_ABANDON for
+/// the old path should still be delivered to the remote. This verifies the
+/// end-to-end flow: network change → close old path → open replacement →
+/// PATH_ABANDON sent (possibly on old path) → remote receives it.
+#[test]
+fn network_change_path_abandon_delivered_to_remote() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    let server_stats_before = pair.stats(Server);
+
+    // Network change: no hint → single path treated as non-recoverable
+    pair.passive_migration(Client);
+    pair.handle_network_change(Client, None);
+    pair.drive();
+
+    let server_stats_after = pair.stats(Server);
+
+    // Server must have received PATH_ABANDON for the old path
+    assert!(
+        server_stats_after.frame_rx.path_abandon > server_stats_before.frame_rx.path_abandon,
+        "server should receive PATH_ABANDON after network change"
+    );
+
+    // Server should see the abandon event
+    let mut saw_remote_abandon = false;
+    while let Some(event) = pair.poll(Server) {
+        if matches!(
+            &event,
+            Event::Path(PathEvent::Abandoned {
+                reason: PathAbandonReason::RemoteAbandoned { .. },
+                ..
+            })
+        ) {
+            saw_remote_abandon = true;
+        }
+    }
+    assert!(
+        saw_remote_abandon,
+        "server should see remote abandon event for old path"
+    );
+
+    // Connection alive on new path
+    assert!(!pair.is_closed(Client));
+    assert!(!pair.is_closed(Server));
+
+    Ok(())
+}
+
 // --- Tests for issue #397: remote PATH_ABANDON handling ---
 //
 // These tests verify compliance with draft-ietf-quic-multipath-21, Section 3.4
