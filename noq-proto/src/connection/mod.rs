@@ -5609,46 +5609,6 @@ impl Connection {
             builder.write_frame(frame::HandshakeDone, stats);
         }
 
-        // REACH_OUT
-        if let Some((round, addresses)) = space.pending.reach_out.as_mut()
-            && scheduling_info.may_send_data
-        {
-            while let Some(local_addr) = addresses.iter().next().copied() {
-                let local_addr = addresses.take(&local_addr).expect("found from iter");
-                let reach_out = frame::ReachOut::new(*round, local_addr);
-                if builder.frame_space_remaining() > reach_out.size() {
-                    builder.write_frame(reach_out, stats);
-                } else {
-                    addresses.insert(local_addr);
-                    break;
-                }
-            }
-            if addresses.is_empty() {
-                space.pending.reach_out = None;
-            }
-        }
-
-        // OBSERVED_ADDR
-        if scheduling_info.may_send_data
-            && space_id == SpaceId::Data
-            && self
-                .config
-                .address_discovery_role
-                .should_report(&self.peer_params.address_discovery_role)
-            && (!path.observed_addr_sent || space.pending.observed_addr)
-        {
-            let frame =
-                frame::ObservedAddr::new(path.network_path.remote, self.next_observed_addr_seq_no);
-            if builder.frame_space_remaining() > frame.size() {
-                builder.write_frame(frame, stats);
-
-                self.next_observed_addr_seq_no = self.next_observed_addr_seq_no.saturating_add(1u8);
-                path.observed_addr_sent = true;
-
-                space.pending.observed_addr = false;
-            }
-        }
-
         // PING
         if mem::replace(&mut space.for_path(path_id).ping_pending, false) {
             builder.write_frame(frame::Ping, stats);
@@ -5804,6 +5764,46 @@ impl Connection {
 
                     space.pending.observed_addr = false;
                 }
+            }
+        }
+
+        // REACH_OUT
+        if let Some((round, addresses)) = space.pending.reach_out.as_mut()
+            && scheduling_info.may_send_data
+        {
+            while let Some(local_addr) = addresses.iter().next().copied() {
+                let local_addr = addresses.take(&local_addr).expect("found from iter");
+                let reach_out = frame::ReachOut::new(*round, local_addr);
+                if builder.frame_space_remaining() > reach_out.size() {
+                    builder.write_frame(reach_out, stats);
+                } else {
+                    addresses.insert(local_addr);
+                    break;
+                }
+            }
+            if addresses.is_empty() {
+                space.pending.reach_out = None;
+            }
+        }
+
+        // OBSERVED_ADDR
+        if scheduling_info.may_send_data
+            && space_id == SpaceId::Data
+            && self
+                .config
+                .address_discovery_role
+                .should_report(&self.peer_params.address_discovery_role)
+            && (!path.observed_addr_sent || space.pending.observed_addr)
+        {
+            let frame =
+                frame::ObservedAddr::new(path.network_path.remote, self.next_observed_addr_seq_no);
+            if builder.frame_space_remaining() > frame.size() {
+                builder.write_frame(frame, stats);
+
+                self.next_observed_addr_seq_no = self.next_observed_addr_seq_no.saturating_add(1u8);
+                path.observed_addr_sent = true;
+
+                space.pending.observed_addr = false;
             }
         }
 
