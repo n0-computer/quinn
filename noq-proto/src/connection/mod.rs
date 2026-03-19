@@ -5586,6 +5586,20 @@ impl Connection {
             debug_assert!(!self.state.is_drained()); // required for endpoint_events, checked above
             self.endpoint_events
                 .push_back(EndpointEventInner::ResetToken(path_id, remote, reset_token));
+
+            // Reset the PTO backoff counter and re-arm loss detection. During the
+            // transport disconnect, PTO retransmits may have exhausted and the
+            // backoff grown exponentially (seconds/minutes). Resetting pto_count
+            // to 0 brings the PTO back to a reasonable duration so retransmits
+            // resume promptly once the transport recovers.
+            //
+            // We intentionally preserve the congestion controller and RTT estimate:
+            // for a truly recoverable path (e.g. relay reconnecting), these are
+            // still valid and resetting them would cause unnecessary slow-start.
+            if let Some(path) = self.paths.get_mut(&path_id) {
+                path.data.pto_count = 0;
+            }
+            self.set_loss_detection_timer(now, path_id);
         }
     }
 
