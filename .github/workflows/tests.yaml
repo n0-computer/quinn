@@ -23,7 +23,7 @@ env:
   RUSTFLAGS: -Dwarnings
   RUSTDOCFLAGS: -Dwarnings
   SCCACHE_CACHE_SIZE: "10G"
-  CRATES_LIST: "iroh-quinn,iroh-quinn-proto,iroh-quinn-udp"
+  CRATES_LIST: "noq,noq-proto,noq-udp"
   NEXTEST_VERSION: "0.9.80"
 
 jobs:
@@ -48,10 +48,10 @@ jobs:
             release-os: darwin
             release-arch: aarch64
             runner: [self-hosted, macOS, ARM64]
-    # env:
+    env:
       # Using self-hosted runners so use local cache for sccache and
       # not SCCACHE_GHA_ENABLED.
-      # RUSTC_WRAPPER: "sccache"
+      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -68,15 +68,14 @@ jobs:
         with:
           tool: nextest@${{ env.NEXTEST_VERSION }}
 
-      # bugging out on macos cause it thinks its x86_64
-      # - name: Install sccache
-      #   uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       # Go is required for FIPS builds (aws-lc-rs-fips feature)
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: "stable"
 
       - name: Select features
         run: |
@@ -129,7 +128,7 @@ jobs:
         with:
           name: libtest_run_${{ github.run_number }}-${{ github.run_attempt }}-${{ matrix.name }}_${{ matrix.features }}_${{ matrix.rust }}.json
           path: output
-          retention-days: 45
+          retention-days: 7
           compression-level: 0
 
       - name: doctests
@@ -150,6 +149,12 @@ jobs:
             echo cargo test -p $i --doc $FEATURES
             cargo test -p $i --doc $FEATURES
           done
+
+      - uses: taiki-e/install-action@cargo-make
+
+      - name: run proptests (1 minute minimum)
+        if: ${{ ! inputs.flaky }}
+        run: cargo make proptests-light
 
   build_and_test_windows:
     timeout-minutes: 30
@@ -231,7 +236,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: "stable"
 
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
@@ -304,6 +309,21 @@ jobs:
           path: output
           retention-days: 1
           compression-level: 0
+
+      - name: Cache cargo-make
+        id: cache-cargo-make
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-make.exe
+          key: cargo-make-windows-0.37.24
+
+      - name: Install cargo-make
+        if: steps.cache-cargo-make.outputs.cache-hit != 'true'
+        run: cargo install cargo-make --version 0.37.24 --locked
+
+      - name: run proptests (1 minute minimum)
+        if: ${{ ! inputs.flaky }}
+        run: cargo make proptests-light
 
   minimal-crates:
     timeout-minutes: 45

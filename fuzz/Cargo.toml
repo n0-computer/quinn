@@ -14,8 +14,8 @@ libfuzzer-sys = "0.4.2"
 
 [dependencies.proto]
 features = ["arbitrary"]
-path = "../quinn-proto"
-package = "iroh-quinn-proto"
+path = "../noq-proto"
+package = "noq-proto"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
@@ -35,5 +35,11 @@ doc = false
 [[bin]]
 name = "packet"
 path = "fuzz_targets/packet.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "params"
+path = "fuzz_targets/params.rs"
 test = false
 doc = false

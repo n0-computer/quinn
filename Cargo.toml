@@ -1,17 +1,18 @@
 [workspace]
-members = ["quinn", "quinn-proto", "quinn-udp", "bench", "perf", "fuzz", "docs/book"]
-default-members = ["quinn", "quinn-proto", "quinn-udp", "bench", "perf"]
+members = ["noq", "noq-proto", "noq-udp", "bench", "perf", "fuzz", "docs/book"]
+default-members = ["noq", "noq-proto", "noq-udp", "bench", "perf"]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.83"
-edition = "2021"
+rust-version = "1.88"
+edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/quinn-rs/quinn"
+repository = "https://github.com/n0-computer/noq"
 keywords = ["quic"]
 categories = ["network-programming", "asynchronous"]
 
 [workspace.dependencies]
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes"] }
 anyhow = "1.0.22"
 arbitrary = { version = "1.0.1", features = ["derive"] }
 async-io = "2"
@@ -31,7 +32,7 @@ identity-hash = "0.1.0"
 lru-slab = "0.1.2"
 log = "0.4"
 pin-project-lite = "0.2"
-proptest = "1.9.0"
+proptest = { version = "1.9.0", default-features = false, features = ["std"] }
 qlog = { package = "n0-qlog", version = "0.1.0" }
 rand = "0.9"
 rcgen = "0.14"
@@ -50,14 +51,14 @@ sorted-index-buffer = { version = "0.2.0" }
 test-strategy = "0.4.3"
 thiserror = "2.0.3"
 tinyvec = { version = "1.1", features = ["alloc"] }
-tokio = { version = "1.28.1", features = ["sync"] }
+tokio = { version = "1.47", features = ["sync"] }
 tracing = { version = "0.1.10", default-features = false, features = ["std"] }
 tracing-futures = { version = "0.2.0", default-features = false, features = ["std-future"] }
 tracing-subscriber = { version = "0.3.1", default-features = false, features = ["env-filter", "fmt", "ansi", "time", "local-time"] }
 url = "2"
 wasm-bindgen-test = { version = "0.3.45" }
 web-time = "1"
-windows-sys = { version = ">=0.52, <=0.61", features = ["Win32_Foundation", "Win32_System_IO", "Win32_Networking_WinSock"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_IO", "Win32_Networking_WinSock", "Win32_System_LibraryLoader"] }
 cfg_aliases = "0.2.1"
 
 # Fix minimal dependencies for indirect deps
@@ -85,5 +86,6 @@ unnameable_types = "warn"
 unreachable_pub = "warn"
 
 [workspace.lints.clippy]
+manual_let_else = "warn"
 or_fun_call = "warn"
 use_self = "warn"

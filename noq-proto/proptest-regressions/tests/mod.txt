@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7445bc8d33f0f036ac77e8ade593afb3aeee7314133bada338039e1022a11f58 # shrinks to input = _EncodeDecodeRoundtripArgs { frame: PathAbandon(PathAbandon { path_id: PathId(0), error_code: Code(4000000000000000) }) }
+cc 54da1f9d5df16cf5101b5f73d85a90b947c641fd43c7db19d2cedac7446fefeb # shrinks to input = _EncodeDecodeRoundtripArgs { frame: ConnectionClose(ConnectionClose { error_code: Code::crypto(00), frame_type: Unknown4000000000000000, reason: b"" }) }
