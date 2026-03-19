@@ -236,8 +236,8 @@ impl FromStr for RuntimeType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "tokio" => Ok(RuntimeType::Tokio),
-            "tokio-current-thread" => Ok(RuntimeType::TokioCurrentThread),
+            "tokio" => Ok(Self::Tokio),
+            "tokio-current-thread" => Ok(Self::TokioCurrentThread),
             _ => Err(anyhow::anyhow!("Unknown runtime type {}", s)),
         }
     }
