@@ -1049,7 +1049,6 @@ fn server_abandon_last_verified_path() -> TestResult {
     pair.drive();
 
     let path_stats = pair.path_stats(Server, PathId::ZERO).unwrap();
-    path_stats
 
     Ok(())
 }
