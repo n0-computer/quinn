@@ -153,15 +153,15 @@ impl PacketSpace {
             .number_spaces
             .values()
             .any(|pns| pns.pending_acks.can_send());
-        let space_only = self
+        let space_specific = self
             .number_spaces
             .get(&path_id)
             .is_some_and(|s| s.ping_pending || s.immediate_ack_pending);
-        let other = !self.pending.is_empty(streams) || space_only;
+        let other = !self.pending.is_empty(streams) || space_specific;
         SendableFrames {
             acks,
             close: false,
-            space_only,
+            space_specific,
             other,
         }
     }
@@ -923,7 +923,7 @@ pub(super) struct SendableFrames {
     ///
     /// These are ack-eliciting. Some frames are scheduled per path, e.g. PING,
     /// IMMEDIATE_ACK, PATH_CHALLENGE or PATH_RESPONSE.
-    pub(super) space_only: bool,
+    pub(super) space_specific: bool,
     /// Whether there are any other frames to send, these are ack-eliciting.
     pub(super) other: bool,
 }
@@ -934,7 +934,7 @@ impl SendableFrames {
         Self {
             acks: false,
             close: false,
-            space_only: false,
+            space_specific: false,
             other: false,
         }
     }
@@ -944,14 +944,14 @@ impl SendableFrames {
         let Self {
             acks: _,
             close,
-            space_only,
+            space_specific,
             other,
         } = *self;
         if close {
             // No ack-eliciting frames are included with a CONNECTION_CLOSE, only acks.
             return false;
         }
-        space_only || other
+        space_specific || other
     }
 
     /// Whether no data is sendable.
@@ -959,10 +959,10 @@ impl SendableFrames {
         let Self {
             acks,
             close,
-            space_only,
+            space_specific,
             other,
         } = *self;
-        !acks && !close && !space_only && !other
+        !acks && !close && !space_specific && !other
     }
 }
 
@@ -971,13 +971,13 @@ impl ::std::ops::BitOrAssign for SendableFrames {
         let Self {
             acks,
             close,
-            space_only,
+            space_specific,
             other,
         } = rhs;
 
         self.acks |= acks;
         self.close |= close;
-        self.space_only |= space_only;
+        self.space_specific |= space_specific;
         self.other |= other;
     }
 }
