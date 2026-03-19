@@ -6893,7 +6893,7 @@ struct PathSchedulingInfo {
     abandoned: bool,
     /// Whether the path may send [`SpaceKind::Data`] frames.
     ///
-    /// Some paths should only send frames from [`SendableFrames::space_only`]. All other
+    /// Some paths should only send frames from [`SendableFrames::space_specific`]. All other
     /// frames are essentially frames that can be sent on any [`SpaceKind::Data`] space. For
     /// those we want to respect packet scheduling rules however.
     ///
