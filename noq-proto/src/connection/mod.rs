@@ -1389,7 +1389,7 @@ impl Connection {
                 } else if can_send.close && scheduling_info.may_send_close {
                     // This is the best path to send a CONNECTION_CLOSE on.
                     true
-                } else if needs_loss_probe || can_send.space_only {
+                } else if needs_loss_probe || can_send.space_specific {
                     // We always send a loss probe or space-specific frames if the path is
                     // not abandoned.
                     true
@@ -1640,7 +1640,7 @@ impl Connection {
             debug_assert!(
                 !(builder.sent_frames().is_ack_only(&self.streams)
                     && !can_send.acks
-                    && (can_send.other || can_send.space_only)
+                    && (can_send.other || can_send.space_specific)
                     && builder.buf.segment_size()
                         == self.path_data(path_id).current_mtu() as usize
                     && self.datagrams.outgoing.is_empty()),
@@ -6464,7 +6464,7 @@ impl Connection {
     /// See also [`PacketSpace::can_send`] which keeps track of all other frame types that
     /// may need to be sent.
     fn can_send_1rtt(&self, path_id: PathId, max_size: usize) -> SendableFrames {
-        let space_only = self.paths.get(&path_id).is_some_and(|path| {
+        let space_specific = self.paths.get(&path_id).is_some_and(|path| {
             path.data.pending_on_path_challenge || !path.data.path_responses.is_empty()
         });
 
@@ -6480,7 +6480,7 @@ impl Connection {
         SendableFrames {
             acks: false,
             close: false,
-            space_only,
+            space_specific,
             other,
         }
     }
