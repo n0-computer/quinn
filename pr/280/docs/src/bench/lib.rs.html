@@ -236,8 +236,8 @@
 <a href=#236 id=236 data-nosnippet>236</a>
 <a href=#237 id=237 data-nosnippet>237</a>    <span class="kw">fn </span>from_str(s: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, <span class="self">Self</span>::Err&gt; {
 <a href=#238 id=238 data-nosnippet>238</a>        <span class="kw">match </span>s.to_lowercase().as_str() {
-<a href=#239 id=239 data-nosnippet>239</a>            <span class="string">"tokio" </span>=&gt; <span class="prelude-val">Ok</span>(RuntimeType::Tokio),
-<a href=#240 id=240 data-nosnippet>240</a>            <span class="string">"tokio-current-thread" </span>=&gt; <span class="prelude-val">Ok</span>(RuntimeType::TokioCurrentThread),
+<a href=#239 id=239 data-nosnippet>239</a>            <span class="string">"tokio" </span>=&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::Tokio),
+<a href=#240 id=240 data-nosnippet>240</a>            <span class="string">"tokio-current-thread" </span>=&gt; <span class="prelude-val">Ok</span>(<span class="self">Self</span>::TokioCurrentThread),
 <a href=#241 id=241 data-nosnippet>241</a>            <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(<span class="macro">anyhow::anyhow!</span>(<span class="string">"Unknown runtime type {}"</span>, s)),
 <a href=#242 id=242 data-nosnippet>242</a>        }
 <a href=#243 id=243 data-nosnippet>243</a>    }
