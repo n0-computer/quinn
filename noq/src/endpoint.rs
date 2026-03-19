@@ -885,10 +885,7 @@ impl RecvState {
                         while !data.is_empty() {
                             let buf = data.split_to(meta.stride.min(data.len()));
                             let mut response_buffer = Vec::new();
-                            let addresses = FourTuple {
-                                remote: meta.addr,
-                                local_ip: meta.dst_ip,
-                            };
+                            let addresses = FourTuple::new(meta.addr, meta.dst_ip);
                             match endpoint.handle(
                                 now,
                                 addresses,
