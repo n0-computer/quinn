@@ -25,7 +25,7 @@ fn main() {
     let cert = CertificateDer::from(cert.cert);
 
     let server_span = tracing::error_span!("server");
-    let runtime = rt();
+    let runtime = rt(opt.runtime_type);
     let (server_addr, endpoint) = {
         let _guard = server_span.enter();
         server_endpoint(&runtime, cert.clone(), key.into(), &opt)
@@ -43,7 +43,7 @@ fn main() {
         let cert = cert.clone();
         handles.push(std::thread::spawn(move || {
             let _guard = tracing::error_span!("client", id).entered();
-            let runtime = rt();
+            let runtime = rt(opt.runtime_type);
             match runtime.block_on(client(server_addr, cert, opt)) {
                 Ok(stats) => Ok(stats),
                 Err(e) => {
