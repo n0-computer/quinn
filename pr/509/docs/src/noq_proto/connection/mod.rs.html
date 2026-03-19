@@ -1404,7 +1404,7 @@
 <a href=#1404 id=1404 data-nosnippet>1404</a>                } <span class="kw">else if </span>can_send.close &amp;&amp; scheduling_info.may_send_close {
 <a href=#1405 id=1405 data-nosnippet>1405</a>                    <span class="comment">// This is the best path to send a CONNECTION_CLOSE on.
 <a href=#1406 id=1406 data-nosnippet>1406</a>                    </span><span class="bool-val">true
-<a href=#1407 id=1407 data-nosnippet>1407</a>                </span>} <span class="kw">else if </span>needs_loss_probe || can_send.space_only {
+<a href=#1407 id=1407 data-nosnippet>1407</a>                </span>} <span class="kw">else if </span>needs_loss_probe || can_send.space_specific {
 <a href=#1408 id=1408 data-nosnippet>1408</a>                    <span class="comment">// We always send a loss probe or space-specific frames if the path is
 <a href=#1409 id=1409 data-nosnippet>1409</a>                    // not abandoned.
 <a href=#1410 id=1410 data-nosnippet>1410</a>                    </span><span class="bool-val">true
@@ -1655,7 +1655,7 @@
 <a href=#1655 id=1655 data-nosnippet>1655</a>            </span><span class="macro">debug_assert!</span>(
 <a href=#1656 id=1656 data-nosnippet>1656</a>                !(builder.sent_frames().is_ack_only(<span class="kw-2">&amp;</span><span class="self">self</span>.streams)
 <a href=#1657 id=1657 data-nosnippet>1657</a>                    &amp;&amp; !can_send.acks
-<a href=#1658 id=1658 data-nosnippet>1658</a>                    &amp;&amp; (can_send.other || can_send.space_only)
+<a href=#1658 id=1658 data-nosnippet>1658</a>                    &amp;&amp; (can_send.other || can_send.space_specific)
 <a href=#1659 id=1659 data-nosnippet>1659</a>                    &amp;&amp; builder.buf.segment_size()
 <a href=#1660 id=1660 data-nosnippet>1660</a>                        == <span class="self">self</span>.path_data(path_id).current_mtu() <span class="kw">as </span>usize
 <a href=#1661 id=1661 data-nosnippet>1661</a>                    &amp;&amp; <span class="self">self</span>.datagrams.outgoing.is_empty()),
@@ -6526,7 +6526,7 @@
 <a href=#6526 id=6526 data-nosnippet>6526</a>    /// See also [`PacketSpace::can_send`] which keeps track of all other frame types that
 <a href=#6527 id=6527 data-nosnippet>6527</a>    /// may need to be sent.
 <a href=#6528 id=6528 data-nosnippet>6528</a>    </span><span class="kw">fn </span>can_send_1rtt(<span class="kw-2">&amp;</span><span class="self">self</span>, path_id: PathId, max_size: usize) -&gt; SendableFrames {
-<a href=#6529 id=6529 data-nosnippet>6529</a>        <span class="kw">let </span>space_only = <span class="self">self</span>.paths.get(<span class="kw-2">&amp;</span>path_id).is_some_and(|path| {
+<a href=#6529 id=6529 data-nosnippet>6529</a>        <span class="kw">let </span>space_specific = <span class="self">self</span>.paths.get(<span class="kw-2">&amp;</span>path_id).is_some_and(|path| {
 <a href=#6530 id=6530 data-nosnippet>6530</a>            path.data.pending_on_path_challenge || !path.data.path_responses.is_empty()
 <a href=#6531 id=6531 data-nosnippet>6531</a>        });
 <a href=#6532 id=6532 data-nosnippet>6532</a>
@@ -6542,7 +6542,7 @@
 <a href=#6542 id=6542 data-nosnippet>6542</a>        </span>SendableFrames {
 <a href=#6543 id=6543 data-nosnippet>6543</a>            acks: <span class="bool-val">false</span>,
 <a href=#6544 id=6544 data-nosnippet>6544</a>            close: <span class="bool-val">false</span>,
-<a href=#6545 id=6545 data-nosnippet>6545</a>            space_only,
+<a href=#6545 id=6545 data-nosnippet>6545</a>            space_specific,
 <a href=#6546 id=6546 data-nosnippet>6546</a>            other,
 <a href=#6547 id=6547 data-nosnippet>6547</a>        }
 <a href=#6548 id=6548 data-nosnippet>6548</a>    }
@@ -6955,7 +6955,7 @@
 <a href=#6955 id=6955 data-nosnippet>6955</a>    </span>is_abandoned: bool,
 <a href=#6956 id=6956 data-nosnippet>6956</a>    <span class="doccomment">/// Whether the path may send [`SpaceKind::Data`] frames.
 <a href=#6957 id=6957 data-nosnippet>6957</a>    ///
-<a href=#6958 id=6958 data-nosnippet>6958</a>    /// Some paths should only send frames from [`SendableFrames::space_only`]. All other
+<a href=#6958 id=6958 data-nosnippet>6958</a>    /// Some paths should only send frames from [`SendableFrames::space_specific`]. All other
 <a href=#6959 id=6959 data-nosnippet>6959</a>    /// frames are essentially frames that can be sent on any [`SpaceKind::Data`] space. For
 <a href=#6960 id=6960 data-nosnippet>6960</a>    /// those we want to respect packet scheduling rules however.
 <a href=#6961 id=6961 data-nosnippet>6961</a>    ///
