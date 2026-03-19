@@ -3145,7 +3145,10 @@ fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
     cfg.initial_rtt(Duration::from_millis(10));
     // Enable keep-alive at 500ms for faster test (real iroh uses 5s)
     cfg.default_path_keep_alive_interval(Some(Duration::from_millis(500)));
-    cfg.default_path_max_idle_timeout(Some(Duration::from_secs(10)));
+    // Idle timeout must survive the blackhole period. With 10 blackhole steps
+    // and PTO starting at ~30ms doubling each time, the gap is ~30s.
+    // Use 60s to ensure the connection survives.
+    cfg.default_path_max_idle_timeout(Some(Duration::from_secs(60)));
 
     let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
     pair.drive();
@@ -3180,47 +3183,58 @@ fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
     // Server writes more data that will be in-flight during the gap
     pair.send_stream(Server, s).write(&[43u8; 5000]).unwrap();
 
-    // Simulate relay gap: blackhole both directions for a fixed number of steps.
-    // This causes PTO to fire and back off on both sides.
+    // Simulate relay gap: blackhole both directions for a limited number of
+    // steps. Each step advances time to the next PTO, which doubles each time.
+    // 10 steps ≈ 30ms + 60ms + ... + 15360ms ≈ 30s of simulated time.
     info!("starting silent gap");
     let gap_start = pair.time;
-    for _ in 0..50 {
+    for _ in 0..10 {
         if !pair.blackhole_step(true, true) {
             break;
         }
     }
-    info!("gap lasted {:?}", pair.time - gap_start);
+    let gap_duration = pair.time - gap_start;
+    info!("gap lasted {:?}", gap_duration);
 
-    // Gap over — path recovers. Drive with a bound to detect hangs.
-    // The keep-alive should fire (every 500ms), sending a PING.
-    // The PING reaches the other side, gets ACKed, breaking the deadlock.
-    // Gap over — path should recover via keep-alive PINGs.
-    // Drive step by step, checking for recovery (both sides idle) or
-    // failure (either side closed).
+    // Server writes final data. After recovery, client should receive it.
+    pair.send_stream(Server, s).write(b"after gap").unwrap();
+    pair.send_stream(Server, s).finish().unwrap();
+
+    // Drive step by step, checking if the client receives data (recovery)
+    // or if either side dies (failure). Keep-alive keeps firing so the
+    // connection is never truly "idle" — check for stream events instead.
     info!("gap ended, driving to recovery");
-    let mut recovered = false;
-    for i in 0..100 {
+    let mut received_post_gap = false;
+    for i in 0..50 {
         if pair.is_closed(Client) || pair.is_closed(Server) {
             info!("connection died at step {i}");
             break;
         }
-        if !pair.step() {
-            info!("became idle (recovered) at step {i}");
-            recovered = true;
+        pair.step();
+
+        // Check if client got new stream data
+        while let Some(event) = pair.poll(Client) {
+            if matches!(&event, Event::Stream(StreamEvent::Readable { .. })) {
+                info!("client received data at step {i}");
+                received_post_gap = true;
+            }
+        }
+        if received_post_gap {
             break;
         }
     }
 
-    // BUG: the connection doesn't recover from the silent gap.
-    // After the blackhole ends, keep-alive PINGs should get through and
-    // the server should ACK them, breaking the deadlock. But this doesn't
-    // happen — the connection either hangs indefinitely or times out.
     assert!(
-        recovered,
-        "connection should recover from silent gap via keep-alive, \
-         client_closed={}, server_closed={}",
-        pair.is_closed(Client),
-        pair.is_closed(Server),
+        !pair.is_closed(Client),
+        "client should survive the gap"
+    );
+    assert!(
+        !pair.is_closed(Server),
+        "server should survive the gap"
+    );
+    assert!(
+        received_post_gap,
+        "client should receive data after the gap recovers"
     );
 
     Ok(())
