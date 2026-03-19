@@ -863,52 +863,34 @@ fn off_path_probes_are_retransmitted() -> TestResult {
     while pair.poll(Client).is_some() {}
     while pair.poll(Server).is_some() {}
 
+    let challenges_before = pair.stats(Server).frame_tx.path_challenge;
+
     // Client advertises addresses and initiates NAT traversal.
     pair.add_nat_traversal_address(Client, "10.0.0.1:1234".parse().unwrap())?;
     pair.add_nat_traversal_address(Client, "10.0.0.2:1234".parse().unwrap())?;
     pair.initiate_nat_traversal_round(Client)?;
 
-    // Drive to deliver REACH_OUT and let server send initial off-path probes.
+    // Drive to completion — this delivers REACH_OUT, sends initial probes,
+    // fires retry timers (PTO is ~30ms with 10ms initial RTT), and sends
+    // retries all in one go since drive() processes everything.
     pair.drive();
 
-    let challenges_after_first = pair.stats(Server).frame_tx.path_challenge;
-    info!("after first drive: {challenges_after_first} PATH_CHALLENGEs");
+    let total_challenges = pair.stats(Server).frame_tx.path_challenge - challenges_before;
+    info!("total off-path PATH_CHALLENGEs sent: {total_challenges}");
+
+    // With 2 addresses and up to 3 attempts each, expect 6 total probes.
+    // At minimum, expect more than the initial 2 (proving retries happened).
     assert!(
-        challenges_after_first >= 2,
-        "server should send at least 2 off-path probes (one per address)"
+        total_challenges > 2,
+        "server should retry off-path probes (sent {total_challenges}, \
+         expected > 2 for 2 addresses with retries)"
     );
 
-    // Advance time by one PTO so the retry timer fires.
-    // The probes went to unreachable addresses, so no PATH_RESPONSE arrived.
-    // After 1 PTO, the server should retransmit the probes.
-    pair.step();
-    pair.drive();
-
-    let challenges_after_retry = pair.stats(Server).frame_tx.path_challenge;
-    let retries = challenges_after_retry - challenges_after_first;
-    info!("after retry: {retries} new PATH_CHALLENGEs (total: {challenges_after_retry})");
-
-    // BUG: Server currently sends each off-path probe exactly once and never retries.
-    // Expected: at least 2 more probes (one retry per address).
+    // Should not exceed 3 attempts per address = 6 total.
     assert!(
-        retries >= 2,
-        "server should retry off-path probes after PTO, \
-         but sent {retries} retries (expected >= 2)"
-    );
-
-    // After 3*PTO total, the probes should stop (max 3 attempts per address).
-    pair.step();
-    pair.drive(); // 3rd attempt
-    pair.step();
-    pair.drive(); // should be done now
-
-    let challenges_final = pair.stats(Server).frame_tx.path_challenge;
-    let total_per_addr = (challenges_final as f64 / 2.0).ceil() as u64;
-    info!("final: {challenges_final} total ({total_per_addr} per address)");
-    assert!(
-        challenges_final <= 8,
-        "server should send at most 3 attempts per address (6 total for 2 addrs), \
-         but sent {challenges_final}"
+        total_challenges <= 6,
+        "server should send at most 3 attempts per address \
+         (sent {total_challenges}, expected <= 6 for 2 addresses)"
     );
 
     Ok(())

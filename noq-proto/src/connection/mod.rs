@@ -2061,13 +2061,16 @@ impl Connection {
 
         let remote_cids = self.remote_cids.get_mut(&path_id)?;
 
-        // Check if this path has enough CIDs to send a probe. One to be reserved, one in case the
-        // active CID needs to be retired.
-        if remote_cids.remaining() < 2 {
-            return None;
-        }
-
-        let cid = remote_cids.next_reserved()?;
+        // Try to reserve a fresh CID for the probe (preferred for privacy).
+        // If no reserved CIDs are available (e.g. during retries when the first
+        // attempt already consumed the available CIDs), fall back to the active
+        // CID. This is acceptable for retries since the probe goes to the same
+        // destination that already saw a CID from us.
+        let cid = if remote_cids.remaining() >= 2 {
+            remote_cids.next_reserved()?
+        } else {
+            remote_cids.active()
+        };
         let remote = probe.remote();
         let token = self.rng.random();
         probe.mark_as_sent();
@@ -2090,6 +2093,20 @@ impl Connection {
         };
 
         path.record_path_challenge_sent(now, token, network_path);
+
+        // Set retry timer for off-path probes. Fires after one PTO so we can
+        // retransmit probes that got no PATH_RESPONSE (critical for NAT traversal
+        // simultaneous open).
+        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
+            if server_state.has_pending_retries() {
+                let pto = self.pto(SpaceKind::Data, path_id);
+                self.timers.set(
+                    Timer::Conn(ConnTimer::OffPathProbeRetry),
+                    now + pto,
+                    self.qlog.with_time(now),
+                );
+            }
+        }
 
         let size = buf.len();
 
@@ -2356,6 +2373,16 @@ impl Connection {
                                         );
                                     }
                                 }
+                            }
+                        }
+                    }
+                    ConnTimer::OffPathProbeRetry => {
+                        // Re-queue off-path probes for retransmission.
+                        // The probes will reuse the CID from their original
+                        // off_path_challenges_unconfirmed entry (looked up by address).
+                        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
+                            if server_state.queue_retries() {
+                                trace!("off-path probe retry timer fired, re-queued probes");
                             }
                         }
                     }
@@ -5291,6 +5318,12 @@ impl Connection {
                     // new round's probes. Without this, CID exhaustion after failed
                     // rounds permanently prevents future holepunching (#410).
                     if is_new_round {
+                        // Stop retry timer for old round's probes
+                        self.timers.stop(
+                            Timer::Conn(ConnTimer::OffPathProbeRetry),
+                            self.qlog.with_time(now),
+                        );
+
                         let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
                         if path.has_off_path_challenges() {
                             trace!(
