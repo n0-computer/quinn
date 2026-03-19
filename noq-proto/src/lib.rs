@@ -370,17 +370,57 @@ const MAX_STREAM_COUNT: u64 = 1 << 60;
 /// paths exist with the same remote, but different local IP interfaces.
 #[derive(Hash, Eq, PartialEq, Copy, Clone)]
 pub struct FourTuple {
-    /// The remote side of this tuple
-    pub remote: SocketAddr,
+    /// The remote side of this tuple.
+    remote: SocketAddr,
     /// The local side of this tuple.
     ///
     /// The socket is irrelevant for our intents and purposes:
     /// When we send, we can only specify the `src_ip`, not the source port.
     /// So even if we track the port, we won't be able to make use of it.
-    pub local_ip: Option<IpAddr>,
+    local_ip: Option<IpAddr>,
 }
 
 impl FourTuple {
+    /// Creates a new [`FourTuple`].
+    pub fn new(mut remote: SocketAddr, local_ip: Option<IpAddr>) -> Self {
+        if let SocketAddr::V6(socket_addr) = &mut remote {
+            // RFC3493 §3.3
+            // > (…) applications should set this field to zero when constructing a sockaddr_in6,
+            // > and ignore this field in a sockaddr_in6 structure constructed by the system.
+            //
+            // This is cleared so that comparisons of remotes are guaranteed to be meaningful: two
+            // socket addresses with the same contents should not differ if only the flow label
+            // differs
+            socket_addr.set_flowinfo(0);
+
+            let requires_scope_id =
+                socket_addr.ip().is_unicast_link_local() || socket_addr.ip().is_multicast();
+            if !requires_scope_id {
+                // Keep the scope id only when it might be relevant. This ensure network paths can
+                // be compared meaningfully while keeping it when it's important (mainly link local
+                // addresses)
+                socket_addr.set_scope_id(0);
+            }
+        }
+
+        Self { remote, local_ip }
+    }
+
+    /// Creates a new [`FourTuple`] without a known local address.
+    pub fn from_remote(remote: SocketAddr) -> Self {
+        Self::new(remote, None)
+    }
+
+    /// Returns the remote address of the network path.
+    pub fn remote(&self) -> SocketAddr {
+        self.remote
+    }
+
+    /// Returns the local address of the network path.
+    pub fn local_ip(&self) -> Option<IpAddr> {
+        self.local_ip
+    }
+
     /// Returns whether we think the other address probably represents the same path
     /// as ours.
     ///
