@@ -986,3 +986,43 @@ fn path_open_deadline_is_set_on_send() -> TestResult {
 
     Ok(())
 }
+
+#[test]
+fn path_scheduling_path_status() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    info!("Setting Path 0 to PathStatus::Backup");
+    let prev_status = pair.set_path_status(Client, PathId::ZERO, PathStatus::Backup)?;
+    assert_eq!(prev_status, PathStatus::Available);
+
+    // Send the frame to the server
+    pair.drive();
+
+    assert_eq!(
+        pair.remote_path_status(Server, PathId::ZERO),
+        Some(PathStatus::Backup)
+    );
+
+    info!("Opening Path 1 with PathStatus::Available");
+    let server_addr = pair.addrs_to_server();
+    let path_1 = pair.open_path(Client, server_addr, PathStatus::Available)?;
+    pair.drive();
+
+    let stats_path0_t0 = pair.conn_mut(Client).path_stats(PathId::ZERO).unwrap();
+    let stats_path1_t0 = pair.conn_mut(Client).path_stats(path_1).unwrap();
+
+    info!("Sending STREAM frame");
+    let s = pair.streams(Client).open(Dir::Uni).unwrap();
+    pair.send_stream(Client, s).write(b"hello").unwrap();
+    pair.drive();
+
+    let stats_path0_t1 = pair.conn_mut(Client).path_stats(PathId::ZERO).unwrap();
+    let stats_path1_t1 = pair.conn_mut(Client).path_stats(path_1).unwrap();
+
+    info!("assert");
+    assert!((stats_path0_t1.udp_tx.datagrams - stats_path0_t0.udp_tx.datagrams) == 0);
+    assert!((stats_path1_t1.udp_tx.datagrams - stats_path1_t0.udp_tx.datagrams) > 0);
+
+    Ok(())
+}
