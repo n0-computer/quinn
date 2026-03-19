@@ -839,6 +839,7 @@ impl Connection {
     /// Returns the previous value of the setting.
     pub fn set_path_max_idle_timeout(
         &mut self,
+        now: Instant,
         path_id: PathId,
         timeout: Option<Duration>,
     ) -> Result<Option<Duration>, ClosedPath> {
@@ -846,7 +847,18 @@ impl Connection {
             .paths
             .get_mut(&path_id)
             .ok_or(ClosedPath { _private: () })?;
-        Ok(std::mem::replace(&mut path.data.idle_timeout, timeout))
+        let prev = std::mem::replace(&mut path.data.idle_timeout, timeout);
+
+        // Re-arm the PathIdle timer if the new timeout is longer. Without this,
+        // an already-running timer continues with the old value until data is
+        // received. This matters when extending the timeout during a network
+        // change — the path may not receive data for a while (e.g. relay
+        // reconnecting), so the old timer would fire prematurely.
+        if !self.state.is_closed() {
+            self.reset_idle_timeout(now, self.highest_space, path_id);
+        }
+
+        Ok(prev)
     }
 
     /// Sets the keep_alive_interval for a specific path
