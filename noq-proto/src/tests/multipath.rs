@@ -834,6 +834,86 @@ fn off_path_probe_cids_recovered_after_timeout() -> TestResult {
     Ok(())
 }
 
+/// Off-path NAT traversal probes should be retransmitted up to 3 times (once per
+/// PTO firing), matching on-path PATH_CHALLENGE retry behavior.
+///
+/// Without retries, simultaneous-open NAT traversal fails: the server sends its
+/// off-path probe once, but the first attempt is dropped because the client's NAT
+/// mapping doesn't exist yet (the client's outgoing packet hasn't been processed by
+/// the NAT). By the time the client retransmits (1 PTO later), the server's NAT
+/// mapping from its single probe may have expired.
+///
+/// With retries, the server's 2nd or 3rd probe arrives after the client's outgoing
+/// packet has created the NAT mapping, allowing the probe through.
+///
+/// Reference: draft-seemann-quic-nat-traversal-02
+/// Related: #410, iroh#3931
+#[test]
+fn off_path_probes_are_retransmitted() -> TestResult {
+    let _guard = subscribe();
+
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(12);
+    cfg.initial_rtt(Duration::from_millis(10));
+    cfg.set_max_remote_nat_traversal_addresses(12);
+
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
+    pair.drive();
+
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Client advertises addresses and initiates NAT traversal.
+    pair.add_nat_traversal_address(Client, "10.0.0.1:1234".parse().unwrap())?;
+    pair.add_nat_traversal_address(Client, "10.0.0.2:1234".parse().unwrap())?;
+    pair.initiate_nat_traversal_round(Client)?;
+
+    // Drive to deliver REACH_OUT and let server send initial off-path probes.
+    pair.drive();
+
+    let challenges_after_first = pair.stats(Server).frame_tx.path_challenge;
+    info!("after first drive: {challenges_after_first} PATH_CHALLENGEs");
+    assert!(
+        challenges_after_first >= 2,
+        "server should send at least 2 off-path probes (one per address)"
+    );
+
+    // Advance time by one PTO so the retry timer fires.
+    // The probes went to unreachable addresses, so no PATH_RESPONSE arrived.
+    // After 1 PTO, the server should retransmit the probes.
+    pair.step();
+    pair.drive();
+
+    let challenges_after_retry = pair.stats(Server).frame_tx.path_challenge;
+    let retries = challenges_after_retry - challenges_after_first;
+    info!("after retry: {retries} new PATH_CHALLENGEs (total: {challenges_after_retry})");
+
+    // BUG: Server currently sends each off-path probe exactly once and never retries.
+    // Expected: at least 2 more probes (one retry per address).
+    assert!(
+        retries >= 2,
+        "server should retry off-path probes after PTO, \
+         but sent {retries} retries (expected >= 2)"
+    );
+
+    // After 3*PTO total, the probes should stop (max 3 attempts per address).
+    pair.step();
+    pair.drive(); // 3rd attempt
+    pair.step();
+    pair.drive(); // should be done now
+
+    let challenges_final = pair.stats(Server).frame_tx.path_challenge;
+    let total_per_addr = (challenges_final as f64 / 2.0).ceil() as u64;
+    info!("final: {challenges_final} total ({total_per_addr} per address)");
+    assert!(
+        challenges_final <= 8,
+        "server should send at most 3 attempts per address (6 total for 2 addrs), \
+         but sent {challenges_final}"
+    );
+
+    Ok(())
+}
+
 #[test]
 fn mtud_on_two_paths() -> TestResult {
     let _guard = subscribe();
