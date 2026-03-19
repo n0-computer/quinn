@@ -3122,3 +3122,106 @@ fn network_change_replacement_path_validation_fails() -> TestResult {
 
     Ok(())
 }
+
+/// Simulates the relay gap scenario: server is uploading data to the client, the
+/// path goes silent for several seconds (simulating relay WebSocket reconnection),
+/// then recovers. The keep-alive mechanism should break the deadlock and data
+/// should resume flowing.
+///
+/// This is the core failure scenario from netsim interface_switch test:
+/// 1. Server sends bulk data via relay
+/// 2. Client's network switches → relay breaks for ~5 seconds
+/// 3. Relay reconnects, but both sides have stale PTO (exponential backoff)
+/// 4. Keep-alive PING must break the deadlock
+///
+/// Without keep-alive, both sides are stuck: server's PTO is backed off (no ACKs
+/// during gap), client has nothing to retransmit (it was receiving, not sending).
+#[test]
+fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
+    let _guard = subscribe();
+
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(MAX_PATHS);
+    cfg.initial_rtt(Duration::from_millis(10));
+    // Enable keep-alive at 500ms for faster test (real iroh uses 5s)
+    cfg.default_path_keep_alive_interval(Some(Duration::from_millis(500)));
+    cfg.default_path_max_idle_timeout(Some(Duration::from_secs(10)));
+
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
+    pair.drive();
+
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Server opens a stream and starts sending bulk data
+    let s = pair.streams(Server).open(Dir::Uni).unwrap();
+    pair.send_stream(Server, s).write(&[42u8; 5000]).unwrap();
+    pair.drive();
+
+    // Client accepts and reads initial data
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
+    );
+    assert_matches!(pair.streams(Client).accept(Dir::Uni), Some(stream) if stream == s);
+    let mut recv = pair.recv_stream(Client, s);
+    let mut chunks = recv.read(false).unwrap();
+    let mut total_read = 0;
+    while let Ok(Some(chunk)) = chunks.next(usize::MAX) {
+        total_read += chunk.bytes.len();
+    }
+    let _ = chunks.finalize();
+    info!("read {total_read} bytes before gap");
+    assert!(total_read > 0, "should have received initial data");
+
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Server writes more data that will be in-flight during the gap
+    pair.send_stream(Server, s).write(&[43u8; 5000]).unwrap();
+
+    // Simulate relay gap: blackhole both directions for a fixed number of steps.
+    // This causes PTO to fire and back off on both sides.
+    info!("starting silent gap");
+    let gap_start = pair.time;
+    for _ in 0..50 {
+        if !pair.blackhole_step(true, true) {
+            break;
+        }
+    }
+    info!("gap lasted {:?}", pair.time - gap_start);
+
+    // Gap over — path recovers. Drive with a bound to detect hangs.
+    // The keep-alive should fire (every 500ms), sending a PING.
+    // The PING reaches the other side, gets ACKed, breaking the deadlock.
+    // Gap over — path should recover via keep-alive PINGs.
+    // Drive step by step, checking for recovery (both sides idle) or
+    // failure (either side closed).
+    info!("gap ended, driving to recovery");
+    let mut recovered = false;
+    for i in 0..100 {
+        if pair.is_closed(Client) || pair.is_closed(Server) {
+            info!("connection died at step {i}");
+            break;
+        }
+        if !pair.step() {
+            info!("became idle (recovered) at step {i}");
+            recovered = true;
+            break;
+        }
+    }
+
+    // BUG: the connection doesn't recover from the silent gap.
+    // After the blackhole ends, keep-alive PINGs should get through and
+    // the server should ACK them, breaking the deadlock. But this doesn't
+    // happen — the connection either hangs indefinitely or times out.
+    assert!(
+        recovered,
+        "connection should recover from silent gap via keep-alive, \
+         client_closed={}, server_closed={}",
+        pair.is_closed(Client),
+        pair.is_closed(Server),
+    );
+
+    Ok(())
+}
