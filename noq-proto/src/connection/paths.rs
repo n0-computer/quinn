@@ -236,7 +236,11 @@ pub(super) struct PathData {
     #[cfg(feature = "qlog")]
     recovery_metrics: RecoveryMetrics,
 
-    /// Tag uniquely identifying a path in a connection
+    /// Tag uniquely identifying a path in a connection.
+    ///
+    /// When a migration happens on the same [`PathId`] we still detect a change in the
+    /// 4-tuple and generate a new [`PathData`] for it. Each such generation has a unique
+    /// value to keep track of which 4-tuple a packet belonged to.
     generation: u64,
 }
 
@@ -596,6 +600,11 @@ impl PathData {
         self.status.local_status
     }
 
+    /// Tag uniquely identifying a path in a connection.
+    ///
+    /// When a migration happens on the same [`PathId`] we still detect a change in the
+    /// 4-tuple and generate a new [`PathData`] for it. Each such generation has a unique
+    /// value to keep track of which 4-tuple a packet belonged to.
     pub(super) fn generation(&self) -> u64 {
         self.generation
     }

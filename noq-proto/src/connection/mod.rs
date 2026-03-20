@@ -2924,15 +2924,13 @@ impl Connection {
     // Not timing-aware, so it's safe to call this for inferred acks, such as arise from
     // high-latency handshakes
     fn on_packet_acked(&mut self, now: Instant, path_id: PathId, info: SentPacket) {
-        self.paths
-            .get_mut(&path_id)
-            .expect("known path")
-            .remove_in_flight(&info);
         let app_limited = self.app_limited;
         let path = self.path_data_mut(path_id);
-        if info.ack_eliciting && !path.is_validating_path() {
-            // Only pass ACKs to the congestion controller if we are not validating the current
-            // path, so as to ignore any ACKs from older paths still coming in.
+        path.remove_in_flight(&info);
+        if info.ack_eliciting && info.path_generation == path.generation() {
+            // Only pass ACKs to the congestion controller if it belongs to this exact
+            // generation of the path. Otherwise we might be feeding ACKs from the previous
+            // 4-tuple into our congestion controller.
             let rtt = path.rtt;
             path.congestion
                 .on_ack(now, info.time_sent, info.size.into(), app_limited, &rtt);
