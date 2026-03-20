@@ -2929,7 +2929,7 @@ impl Connection {
         path.remove_in_flight(&info);
         if info.ack_eliciting && info.path_generation == path.generation() {
             // Only pass ACKs to the congestion controller if it belongs to this exact
-            // generation of the path. Otherwise we might be feeding ACKs from teh previous
+            // generation of the path. Otherwise we might be feeding ACKs from the previous
             // 4-tuple into our congestion controller.
             let rtt = path.rtt;
             path.congestion
