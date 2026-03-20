@@ -2097,15 +2097,18 @@ impl Connection {
 
         path.record_path_challenge_sent(now, token, network_path);
 
-        // Set retry timer for off-path probes. Fires after one PTO so we can
-        // retransmit probes that got no PATH_RESPONSE (critical for NAT traversal
-        // simultaneous open).
+        // Set retry timer for off-path probes. Uses max(PTO, 100ms) to ensure
+        // retries are spread over enough time for NAT mappings to be created on
+        // both sides. With asymmetric link delays, the peer's outgoing packet
+        // may take 50-100ms to reach its NAT, so retrying every PTO (~6ms) wastes
+        // all attempts before the mapping exists.
         if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
             if server_state.has_pending_retries() {
                 let pto = self.pto(SpaceKind::Data, path_id);
+                let interval = pto.max(Duration::from_millis(100));
                 self.timers.set(
                     Timer::Conn(ConnTimer::OffPathProbeRetry),
-                    now + pto,
+                    now + interval,
                     self.qlog.with_time(now),
                 );
             }

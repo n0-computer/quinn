@@ -878,7 +878,7 @@ fn off_path_probes_are_retransmitted() -> TestResult {
     let total_challenges = pair.stats(Server).frame_tx.path_challenge - challenges_before;
     info!("total off-path PATH_CHALLENGEs sent: {total_challenges}");
 
-    // With 2 addresses and up to 3 attempts each, expect 6 total probes.
+    // With 2 addresses and up to 10 attempts each, expect up to 20 total probes.
     // At minimum, expect more than the initial 2 (proving retries happened).
     assert!(
         total_challenges > 2,
@@ -886,11 +886,11 @@ fn off_path_probes_are_retransmitted() -> TestResult {
          expected > 2 for 2 addresses with retries)"
     );
 
-    // Should not exceed 3 attempts per address = 6 total.
+    // Should not exceed MAX_OFF_PATH_PROBE_ATTEMPTS per address.
     assert!(
-        total_challenges <= 6,
-        "server should send at most 3 attempts per address \
-         (sent {total_challenges}, expected <= 6 for 2 addresses)"
+        total_challenges <= 20,
+        "server should send at most 10 attempts per address \
+         (sent {total_challenges}, expected <= 20 for 2 addresses)"
     );
 
     Ok(())

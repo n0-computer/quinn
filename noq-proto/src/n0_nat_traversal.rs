@@ -287,7 +287,7 @@ impl ClientState {
 /// This is critical for NAT traversal: the first probe is typically dropped because
 /// the peer's NAT mapping doesn't exist yet. Retries ensure the probe arrives after
 /// both sides have created their NAT bindings (simultaneous open).
-pub(crate) const MAX_OFF_PATH_PROBE_ATTEMPTS: u8 = 3;
+pub(crate) const MAX_OFF_PATH_PROBE_ATTEMPTS: u8 = 10;
 
 /// State of an off-path probe to a client address.
 #[derive(Debug, Clone)]
@@ -628,14 +628,21 @@ mod tests {
         let probe = state.next_probe().unwrap();
         probe.mark_as_sent();
 
-        // After 2 attempts each, retries still available (max is 3)
+        // After 2 attempts each, retries still available (max is 10)
         assert!(state.queue_retries());
         let probe = state.next_probe().unwrap();
         probe.mark_as_sent();
         let probe = state.next_probe().unwrap();
         probe.mark_as_sent();
 
-        // After 3 attempts each, probes are removed (max reached)
+        // Exhaust remaining attempts
+        for _ in 3..MAX_OFF_PATH_PROBE_ATTEMPTS {
+            assert!(state.queue_retries());
+            state.next_probe().unwrap().mark_as_sent();
+            state.next_probe().unwrap().mark_as_sent();
+        }
+
+        // After max attempts, probes are removed
         assert!(!state.queue_retries());
         assert!(state.next_probe().is_none());
         assert_eq!(state.pending_probes.len(), 0);
