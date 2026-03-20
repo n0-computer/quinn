@@ -85,15 +85,13 @@ web-time = { workspace = true }
 [dev-dependencies]
 assert_matches = { workspace = true }
 hex-literal = { workspace = true  }
+proptest = { workspace = true }
 rand_pcg = "0.10"
 rcgen = { workspace = true }
 test-strategy = { workspace = true }
 testresult = "0.4.1"
 tracing-subscriber = { workspace = true }
 wasm-bindgen-test = { workspace = true }
-
-[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
-proptest = { workspace = true }
 
 [[bench]]
 name = "send_buffer"
