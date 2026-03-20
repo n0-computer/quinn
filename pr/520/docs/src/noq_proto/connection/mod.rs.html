@@ -2929,7 +2929,7 @@
 <a href=#2929 id=2929 data-nosnippet>2929</a>        path.remove_in_flight(<span class="kw-2">&amp;</span>info);
 <a href=#2930 id=2930 data-nosnippet>2930</a>        <span class="kw">if </span>info.ack_eliciting &amp;&amp; info.path_generation == path.generation() {
 <a href=#2931 id=2931 data-nosnippet>2931</a>            <span class="comment">// Only pass ACKs to the congestion controller if it belongs to this exact
-<a href=#2932 id=2932 data-nosnippet>2932</a>            // generation of the path. Otherwise we might be feeding ACKs from teh previous
+<a href=#2932 id=2932 data-nosnippet>2932</a>            // generation of the path. Otherwise we might be feeding ACKs from the previous
 <a href=#2933 id=2933 data-nosnippet>2933</a>            // 4-tuple into our congestion controller.
 <a href=#2934 id=2934 data-nosnippet>2934</a>            </span><span class="kw">let </span>rtt = path.rtt;
 <a href=#2935 id=2935 data-nosnippet>2935</a>            path.congestion
