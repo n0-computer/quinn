@@ -190,7 +190,7 @@ impl Connecting {
             .inner
             .network_path(PathId::ZERO)
             .expect("path exists when connecting")
-            .local_ip
+            .local_ip()
     }
 
     /// The peer's UDP addresses
@@ -205,7 +205,7 @@ impl Connecting {
             .inner
             .network_path(PathId::ZERO)
             .expect("path exists when connecting")
-            .remote
+            .remote()
     }
 }
 
@@ -397,7 +397,7 @@ impl Connection {
                 state
                     .inner
                     .network_path(*id)
-                    .map(|addrs| addrs.remote.is_ipv6())
+                    .map(|addrs| addrs.remote().is_ipv6())
                     .ok()
             })
             .next()
@@ -414,10 +414,7 @@ impl Connection {
         let now = state.runtime.now();
         // TODO(matheus23): For now this means it's impossible to make use of short-circuiting path validation currently.
         // However, changing that would mean changing the API.
-        let addrs = FourTuple {
-            remote: addr,
-            local_ip: None,
-        };
+        let addrs = FourTuple::from_remote(addr);
         let open_res = state.inner.open_path_ensure(addrs, initial_status, now);
         state.wake();
         match open_res {
@@ -468,7 +465,7 @@ impl Connection {
                 state
                     .inner
                     .network_path(*id)
-                    .map(|addrs| addrs.remote.is_ipv6())
+                    .map(|addrs| addrs.remote().is_ipv6())
                     .ok()
             })
             .next()
@@ -486,10 +483,7 @@ impl Connection {
         let now = state.runtime.now();
         // TODO(matheus23): For now this means it's impossible to make use of short-circuiting path validation currently.
         // However, changing that would mean changing the API.
-        let addrs = FourTuple {
-            remote: addr,
-            local_ip: None,
-        };
+        let addrs = FourTuple::from_remote(addr);
         let open_res = state.inner.open_path(addrs, initial_status, now);
         state.wake();
         match open_res {
@@ -751,7 +745,7 @@ impl Connection {
             .filter_map(|id| state.inner.network_path(*id).ok())
             .next()
             .unwrap()
-            .remote
+            .remote()
     }
 
     /// The local IP address which was used when the peer established
@@ -773,7 +767,7 @@ impl Connection {
             .filter_map(|id| state.inner.network_path(*id).ok())
             .next()
             .unwrap()
-            .local_ip
+            .local_ip()
     }
 
     /// Current best estimate of this connection's latency (round-trip-time)
