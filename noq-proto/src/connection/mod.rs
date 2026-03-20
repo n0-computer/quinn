@@ -2102,16 +2102,16 @@ impl Connection {
         // both sides. With asymmetric link delays, the peer's outgoing packet
         // may take 50-100ms to reach its NAT, so retrying every PTO (~6ms) wastes
         // all attempts before the mapping exists.
-        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
-            if server_state.has_pending_retries() {
-                let pto = self.pto(SpaceKind::Data, path_id);
-                let interval = pto.max(Duration::from_millis(100));
-                self.timers.set(
-                    Timer::Conn(ConnTimer::OffPathProbeRetry),
-                    now + interval,
-                    self.qlog.with_time(now),
-                );
-            }
+        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
+            && server_state.has_pending_retries()
+        {
+            let pto = self.pto(SpaceKind::Data, path_id);
+            let interval = pto.max(Duration::from_millis(100));
+            self.timers.set(
+                Timer::Conn(ConnTimer::OffPathProbeRetry),
+                now + interval,
+                self.qlog.with_time(now),
+            );
         }
 
         let size = buf.len();
@@ -2392,10 +2392,10 @@ impl Connection {
                         // Re-queue off-path probes for retransmission.
                         // The probes will reuse the CID from their original
                         // off_path_challenges_unconfirmed entry (looked up by address).
-                        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
-                            if server_state.queue_retries() {
-                                trace!("off-path probe retry timer fired, re-queued probes");
-                            }
+                        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
+                            && server_state.queue_retries()
+                        {
+                            trace!("off-path probe retry timer fired, re-queued probes");
                         }
                     }
                     ConnTimer::NoViablePath => {
