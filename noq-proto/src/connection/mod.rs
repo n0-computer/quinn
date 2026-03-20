@@ -2711,9 +2711,10 @@ impl Connection {
             && self.abandoned_paths.contains(&path)
         {
             // See also
-            // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-17.html#section-3.4.3-3
-            // > PATH_ACK frames received with an abandoned path ID are silently ignored, as
-            // specified in Section 4.
+            // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-21.html#section-3.4.3-3
+            // > When an endpoint finally deletes all state associated with the path [...]
+            // > PATH_ACK frames received with an abandoned path ID are silently ignored,
+            // > as specified in Section 4.
             trace!("silently ignoring PATH_ACK on discarded path");
             return Ok(());
         }
