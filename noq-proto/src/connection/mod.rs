@@ -1105,7 +1105,7 @@ impl Connection {
 
         let is_handshaking = self.is_handshaking();
         let has_cids = self.remote_cids.contains_key(&path_id);
-        let abandoned = self.abandoned_paths.contains(&path_id);
+        let is_abandoned = self.abandoned_paths.contains(&path_id);
         let path_data = self.path_data(path_id);
         let validated = path_data.validated;
         let status = path_data.local_status();
@@ -1113,7 +1113,7 @@ impl Connection {
         // This is the core packet scheduling, whether this space ID may send
         // SpaceKind::Data frames.
         let may_send_data = has_cids
-            && !abandoned
+            && !is_abandoned
             && if is_handshaking {
                 // There is only one path during the handshake. We want to
                 // already send 0-RTT and 0.5-RTT (permitting anti-amplification
@@ -1145,7 +1145,7 @@ impl Connection {
         // path is validated. Later if there is no validated path available we
         // will also accept sending it on an un-validated path.
         let may_send_close = has_cids
-            && !abandoned
+            && !is_abandoned
             && if !validated && have_validated_status_available_space {
                 // We have a better space to send on.
                 false
@@ -1160,7 +1160,7 @@ impl Connection {
         let may_self_abandon = has_cids && validated && !have_validated_space;
 
         PathSchedulingInfo {
-            is_abandoned: abandoned,
+            is_abandoned,
             may_send_data,
             may_send_close,
             may_self_abandon,
