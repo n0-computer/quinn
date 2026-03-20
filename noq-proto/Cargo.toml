@@ -93,6 +93,10 @@ testresult = "0.4.1"
 tracing-subscriber = { workspace = true }
 wasm-bindgen-test = { workspace = true }
 
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
+# ensure we set the wasm_js feature even for the older version of getrandom used in proptest in Wasm
+getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+
 [[bench]]
 name = "send_buffer"
 harness = false
