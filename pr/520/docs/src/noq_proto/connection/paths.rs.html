@@ -240,7 +240,7 @@
 <a href=#240 id=240 data-nosnippet>240</a>    ///
 <a href=#241 id=241 data-nosnippet>241</a>    /// When a migration happens on the same [`PathId`] we still detect a change in the
 <a href=#242 id=242 data-nosnippet>242</a>    /// 4-tuple and generate a new [`PathData`] for it. Each such generation has a unique
-<a href=#243 id=243 data-nosnippet>243</a>    /// value to keep track of which 4-tuple a packet blonged to.
+<a href=#243 id=243 data-nosnippet>243</a>    /// value to keep track of which 4-tuple a packet belonged to.
 <a href=#244 id=244 data-nosnippet>244</a>    </span>generation: u64,
 <a href=#245 id=245 data-nosnippet>245</a>}
 <a href=#246 id=246 data-nosnippet>246</a>
@@ -604,7 +604,7 @@
 <a href=#604 id=604 data-nosnippet>604</a>    ///
 <a href=#605 id=605 data-nosnippet>605</a>    /// When a migration happens on the same [`PathId`] we still detect a change in the
 <a href=#606 id=606 data-nosnippet>606</a>    /// 4-tuple and generate a new [`PathData`] for it. Each such generation has a unique
-<a href=#607 id=607 data-nosnippet>607</a>    /// value to keep track of which 4-tuple a packet blonged to.
+<a href=#607 id=607 data-nosnippet>607</a>    /// value to keep track of which 4-tuple a packet belonged to.
 <a href=#608 id=608 data-nosnippet>608</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>generation(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; u64 {
 <a href=#609 id=609 data-nosnippet>609</a>        <span class="self">self</span>.generation
 <a href=#610 id=610 data-nosnippet>610</a>    }
