@@ -46,11 +46,11 @@ pub(crate) enum PathTimer {
     /// When to abandon a path after no activity
     PathIdle = 1,
     /// When to give up on validating a new path from RFC9000 migration
-    PathValidation = 2,
+    PathValidationFailed = 2,
     /// When to resend an on-path path challenge deemed lost
     PathChallengeLost = 3,
     /// When to give up on validating a new (multi)path
-    PathOpen = 4,
+    PathOpenFailed = 4,
     /// When to send a `PING` frame to keep the path alive
     PathKeepAlive = 5,
     /// When pacing will allow us to send a packet
@@ -58,20 +58,20 @@ pub(crate) enum PathTimer {
     /// When to send an immediate ACK if there are unacked ack-eliciting packets of the peer
     MaxAckDelay = 7,
     /// When to clean up state for an abandoned path
-    DiscardPath = 8,
+    PathDrained = 8,
 }
 
 impl PathTimer {
     pub(super) const VALUES: [Self; 9] = [
         Self::LossDetection,
         Self::PathIdle,
-        Self::PathValidation,
+        Self::PathValidationFailed,
         Self::PathChallengeLost,
-        Self::PathOpen,
+        Self::PathOpenFailed,
         Self::PathKeepAlive,
         Self::Pacing,
         Self::MaxAckDelay,
-        Self::DiscardPath,
+        Self::PathDrained,
     ];
 }
 
