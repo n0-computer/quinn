@@ -393,6 +393,8 @@ impl FourTuple {
             // differs
             socket_addr.set_flowinfo(0);
 
+            // NOTE: not all multicast addresses require a scope. Use `Ipv6Addr::multicast_scope`
+            // when stabilized (<https://github.com/rust-lang/rust/issues/27709>)
             let requires_scope_id =
                 socket_addr.ip().is_unicast_link_local() || socket_addr.ip().is_multicast();
             if !requires_scope_id {
