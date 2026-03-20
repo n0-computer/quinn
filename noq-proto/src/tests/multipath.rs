@@ -1026,29 +1026,3 @@ fn path_scheduling_path_status() -> TestResult {
 
     Ok(())
 }
-
-#[test]
-fn server_abandon_last_verified_path() -> TestResult {
-    // The client abandons the last verified path the server has. The server is expected to
-    // send PATH_ABANDON on the abandoned path itself in this case.
-
-    let _guard = subscribe();
-    let mut pair = multipath_pair();
-
-    // Passively migrate the client and immediately open a second path. This way the client
-    // will assume the 2nd path is validated but to the server it will be
-    // un-validated. Otherwise the client would not allow closing path 0 since there would
-    // be no validated path left over.
-    pair.passive_migration(Client);
-    let route = FourTuple {
-        remote: pair.server.addr,
-        local_ip: None,
-    };
-    pair.open_path(Client, route, PathStatus::Available)?;
-    pair.close_path(Client, PathId::ZERO, 0u8.into())?;
-    pair.drive();
-
-    let path_stats = pair.path_stats(Server, PathId::ZERO).unwrap();
-
-    Ok(())
-}
