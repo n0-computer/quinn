@@ -257,10 +257,13 @@ pub struct Connection {
     local_cid_state: FxHashMap<PathId, CidState>,
     /// State of the unreliable datagram extension
     datagrams: DatagramState,
-    /// Connection level statistics
-    stats: ConnectionStats,
     /// Path level statistics
     path_stats: FxHashMap<PathId, PathStats>,
+    /// Stats of all discarded paths.
+    ///
+    /// The actual connection-level stats are always computed from this and
+    /// [`Self::path_stats`], see [`Self::stats`].
+    discarded_path_stats: ConnectionStats,
     /// QUIC version used for the connection.
     version: u32,
 
@@ -421,8 +424,8 @@ impl Connection {
             config,
             remote_cids: FxHashMap::from_iter([(PathId::ZERO, CidQueue::new(remote_cid))]),
             rng,
-            stats: ConnectionStats::default(),
             path_stats: Default::default(),
+            discarded_path_stats: ConnectionStats::default(),
             version,
 
             // peer params are not yet known, so multipath is not enabled
@@ -1185,9 +1188,6 @@ impl Connection {
         self.path_data_mut(path_id)
             .inc_total_sent(transmit.len() as u64);
 
-        self.stats
-            .udp_tx
-            .on_sent(transmit.num_datagrams() as u64, transmit.len());
         self.path_stats
             .entry(path_id)
             .or_default()
@@ -1583,7 +1583,7 @@ impl Connection {
                         &mut self.spaces[space_id],
                         is_multipath_negotiated,
                         &mut builder,
-                        &mut self.stats.frame_tx,
+                        &mut self.path_stats.entry(path_id).or_default().frame_tx,
                         self.crypto_state.has_keys(space_id.encryption_level()),
                     );
                 }
@@ -1599,7 +1599,7 @@ impl Connection {
                     builder.frame_space_remaining() > frame::ConnectionClose::SIZE_BOUND,
                     "ACKs should leave space for ConnectionClose"
                 );
-                let stats = &mut self.stats.frame_tx;
+                let stats = &mut self.path_stats.entry(path_id).or_default().frame_tx;
                 if frame::ConnectionClose::SIZE_BOUND < builder.frame_space_remaining() {
                     let max_frame_size = builder.frame_space_remaining();
                     let close: Close = match self.state.as_type() {
@@ -1764,11 +1764,17 @@ impl Connection {
 
         // We implement MTU probes as ping packets padded up to the probe size
         trace!(?probe_size, "writing MTUD probe");
-        builder.write_frame(frame::Ping, &mut self.stats.frame_tx);
+        builder.write_frame(
+            frame::Ping,
+            &mut self.path_stats.entry(path_id).or_default().frame_tx,
+        );
 
         // If supported by the peer, we want no delays to the probe's ACK
         if self.peer_supports_ack_frequency() {
-            builder.write_frame(frame::ImmediateAck, &mut self.stats.frame_tx);
+            builder.write_frame(
+                frame::ImmediateAck,
+                &mut self.path_stats.entry(path_id).or_default().frame_tx,
+            );
         }
 
         builder.finish_and_track(now, self, path_id, PadDatagram::ToSize(probe_size));
@@ -1944,7 +1950,7 @@ impl Connection {
         let mut builder =
             PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
         let challenge = frame::PathChallenge(token);
-        let stats = &mut self.stats.frame_tx;
+        let stats = &mut self.path_stats.entry(path_id).or_default().frame_tx;
         builder.write_frame_with_log_msg(challenge, stats, Some("validating previous path"));
 
         // An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
@@ -1954,7 +1960,6 @@ impl Connection {
         builder.pad_to(MIN_INITIAL_SIZE);
 
         builder.finish(self, now);
-        self.stats.udp_tx.on_sent(1, buf.len());
         self.path_stats
             .entry(path_id)
             .or_default()
@@ -1992,13 +1997,12 @@ impl Connection {
         buf.start_new_datagram();
 
         let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, buf, false, self)?;
-        let stats = &mut self.stats.frame_tx;
+        let stats = &mut self.path_stats.entry(path_id).or_default().frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
         builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
 
         let size = buf.len();
 
-        self.stats.udp_tx.on_sent(1, size);
         self.path_stats
             .entry(path_id)
             .or_default()
@@ -2050,7 +2054,7 @@ impl Connection {
 
         let mut builder =
             PacketBuilder::new(now, SpaceId::Data, path_id, cid, &mut buf, false, self)?;
-        let stats = &mut self.stats.frame_tx;
+        let stats = &mut self.path_stats.entry(path_id).or_default().frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(nat-traversal)"));
         builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
 
@@ -2064,7 +2068,6 @@ impl Connection {
 
         let size = buf.len();
 
-        self.stats.udp_tx.on_sent(1, size);
         self.path_stats
             .entry(path_id)
             .or_default()
@@ -2157,8 +2160,6 @@ impl Connection {
                     // anti-amplification blocked for it previously.
                     .unwrap_or(false);
 
-                self.stats.udp_rx.datagrams += 1;
-                self.stats.udp_rx.bytes += first_decode.len() as u64;
                 let rx = &mut self.path_stats.entry(path_id).or_default().udp_rx;
                 rx.datagrams += 1;
                 rx.bytes += first_decode.len() as u64;
@@ -2174,7 +2175,6 @@ impl Connection {
                 }
 
                 if let Some(data) = remaining {
-                    self.stats.udp_rx.bytes += data.len() as u64;
                     self.path_stats.entry(path_id).or_default().udp_rx.bytes += data.len() as u64;
                     self.handle_coalesced(now, network_path, path_id, ecn, data);
                 }
@@ -2477,7 +2477,15 @@ impl Connection {
 
     /// Returns connection statistics
     pub fn stats(&mut self) -> ConnectionStats {
-        self.stats.clone()
+        let mut stats = self.discarded_path_stats.clone();
+
+        for path_stats in self.path_stats.values() {
+            // We are not updating the rtt, cwnd or current_mtu because they are not
+            // accumulated into ConnectionStats anyway.
+            stats += *path_stats;
+        }
+
+        stats
     }
 
     /// Returns path statistics
@@ -3189,15 +3197,15 @@ impl Connection {
         }
         // Before removing the path, we fetch the final path stats via `Self::path_stats`.
         // This updates some values for the last time.
-        let path_stats = self.path_stats(path_id).unwrap_or_default();
-        self.path_stats.remove(&path_id);
+        let path_stats = self.path_stats.remove(&path_id).unwrap_or_default();
+        self.discarded_path_stats += path_stats;
         self.paths.remove(&path_id);
         self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
 
         self.events.push_back(
             PathEvent::Discarded {
                 id: path_id,
-                path_stats,
+                path_stats: Box::new(path_stats),
             }
             .into(),
         );
@@ -3944,7 +3952,6 @@ impl Connection {
         stateless_reset: bool,
         mut qlog: QlogRecvPacket,
     ) {
-        self.stats.udp_rx.ios += 1;
         self.path_stats.entry(path_id).or_default().udp_rx.ios += 1;
 
         if let Some(ref packet) = packet {
@@ -4213,7 +4220,11 @@ impl Connection {
                         continue;
                     };
 
-                    self.stats.frame_rx.record(frame.ty());
+                    self.path_stats
+                        .entry(path_id)
+                        .or_default()
+                        .frame_rx
+                        .record(frame.ty());
 
                     if let Frame::Close(_error) = frame {
                         self.state.move_to_draining(None);
@@ -4516,7 +4527,11 @@ impl Connection {
                 _ => Some(trace_span!("frame", ty = %frame.ty(), path = tracing::field::Empty)),
             };
 
-            self.stats.frame_rx.record(frame.ty());
+            self.path_stats
+                .entry(path_id)
+                .or_default()
+                .frame_rx
+                .record(frame.ty());
 
             let _guard = span.as_ref().map(|x| x.enter());
             ack_eliciting |= frame.is_ack_eliciting();
@@ -4593,7 +4608,11 @@ impl Connection {
                 _ => trace_span!("frame", ty = %frame.ty(), path = tracing::field::Empty),
             };
 
-            self.stats.frame_rx.record(frame.ty());
+            self.path_stats
+                .entry(path_id)
+                .or_default()
+                .frame_rx
+                .record(frame.ty());
             // Crypto, Stream and Datagram frames are special cased in order no pollute
             // the log with payload data
             match &frame {
@@ -5606,7 +5625,7 @@ impl Connection {
         let is_multipath_negotiated = self.is_multipath_negotiated();
         let space_has_keys = self.crypto_state.has_keys(space_id.encryption_level());
         let is_0rtt = space_id == SpaceId::Data && !space_has_keys;
-        let stats = &mut self.stats.frame_tx;
+        let stats = &mut self.path_stats.entry(path_id).or_default().frame_tx;
         let space = &mut self.spaces[space_id];
         let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
         space

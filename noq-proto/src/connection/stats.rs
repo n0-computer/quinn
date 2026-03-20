@@ -27,8 +27,38 @@ impl UdpStats {
     }
 }
 
+impl std::ops::Add for UdpStats {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let Self {
+            datagrams,
+            bytes,
+            ios,
+        } = rhs;
+        Self {
+            datagrams: self.datagrams + datagrams,
+            bytes: self.bytes + bytes,
+            ios: self.ios + ios,
+        }
+    }
+}
+
+impl std::ops::AddAssign for UdpStats {
+    fn add_assign(&mut self, rhs: Self) {
+        let Self {
+            datagrams,
+            bytes,
+            ios,
+        } = rhs;
+        self.datagrams += datagrams;
+        self.bytes += bytes;
+        self.ios += ios;
+    }
+}
+
 /// Number of frames transmitted or received of each frame type
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 #[allow(missing_docs)]
 pub struct FrameStats {
@@ -123,41 +153,250 @@ impl FrameStats {
 
 impl std::fmt::Debug for FrameStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            acks,
+            path_acks,
+            ack_frequency,
+            crypto,
+            connection_close,
+            data_blocked,
+            datagram,
+            handshake_done,
+            immediate_ack,
+            max_data,
+            max_stream_data,
+            max_streams_bidi,
+            max_streams_uni,
+            new_connection_id,
+            path_new_connection_id,
+            new_token,
+            path_challenge,
+            path_response,
+            ping,
+            reset_stream,
+            retire_connection_id,
+            path_retire_connection_id,
+            stream_data_blocked,
+            streams_blocked_bidi,
+            streams_blocked_uni,
+            stop_sending,
+            stream,
+            observed_addr,
+            path_abandon,
+            path_status_available,
+            path_status_backup,
+            max_path_id,
+            paths_blocked,
+            path_cids_blocked,
+            add_address,
+            reach_out,
+            remove_address,
+        } = self;
         f.debug_struct("FrameStats")
-            .field("ACK", &self.acks)
-            .field("ACK_FREQUENCY", &self.ack_frequency)
-            .field("CONNECTION_CLOSE", &self.connection_close)
-            .field("CRYPTO", &self.crypto)
-            .field("DATA_BLOCKED", &self.data_blocked)
-            .field("DATAGRAM", &self.datagram)
-            .field("HANDSHAKE_DONE", &self.handshake_done)
-            .field("IMMEDIATE_ACK", &self.immediate_ack)
-            .field("MAX_DATA", &self.max_data)
-            .field("MAX_PATH_ID", &self.max_path_id)
-            .field("MAX_STREAM_DATA", &self.max_stream_data)
-            .field("MAX_STREAMS_BIDI", &self.max_streams_bidi)
-            .field("MAX_STREAMS_UNI", &self.max_streams_uni)
-            .field("NEW_CONNECTION_ID", &self.new_connection_id)
-            .field("NEW_TOKEN", &self.new_token)
-            .field("PATHS_BLOCKED", &self.paths_blocked)
-            .field("PATH_ABANDON", &self.path_abandon)
-            .field("PATH_ACK", &self.path_acks)
-            .field("PATH_STATUS_AVAILABLE", &self.path_status_available)
-            .field("PATH_STATUS_BACKUP", &self.path_status_backup)
-            .field("PATH_CHALLENGE", &self.path_challenge)
-            .field("PATH_CIDS_BLOCKED", &self.path_cids_blocked)
-            .field("PATH_NEW_CONNECTION_ID", &self.path_new_connection_id)
-            .field("PATH_RESPONSE", &self.path_response)
-            .field("PATH_RETIRE_CONNECTION_ID", &self.path_retire_connection_id)
-            .field("PING", &self.ping)
-            .field("RESET_STREAM", &self.reset_stream)
-            .field("RETIRE_CONNECTION_ID", &self.retire_connection_id)
-            .field("STREAM_DATA_BLOCKED", &self.stream_data_blocked)
-            .field("STREAMS_BLOCKED_BIDI", &self.streams_blocked_bidi)
-            .field("STREAMS_BLOCKED_UNI", &self.streams_blocked_uni)
-            .field("STOP_SENDING", &self.stop_sending)
-            .field("STREAM", &self.stream)
+            .field("ACK", acks)
+            .field("ACK_FREQUENCY", ack_frequency)
+            .field("CONNECTION_CLOSE", connection_close)
+            .field("CRYPTO", crypto)
+            .field("DATA_BLOCKED", data_blocked)
+            .field("DATAGRAM", datagram)
+            .field("HANDSHAKE_DONE", handshake_done)
+            .field("IMMEDIATE_ACK", immediate_ack)
+            .field("MAX_DATA", max_data)
+            .field("MAX_PATH_ID", max_path_id)
+            .field("MAX_STREAM_DATA", max_stream_data)
+            .field("MAX_STREAMS_BIDI", max_streams_bidi)
+            .field("MAX_STREAMS_UNI", max_streams_uni)
+            .field("NEW_CONNECTION_ID", new_connection_id)
+            .field("NEW_TOKEN", new_token)
+            .field("PATHS_BLOCKED", paths_blocked)
+            .field("PATH_ABANDON", path_abandon)
+            .field("PATH_ACK", path_acks)
+            .field("PATH_STATUS_AVAILABLE", path_status_available)
+            .field("PATH_STATUS_BACKUP", path_status_backup)
+            .field("PATH_CHALLENGE", path_challenge)
+            .field("PATH_CIDS_BLOCKED", path_cids_blocked)
+            .field("PATH_NEW_CONNECTION_ID", path_new_connection_id)
+            .field("PATH_RESPONSE", path_response)
+            .field("PATH_RETIRE_CONNECTION_ID", path_retire_connection_id)
+            .field("PING", ping)
+            .field("RESET_STREAM", reset_stream)
+            .field("RETIRE_CONNECTION_ID", retire_connection_id)
+            .field("STREAM_DATA_BLOCKED", stream_data_blocked)
+            .field("STREAMS_BLOCKED_BIDI", streams_blocked_bidi)
+            .field("STREAMS_BLOCKED_UNI", streams_blocked_uni)
+            .field("STOP_SENDING", stop_sending)
+            .field("STREAM", stream)
+            .field("OBSERVED_ADDRESS", observed_addr)
+            .field("ADD_ADDRESS", add_address)
+            .field("REACH_OUT", reach_out)
+            .field("REMOVE_ADDRESS", remove_address)
             .finish()
+    }
+}
+
+impl std::ops::Add for FrameStats {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let Self {
+            acks,
+            path_acks,
+            ack_frequency,
+            crypto,
+            connection_close,
+            data_blocked,
+            datagram,
+            handshake_done,
+            immediate_ack,
+            max_data,
+            max_stream_data,
+            max_streams_bidi,
+            max_streams_uni,
+            new_connection_id,
+            path_new_connection_id,
+            new_token,
+            path_challenge,
+            path_response,
+            ping,
+            reset_stream,
+            retire_connection_id,
+            path_retire_connection_id,
+            stream_data_blocked,
+            streams_blocked_bidi,
+            streams_blocked_uni,
+            stop_sending,
+            stream,
+            observed_addr,
+            path_abandon,
+            path_status_available,
+            path_status_backup,
+            max_path_id,
+            paths_blocked,
+            path_cids_blocked,
+            add_address,
+            reach_out,
+            remove_address,
+        } = rhs;
+        Self {
+            acks: self.acks + acks,
+            path_acks: self.path_acks + path_acks,
+            ack_frequency: self.ack_frequency + ack_frequency,
+            crypto: self.crypto + crypto,
+            connection_close: self.connection_close + connection_close,
+            data_blocked: self.data_blocked + data_blocked,
+            datagram: self.datagram + datagram,
+            handshake_done: self.handshake_done + handshake_done,
+            immediate_ack: self.immediate_ack + immediate_ack,
+            max_data: self.max_data + max_data,
+            max_stream_data: self.max_stream_data + max_stream_data,
+            max_streams_bidi: self.max_streams_bidi + max_streams_bidi,
+            max_streams_uni: self.max_streams_uni + max_streams_uni,
+            new_connection_id: self.new_connection_id + new_connection_id,
+            path_new_connection_id: self.path_new_connection_id + path_new_connection_id,
+            new_token: self.new_token + new_token,
+            path_challenge: self.path_challenge + path_challenge,
+            path_response: self.path_response + path_response,
+            ping: self.ping + ping,
+            reset_stream: self.reset_stream + reset_stream,
+            retire_connection_id: self.retire_connection_id + retire_connection_id,
+            path_retire_connection_id: self.path_retire_connection_id + path_retire_connection_id,
+            stream_data_blocked: self.stream_data_blocked + stream_data_blocked,
+            streams_blocked_bidi: self.streams_blocked_bidi + streams_blocked_bidi,
+            streams_blocked_uni: self.streams_blocked_uni + streams_blocked_uni,
+            stop_sending: self.stop_sending + stop_sending,
+            stream: self.stream + stream,
+            observed_addr: self.observed_addr + observed_addr,
+            path_abandon: self.path_abandon + path_abandon,
+            path_status_available: self.path_status_available + path_status_available,
+            path_status_backup: self.path_status_backup + path_status_backup,
+            max_path_id: self.max_path_id + max_path_id,
+            paths_blocked: self.paths_blocked + paths_blocked,
+            path_cids_blocked: self.path_cids_blocked + path_cids_blocked,
+            add_address: self.add_address + add_address,
+            reach_out: self.reach_out + reach_out,
+            remove_address: self.remove_address + remove_address,
+        }
+    }
+}
+
+impl std::ops::AddAssign for FrameStats {
+    fn add_assign(&mut self, rhs: Self) {
+        let Self {
+            acks,
+            path_acks,
+            ack_frequency,
+            crypto,
+            connection_close,
+            data_blocked,
+            datagram,
+            handshake_done,
+            immediate_ack,
+            max_data,
+            max_stream_data,
+            max_streams_bidi,
+            max_streams_uni,
+            new_connection_id,
+            path_new_connection_id,
+            new_token,
+            path_challenge,
+            path_response,
+            ping,
+            reset_stream,
+            retire_connection_id,
+            path_retire_connection_id,
+            stream_data_blocked,
+            streams_blocked_bidi,
+            streams_blocked_uni,
+            stop_sending,
+            stream,
+            observed_addr,
+            path_abandon,
+            path_status_available,
+            path_status_backup,
+            max_path_id,
+            paths_blocked,
+            path_cids_blocked,
+            add_address,
+            reach_out,
+            remove_address,
+        } = rhs;
+        self.acks += acks;
+        self.path_acks += path_acks;
+        self.ack_frequency += ack_frequency;
+        self.crypto += crypto;
+        self.connection_close += connection_close;
+        self.data_blocked += data_blocked;
+        self.datagram += datagram;
+        self.handshake_done += handshake_done;
+        self.immediate_ack += immediate_ack;
+        self.max_data += max_data;
+        self.max_stream_data += max_stream_data;
+        self.max_streams_bidi += max_streams_bidi;
+        self.max_streams_uni += max_streams_uni;
+        self.new_connection_id += new_connection_id;
+        self.path_new_connection_id += path_new_connection_id;
+        self.new_token += new_token;
+        self.path_challenge += path_challenge;
+        self.path_response += path_response;
+        self.ping += ping;
+        self.reset_stream += reset_stream;
+        self.retire_connection_id += retire_connection_id;
+        self.path_retire_connection_id += path_retire_connection_id;
+        self.stream_data_blocked += stream_data_blocked;
+        self.streams_blocked_bidi += streams_blocked_bidi;
+        self.streams_blocked_uni += streams_blocked_uni;
+        self.stop_sending += stop_sending;
+        self.stream += stream;
+        self.observed_addr += observed_addr;
+        self.path_abandon += path_abandon;
+        self.path_status_available += path_status_available;
+        self.path_status_backup += path_status_backup;
+        self.max_path_id += max_path_id;
+        self.paths_blocked += paths_blocked;
+        self.path_cids_blocked += path_cids_blocked;
+        self.add_address += add_address;
+        self.reach_out += reach_out;
+        self.remove_address += remove_address;
     }
 }
 
@@ -171,6 +410,10 @@ pub struct PathStats {
     pub udp_tx: UdpStats,
     /// Statistics about datagrams and bytes received on this path
     pub udp_rx: UdpStats,
+    /// Statistics about frames transmitted on this path
+    pub frame_tx: FrameStats,
+    /// Statistics about frames received on this path
+    pub frame_rx: FrameStats,
     /// Current congestion window of the connection
     pub cwnd: u64,
     /// Congestion events on the connection
@@ -190,7 +433,10 @@ pub struct PathStats {
     pub current_mtu: u16,
 }
 
-/// Connection statistics
+/// Connection statistics.
+///
+/// The fields here are a sum of the respective fields in the [`PathStats`] for all the
+/// paths that exist as well as all paths that previously existed.
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct ConnectionStats {
@@ -202,4 +448,56 @@ pub struct ConnectionStats {
     pub frame_tx: FrameStats,
     /// Statistics about frames received on a connection
     pub frame_rx: FrameStats,
+}
+
+impl std::ops::Add<PathStats> for ConnectionStats {
+    type Output = Self;
+
+    fn add(self, rhs: PathStats) -> Self::Output {
+        let PathStats {
+            rtt: _,
+            udp_tx,
+            udp_rx,
+            frame_tx,
+            frame_rx,
+            cwnd: _,
+            congestion_events: _,
+            lost_packets: _,
+            lost_bytes: _,
+            sent_plpmtud_probes: _,
+            lost_plpmtud_probes: _,
+            black_holes_detected: _,
+            current_mtu: _,
+        } = rhs;
+        Self {
+            udp_tx: self.udp_tx + udp_tx,
+            udp_rx: self.udp_rx + udp_rx,
+            frame_tx: self.frame_tx + frame_tx,
+            frame_rx: self.frame_rx + frame_rx,
+        }
+    }
+}
+
+impl std::ops::AddAssign<PathStats> for ConnectionStats {
+    fn add_assign(&mut self, rhs: PathStats) {
+        let PathStats {
+            rtt: _,
+            udp_tx,
+            udp_rx,
+            frame_tx,
+            frame_rx,
+            cwnd: _,
+            congestion_events: _,
+            lost_packets: _,
+            lost_bytes: _,
+            sent_plpmtud_probes: _,
+            lost_plpmtud_probes: _,
+            black_holes_detected: _,
+            current_mtu: _,
+        } = rhs;
+        self.udp_tx += udp_tx;
+        self.udp_rx += udp_rx;
+        self.frame_tx += frame_tx;
+        self.frame_rx += frame_rx;
+    }
 }
