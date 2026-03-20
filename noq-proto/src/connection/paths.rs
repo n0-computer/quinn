@@ -240,7 +240,7 @@ pub(super) struct PathData {
     ///
     /// When a migration happens on the same [`PathId`] we still detect a change in the
     /// 4-tuple and generate a new [`PathData`] for it. Each such generation has a unique
-    /// value to keep track of which 4-tuple a packet blonged to.
+    /// value to keep track of which 4-tuple a packet belonged to.
     generation: u64,
 }
 
@@ -604,7 +604,7 @@ impl PathData {
     ///
     /// When a migration happens on the same [`PathId`] we still detect a change in the
     /// 4-tuple and generate a new [`PathData`] for it. Each such generation has a unique
-    /// value to keep track of which 4-tuple a packet blonged to.
+    /// value to keep track of which 4-tuple a packet belonged to.
     pub(super) fn generation(&self) -> u64 {
         self.generation
     }
