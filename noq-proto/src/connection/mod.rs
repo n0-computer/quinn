@@ -2034,7 +2034,10 @@ impl Connection {
             .udp_tx
             .on_sent(1, size);
         Some(Transmit {
-            destination: network_path.remote,
+            destination: SocketAddr::new(
+                network_path.remote.ip().to_canonical(),
+                network_path.remote.port(),
+            ),
             size,
             ecn: None,
             segment_size: None,
@@ -2117,8 +2120,14 @@ impl Connection {
             .udp_tx
             .on_sent(1, size);
 
+        // Canonicalize the destination: IPv4-mapped IPv6 addresses (e.g.
+        // [::ffff:10.0.0.4]) must be converted to plain IPv4 so the transport
+        // layer routes them to the IPv4 socket. Without this, the packet goes
+        // out from the IPv6 socket with a different source port, breaking NAT
+        // mappings needed for hole punching.
+        let destination = SocketAddr::new(remote.ip().to_canonical(), remote.port());
         Some(Transmit {
-            destination: remote,
+            destination,
             size,
             ecn: None,
             segment_size: None,
