@@ -1027,21 +1027,8 @@ fn path_scheduling_path_status() -> TestResult {
     Ok(())
 }
 
-/// After a silent gap (e.g. relay disconnects), PTO backs off exponentially.
-/// Without a cap, PTO can reach minutes, making recovery take an unacceptable
-/// amount of time even after the link is restored.
-///
-/// With the 2s PTO cap (matching [picoquic's `PICOQUIC_LARGE_RETRANSMIT_TIMER`]
-/// (https://github.com/private-octopus/picoquic/blob/master/picoquic/picoquic_internal.h)),
-/// recovery happens promptly via keep-alive PINGs:
-///
-/// 1. Server sends bulk data, gap occurs (packets blackholed)
-/// 2. PTO backs off but caps at 2s
-/// 3. Keep-alive PING breaks the deadlock after gap ends
-/// 4. PTO resets, retransmission resumes
-///
-/// RFC 9002 §6.2.1 specifies exponential PTO backoff but no upper bound.
-/// The 2s cap is an implementation choice for practical recovery.
+/// After a silent gap, PTO backs off exponentially and can reach minutes.
+/// The 2s PTO cap ensures recovery happens promptly once connectivity returns.
 #[test]
 fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
     let _guard = subscribe();
