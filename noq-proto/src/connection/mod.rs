@@ -838,9 +838,16 @@ impl Connection {
             .ok_or(ClosedPath { _private: () })?;
         let prev = std::mem::replace(&mut path.data.idle_timeout, timeout);
 
-        // Re-arm the PathIdle timer with the new timeout.
+        // Re-arm or stop the PathIdle timer.
         if !self.state.is_closed() {
-            self.reset_idle_timeout(now, self.highest_space, path_id);
+            if timeout.is_some() {
+                self.reset_idle_timeout(now, self.highest_space, path_id);
+            } else {
+                self.timers.stop(
+                    Timer::PerPath(path_id, PathTimer::PathIdle),
+                    self.qlog.with_time(now),
+                );
+            }
         }
 
         Ok(prev)
