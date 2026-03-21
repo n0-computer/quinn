@@ -282,25 +282,16 @@ impl ClientState {
 }
 
 /// Maximum number of times an off-path probe is sent before giving up.
-///
-/// Matches on-path PATH_CHALLENGE behavior: initial send + retries.
-/// This is critical for NAT traversal: the first probe is typically dropped because
-/// the peer's NAT mapping doesn't exist yet. Retries ensure the probe arrives after
-/// both sides have created their NAT bindings (simultaneous open).
 pub(crate) const MAX_OFF_PATH_PROBE_ATTEMPTS: u8 = 10;
 
 /// State of an off-path probe to a client address.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct ProbeState {
     /// Number of times this probe has been sent (0 = not yet sent).
     pub(crate) attempts: u8,
     /// Whether this probe is ready to be picked up by `next_probe()`.
-    /// Set to true when first created and after `queue_retries()` re-queues it.
-    /// Set to false after `mark_as_sent()`.
     pub(crate) ready_to_send: bool,
-    /// The CID used for the first probe to this address. Reused on retries
-    /// since it was already sent to this specific remote address (RFC 9000 §9.5
-    /// only prohibits reuse across *different* addresses).
+    /// The CID used for the first probe to this address, reused on retries.
     pub(crate) cid: Option<ConnectionId>,
 }
 
@@ -326,8 +317,7 @@ pub(crate) struct ServerState {
     round: VarInt,
     /// Addresses to which PATH_CHALLENGES need to be sent, with their probe state.
     ///
-    /// Probes are retransmitted up to [`MAX_OFF_PATH_PROBE_ATTEMPTS`] times, once per
-    /// PTO firing. This matches on-path PATH_CHALLENGE retry behavior.
+    /// Probes are retransmitted up to [`MAX_OFF_PATH_PROBE_ATTEMPTS`] times.
     pending_probes: FxHashMap<IpPort, ProbeState>,
 }
 
@@ -455,8 +445,7 @@ pub(crate) struct ServerProbing<'a> {
 }
 
 impl<'a> ServerProbing<'a> {
-    /// Mark this probe as sent with the given CID. On first send, stores the
-    /// CID for reuse on retries (RFC 9000 §9.5 compliant since same address).
+    /// Mark this probe as sent with the given CID.
     pub(crate) fn mark_as_sent(self, cid: ConnectionId) {
         if let Some(state) = self.pending_probes.get_mut(&self.remote) {
             if state.cid.is_none() {
