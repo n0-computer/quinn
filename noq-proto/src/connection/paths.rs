@@ -527,6 +527,17 @@ impl PathData {
         self.pending_on_path_challenge = false;
     }
 
+    /// Returns whether there are any pending off-path challenges.
+    pub(super) fn has_off_path_challenges(&self) -> bool {
+        !self.off_path_challenges_unconfirmed.is_empty()
+    }
+
+    /// Clears all off-path challenges (e.g. when a new NAT traversal round starts
+    /// and old probes are obsolete).
+    pub(super) fn clear_off_path_challenges(&mut self) {
+        self.off_path_challenges_unconfirmed.clear();
+    }
+
     #[cfg(feature = "qlog")]
     pub(super) fn qlog_recovery_metrics(
         &mut self,
