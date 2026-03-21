@@ -390,9 +390,10 @@ impl ServerState {
         {
             return Err(Error::TooManyAddresses);
         }
-        self.pending_probes
-            .entry((ip, port))
-            .or_insert(ProbeState { attempts: 0, ready_to_send: true });
+        self.pending_probes.entry((ip, port)).or_insert(ProbeState {
+            attempts: 0,
+            ready_to_send: true,
+        });
         Ok(())
     }
 
@@ -437,9 +438,9 @@ impl ServerState {
     /// Returns whether there are any probes that have been sent but are waiting
     /// for retry (i.e., sent at least once but under the max attempt limit).
     pub(crate) fn has_pending_retries(&self) -> bool {
-        self.pending_probes.values().any(|state| {
-            state.attempts > 0 && state.attempts < MAX_OFF_PATH_PROBE_ATTEMPTS
-        })
+        self.pending_probes
+            .values()
+            .any(|state| state.attempts > 0 && state.attempts < MAX_OFF_PATH_PROBE_ATTEMPTS)
     }
 }
 

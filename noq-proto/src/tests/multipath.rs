@@ -3286,14 +3286,8 @@ fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
         }
     }
 
-    assert!(
-        !pair.is_closed(Client),
-        "client should survive the gap"
-    );
-    assert!(
-        !pair.is_closed(Server),
-        "server should survive the gap"
-    );
+    assert!(!pair.is_closed(Client), "client should survive the gap");
+    assert!(!pair.is_closed(Server), "server should survive the gap");
     assert!(
         received_post_gap,
         "client should receive data after the gap recovers"
