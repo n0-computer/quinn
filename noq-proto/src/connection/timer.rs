@@ -27,15 +27,19 @@ pub(crate) enum ConnTimer {
     KeepAlive = 3,
     /// When to invalidate old CID and proactively push new one via NEW_CONNECTION_ID frame
     PushNewCid = 4,
+    /// When to retry off-path NAT traversal probes.
+    /// Fires once per PTO to retransmit probes that got no PATH_RESPONSE.
+    OffPathProbeRetry = 5,
 }
 
 impl ConnTimer {
-    const VALUES: [Self; 5] = [
+    const VALUES: [Self; 6] = [
         Self::Idle,
         Self::Close,
         Self::KeyDiscard,
         Self::KeepAlive,
         Self::PushNewCid,
+        Self::OffPathProbeRetry,
     ];
 }
 
