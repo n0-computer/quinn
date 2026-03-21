@@ -5496,10 +5496,7 @@ impl Connection {
 
         for (path_id, remote) in recoverable_paths.into_iter() {
             // Schedule a Ping for a liveness check.
-            if let Some(path_space) = self.spaces[SpaceId::Data]
-                .number_spaces
-                .get_mut(&path_id)
-            {
+            if let Some(path_space) = self.spaces[SpaceId::Data].number_spaces.get_mut(&path_id) {
                 path_space.ping_pending = true;
 
                 if immediate_ack_allowed {
