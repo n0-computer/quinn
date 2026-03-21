@@ -1373,3 +1373,87 @@ fn nat_traversal_revalidates_existing_path() -> TestResult {
 
     Ok(())
 }
+
+/// After a silent gap, PTO backs off exponentially and can reach minutes.
+/// The 2s PTO cap ensures recovery happens promptly once connectivity returns.
+#[test]
+fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
+    let _guard = subscribe();
+
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(MAX_PATHS);
+    cfg.initial_rtt(Duration::from_millis(10));
+    cfg.default_path_max_idle_timeout(Some(Duration::from_secs(60)));
+
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
+    pair.drive();
+
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    let s = pair.streams(Server).open(Dir::Uni).unwrap();
+    pair.send_stream(Server, s).write(&[42u8; 5000]).unwrap();
+    pair.drive();
+
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
+    );
+    assert_matches!(pair.streams(Client).accept(Dir::Uni), Some(stream) if stream == s);
+    let mut recv = pair.recv_stream(Client, s);
+    let mut chunks = recv.read(false).unwrap();
+    let mut total_read = 0;
+    while let Ok(Some(chunk)) = chunks.next(usize::MAX) {
+        total_read += chunk.bytes.len();
+    }
+    let _ = chunks.finalize();
+    info!("read {total_read} bytes before gap");
+    assert!(total_read > 0, "should have received initial data");
+
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    pair.send_stream(Server, s).write(&[43u8; 5000]).unwrap();
+
+    info!("starting silent gap");
+    let gap_start = pair.time;
+    for _ in 0..10 {
+        if !pair.blackhole_step(true, true) {
+            break;
+        }
+    }
+    let gap_duration = pair.time - gap_start;
+    info!("gap lasted {:?}", gap_duration);
+
+    pair.send_stream(Server, s).write(b"after gap").unwrap();
+    pair.send_stream(Server, s).finish().unwrap();
+
+    info!("gap ended, driving to recovery");
+    let mut received_post_gap = false;
+    for i in 0..50 {
+        if pair.is_closed(Client) || pair.is_closed(Server) {
+            info!("connection died at step {i}");
+            break;
+        }
+        pair.step();
+
+        while let Some(event) = pair.poll(Client) {
+            if matches!(&event, Event::Stream(StreamEvent::Readable { .. })) {
+                info!("client received data at step {i}");
+                received_post_gap = true;
+            }
+        }
+        if received_post_gap {
+            break;
+        }
+    }
+
+    assert!(!pair.is_closed(Client), "client should survive the gap");
+    assert!(!pair.is_closed(Server), "server should survive the gap");
+    assert!(
+        received_post_gap,
+        "client should receive data after the gap recovers"
+    );
+
+    Ok(())
+}
