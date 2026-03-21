@@ -1026,3 +1026,116 @@ fn path_scheduling_path_status() -> TestResult {
 
     Ok(())
 }
+
+/// After a silent gap (e.g. relay disconnects), PTO backs off exponentially.
+/// Without a cap, PTO can reach minutes, making recovery take an unacceptable
+/// amount of time even after the link is restored.
+///
+/// With the 2s PTO cap (matching [picoquic's `PICOQUIC_LARGE_RETRANSMIT_TIMER`]
+/// (https://github.com/nicboul/picoquic/blob/main/picoquic/picoquic_internal.h)),
+/// recovery happens promptly via keep-alive PINGs:
+///
+/// 1. Server sends bulk data, gap occurs (packets blackholed)
+/// 2. PTO backs off but caps at 2s
+/// 3. Keep-alive PING breaks the deadlock after gap ends
+/// 4. PTO resets, retransmission resumes
+///
+/// RFC 9002 §6.2.1 specifies exponential PTO backoff but no upper bound.
+/// The 2s cap is an implementation choice for practical recovery.
+#[test]
+fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
+    let _guard = subscribe();
+
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(MAX_PATHS);
+    cfg.initial_rtt(Duration::from_millis(10));
+    // Enable keep-alive at 500ms for faster test (real iroh uses 5s)
+    cfg.default_path_keep_alive_interval(Some(Duration::from_millis(500)));
+    // Idle timeout must survive the blackhole period. With 10 blackhole steps
+    // and PTO starting at ~30ms doubling each time, the gap is ~30s.
+    // Use 60s to ensure the connection survives.
+    cfg.default_path_max_idle_timeout(Some(Duration::from_secs(60)));
+
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
+    pair.drive();
+
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Server opens a stream and starts sending bulk data
+    let s = pair.streams(Server).open(Dir::Uni).unwrap();
+    pair.send_stream(Server, s).write(&[42u8; 5000]).unwrap();
+    pair.drive();
+
+    // Client accepts and reads initial data
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Stream(StreamEvent::Opened { dir: Dir::Uni }))
+    );
+    assert_matches!(pair.streams(Client).accept(Dir::Uni), Some(stream) if stream == s);
+    let mut recv = pair.recv_stream(Client, s);
+    let mut chunks = recv.read(false).unwrap();
+    let mut total_read = 0;
+    while let Ok(Some(chunk)) = chunks.next(usize::MAX) {
+        total_read += chunk.bytes.len();
+    }
+    let _ = chunks.finalize();
+    info!("read {total_read} bytes before gap");
+    assert!(total_read > 0, "should have received initial data");
+
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Server writes more data that will be in-flight during the gap
+    pair.send_stream(Server, s).write(&[43u8; 5000]).unwrap();
+
+    // Simulate relay gap: blackhole both directions for a limited number of
+    // steps. Each step advances time to the next PTO, which doubles each time.
+    // 10 steps ≈ 30ms + 60ms + ... + 15360ms ≈ 30s of simulated time.
+    info!("starting silent gap");
+    let gap_start = pair.time;
+    for _ in 0..10 {
+        if !pair.blackhole_step(true, true) {
+            break;
+        }
+    }
+    let gap_duration = pair.time - gap_start;
+    info!("gap lasted {:?}", gap_duration);
+
+    // Server writes final data. After recovery, client should receive it.
+    pair.send_stream(Server, s).write(b"after gap").unwrap();
+    pair.send_stream(Server, s).finish().unwrap();
+
+    // Drive step by step, checking if the client receives data (recovery)
+    // or if either side dies (failure). Keep-alive keeps firing so the
+    // connection is never truly "idle" — check for stream events instead.
+    info!("gap ended, driving to recovery");
+    let mut received_post_gap = false;
+    for i in 0..50 {
+        if pair.is_closed(Client) || pair.is_closed(Server) {
+            info!("connection died at step {i}");
+            break;
+        }
+        pair.step();
+
+        // Check if client got new stream data
+        while let Some(event) = pair.poll(Client) {
+            if matches!(&event, Event::Stream(StreamEvent::Readable { .. })) {
+                info!("client received data at step {i}");
+                received_post_gap = true;
+            }
+        }
+        if received_post_gap {
+            break;
+        }
+    }
+
+    assert!(!pair.is_closed(Client), "client should survive the gap");
+    assert!(!pair.is_closed(Server), "server should survive the gap");
+    assert!(
+        received_post_gap,
+        "client should receive data after the gap recovers"
+    );
+
+    Ok(())
+}
