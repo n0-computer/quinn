@@ -2032,9 +2032,8 @@ impl Connection {
 
         let remote_cids = self.remote_cids.get_mut(&path_id)?;
 
-        // On retries, reuse the CID from the initial probe to the same address.
-        // This is RFC 9000 §9.5 compliant: the CID was already sent to this
-        // specific remote address. On first send, reserve a fresh CID.
+        // Reuse the CID from the initial probe on retries (same address, RFC 9000 §9.5).
+        // On first send, reserve a fresh CID.
         let cid = if let Some(prev_cid) = probe.previous_cid() {
             prev_cid
         } else if remote_cids.remaining() >= 2 {
@@ -2065,9 +2064,7 @@ impl Connection {
 
         path.record_path_challenge_sent(now, token, network_path);
 
-        // Set retry timer for off-path probes. Fires after one PTO so we can
-        // retransmit probes that got no PATH_RESPONSE (critical for NAT traversal
-        // simultaneous open).
+        // Set retry timer for off-path probes that got no PATH_RESPONSE.
         if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
             && server_state.has_pending_retries()
         {
@@ -5254,13 +5251,8 @@ impl Connection {
                         )));
                     }
 
-                    // When the client starts a new NAT traversal round, the previous
-                    // round's off-path challenges are obsolete. Clear the unconfirmed
-                    // challenges and rotate the CID queue to retire the CIDs consumed
-                    // by the old probes. This ensures fresh CIDs are available for the
-                    // new round's probes (#410).
+                    // New round: clear stale probes and retire their CIDs.
                     if is_new_round {
-                        // Stop retry timer for old round's probes
                         self.timers.stop(
                             Timer::Conn(ConnTimer::OffPathProbeRetry),
                             self.qlog.with_time(now),
@@ -5273,9 +5265,6 @@ impl Connection {
                             );
                             path.clear_off_path_challenges();
 
-                            // Rotate the CID: retire the active + reserved CIDs and
-                            // switch to the next available one. This triggers the peer
-                            // to issue replacement CIDs via NEW_CONNECTION_ID.
                             if let Some(remote_cids) = self.remote_cids.get_mut(&path_id)
                                 && let Some((reset_token, retired)) = remote_cids.next()
                             {
