@@ -740,9 +740,10 @@ impl Connection {
         if is_last_path {
             let pto =
                 self.path_data(path_id).rtt.pto_base() + self.ack_frequency.max_ack_delay_for_pto();
+            let grace = cmp::max(pto, Duration::from_millis(100));
             self.timers.set(
                 Timer::Conn(ConnTimer::NoViablePath),
-                now + pto,
+                now + grace,
                 self.qlog.with_time(now),
             );
         }
@@ -7219,7 +7220,7 @@ pub enum ClosePathError {
     /// The path is already closed or was never opened
     #[error("closed path")]
     ClosedPath,
-    /// This is the last path, which can not be abandoned
+    /// Retained for API compatibility. No longer returned by `close_path_inner`.
     #[error("last open path")]
     LastOpenPath,
 }
