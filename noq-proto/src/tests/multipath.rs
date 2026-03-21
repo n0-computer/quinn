@@ -1035,44 +1035,9 @@ fn path_scheduling_path_status() -> TestResult {
 //
 // These tests verify compliance with draft-ietf-quic-multipath-21, Section 3.4
 // "Path Close" and Section 4.2 "PATH_ABANDON Frame".
-//
-// Key spec requirements:
-//
-// Section 3.4 para 4 (MUST - reciprocal abandon):
-//   "When an endpoint receives a PATH_ABANDON frame, it MUST send a
-//    corresponding PATH_ABANDON frame, if it has not already done so, and
-//    respectively treat all connection IDs received from the peer for that
-//    path as immediately retired."
-//
-// Section 3.4 para 4 (SHOULD - retain state for 3 PTO):
-//   "knowledge of the connection IDs issued to the peer and of the state
-//    of the number space associated to the path SHOULD be retained for
-//    3 PTO after the PATH_ABANDON frame has been received."
-//
-// Section 3.4 para 7 (SHOULD/MAY - last path):
-//   "If a PATH_ABANDON frame is received for the only open path of a QUIC
-//    connection, the receiving peer SHOULD send a CONNECTION_CLOSE frame
-//    and enter the closing state.  Alternatively, a client MAY instead try
-//    to open a new path, if available, and only initiate connection
-//    closure if path validation fails or a CONNECTION_CLOSE frame is
-//    received from the server.  Similarly, the server MAY wait for a
-//    short, limited time such as one PTO, to see if a packet is received
-//    on a new path before sending the CONNECTION_CLOSE frame."
-//
-// Section 3.4 para 3 (RECOMMENDED - send on another path):
-//   "PATH_ABANDON frames can be sent on any open path, not only on the
-//    path that is intended to be closed.  It is RECOMMENDED to send the
-//    PATH_ABANDON frames on another open path"
-//
-// Section 3.4 para 5 (not an error):
-//   "It is also possible that an endpoint will receive a PATH_ABANDON
-//    frame before receiving or sending any traffic on a path. [...]
-//    This is not an error."
+// Tests for remote PATH_ABANDON handling (draft-ietf-quic-multipath-21 Section 3.4).
 
-/// When the remote abandons a path and another path exists, the abandon must be accepted
-/// and a reciprocal PATH_ABANDON sent back. The connection must stay alive.
-///
-/// Verifies: Section 3.4 para 4 (MUST send reciprocal PATH_ABANDON).
+/// Remote abandons a non-last path: accept and send reciprocal PATH_ABANDON.
 #[test]
 fn remote_path_abandon_with_remaining_path() -> TestResult {
     let _guard = subscribe();
@@ -1143,23 +1108,7 @@ fn remote_path_abandon_with_remaining_path() -> TestResult {
     Ok(())
 }
 
-/// When the remote abandons the LAST remaining path and no new path is opened within
-/// the grace period, the connection should close cleanly with CONNECTION_CLOSE.
-///
-/// Verifies: Section 3.4 para 4 (MUST - accept abandon and send reciprocal):
-///   "When an endpoint receives a PATH_ABANDON frame, it MUST send a
-///    corresponding PATH_ABANDON frame, if it has not already done so"
-///
-/// Verifies: Section 3.4 para 7 (SHOULD - close if no recovery):
-///   "If a PATH_ABANDON frame is received for the only open path of a QUIC
-///    connection, the receiving peer SHOULD send a CONNECTION_CLOSE frame
-///    and enter the closing state."
-///
-/// Behavior: accept the abandon, send reciprocal PATH_ABANDON, start a grace timer
-/// (~1 PTO). If grace period expires with no new path: CONNECTION_CLOSE.
-///
-/// Setup: 3 paths opened. Server closes all three, one by one. With no new path opened,
-/// both sides close after the grace period.
+/// Remote abandons the last path, no new path opened: connection closes after grace period.
 #[test]
 fn remote_path_abandon_last_path_closes_connection() -> TestResult {
     let _guard = subscribe();
@@ -1273,27 +1222,7 @@ fn remote_path_abandon_last_path_closes_connection() -> TestResult {
     Ok(())
 }
 
-/// When a client receives PATH_ABANDON for the last path, it opens a new path within
-/// the grace period, keeping the connection alive.
-///
-/// Verifies: Section 3.4 para 7 (MAY - client recovery):
-///   "Alternatively, a client MAY instead try to open a new path, if available,
-///    and only initiate connection closure if path validation fails or a
-///    CONNECTION_CLOSE frame is received from the server."
-///
-/// And: Section 3.4 para 7 (MAY - server grace period):
-///   "Similarly, the server MAY wait for a short, limited time such as one PTO,
-///    to see if a packet is received on a new path before sending the
-///    CONNECTION_CLOSE frame."
-///
-/// Target behavior (Option C - hybrid):
-///   1. Server closes its last path (PATH_ABANDON sent, server enters grace period)
-///   2. Client receives PATH_ABANDON for its last path
-///   3. Client accepts it (MUST), sends reciprocal PATH_ABANDON, starts grace timer
-///   4. Client opens a new path before grace expires
-///   5. Server receives traffic on new path within its grace period
-///   6. Connection stays alive on the new path
-///
+/// Remote abandons the last path, client opens a new path within grace period: connection survives.
 #[test]
 fn remote_path_abandon_last_path_client_opens_new() -> TestResult {
     let _guard = subscribe();
@@ -1405,14 +1334,7 @@ fn remote_path_abandon_last_path_client_opens_new() -> TestResult {
     Ok(())
 }
 
-/// Receiving PATH_ABANDON for a path we already abandoned locally should be a no-op
-/// (ClosedPath), not an error. Both sides independently deciding to abandon the same
-/// path is a normal race condition.
-///
-/// Verifies: Section 3.4 para 4:
-///   "When an endpoint receives a PATH_ABANDON frame, it MUST send a
-///    corresponding PATH_ABANDON frame, if it has not already done so"
-///   (emphasis on "if it has not already done so")
+/// Both sides abandon the same path simultaneously: should be a no-op, not an error.
 #[test]
 fn remote_path_abandon_already_abandoned_locally() -> TestResult {
     let _guard = subscribe();
@@ -1443,13 +1365,7 @@ fn remote_path_abandon_already_abandoned_locally() -> TestResult {
     Ok(())
 }
 
-/// When the remote abandons a path that has not yet been validated (e.g. PATH_CHALLENGE
-/// is still in flight), the abandon must still be accepted.
-///
-/// Verifies: Section 3.4 para 5:
-///   "It is also possible that an endpoint will receive a PATH_ABANDON
-///    frame before receiving or sending any traffic on a path. [...]
-///    This is not an error."
+/// Remote abandons a path before validation completes: must still be accepted.
 #[test]
 fn remote_path_abandon_unvalidated_path() -> TestResult {
     let _guard = subscribe();
@@ -1495,10 +1411,7 @@ fn remote_path_abandon_unvalidated_path() -> TestResult {
     Ok(())
 }
 
-/// The reciprocal PATH_ABANDON must be sent back and MAX_PATH_ID bumped.
-/// Verify via frame stats.
-///
-/// Verifies: Section 3.4 para 4 (MUST send reciprocal PATH_ABANDON).
+/// Verify reciprocal PATH_ABANDON is sent and MAX_PATH_ID bumped via frame stats.
 #[test]
 fn remote_path_abandon_reciprocal_and_cid_retirement() -> TestResult {
     let _guard = subscribe();
@@ -1562,23 +1475,7 @@ fn remote_path_abandon_reciprocal_and_cid_retirement() -> TestResult {
     Ok(())
 }
 
-/// After receiving PATH_ABANDON, path state should be retained for 3 PTO then discarded.
-///
-/// Verifies: Section 3.4 para 4:
-///   "knowledge of the connection IDs issued to the peer and of the state of
-///    the number space associated to the path SHOULD be retained for 3 PTO
-///    after the PATH_ABANDON frame has been received."
-///
-/// And: Section 3.4.2 "Avoiding Spurious Stateless Resets":
-///   "The requirement to retain knowledge of connection ID and about the
-///    packet number space for 3 PTOs after receiving a PATH_ABANDON frame
-///    [...] is intended to reduce the risk of sending such spurious
-///    stateless packets"
-///
-/// And: Section 3.4.3 "Handling PATH_ACK for Abandoned Paths":
-///   "When an endpoint finally deletes all state associated with the path,
-///    the packets sent over the path and not yet acknowledged MUST be
-///    considered lost."
+/// Path state is retained for 3 PTO after PATH_ABANDON, then discarded.
 #[test]
 fn remote_path_abandon_path_discarded_after_3pto() -> TestResult {
     let _guard = subscribe();
@@ -1701,17 +1598,7 @@ fn abandon_path_data_continues() -> TestResult {
     Ok(())
 }
 
-/// Ported from picoquic `multipath_test_ab1` scenario.
-///
-/// Repeatedly abandons paths and verifies cleanup between cycles. After each abandon:
-/// - The abandoned path's CID state is cleaned up
-/// - Enough CIDs remain for new paths to be opened
-/// - A new path can be opened to replace the abandoned one
-///
-/// Picoquic ref: multipath_test.c lines 922-926 (7 abandon cycles),
-///               multipath_test_abandon_cycle() lines 545-615
-///
-/// We adapt this to 3 cycles (limited by MAX_PATHS=3 and path ID space).
+/// Ported from picoquic `multipath_test_ab1`. Abandon + reopen cycle, 3 rounds.
 #[test]
 fn abandon_cycle() -> TestResult {
     let _guard = subscribe();
@@ -1812,42 +1699,9 @@ fn abandon_cycle() -> TestResult {
     Ok(())
 }
 
-// Note: picoquic's `multipath_test_break1` (silent link drop) and `multipath_test_back0`
-// (break + recover) tests rely on either PTO-based timeout detection (10+ seconds of
-// simulated time) or OS-level socket errors (`picoquic_notify_destination_unreachable`).
-// noq's equivalent for the active-signal path is `handle_network_change()` with hints,
-// which is already tested in `network_change_multipath_no_hint_replaces_path` and
-// `network_change_selective_hint`. Link-breaking via silent drop is covered by the
-// existing `open_path_validation_fails_client_side` test using `blackhole_step`.
 
-// --- Tests for #398/#400: last-path and last-validated-path abandon scenarios ---
-//
-// These are regression tests for issues #398 and #400. Both were fixed by our #397 fix
-// (commit fd562f184) which:
-// - Always accepts remote PATH_ABANDONs (even for the last path)
-// - Starts a NoViablePath grace timer (~1 PTO) when the last path is abandoned
-// - Cancels the timer when a new path appears (in ensure_path)
-//
-// History: the old code had separate checks for local vs remote abandon:
-// - Local: blocked if no remaining *validated* paths (checked path.data.validated)
-// - Remote: blocked if no remaining paths at all
-// Both returned Err(LastOpenPath), killing the connection.
-//
-// The fix unified both: always accept, start grace timer for last-path case.
-// This means #400 ("connection killed when remote abandons last validated path")
-// is also fixed — the old remote check didn't care about validation state, and the
-// new code doesn't block at all.
-
-/// Regression test for #400: remote abandons the only validated path while an
-/// unvalidated path exists. The connection should survive if the unvalidated
-/// path validates.
-///
-/// Pre-fix: the remote check didn't consider validation, so this case was
-/// accepted (the bug in #400 was actually about the *local* check blocking
-/// when only unvalidated paths remained). Post-fix (#397): always accepted,
-/// no guard at all.
-///
-/// draft-ietf-quic-multipath-21 Section 3.4 para 4 (MUST accept)
+/// Regression: remote abandons the only validated path while an unvalidated path
+/// exists. Connection survives if the unvalidated path validates (#400).
 #[test]
 fn remote_abandon_last_validated_path_unvalidated_remains() -> TestResult {
     let _guard = subscribe();
@@ -1907,14 +1761,8 @@ fn remote_abandon_last_validated_path_unvalidated_remains() -> TestResult {
     Ok(())
 }
 
-/// Regression test for #398/#400: remote abandons the only validated path and
-/// the remaining unvalidated path fails validation. The connection should
-/// eventually close.
-///
-/// The close happens through the chain: path validation timeout → path 1
-/// abandoned → is_last_path = true → NoViablePath grace timer → CONNECTION_CLOSE.
-///
-/// draft-ietf-quic-multipath-21 Section 3.4 para 7
+/// Regression: remote abandons last validated path and unvalidated path fails
+/// validation. Connection closes via NoViablePath grace timer (#398/#400).
 #[test]
 fn remote_abandon_last_validated_path_validation_fails() -> TestResult {
     let _guard = subscribe();
@@ -1972,15 +1820,7 @@ fn remote_abandon_last_validated_path_validation_fails() -> TestResult {
     Ok(())
 }
 
-/// Regression test for #398: when the remote abandons all paths, the client
-/// can recover by opening a new path within the grace period.
-///
-/// Tests the combination of:
-/// - #400: last validated path abandoned with unvalidated remaining
-/// - #398: application opens new path to recover
-///
-/// draft-ietf-quic-multipath-21 Section 3.4 para 7:
-///   "Alternatively, a client MAY instead try to open a new path"
+/// Regression: remote abandons all paths, client recovers by opening a new one (#398).
 #[test]
 fn remote_abandon_last_validated_path_recovery_via_new_path() -> TestResult {
     let _guard = subscribe();
