@@ -1032,7 +1032,7 @@ fn path_scheduling_path_status() -> TestResult {
 /// amount of time even after the link is restored.
 ///
 /// With the 2s PTO cap (matching [picoquic's `PICOQUIC_LARGE_RETRANSMIT_TIMER`]
-/// (https://github.com/nicboul/picoquic/blob/main/picoquic/picoquic_internal.h)),
+/// (https://github.com/private-octopus/picoquic/blob/master/picoquic/picoquic_internal.h)),
 /// recovery happens promptly via keep-alive PINGs:
 ///
 /// 1. Server sends bulk data, gap occurs (packets blackholed)
