@@ -2032,16 +2032,19 @@ impl Connection {
 
         let remote_cids = self.remote_cids.get_mut(&path_id)?;
 
-        // Check if this path has enough CIDs to send a probe. One to be reserved, one in case the
-        // active CID needs to be retired.
-        if remote_cids.remaining() < 2 {
+        // On retries, reuse the CID from the initial probe to the same address.
+        // This is RFC 9000 §9.5 compliant: the CID was already sent to this
+        // specific remote address. On first send, reserve a fresh CID.
+        let cid = if let Some(prev_cid) = probe.previous_cid() {
+            prev_cid
+        } else if remote_cids.remaining() >= 2 {
+            remote_cids.next_reserved()?
+        } else {
             return None;
-        }
-
-        let cid = remote_cids.next_reserved()?;
+        };
         let remote = probe.remote();
         let token = self.rng.random();
-        probe.mark_as_sent();
+        probe.mark_as_sent(cid);
 
         let frame = frame::PathChallenge(token);
 
@@ -2061,6 +2064,20 @@ impl Connection {
         };
 
         path.record_path_challenge_sent(now, token, network_path);
+
+        // Set retry timer for off-path probes. Fires after one PTO so we can
+        // retransmit probes that got no PATH_RESPONSE (critical for NAT traversal
+        // simultaneous open).
+        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
+            && server_state.has_pending_retries()
+        {
+            let pto = self.pto(SpaceKind::Data, path_id);
+            self.timers.set(
+                Timer::Conn(ConnTimer::OffPathProbeRetry),
+                now + pto,
+                self.qlog.with_time(now),
+            );
+        }
 
         let size = buf.len();
 
@@ -2328,6 +2345,14 @@ impl Connection {
                                     }
                                 }
                             }
+                        }
+                    }
+                    ConnTimer::OffPathProbeRetry => {
+                        // Re-queue off-path probes for retransmission.
+                        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
+                            && server_state.queue_retries()
+                        {
+                            trace!("off-path probe retry timer fired, re-queued probes");
                         }
                     }
                 },
@@ -5221,10 +5246,53 @@ impl Connection {
                         }
                     };
 
+                    let is_new_round = reach_out.round > server_state.current_round();
+
                     if let Err(err) = server_state.handle_reach_out(reach_out, ipv6) {
                         return Err(TransportError::PROTOCOL_VIOLATION(format!(
                             "Nat traversal(REACH_OUT): {err}"
                         )));
+                    }
+
+                    // When the client starts a new NAT traversal round, the previous
+                    // round's off-path challenges are obsolete. Clear the unconfirmed
+                    // challenges and rotate the CID queue to retire the CIDs consumed
+                    // by the old probes. This ensures fresh CIDs are available for the
+                    // new round's probes (#410).
+                    if is_new_round {
+                        // Stop retry timer for old round's probes
+                        self.timers.stop(
+                            Timer::Conn(ConnTimer::OffPathProbeRetry),
+                            self.qlog.with_time(now),
+                        );
+
+                        let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
+                        if path.has_off_path_challenges() {
+                            trace!(
+                                "clearing stale off-path challenges for new NAT traversal round"
+                            );
+                            path.clear_off_path_challenges();
+
+                            // Rotate the CID: retire the active + reserved CIDs and
+                            // switch to the next available one. This triggers the peer
+                            // to issue replacement CIDs via NEW_CONNECTION_ID.
+                            if let Some(remote_cids) = self.remote_cids.get_mut(&path_id)
+                                && let Some((reset_token, retired)) = remote_cids.next()
+                            {
+                                self.spaces[SpaceId::Data]
+                                    .pending
+                                    .retire_cids
+                                    .extend(retired.map(|seq| (path_id, seq)));
+                                let remote = self
+                                    .paths
+                                    .get(&path_id)
+                                    .expect("known path")
+                                    .data
+                                    .network_path
+                                    .remote;
+                                self.set_reset_token(path_id, remote, reset_token);
+                            }
+                        }
                     }
                 }
             }
