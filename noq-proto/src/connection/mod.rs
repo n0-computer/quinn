@@ -5364,7 +5364,7 @@ impl Connection {
                         }
                     };
 
-                    let is_new_round = reach_out.round > server_state.current_round();
+                    let round_before = server_state.current_round();
 
                     if let Err(err) = server_state.handle_reach_out(reach_out, ipv6) {
                         return Err(TransportError::PROTOCOL_VIOLATION(format!(
@@ -5372,8 +5372,10 @@ impl Connection {
                         )));
                     }
 
-                    // New round: clear stale probes and retire their CIDs.
-                    if is_new_round {
+                    // Only clean up if handle_reach_out actually advanced the round
+                    // (it may silently ignore frames for old rounds or unsupported IP families).
+                    let round_advanced = server_state.current_round() > round_before;
+                    if round_advanced {
                         self.timers.stop(
                             Timer::Conn(ConnTimer::OffPathProbeRetry),
                             self.qlog.with_time(now),
