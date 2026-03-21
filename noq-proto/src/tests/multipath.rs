@@ -705,18 +705,7 @@ fn per_path_observed_address() -> TestResult {
     Ok(())
 }
 
-/// ADD_ADDRESS frames must be sent in the first data packet, not delayed behind
-/// bulk PATH_NEW_CONNECTION_ID frames.
-///
-/// Regression test: the server adds both its public and private IP to NAT traversal
-/// before the first data packet. Both ADD_ADDRESS frames should be sent immediately.
-/// Previously, ADD_ADDRESS was scheduled after NEW_CONNECTION_ID, so 35+ CID frames
-/// could fill the packet and push ADD_ADDRESS to a later packet (10+ seconds later
-/// with pacing under load).
-///
-/// draft-seemann-quic-nat-traversal-02: ADD_ADDRESS frames advertise addresses for
-/// NAT traversal. The client can't probe addresses it doesn't know about, so delays
-/// directly impact holepunching success.
+/// Regression: ADD_ADDRESS frames must not be delayed behind bulk CID frames.
 #[test]
 fn add_address_not_delayed_by_cid_frames() -> TestResult {
     let _guard = subscribe();
@@ -742,13 +731,11 @@ fn add_address_not_delayed_by_cid_frames() -> TestResult {
     // Record frame stats before driving
     let stats_before = pair.stats(Server);
 
-    // Drive just the server to send ONE round of packets
+    // Drive the server to produce its next burst of packets
     pair.drive_server();
 
     let stats_after = pair.stats(Server);
 
-    // Both ADD_ADDRESS frames should have been sent in the first burst.
-    // Previously only 1 would fit because CID frames consumed all packet space.
     let add_addr_sent = stats_after.frame_tx.add_address - stats_before.frame_tx.add_address;
     assert_eq!(
         add_addr_sent, 2,

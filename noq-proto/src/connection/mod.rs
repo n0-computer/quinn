@@ -5984,11 +5984,7 @@ impl Connection {
                 .write_control_frames(builder, &mut space.pending, stats);
         }
 
-        // ADD_ADDRESS
-        // Prioritized before NEW_CONNECTION_ID: the remote can't use CIDs without
-        // knowing addresses to connect to. ADD_ADDRESS frames are small and critical
-        // for holepunching timing — a delayed ADD_ADDRESS means the remote can't
-        // probe our addresses even if it has CIDs.
+        // ADD_ADDRESS — before NEW_CONNECTION_ID so remote learns addresses first.
         while space_id == SpaceId::Data
             && !scheduling_info.is_abandoned
             && scheduling_info.may_send_data
