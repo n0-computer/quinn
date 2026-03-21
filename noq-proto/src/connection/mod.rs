@@ -3389,16 +3389,6 @@ impl Connection {
         let backoff = 2u32.pow(pto_count.min(MAX_BACKOFF_EXPONENT));
         let mut duration = path.rtt.pto_base() * backoff;
 
-        // Cap PTO backoff post-handshake to prevent excessively long retransmission
-        // gaps after connectivity loss. Without this cap, a path that loses connectivity
-        // for a few seconds can have PTO backed off to 30s+, making recovery impossibly
-        // slow even after connectivity returns. Picoquic uses a similar cap of 2s
-        // (PICOQUIC_LARGE_RETRANSMIT_TIMER). Only applied post-handshake: during
-        // handshake, natural backoff is needed to avoid flooding on unreachable peers.
-        if !self.is_handshaking() {
-            duration = duration.min(MAX_PTO_INTERVAL);
-        }
-
         if path_id == PathId::ZERO
             && path.in_flight.ack_eliciting == 0
             && !self.peer_completed_address_validation(PathId::ZERO)
@@ -3432,6 +3422,8 @@ impl Connection {
                 }
                 // Include max_ack_delay and backoff for ApplicationData.
                 duration += self.ack_frequency.max_ack_delay_for_pto() * backoff;
+                // Cap PTO post-handshake to prevent long retransmit gaps after connectivity loss.
+                duration = duration.min(MAX_PTO_INTERVAL);
             }
             let Some(last_ack_eliciting) = pns.time_of_last_ack_eliciting_packet else {
                 continue;
@@ -3559,7 +3551,6 @@ impl Connection {
         self.reset_keep_alive(path_id, now);
         self.reset_idle_timeout(now, space_id, path_id);
         self.permit_idle_reset = true;
-
         self.receiving_ecn |= ecn.is_some();
         if let Some(x) = ecn {
             let space = &mut self.spaces[space_id];
@@ -7307,11 +7298,7 @@ fn get_max_ack_delay(params: &TransportParameters) -> Duration {
 // Prevents overflow and improves behavior in extreme circumstances
 const MAX_BACKOFF_EXPONENT: u32 = 16;
 
-/// Maximum PTO interval after backoff. Prevents retransmission gaps from growing
-/// unbounded during connectivity loss. After a silent gap, the PTO may have backed
-/// off exponentially (e.g. 30ms * 2^10 = 30s). Capping at 2s ensures prompt recovery
-/// once connectivity returns — the next PTO probe fires within 2s, gets ACKed, and
-/// normal operation resumes. Matches picoquic's PICOQUIC_LARGE_RETRANSMIT_TIMER.
+// Cap on PTO after backoff, matching picoquic's PICOQUIC_LARGE_RETRANSMIT_TIMER.
 const MAX_PTO_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Minimal remaining size to allow packet coalescing, excluding cryptographic tag
