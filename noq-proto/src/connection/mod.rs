@@ -838,11 +838,7 @@ impl Connection {
             .ok_or(ClosedPath { _private: () })?;
         let prev = std::mem::replace(&mut path.data.idle_timeout, timeout);
 
-        // Re-arm the PathIdle timer if the new timeout is longer. Without this,
-        // an already-running timer continues with the old value until data is
-        // received. This matters when extending the timeout during a network
-        // change — the path may not receive data for a while (e.g. relay
-        // reconnecting), so the old timer would fire prematurely.
+        // Re-arm the PathIdle timer with the new timeout.
         if !self.state.is_closed() {
             self.reset_idle_timeout(now, self.highest_space, path_id);
         }
@@ -5487,16 +5483,24 @@ impl Connection {
         /* RECOVERABLE PATHS */
 
         for (path_id, remote) in recoverable_paths.into_iter() {
-            let space = &mut self.spaces[SpaceId::Data];
-
             // Schedule a Ping for a liveness check.
-            if let Some(path_space) = space.number_spaces.get_mut(&path_id) {
+            if let Some(path_space) = self.spaces[SpaceId::Data]
+                .number_spaces
+                .get_mut(&path_id)
+            {
                 path_space.ping_pending = true;
 
                 if immediate_ack_allowed {
                     path_space.immediate_ack_pending = true;
                 }
             }
+
+            // Reset PTO backoff so retransmits resume promptly. Congestion controller
+            // and RTT are intentionally preserved for recoverable paths.
+            if let Some(path) = self.paths.get_mut(&path_id) {
+                path.data.pto_count = 0;
+            }
+            self.set_loss_detection_timer(now, path_id);
 
             let Some((reset_token, retired)) =
                 self.remote_cids.get_mut(&path_id).and_then(CidQueue::next)
@@ -5505,7 +5509,7 @@ impl Connection {
             };
 
             // Retire the current remote CID and any CIDs we had to skip.
-            space
+            self.spaces[SpaceId::Data]
                 .pending
                 .retire_cids
                 .extend(retired.map(|seq| (path_id, seq)));
@@ -5513,20 +5517,6 @@ impl Connection {
             debug_assert!(!self.state.is_drained()); // required for endpoint_events, checked above
             self.endpoint_events
                 .push_back(EndpointEventInner::ResetToken(path_id, remote, reset_token));
-
-            // Reset the PTO backoff counter and re-arm loss detection. During the
-            // transport disconnect, PTO retransmits may have exhausted and the
-            // backoff grown exponentially (seconds/minutes). Resetting pto_count
-            // to 0 brings the PTO back to a reasonable duration so retransmits
-            // resume promptly once the transport recovers.
-            //
-            // We intentionally preserve the congestion controller and RTT estimate:
-            // for a truly recoverable path (e.g. relay reconnecting), these are
-            // still valid and resetting them would cause unnecessary slow-start.
-            if let Some(path) = self.paths.get_mut(&path_id) {
-                path.data.pto_count = 0;
-            }
-            self.set_loss_detection_timer(now, path_id);
         }
     }
 
