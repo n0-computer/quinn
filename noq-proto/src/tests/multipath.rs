@@ -1155,24 +1155,10 @@ fn remote_path_abandon_with_remaining_path() -> TestResult {
 ///    connection, the receiving peer SHOULD send a CONNECTION_CLOSE frame
 ///    and enter the closing state."
 ///
-/// Target behavior (Option C - hybrid):
-///   1. Accept the PATH_ABANDON (MUST) and queue reciprocal PATH_ABANDON
-///   2. Emit PathEvent::Abandoned to application
-///   3. Start a grace timer (~1 PTO) to allow application to open a new path
-///   4. If grace period expires with no new path: CONNECTION_CLOSE
+/// Behavior: accept the abandon, send reciprocal PATH_ABANDON, start a grace timer
+/// (~1 PTO). If grace period expires with no new path: CONNECTION_CLOSE.
 ///
-/// Current behavior (bug #397): `close_path_inner` returns `Err(LastOpenPath)` for
-/// both locally-initiated and remote-initiated abandon of the last path. The frame
-/// handler converts this to `TransportError::NO_VIABLE_PATH`, killing the connection
-/// without accepting the abandon or sending a reciprocal PATH_ABANDON.
-///
-/// Fix requires two changes to `close_path_inner`:
-///   1. Allow locally-initiated close of the last path (sender intends connection close)
-///   2. Accept remote PATH_ABANDON for the last path (start grace timer for recovery)
-///
-/// Setup: 3 paths opened. Server closes all three, one by one. On the third close the
-/// server is closing its own last path (requires fix #1). The client then receives the
-/// PATH_ABANDON for its only remaining path (requires fix #2). With no new path opened,
+/// Setup: 3 paths opened. Server closes all three, one by one. With no new path opened,
 /// both sides close after the grace period.
 #[test]
 fn remote_path_abandon_last_path_closes_connection() -> TestResult {
@@ -1308,10 +1294,6 @@ fn remote_path_abandon_last_path_closes_connection() -> TestResult {
 ///   5. Server receives traffic on new path within its grace period
 ///   6. Connection stays alive on the new path
 ///
-/// Current behavior (bug #397): server's `close_path` fails with `LastOpenPath` before
-/// any PATH_ABANDON frame is sent.
-///
-/// Fix requires: same two changes as `remote_path_abandon_last_path_closes_connection`.
 #[test]
 fn remote_path_abandon_last_path_client_opens_new() -> TestResult {
     let _guard = subscribe();
@@ -1475,7 +1457,7 @@ fn remote_path_abandon_unvalidated_path() -> TestResult {
 
     // Open second path from client - don't fully drive, so it's not validated on server yet
     let server_addr = pair.addrs_to_server();
-    let _path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
+    let path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
 
     // Only drive client side so the PATH_CHALLENGE is sent but not yet processed by server
     pair.drive_client();
@@ -1485,7 +1467,7 @@ fn remote_path_abandon_unvalidated_path() -> TestResult {
 
     // Server abandons the not-yet-fully-validated path
     info!("server abandons unvalidated path");
-    pair.close_path(Server, _path_id, 0u8.into())?;
+    pair.close_path(Server, path_id, 0u8.into())?;
     pair.drive();
 
     // Client should accept the abandon

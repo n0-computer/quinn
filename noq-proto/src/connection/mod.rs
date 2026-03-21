@@ -604,9 +604,10 @@ impl Connection {
 
     /// Closes a path and sends a PATH_ABANDON frame with the passed error code.
     ///
-    /// This will not allow closing the last path. It does allow closing paths which have
-    /// not yet been opened, as e.g. is the case when receiving a PATH_ABANDON from the peer
-    /// for a path that was never opened locally.
+    /// When the last path is closed, a grace timer is started to allow the application
+    /// or peer to open a new path. If no new path appears, the connection closes.
+    /// It does allow closing paths which have not yet been opened, as e.g. is the case
+    /// when receiving a PATH_ABANDON from the peer for a path that was never opened locally.
     pub fn close_path(
         &mut self,
         now: Instant,
@@ -735,7 +736,7 @@ impl Connection {
         // - Remote-initiated: the application may open a new path within the grace period.
         // - Locally-initiated: the PATH_ABANDON needs to be sent before CONNECTION_CLOSE.
         // In both cases, start a grace timer (~1 PTO). When it fires, close the connection
-        // unless a new path has been opened (which cancels the timer in open_path).
+        // unless a new path has been opened (which cancels the timer in ensure_path).
         if is_last_path {
             let pto =
                 self.path_data(path_id).rtt.pto_base() + self.ack_frequency.max_ack_delay_for_pto();
