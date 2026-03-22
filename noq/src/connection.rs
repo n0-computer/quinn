@@ -1456,6 +1456,11 @@ impl State {
                     self.buffered_transmit = Some(t);
                     return Ok(false);
                 }
+                Poll::Ready(Err(e)) if e.kind() == io::ErrorKind::NetworkUnreachable => {
+                    // Drop the packet — retrying immediately would just fail
+                    // again. Timers handle path demotion.
+                    return Ok(false);
+                }
                 Poll::Ready(Err(e)) => return Err(e),
                 Poll::Ready(Ok(())) => {}
             }
