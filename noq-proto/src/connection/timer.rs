@@ -31,16 +31,20 @@ pub(crate) enum ConnTimer {
     /// If no new path is opened before this fires, close the connection.
     /// See draft-ietf-quic-multipath-21 Section 3.4 para 7.
     NoViablePath = 5,
+    /// When to retry off-path NAT traversal probes.
+    /// Fires once per PTO to retransmit probes that got no PATH_RESPONSE.
+    OffPathProbeRetry = 6,
 }
 
 impl ConnTimer {
-    const VALUES: [Self; 6] = [
+    const VALUES: [Self; 7] = [
         Self::Idle,
         Self::Close,
         Self::KeyDiscard,
         Self::KeepAlive,
         Self::PushNewCid,
         Self::NoViablePath,
+        Self::OffPathProbeRetry,
     ];
 }
 
