@@ -40,9 +40,20 @@ impl UdpSocketState {
         match send(socket, transmit) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Err(e),
+            Err(e)
+                if e.raw_os_error() == Some(libc::ENETUNREACH)
+                    || e.raw_os_error() == Some(libc::EHOSTUNREACH)
+                    || e.raw_os_error() == Some(libc::EADDRNOTAVAIL)
+                    || e.raw_os_error() == Some(libc::ENETDOWN) =>
+            {
+                log_sendmsg_error(&self.last_send_error, e, transmit);
+                Err(io::Error::new(
+                    io::ErrorKind::NetworkUnreachable,
+                    "destination unreachable",
+                ))
+            }
             Err(e) => {
                 log_sendmsg_error(&self.last_send_error, e, transmit);
-
                 Ok(())
             }
         }
