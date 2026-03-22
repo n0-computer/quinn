@@ -6104,6 +6104,32 @@ impl Connection {
                 .write_control_frames(builder, &mut space.pending, stats);
         }
 
+        // ADD_ADDRESS — before NEW_CONNECTION_ID so remote learns addresses first.
+        while space_id == SpaceId::Data
+            && !scheduling_info.is_abandoned
+            && scheduling_info.may_send_data
+            && frame::AddAddress::SIZE_BOUND <= builder.frame_space_remaining()
+        {
+            if let Some(added_address) = space.pending.add_address.pop_last() {
+                builder.write_frame(added_address, stats);
+            } else {
+                break;
+            }
+        }
+
+        // REMOVE_ADDRESS
+        while space_id == SpaceId::Data
+            && !scheduling_info.is_abandoned
+            && scheduling_info.may_send_data
+            && frame::RemoveAddress::SIZE_BOUND <= builder.frame_space_remaining()
+        {
+            if let Some(removed_address) = space.pending.remove_address.pop_last() {
+                builder.write_frame(removed_address, stats);
+            } else {
+                break;
+            }
+        }
+
         // NEW_CONNECTION_ID
         let cid_len = self
             .local_cid_state
@@ -6223,32 +6249,6 @@ impl Connection {
         {
             self.streams
                 .write_stream_frames(builder, self.config.send_fairness, stats);
-        }
-
-        // ADD_ADDRESS
-        while space_id == SpaceId::Data
-            && !scheduling_info.is_abandoned
-            && scheduling_info.may_send_data
-            && frame::AddAddress::SIZE_BOUND <= builder.frame_space_remaining()
-        {
-            if let Some(added_address) = space.pending.add_address.pop_last() {
-                builder.write_frame(added_address, stats);
-            } else {
-                break;
-            }
-        }
-
-        // REMOVE_ADDRESS
-        while space_id == SpaceId::Data
-            && !scheduling_info.is_abandoned
-            && scheduling_info.may_send_data
-            && frame::RemoveAddress::SIZE_BOUND <= builder.frame_space_remaining()
-        {
-            if let Some(removed_address) = space.pending.remove_address.pop_last() {
-                builder.write_frame(removed_address, stats);
-            } else {
-                break;
-            }
         }
     }
 

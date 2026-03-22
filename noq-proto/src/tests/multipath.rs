@@ -709,6 +709,46 @@ fn per_path_observed_address() -> TestResult {
     Ok(())
 }
 
+/// Regression: ADD_ADDRESS frames must not be delayed behind bulk CID frames.
+#[test]
+fn add_address_not_delayed_by_cid_frames() -> TestResult {
+    let _guard = subscribe();
+
+    let mut cfg = TransportConfig::default();
+    cfg.max_concurrent_multipath_paths(12); // high path count = many CID frames
+    cfg.initial_rtt(Duration::from_millis(10));
+    cfg.set_max_remote_nat_traversal_addresses(12); // enable NAT traversal
+
+    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
+    pair.drive();
+
+    // Drain handshake events
+    while pair.poll(Client).is_some() {}
+    while pair.poll(Server).is_some() {}
+
+    // Server adds two NAT traversal addresses (simulating public + private IP)
+    let addr1: SocketAddr = "10.0.0.1:1234".parse().unwrap();
+    let addr2: SocketAddr = "203.0.113.1:1234".parse().unwrap();
+    pair.add_nat_traversal_address(Server, addr1)?;
+    pair.add_nat_traversal_address(Server, addr2)?;
+
+    // Record frame stats before driving
+    let stats_before = pair.stats(Server);
+
+    // Drive the server to produce its next burst of packets
+    pair.drive_server();
+
+    let stats_after = pair.stats(Server);
+
+    let add_addr_sent = stats_after.frame_tx.add_address - stats_before.frame_tx.add_address;
+    assert_eq!(
+        add_addr_sent, 2,
+        "both ADD_ADDRESS frames should be sent immediately, not delayed behind CID frames"
+    );
+
+    Ok(())
+}
+
 #[test]
 fn mtud_on_two_paths() -> TestResult {
     let _guard = subscribe();
