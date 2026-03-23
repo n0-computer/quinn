@@ -31,7 +31,7 @@ jobs:
         id: tests
         run: cargo test --release -p noq --test netsim --features rustls-ring -- --test-threads=1
         env:
-          RUST_LOG: ${{ runner.debug && 'TRACE' || 'DEBUG' }}
+          RUST_LOG: debug,noq=trace
 
       - name: Push results
         if: always()
