@@ -437,6 +437,25 @@ impl ServerState {
             .values()
             .any(|state| state.attempts > 0 && state.attempts < MAX_OFF_PATH_PROBE_ATTEMPTS)
     }
+
+    /// Returns the next probe's address and previous CID without holding a borrow.
+    pub(crate) fn next_probe_info(&self) -> Option<(SocketAddr, Option<ConnectionId>)> {
+        self.pending_probes
+            .iter()
+            .find(|(_, state)| state.ready_to_send)
+            .map(|(addr, state)| ((*addr).into(), state.cid))
+    }
+
+    /// Mark a probe as sent by address.
+    pub(crate) fn mark_probe_sent(&mut self, remote: IpPort, cid: ConnectionId) {
+        if let Some(state) = self.pending_probes.get_mut(&remote) {
+            if state.cid.is_none() {
+                state.cid = Some(cid);
+            }
+            state.attempts += 1;
+            state.ready_to_send = false;
+        }
+    }
 }
 
 pub(crate) struct ServerProbing<'a> {
