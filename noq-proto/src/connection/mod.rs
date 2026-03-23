@@ -6742,8 +6742,14 @@ impl Connection {
             Ok((path_id, path_was_known)) => {
                 if path_was_known {
                     trace!(%path_id, %remote, "nat traversal: path existed for remote, revalidating");
-                    if let Some(path) = self.paths.get_mut(&path_id) {
-                        path.data.pending_on_path_challenge = true;
+                    let immediate_ack_allowed = self.peer_supports_ack_frequency();
+                    if let Some(pn_space) =
+                        self.spaces[SpaceId::Data].number_spaces.get_mut(&path_id)
+                    {
+                        pn_space.ping_pending = true;
+                        if immediate_ack_allowed {
+                            pn_space.immediate_ack_pending = true;
+                        }
                     }
                 }
                 Ok(Some((path_id, remote)))

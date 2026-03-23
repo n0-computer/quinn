@@ -1027,7 +1027,7 @@ fn path_scheduling_path_status() -> TestResult {
     Ok(())
 }
 
-/// NAT traversal round revalidates an existing path by sending a new PATH_CHALLENGE.
+/// NAT traversal round revalidates an existing path by sending a PING.
 ///
 /// Without the fix, `open_path_ensure` finds the existing path and silently reuses it,
 /// leaving a broken path undetected after a network outage.
@@ -1059,18 +1059,17 @@ fn nat_traversal_revalidates_existing_path() -> TestResult {
         PathStatus::Available
     );
 
-    let challenges_before = pair.stats(Client).frame_tx.path_challenge;
+    let pings_before = pair.stats(Client).frame_tx.ping;
 
     // Second round with the same addresses should trigger revalidation
     let probed = pair.initiate_nat_traversal_round(Client)?;
     assert_eq!(probed.len(), 1);
     pair.drive_bounded(20);
 
-    let challenges_after = pair.stats(Client).frame_tx.path_challenge;
+    let pings_after = pair.stats(Client).frame_tx.ping;
     assert!(
-        challenges_after > challenges_before,
-        "expected new PATH_CHALLENGE for existing path \
-         (before={challenges_before}, after={challenges_after})"
+        pings_after > pings_before,
+        "expected PING for existing path (before={pings_before}, after={pings_after})"
     );
 
     Ok(())
