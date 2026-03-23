@@ -598,7 +598,7 @@ mod tests {
         let dummy_cid = ConnectionId::new(&[1, 2, 3, 4]);
 
         // Helper: send next ready probe
-        let mut send_probe = |state: &mut ServerState| {
+        let send_probe = |state: &mut ServerState| {
             let (remote, _prev_cid) = state.next_probe_info().unwrap();
             state.mark_probe_sent((remote.ip(), remote.port()), dummy_cid);
         };
