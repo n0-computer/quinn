@@ -1,6 +1,6 @@
 use bytes::{BufMut, BytesMut};
+use proptest::{prelude::*, prop_assert_ne};
 use test_strategy::proptest;
-use proptest::{prop_assert_ne, prelude::*};
 
 use crate::{
     FrameType,
