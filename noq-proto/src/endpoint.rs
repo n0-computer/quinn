@@ -8,7 +8,7 @@ use std::{
 };
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use rand::{Rng, RngCore, SeedableRng, rngs::StdRng};
+use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::FxHashMap;
 use slab::Slab;
 use thiserror::Error;
@@ -69,7 +69,7 @@ impl Endpoint {
         Self {
             rng: config
                 .rng_seed
-                .map_or_else(StdRng::from_os_rng, StdRng::from_seed),
+                .map_or_else(|| StdRng::from_rng(&mut rand::rng()), StdRng::from_seed),
             index: ConnectionIndex::default(),
             connections: Slab::new(),
             local_cid_generator: (config.connection_id_generator_factory.as_ref())(),

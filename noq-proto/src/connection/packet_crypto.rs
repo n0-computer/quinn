@@ -8,7 +8,7 @@ use crate::connection::assembler::Assembler;
 use crate::crypto::{self, HeaderKey, KeyPair, Keys, PacketKey};
 use crate::packet::{Packet, PartialDecode};
 use crate::token::ResetToken;
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, RngExt};
 
 use crate::{ConnectionId, Instant, Side};
 use crate::{RESET_TOKEN_SIZE, TransportError};

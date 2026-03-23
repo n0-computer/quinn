@@ -1,6 +1,7 @@
 use std::hash::Hasher;
 
-use rand::{Rng, RngCore};
+use rand::Rng;
+use rand::RngExt;
 
 use crate::Duration;
 use crate::MAX_CID_SIZE;

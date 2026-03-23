@@ -2,7 +2,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use rand::{Rng, SeedableRng};
+use rand::RngExt;
 
 use crate::congestion::ControllerMetrics;
 use crate::congestion::bbr::bw_estimation::BandwidthEstimation;
@@ -56,7 +56,6 @@ pub struct Bbr {
     bw_at_last_round: u64,
     round_wo_bw_gain: u64,
     ack_aggregation: AckAggregationState,
-    random_number_generator: rand::rngs::StdRng,
 }
 
 impl Bbr {
@@ -97,7 +96,6 @@ impl Bbr {
             bw_at_last_round: 0,
             round_wo_bw_gain: 0,
             ack_aggregation: AckAggregationState::default(),
-            random_number_generator: rand::rngs::StdRng::from_os_rng(),
         }
     }
 
@@ -114,9 +112,7 @@ impl Bbr {
         // Pick a random offset for the gain cycle out of {0, 2..7} range. 1 is
         // excluded because in that case increased gain and decreased gain would not
         // follow each other.
-        let mut rand_index = self
-            .random_number_generator
-            .random_range(0..K_PACING_GAIN.len() as u8 - 1);
+        let mut rand_index = rand::rng().random_range(0..K_PACING_GAIN.len() as u8 - 1);
         if rand_index >= 1 {
             rand_index += 1;
         }

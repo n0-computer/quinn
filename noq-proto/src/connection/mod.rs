@@ -11,7 +11,7 @@ use std::{
 use bytes::{Bytes, BytesMut};
 use frame::StreamMetaVec;
 
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
 use thiserror::Error;
 use tracing::{debug, error, trace, trace_span, warn};
