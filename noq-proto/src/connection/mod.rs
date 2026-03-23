@@ -259,11 +259,12 @@ pub struct Connection {
     datagrams: DatagramState,
     /// Path level statistics, please use [`Self::path_stats_mut`] for access.
     path_stats: FxHashMap<PathId, PathStats>,
-    /// Stats of all discarded paths.
+    /// Accumulated stats of all discarded paths.
     ///
-    /// The actual connection-level stats are always computed from this and
-    /// [`Self::path_stats`], see [`Self::stats`].
-    discarded_path_stats: ConnectionStats,
+    /// The connection-level stats returned by [`Self::stats`] are the sum of the stats of
+    /// all the paths. However once a path is discarded it gets added to this field instead
+    /// so we do not have to keep an ever growing number of paths stats in memory.
+    partial_stats: ConnectionStats,
     /// QUIC version used for the connection.
     version: u32,
 
@@ -425,7 +426,7 @@ impl Connection {
             remote_cids: FxHashMap::from_iter([(PathId::ZERO, CidQueue::new(remote_cid))]),
             rng,
             path_stats: Default::default(),
-            discarded_path_stats: ConnectionStats::default(),
+            partial_stats: ConnectionStats::default(),
             version,
 
             // peer params are not yet known, so multipath is not enabled
@@ -2457,7 +2458,7 @@ impl Connection {
 
     /// Returns connection statistics
     pub fn stats(&mut self) -> ConnectionStats {
-        let mut stats = self.discarded_path_stats.clone();
+        let mut stats = self.partial_stats.clone();
 
         for path_stats in self.path_stats.values() {
             // We are not updating the rtt, cwnd or current_mtu because they are not
@@ -3178,7 +3179,7 @@ impl Connection {
         // Before removing the path, we fetch the final path stats via `Self::path_stats`.
         // This updates some values for the last time.
         let path_stats = self.path_stats.remove(&path_id).unwrap_or_default();
-        self.discarded_path_stats += path_stats;
+        self.partial_stats += path_stats;
         self.paths.remove(&path_id);
         self.spaces[SpaceId::Data].number_spaces.remove(&path_id);
 
