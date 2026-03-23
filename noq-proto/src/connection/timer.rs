@@ -155,7 +155,6 @@ where
         self.heap.as_mut().and_then(|h| h.remove(key))
     }
 
-    #[cfg(test)]
     fn get(&self, key: &K) -> Option<&V> {
         for (k, v) in self.stack.iter().filter_map(|v| v.as_ref()) {
             if k == key {
@@ -240,6 +239,10 @@ impl PathTimerTable {
         self.timers[timer as usize] = Some(time);
     }
 
+    fn get(&self, timer: PathTimer) -> Option<Instant> {
+        self.timers[timer as usize]
+    }
+
     fn stop(&mut self, timer: PathTimer) {
         self.timers[timer as usize] = None;
     }
@@ -279,6 +282,13 @@ impl TimerTable {
             },
         }
         qlog.emit_timer_set(timer, time);
+    }
+
+    pub(super) fn get(&self, timer: Timer) -> Option<Instant> {
+        match timer {
+            Timer::Conn(timer) => self.generic[timer as usize],
+            Timer::PerPath(path_id, timer) => self.path_timers.get(&path_id)?.get(timer),
+        }
     }
 
     pub(super) fn set_or_stop(
