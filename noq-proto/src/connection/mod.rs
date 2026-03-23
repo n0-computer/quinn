@@ -257,7 +257,7 @@ pub struct Connection {
     local_cid_state: FxHashMap<PathId, CidState>,
     /// State of the unreliable datagram extension
     datagrams: DatagramState,
-    /// Path level statistics
+    /// Path level statistics, please use [`Self::path_stats_mut`] for access.
     path_stats: FxHashMap<PathId, PathStats>,
     /// Stats of all discarded paths.
     ///
@@ -1188,9 +1188,7 @@ impl Connection {
         self.path_data_mut(path_id)
             .inc_total_sent(transmit.len() as u64);
 
-        self.path_stats
-            .entry(path_id)
-            .or_default()
+        self.path_stats_mut(path_id)
             .udp_tx
             .on_sent(transmit.num_datagrams() as u64, transmit.len());
 
@@ -1764,25 +1762,19 @@ impl Connection {
 
         // We implement MTU probes as ping packets padded up to the probe size
         trace!(?probe_size, "writing MTUD probe");
-        builder.write_frame(
-            frame::Ping,
-            &mut self.path_stats.entry(path_id).or_default().frame_tx,
-        );
+        builder.write_frame(frame::Ping, &mut self.path_stats_mut(path_id).frame_tx);
 
         // If supported by the peer, we want no delays to the probe's ACK
         if self.peer_supports_ack_frequency() {
             builder.write_frame(
                 frame::ImmediateAck,
-                &mut self.path_stats.entry(path_id).or_default().frame_tx,
+                &mut self.path_stats_mut(path_id).frame_tx,
             );
         }
 
         builder.finish_and_track(now, self, path_id, PadDatagram::ToSize(probe_size));
 
-        self.path_stats
-            .entry(path_id)
-            .or_default()
-            .sent_plpmtud_probes += 1;
+        self.path_stats_mut(path_id).sent_plpmtud_probes += 1;
 
         Some(self.build_transmit(path_id, transmit))
     }
@@ -1950,7 +1942,7 @@ impl Connection {
         let mut builder =
             PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
         let challenge = frame::PathChallenge(token);
-        let stats = &mut self.path_stats.entry(path_id).or_default().frame_tx;
+        let stats = &mut self.path_stats_mut(path_id).frame_tx;
         builder.write_frame_with_log_msg(challenge, stats, Some("validating previous path"));
 
         // An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
@@ -1960,11 +1952,7 @@ impl Connection {
         builder.pad_to(MIN_INITIAL_SIZE);
 
         builder.finish(self, now);
-        self.path_stats
-            .entry(path_id)
-            .or_default()
-            .udp_tx
-            .on_sent(1, buf.len());
+        self.path_stats_mut(path_id).udp_tx.on_sent(1, buf.len());
 
         Some(Transmit {
             destination: network_path.remote,
@@ -1997,17 +1985,13 @@ impl Connection {
         buf.start_new_datagram();
 
         let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, buf, false, self)?;
-        let stats = &mut self.path_stats.entry(path_id).or_default().frame_tx;
+        let stats = &mut self.path_stats_mut(path_id).frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
         builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
 
         let size = buf.len();
 
-        self.path_stats
-            .entry(path_id)
-            .or_default()
-            .udp_tx
-            .on_sent(1, size);
+        self.path_stats_mut(path_id).udp_tx.on_sent(1, size);
         Some(Transmit {
             destination: network_path.remote,
             size,
@@ -2054,7 +2038,7 @@ impl Connection {
 
         let mut builder =
             PacketBuilder::new(now, SpaceId::Data, path_id, cid, &mut buf, false, self)?;
-        let stats = &mut self.path_stats.entry(path_id).or_default().frame_tx;
+        let stats = &mut self.path_stats_mut(path_id).frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(nat-traversal)"));
         builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
 
@@ -2068,11 +2052,7 @@ impl Connection {
 
         let size = buf.len();
 
-        self.path_stats
-            .entry(path_id)
-            .or_default()
-            .udp_tx
-            .on_sent(1, size);
+        self.path_stats_mut(path_id).udp_tx.on_sent(1, size);
 
         Some(Transmit {
             destination: remote,
@@ -2160,7 +2140,7 @@ impl Connection {
                     // anti-amplification blocked for it previously.
                     .unwrap_or(false);
 
-                let rx = &mut self.path_stats.entry(path_id).or_default().udp_rx;
+                let rx = &mut self.path_stats_mut(path_id).udp_rx;
                 rx.datagrams += 1;
                 rx.bytes += first_decode.len() as u64;
                 let data_len = first_decode.len();
@@ -2175,7 +2155,7 @@ impl Connection {
                 }
 
                 if let Some(data) = remaining {
-                    self.path_stats.entry(path_id).or_default().udp_rx.bytes += data.len() as u64;
+                    self.path_stats_mut(path_id).udp_rx.bytes += data.len() as u64;
                     self.handle_coalesced(now, network_path, path_id, ecn, data);
                 }
 
@@ -2932,7 +2912,7 @@ impl Connection {
             }
             Ok(false) => {}
             Ok(true) => {
-                self.path_stats.entry(path).or_default().congestion_events += 1;
+                self.path_stats_mut(path).congestion_events += 1;
                 self.path_data_mut(path).congestion.on_congestion_event(
                     now,
                     largest_sent_time,
@@ -3242,7 +3222,7 @@ impl Connection {
                 .get(largest_lost)
                 .unwrap()
                 .time_sent;
-            let path_stats = self.path_stats.entry(path_id).or_default();
+            let path_stats = self.path_stats_mut(path_id);
             path_stats.lost_packets += lost_packets.len() as u64;
             path_stats.lost_bytes += size_of_lost_packets;
             trace!(
@@ -3289,10 +3269,7 @@ impl Connection {
                     self.datagrams.send_blocked = false;
                     self.events.push_back(Event::DatagramsUnblocked);
                 }
-                self.path_stats
-                    .entry(path_id)
-                    .or_default()
-                    .black_holes_detected += 1;
+                self.path_stats_mut(path_id).black_holes_detected += 1;
             }
 
             // Don't apply congestion penalty for lost ack-only packets
@@ -3300,10 +3277,7 @@ impl Connection {
                 old_bytes_in_flight != self.path_data_mut(path_id).in_flight.bytes;
 
             if lost_ack_eliciting {
-                self.path_stats
-                    .entry(path_id)
-                    .or_default()
-                    .congestion_events += 1;
+                self.path_stats_mut(path_id).congestion_events += 1;
                 self.path_data_mut(path_id).congestion.on_congestion_event(
                     now,
                     largest_lost_sent,
@@ -3326,10 +3300,7 @@ impl Connection {
                 .unwrap()
                 .remove_in_flight(&info);
             self.path_data_mut(path_id).mtud.on_probe_lost();
-            self.path_stats
-                .entry(path_id)
-                .or_default()
-                .lost_plpmtud_probes += 1;
+            self.path_stats_mut(path_id).lost_plpmtud_probes += 1;
         }
     }
 
@@ -3952,7 +3923,7 @@ impl Connection {
         stateless_reset: bool,
         mut qlog: QlogRecvPacket,
     ) {
-        self.path_stats.entry(path_id).or_default().udp_rx.ios += 1;
+        self.path_stats_mut(path_id).udp_rx.ios += 1;
 
         if let Some(ref packet) = packet {
             trace!(
@@ -4220,11 +4191,7 @@ impl Connection {
                         continue;
                     };
 
-                    self.path_stats
-                        .entry(path_id)
-                        .or_default()
-                        .frame_rx
-                        .record(frame.ty());
+                    self.path_stats_mut(path_id).frame_rx.record(frame.ty());
 
                     if let Frame::Close(_error) = frame {
                         self.state.move_to_draining(None);
@@ -4527,11 +4494,7 @@ impl Connection {
                 _ => Some(trace_span!("frame", ty = %frame.ty(), path = tracing::field::Empty)),
             };
 
-            self.path_stats
-                .entry(path_id)
-                .or_default()
-                .frame_rx
-                .record(frame.ty());
+            self.path_stats_mut(path_id).frame_rx.record(frame.ty());
 
             let _guard = span.as_ref().map(|x| x.enter());
             ack_eliciting |= frame.is_ack_eliciting();
@@ -4608,11 +4571,7 @@ impl Connection {
                 _ => trace_span!("frame", ty = %frame.ty(), path = tracing::field::Empty),
             };
 
-            self.path_stats
-                .entry(path_id)
-                .or_default()
-                .frame_rx
-                .record(frame.ty());
+            self.path_stats_mut(path_id).frame_rx.record(frame.ty());
             // Crypto, Stream and Datagram frames are special cased in order no pollute
             // the log with payload data
             match &frame {
@@ -6882,6 +6841,11 @@ impl Connection {
                 Some(false)
             }
         }
+    }
+
+    /// Returns the [`PathStats`] for this [`PathId`], creating them if needed.
+    fn path_stats_mut(&mut self, path_id: PathId) -> &mut PathStats {
+        self.path_stats.entry(path_id).or_default()
     }
 }
 
