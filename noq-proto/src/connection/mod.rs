@@ -2398,11 +2398,21 @@ impl Connection {
                                 Timer::PerPath(path_id, PathTimer::PathChallengeLost),
                                 self.qlog.with_time(now),
                             );
-                            debug!("path validation failed");
                             if let Some((_, prev)) = path.prev.take() {
+                                debug!("path migration validation failed, reverting");
                                 path.data = prev;
+                                path.data.reset_on_path_challenges();
+                            } else {
+                                debug!("path revalidation failed, abandoning");
+                                path.data.reset_on_path_challenges();
+                                if let Err(err) = self.close_path_inner(
+                                    now,
+                                    path_id,
+                                    PathAbandonReason::ValidationFailed,
+                                ) {
+                                    warn!(?err, "failed closing path after revalidation failure");
+                                }
                             }
-                            path.data.reset_on_path_challenges();
                         }
                         PathTimer::PathChallengeLost => {
                             let Some(path) = self.paths.get_mut(&path_id) else {
