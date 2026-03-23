@@ -865,9 +865,11 @@ impl Connection {
             if let Some(new_timeout) = timeout {
                 let timer = Timer::PerPath(path_id, PathTimer::PathIdle);
                 let deadline = match (prev, self.timers.get(timer)) {
-                    (Some(old_timeout), Some(old_deadline)) => {
-                        (old_deadline - old_timeout + new_timeout).max(now)
-                    }
+                    (Some(old_timeout), Some(old_deadline)) => old_deadline
+                        .checked_sub(old_timeout)
+                        .map(|last_activity| last_activity + new_timeout)
+                        .unwrap_or(now + new_timeout)
+                        .max(now),
                     _ => now + new_timeout,
                 };
                 self.timers.set(timer, deadline, self.qlog.with_time(now));
