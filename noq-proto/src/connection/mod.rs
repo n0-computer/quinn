@@ -3423,18 +3423,15 @@ impl Connection {
                 // Include max_ack_delay and backoff for ApplicationData.
                 duration += self.ack_frequency.max_ack_delay_for_pto() * backoff;
 
-                // Cap PTO post-handshake, matching picoquic's
-                // picoquic_current_retransmit_timer() (timing.c:42-88):
-                //
-                // 1. Bind to idle_timeout / 16 so ~16 retransmits fit before
-                //    the idle timer fires (timing.c:59-63).
-                if let Some(idle) = self.idle_timeout
+                // Cap PTO post-handshake so ~16 retransmits fit before the
+                // idle timer fires.
+                let idle = path.idle_timeout.or(self.idle_timeout);
+                if let Some(idle) = idle
                     && idle > MIN_IDLE_FOR_PTO_CAP
                 {
                     duration = duration.min(idle / IDLE_TIMEOUT_PTO_DIVISOR);
                 }
-                // 2. Hard cap at 2s, or 1.5 * smoothed_rtt for satellite paths
-                //    with RTT > 610ms (timing.c:77-85).
+                // Hard cap at 2s, or 1.5 * smoothed_rtt for satellite paths.
                 let hard_cap = if path.rtt.get() > SATELLITE_RTT_THRESHOLD {
                     (path.rtt.get() * 3) / 2
                 } else {
@@ -3445,9 +3442,8 @@ impl Connection {
             let Some(last_ack_eliciting) = pns.time_of_last_ack_eliciting_packet else {
                 continue;
             };
-            // Use the later of (last_ack_eliciting + duration) and (now + duration)
-            // to prevent the PTO from firing in the past when the cap makes duration
-            // small relative to how long ago the last packet was sent.
+            // Clamp to at least `now` — the cap can make this resolve to the
+            // past, which would create a tight PTO loop.
             let pto = last_ack_eliciting.max(now) + duration;
             if result.is_none_or(|(earliest_pto, _)| pto < earliest_pto) {
                 if path.anti_amplification_blocked(1) {
