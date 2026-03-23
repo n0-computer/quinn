@@ -46,7 +46,6 @@ impl UdpSocketState {
                     || e.raw_os_error() == Some(libc::EADDRNOTAVAIL)
                     || e.raw_os_error() == Some(libc::ENETDOWN) =>
             {
-                log_sendmsg_error(&self.last_send_error, e, transmit);
                 Err(io::Error::new(
                     io::ErrorKind::NetworkUnreachable,
                     "destination unreachable",

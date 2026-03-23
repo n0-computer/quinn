@@ -1457,9 +1457,9 @@ impl State {
                     return Ok(false);
                 }
                 Poll::Ready(Err(e)) if e.kind() == io::ErrorKind::NetworkUnreachable => {
-                    // Drop the packet — retrying immediately would just fail
-                    // again. Timers handle path demotion.
-                    return Ok(false);
+                    // Drop the datagram — retrying immediately would just fail
+                    // again. Return true to re-poll for packets to other paths.
+                    return Ok(true);
                 }
                 Poll::Ready(Err(e)) => return Err(e),
                 Poll::Ready(Ok(())) => {}
