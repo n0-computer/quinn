@@ -1036,11 +1036,7 @@ fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
     let mut cfg = TransportConfig::default();
     cfg.max_concurrent_multipath_paths(MAX_PATHS);
     cfg.initial_rtt(Duration::from_millis(10));
-    // Enable keep-alive at 500ms for faster test (real iroh uses 5s)
-    cfg.default_path_keep_alive_interval(Some(Duration::from_millis(500)));
-    // Idle timeout must survive the blackhole period. With 10 blackhole steps
-    // and PTO starting at ~30ms doubling each time, the gap is ~30s.
-    // Use 60s to ensure the connection survives.
+    // Idle timeout must survive the blackhole period.
     cfg.default_path_max_idle_timeout(Some(Duration::from_secs(60)));
 
     let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
