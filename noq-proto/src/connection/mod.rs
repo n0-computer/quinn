@@ -6886,10 +6886,7 @@ impl Connection {
         match self.open_path_ensure(network_path, PathStatus::Backup, now) {
             Ok((path_id, path_was_known)) => {
                 if path_was_known {
-                    trace!(%path_id, %remote, "nat traversal: path existed for remote, revalidating");
-                    if let Some(path) = self.paths.get_mut(&path_id) {
-                        path.data.pending_on_path_challenge = true;
-                    }
+                    trace!(%path_id, %remote, "nat traversal: path existed for remote");
                 }
                 Ok(Some((path_id, remote)))
             }
