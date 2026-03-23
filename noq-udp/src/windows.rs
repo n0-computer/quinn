@@ -229,6 +229,22 @@ impl UdpSocketState {
         match send(self, socket, transmit) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Err(e),
+            Err(e)
+                if matches!(
+                    e.raw_os_error(),
+                    Some(
+                        WinSock::WSAENETUNREACH
+                            | WinSock::WSAEHOSTUNREACH
+                            | WinSock::WSAEADDRNOTAVAIL
+                            | WinSock::WSAENETDOWN
+                    )
+                ) =>
+            {
+                Err(io::Error::new(
+                    io::ErrorKind::NetworkUnreachable,
+                    "destination unreachable",
+                ))
+            }
             Err(e) => {
                 log_sendmsg_error(&self.last_send_error, e, transmit);
 
