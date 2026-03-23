@@ -6817,7 +6817,7 @@ impl Connection {
                     }
                     let pto = self.pto(SpaceKind::Data, path_id);
                     self.timers.set(
-                        Timer::PerPath(path_id, PathTimer::PathValidation),
+                        Timer::PerPath(path_id, PathTimer::PathValidationFailed),
                         now + 3 * pto,
                         self.qlog.with_time(now),
                     );
