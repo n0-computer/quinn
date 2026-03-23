@@ -1047,6 +1047,11 @@ pub enum PathAbandonReason {
 }
 
 impl PathAbandonReason {
+    /// Whether this abandon was initiated by the remote peer.
+    pub(crate) fn is_remote(&self) -> bool {
+        matches!(self, Self::RemoteAbandoned { .. })
+    }
+
     /// Returns the error code to send with a PATH_ABANDON frame.
     pub(crate) fn error_code(&self) -> TransportErrorCode {
         match self {
