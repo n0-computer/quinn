@@ -15,18 +15,19 @@ allow = [
     "NCSA",
     "OpenSSL",
     "Unicode-3.0",
+    "Zlib", # foldhash, dependency of fastbloom
 ]
 private = { ignore = true }
 
 [bans]
 multiple-versions = "warn"
 skip = [
-    # aws-lc-rs 1.x uses aws-lc-sys 0.32.x, our workaround deps use 0.34.x
-    { crate = "aws-lc-sys", reason = "aws-lc-rs uses 0.32.x, minimal-versions workaround uses 0.34.x" },
     # hdrhistogram uses base64 0.21, newer crates use 0.22
     { crate = "base64", reason = "hdrhistogram uses 0.21, newer crates use 0.22" },
+    { crate = "cpufeatures", reason = "rand 0.10 pulls in newer chacha (which depends on this), but aes-gcm hasn't updated yet" },
     # ring uses getrandom 0.2, newer crates use 0.3
     { crate = "getrandom", reason = "ring depends on 0.2, newer ecosystem uses 0.3" },
+    { crate = "r-efi", reason = "proptest dev-dependency pulls in old getrandom" },
     # jni and redox_users use thiserror 1.x
     { crate = "thiserror", reason = "transitive deps use thiserror 1.x" },
     { crate = "thiserror-impl", reason = "follows thiserror" },
@@ -43,4 +44,5 @@ skip = [
     { crate = "windows_x86_64_gnu", reason = "follows windows-sys" },
     { crate = "windows_x86_64_gnullvm", reason = "follows windows-sys" },
     { crate = "windows_x86_64_msvc", reason = "follows windows-sys" },
+    { crate = "wit-bindgen", reason = "proptest dev-dependency pulls in old getrandom" },
 ]
