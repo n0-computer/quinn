@@ -3393,10 +3393,10 @@ impl Connection {
                 //
                 // 1. Bind to idle_timeout / 16 so ~16 retransmits fit before
                 //    the idle timer fires (timing.c:59-63).
-                if let Some(idle) = self.idle_timeout {
-                    if idle > MIN_IDLE_FOR_PTO_CAP {
-                        duration = duration.min(idle / IDLE_TIMEOUT_PTO_DIVISOR);
-                    }
+                if let Some(idle) = self.idle_timeout
+                    && idle > MIN_IDLE_FOR_PTO_CAP
+                {
+                    duration = duration.min(idle / IDLE_TIMEOUT_PTO_DIVISOR);
                 }
                 // 2. Hard cap at 2s, or 1.5 * smoothed_rtt for satellite paths
                 //    with RTT > 610ms (timing.c:77-85).
