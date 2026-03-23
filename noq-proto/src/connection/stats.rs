@@ -244,13 +244,13 @@ pub struct PathStats {
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct ConnectionStats {
-    /// Statistics about UDP datagrams transmitted on a connection
+    /// Statistics about UDP datagrams transmitted on a connection.
     pub udp_tx: UdpStats,
-    /// Statistics about UDP datagrams received on a connection
+    /// Statistics about UDP datagrams received on a connection.
     pub udp_rx: UdpStats,
-    /// Statistics about frames transmitted on a connection
+    /// Statistics about frames transmitted on a connection.
     pub frame_tx: FrameStats,
-    /// Statistics about frames received on a connection
+    /// Statistics about frames received on a connection.
     pub frame_rx: FrameStats,
 }
 
