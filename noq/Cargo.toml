@@ -105,6 +105,12 @@ tracing-futures = { workspace = true }
 url = { workspace = true }
 tokio-stream = "0.1.15"
 testresult = "0.4.1"
+proto = { package = "noq-proto", path = "../noq-proto", default-features = false, features = ["rustls-ring", "ring"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+patchbay = { git = "https://github.com/n0-computer/patchbay.git", branch = "feat/server-push" }
+ctor = "0.4"
+testdir = "0.9"
 
 [build-dependencies]
 cfg_aliases = { workspace = true }
@@ -131,6 +137,10 @@ required-features = ["rustls", "ring"]
 [[example]]
 name = "connection"
 required-features = ["rustls", "ring"]
+
+[[test]]
+name = "netsim"
+required-features = ["rustls-ring"]
 
 [[test]]
 name = "post_quantum"
