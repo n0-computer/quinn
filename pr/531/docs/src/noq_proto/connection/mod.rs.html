@@ -6742,15 +6742,15 @@
 <a href=#6742 id=6742 data-nosnippet>6742</a>            <span class="prelude-val">Ok</span>((path_id, path_was_known)) =&gt; {
 <a href=#6743 id=6743 data-nosnippet>6743</a>                <span class="kw">if </span>path_was_known {
 <a href=#6744 id=6744 data-nosnippet>6744</a>                    <span class="macro">trace!</span>(%path_id, %remote, <span class="string">"nat traversal: path existed for remote, revalidating"</span>);
-<a href=#6745 id=6745 data-nosnippet>6745</a>                    <span class="kw">let </span>immediate_ack_allowed = <span class="self">self</span>.peer_supports_ack_frequency();
-<a href=#6746 id=6746 data-nosnippet>6746</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(pn_space) =
-<a href=#6747 id=6747 data-nosnippet>6747</a>                        <span class="self">self</span>.spaces[SpaceId::Data].number_spaces.get_mut(<span class="kw-2">&amp;</span>path_id)
-<a href=#6748 id=6748 data-nosnippet>6748</a>                    {
-<a href=#6749 id=6749 data-nosnippet>6749</a>                        pn_space.ping_pending = <span class="bool-val">true</span>;
-<a href=#6750 id=6750 data-nosnippet>6750</a>                        <span class="kw">if </span>immediate_ack_allowed {
-<a href=#6751 id=6751 data-nosnippet>6751</a>                            pn_space.immediate_ack_pending = <span class="bool-val">true</span>;
-<a href=#6752 id=6752 data-nosnippet>6752</a>                        }
-<a href=#6753 id=6753 data-nosnippet>6753</a>                    }
+<a href=#6745 id=6745 data-nosnippet>6745</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(path) = <span class="self">self</span>.paths.get_mut(<span class="kw-2">&amp;</span>path_id) {
+<a href=#6746 id=6746 data-nosnippet>6746</a>                        path.data.pending_on_path_challenge = <span class="bool-val">true</span>;
+<a href=#6747 id=6747 data-nosnippet>6747</a>                    }
+<a href=#6748 id=6748 data-nosnippet>6748</a>                    <span class="kw">let </span>pto = <span class="self">self</span>.pto(SpaceKind::Data, path_id);
+<a href=#6749 id=6749 data-nosnippet>6749</a>                    <span class="self">self</span>.timers.set(
+<a href=#6750 id=6750 data-nosnippet>6750</a>                        Timer::PerPath(path_id, PathTimer::PathValidation),
+<a href=#6751 id=6751 data-nosnippet>6751</a>                        now + <span class="number">3 </span>* pto,
+<a href=#6752 id=6752 data-nosnippet>6752</a>                        <span class="self">self</span>.qlog.with_time(now),
+<a href=#6753 id=6753 data-nosnippet>6753</a>                    );
 <a href=#6754 id=6754 data-nosnippet>6754</a>                }
 <a href=#6755 id=6755 data-nosnippet>6755</a>                <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>((path_id, remote)))
 <a href=#6756 id=6756 data-nosnippet>6756</a>            }
