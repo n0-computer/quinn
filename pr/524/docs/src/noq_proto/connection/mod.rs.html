@@ -2352,11 +2352,11 @@
 <a href=#2352 id=2352 data-nosnippet>2352</a>                        }
 <a href=#2353 id=2353 data-nosnippet>2353</a>                    }
 <a href=#2354 id=2354 data-nosnippet>2354</a>                    ConnTimer::OffPathProbeRetry =&gt; {
-<a href=#2355 id=2355 data-nosnippet>2355</a>                        <span class="comment">// Re-queue off-path probes for retransmission.
-<a href=#2356 id=2356 data-nosnippet>2356</a>                        </span><span class="kw">if let </span><span class="prelude-val">Ok</span>(server_state) = <span class="self">self</span>.n0_nat_traversal.server_side_mut()
-<a href=#2357 id=2357 data-nosnippet>2357</a>                            &amp;&amp; server_state.queue_retries()
-<a href=#2358 id=2358 data-nosnippet>2358</a>                        {
-<a href=#2359 id=2359 data-nosnippet>2359</a>                            <span class="macro">trace!</span>(<span class="string">"off-path probe retry timer fired, re-queued probes"</span>);
+<a href=#2355 id=2355 data-nosnippet>2355</a>                        <span class="kw">if let </span><span class="prelude-val">Ok</span>(server_state) = <span class="self">self</span>.n0_nat_traversal.server_side_mut() {
+<a href=#2356 id=2356 data-nosnippet>2356</a>                            <span class="kw">let </span>(requeued, _expired_cids) = server_state.queue_retries();
+<a href=#2357 id=2357 data-nosnippet>2357</a>                            <span class="kw">if </span>requeued {
+<a href=#2358 id=2358 data-nosnippet>2358</a>                                <span class="macro">trace!</span>(<span class="string">"off-path probe retry timer fired, re-queued probes"</span>);
+<a href=#2359 id=2359 data-nosnippet>2359</a>                            }
 <a href=#2360 id=2360 data-nosnippet>2360</a>                        }
 <a href=#2361 id=2361 data-nosnippet>2361</a>                    }
 <a href=#2362 id=2362 data-nosnippet>2362</a>                },
