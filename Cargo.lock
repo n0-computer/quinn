@@ -336,9 +336,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.38.0"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4321e568ed89bb5a7d291a7f37997c2c0df89809d7b6d12062c81ddb54aa782e"
+checksum = "1fa7e52a4c5c547c741610a2c6f123f3881e409b714cd27e6798ef020c514f0a"
 dependencies = [
  "cc",
  "cmake",
@@ -1842,7 +1842,7 @@ dependencies = [
  "async-global-executor",
  "async-io",
  "aws-lc-fips-sys",
- "aws-lc-sys 0.38.0",
+ "aws-lc-sys 0.39.0",
  "bytes",
  "cfg_aliases",
  "clap",
