@@ -702,9 +702,9 @@ impl Connection {
                 // These timers deal with sending and receiving PATH_CHALLENGE and
                 // PATH_RESPONSE, but now that the path is abandoned, we no longer care about
                 // these frames or their timing
-                PathTimer::PathValidation | PathTimer::PathChallengeLost | PathTimer::PathOpen => {
-                    false
-                }
+                PathTimer::PathValidationFailed
+                | PathTimer::PathChallengeLost
+                | PathTimer::PathOpenFailed => false,
                 // These timers deal with the lifetime of the path. Now that the path is abandoned,
                 // these are not relevant.
                 PathTimer::PathKeepAlive | PathTimer::PathIdle => false,
@@ -713,7 +713,7 @@ impl Connection {
                 PathTimer::MaxAckDelay => false,
                 // This timer should not be set, for completeness it's not kept as it's set when
                 // the PATH_ABANDON frame is sent.
-                PathTimer::DiscardPath => false,
+                PathTimer::PathDrained => false,
                 // Sent packets still need to be identified as lost to trigger timely
                 // retransmission.
                 PathTimer::LossDetection => true,
@@ -2356,7 +2356,7 @@ impl Connection {
                                 now,
                             );
                         }
-                        PathTimer::PathValidation => {
+                        PathTimer::PathValidationFailed => {
                             let Some(path) = self.paths.get_mut(&path_id) else {
                                 continue;
                             };
@@ -2377,7 +2377,7 @@ impl Connection {
                             trace!("path challenge deemed lost");
                             path.data.pending_on_path_challenge = true;
                         }
-                        PathTimer::PathOpen => {
+                        PathTimer::PathOpenFailed => {
                             let Some(path) = self.paths.get_mut(&path_id) else {
                                 continue;
                             };
@@ -2404,7 +2404,7 @@ impl Connection {
                                 .pending_acks
                                 .on_max_ack_delay_timeout()
                         }
-                        PathTimer::DiscardPath => {
+                        PathTimer::PathDrained => {
                             // The path was abandoned and 3*PTO has expired since.  Clean up all
                             // remaining state and install stateless reset token.
                             self.timers.stop_per_path(path_id, self.qlog.with_time(now));
@@ -4703,9 +4703,9 @@ impl Connection {
                             let qlog = self.qlog.with_time(now);
 
                             self.timers
-                                .stop(Timer::PerPath(path_id, PathValidation), qlog.clone());
+                                .stop(Timer::PerPath(path_id, PathValidationFailed), qlog.clone());
                             self.timers
-                                .stop(Timer::PerPath(path_id, PathOpen), qlog.clone());
+                                .stop(Timer::PerPath(path_id, PathOpenFailed), qlog.clone());
 
                             let next_challenge = path
                                 .data
@@ -5066,7 +5066,7 @@ impl Connection {
                         let ack_delay = self.ack_frequency.max_ack_delay_for_pto();
                         let pto = path.data.rtt.pto_base() + ack_delay;
                         self.timers.set(
-                            Timer::PerPath(path_id, PathTimer::DiscardPath),
+                            Timer::PerPath(path_id, PathTimer::PathDrained),
                             now + 3 * pto,
                             self.qlog.with_time(now),
                         );
@@ -5344,7 +5344,7 @@ impl Connection {
         self.qlog.emit_tuple_assigned(path_id, network_path, now);
 
         self.timers.set(
-            Timer::PerPath(path_id, PathTimer::PathValidation),
+            Timer::PerPath(path_id, PathTimer::PathValidationFailed),
             now + 3 * cmp::max(self.pto(SpaceKind::Data, path_id), prev_pto),
             self.qlog.with_time(now),
         );
@@ -5714,7 +5714,7 @@ impl Connection {
             if path.open_status == paths::OpenStatus::Pending {
                 path.open_status = paths::OpenStatus::Sent;
                 self.timers.set(
-                    Timer::PerPath(path_id, PathTimer::PathOpen),
+                    Timer::PerPath(path_id, PathTimer::PathOpenFailed),
                     now + 3 * pto,
                     self.qlog.with_time(now),
                 );
