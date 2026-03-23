@@ -11,7 +11,7 @@
 <a href=#11 id=11 data-nosnippet>11</a><span class="kw">use </span>bytes::{Bytes, BytesMut};
 <a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span>frame::StreamMetaVec;
 <a href=#13 id=13 data-nosnippet>13</a>
-<a href=#14 id=14 data-nosnippet>14</a><span class="kw">use </span>rand::{Rng, SeedableRng, rngs::StdRng};
+<a href=#14 id=14 data-nosnippet>14</a><span class="kw">use </span>rand::{RngExt, SeedableRng, rngs::StdRng};
 <a href=#15 id=15 data-nosnippet>15</a><span class="kw">use </span>rustc_hash::{FxHashMap, FxHashSet};
 <a href=#16 id=16 data-nosnippet>16</a><span class="kw">use </span>thiserror::Error;
 <a href=#17 id=17 data-nosnippet>17</a><span class="kw">use </span>tracing::{debug, error, trace, trace_span, warn};
@@ -3388,10 +3388,10 @@
 <a href=#3388 id=3388 data-nosnippet>3388</a>                //
 <a href=#3389 id=3389 data-nosnippet>3389</a>                // 1. Bind to idle_timeout / 16 so ~16 retransmits fit before
 <a href=#3390 id=3390 data-nosnippet>3390</a>                //    the idle timer fires (timing.c:59-63).
-<a href=#3391 id=3391 data-nosnippet>3391</a>                </span><span class="kw">if let </span><span class="prelude-val">Some</span>(idle) = <span class="self">self</span>.idle_timeout {
-<a href=#3392 id=3392 data-nosnippet>3392</a>                    <span class="kw">if </span>idle &gt; MIN_IDLE_FOR_PTO_CAP {
-<a href=#3393 id=3393 data-nosnippet>3393</a>                        duration = duration.min(idle / IDLE_TIMEOUT_PTO_DIVISOR);
-<a href=#3394 id=3394 data-nosnippet>3394</a>                    }
+<a href=#3391 id=3391 data-nosnippet>3391</a>                </span><span class="kw">if let </span><span class="prelude-val">Some</span>(idle) = <span class="self">self</span>.idle_timeout
+<a href=#3392 id=3392 data-nosnippet>3392</a>                    &amp;&amp; idle &gt; MIN_IDLE_FOR_PTO_CAP
+<a href=#3393 id=3393 data-nosnippet>3393</a>                {
+<a href=#3394 id=3394 data-nosnippet>3394</a>                    duration = duration.min(idle / IDLE_TIMEOUT_PTO_DIVISOR);
 <a href=#3395 id=3395 data-nosnippet>3395</a>                }
 <a href=#3396 id=3396 data-nosnippet>3396</a>                <span class="comment">// 2. Hard cap at 2s, or 1.5 * smoothed_rtt for satellite paths
 <a href=#3397 id=3397 data-nosnippet>3397</a>                //    with RTT &gt; 610ms (timing.c:77-85).

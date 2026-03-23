@@ -185,7 +185,7 @@
 <a href=#185 id=185 data-nosnippet>185</a>    <span class="kw">fn </span>default() -&gt; <span class="self">Self </span>{
 <a href=#186 id=186 data-nosnippet>186</a>        <span class="attr">#[cfg(all(feature = <span class="string">"aws-lc-rs"</span>, not(feature = <span class="string">"ring"</span>)))]
 <a href=#187 id=187 data-nosnippet>187</a>        </span><span class="kw">use </span>aws_lc_rs::hmac;
-<a href=#188 id=188 data-nosnippet>188</a>        <span class="kw">use </span>rand::RngCore;
+<a href=#188 id=188 data-nosnippet>188</a>        <span class="kw">use </span>rand::Rng;
 <a href=#189 id=189 data-nosnippet>189</a>        <span class="attr">#[cfg(feature = <span class="string">"ring"</span>)]
 <a href=#190 id=190 data-nosnippet>190</a>        </span><span class="kw">use </span>ring::hmac;
 <a href=#191 id=191 data-nosnippet>191</a>
