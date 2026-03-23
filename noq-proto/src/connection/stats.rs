@@ -258,6 +258,8 @@ impl std::ops::Add<PathStats> for ConnectionStats {
     type Output = Self;
 
     fn add(self, rhs: PathStats) -> Self::Output {
+        // Be aware that Connection::stats() relies on the fact this function ignores the
+        // rtt, cwnd and current_mtu fields.
         let PathStats {
             rtt: _,
             udp_tx,

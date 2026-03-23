@@ -2461,8 +2461,10 @@ impl Connection {
         let mut stats = self.partial_stats.clone();
 
         for path_stats in self.path_stats.values() {
-            // We are not updating the rtt, cwnd or current_mtu because they are not
-            // accumulated into ConnectionStats anyway.
+            // Self::path_stats() computes the path rtt, cwnd and current_mtu on access
+            // because they are not simple counters. When computing the connection stats we
+            // can skip that effort since those fields are not used in the `impl
+            // Add<PathStats> for ConnectionStats`.
             stats += *path_stats;
         }
 
