@@ -19,7 +19,7 @@ use crate::runtime::TokioRuntime;
 use crate::{Duration, Instant};
 use bytes::Bytes;
 use proto::{ConnectionError, RandomConnectionIdGenerator, crypto::rustls::QuicClientConfig};
-use rand::{RngCore, SeedableRng, rngs::StdRng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use rustls::{
     RootCertStore,
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},

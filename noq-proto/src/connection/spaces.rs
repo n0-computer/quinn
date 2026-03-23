@@ -6,7 +6,7 @@ use std::{
     ops::{Bound, Index, IndexMut},
 };
 
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, RngExt};
 use rustc_hash::{FxHashMap, FxHashSet};
 use sorted_index_buffer::SortedIndexBuffer;
 use tracing::trace;
@@ -1279,7 +1279,7 @@ const MAX_ACK_BLOCKS: usize = 64;
 
 #[cfg(test)]
 mod test {
-    use rand::RngCore;
+    use rand::Rng;
     use rand::seq::SliceRandom;
 
     use crate::token::ResetToken;
