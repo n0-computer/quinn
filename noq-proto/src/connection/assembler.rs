@@ -676,6 +676,7 @@ mod test {
 #[cfg(all(test, not(target_family = "wasm")))]
 mod proptests {
     use proptest::prelude::*;
+    use rand::RngExt;
     use test_strategy::{Arbitrary, proptest};
 
     use super::*;
@@ -743,7 +744,7 @@ mod proptests {
     }
 
     fn make_data() -> Vec<u8> {
-        use rand::{Rng, SeedableRng};
+        use rand::SeedableRng;
         let mut rng = rand::rngs::StdRng::seed_from_u64(0xDEADBEEF);
         let mut data = vec![0u8; MAX_OFFSET as usize];
         rng.fill(data.as_mut_slice());

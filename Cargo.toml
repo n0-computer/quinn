@@ -26,9 +26,9 @@ criterion = { version = "0.7", default-features = false, features = ["async_toki
 derive_more = { version = "2.1.0", features = ["debug", "deref", "deref_mut", "display", "from", "add", "add_assign"] }
 directories-next = "2"
 enum-assoc = "1.3.0"
-fastbloom = "0.14"
+fastbloom = { version = "0.17", default-features = false }
 futures-io = "0.3.19"
-getrandom = { version = "0.3", default-features = false }
+getrandom = { version = "0.4", default-features = false }
 hdrhistogram = { version = "7.2", default-features = false }
 hex-literal = "0.4"
 identity-hash = "0.1.0"
@@ -37,7 +37,7 @@ lru-slab = "0.1.2"
 pin-project-lite = "0.2"
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }
 qlog = { package = "n0-qlog", version = "0.1.0" }
-rand = "0.9"
+rand = "0.10"
 rcgen = "0.14"
 ring = "0.17"
 rustc-hash = "2"
@@ -68,7 +68,7 @@ async-executor = "1.13.0"
 async-fs = "2.1"
 async-global-executor = "2.4.1"
 aws-lc-fips-sys = "0.13.10"
-aws-lc-sys = "0.34.0"
+aws-lc-sys = "0.39.0"
 gcc = "0.3.55"
 http = "1.1.0"
 lazy_static = "1.5.0"
