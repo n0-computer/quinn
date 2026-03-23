@@ -1043,12 +1043,12 @@ dependencies = [
 [[package]]
 name = "fastbloom"
 version = "0.17.0"
-source = "git+https://github.com/matheus23/fastbloom?branch=matheus23%2Frand-0.10#2710d2688ea7f726f08e734d904311e08598d7c7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef975e30683b2d965054bb0a836f8973857c4ebf6acf274fe46617cd285060d8"
 dependencies = [
  "foldhash 0.2.0",
  "libm",
  "portable-atomic",
- "rand 0.10.0",
  "siphasher",
 ]
 

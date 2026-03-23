@@ -23,7 +23,7 @@ bytes = "1"
 clap = { version = "4.5", features = ["derive"] }
 crc = "3"
 directories-next = "2"
-fastbloom = "0.17"
+fastbloom = { version = "0.17", default-features = false }
 futures-io = "0.3.19"
 getrandom = { version = "0.4", default-features = false }
 hdrhistogram = { version = "7.2", default-features = false }
@@ -89,6 +89,3 @@ unreachable_pub = "warn"
 manual_let_else = "warn"
 or_fun_call = "warn"
 use_self = "warn"
-
-[patch.crates-io]
-fastbloom = { git = "https://github.com/matheus23/fastbloom", branch = "matheus23/rand-0.10" }
