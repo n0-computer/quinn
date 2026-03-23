@@ -229,19 +229,20 @@ impl Path {
         )
     }
 
-    /// Sets the keep_alive_interval for a specific path
+    /// Sets the max idle timeout for a specific path
     ///
-    /// See [`TransportConfig::default_path_keep_alive_interval`] for details.
+    /// See [`TransportConfig::default_path_max_idle_timeout`] for details.
     ///
     /// Returns the previous value of the setting.
     ///
-    /// [`TransportConfig::default_path_keep_alive_interval`]: crate::TransportConfig::default_path_keep_alive_interval
+    /// [`TransportConfig::default_path_max_idle_timeout`]: crate::TransportConfig::default_path_max_idle_timeout
     pub fn set_max_idle_timeout(
         &self,
         timeout: Option<Duration>,
     ) -> Result<Option<Duration>, ClosedPath> {
         let mut state = self.conn.state.lock("path_set_max_idle_timeout");
-        state.inner.set_path_max_idle_timeout(self.id, timeout)
+        let now = state.runtime.now();
+        state.inner.set_path_max_idle_timeout(now, self.id, timeout)
     }
 
     /// Sets the keep_alive_interval for a specific path

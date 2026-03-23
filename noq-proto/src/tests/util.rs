@@ -568,8 +568,9 @@ impl ConnPair {
         path_id: PathId,
         timeout: Option<Duration>,
     ) -> Result<Option<Duration>, ClosedPath> {
+        let now = self.pair.time;
         self.conn_mut(side)
-            .set_path_max_idle_timeout(path_id, timeout)
+            .set_path_max_idle_timeout(now, path_id, timeout)
     }
 
     pub(super) fn set_path_keep_alive_interval(
