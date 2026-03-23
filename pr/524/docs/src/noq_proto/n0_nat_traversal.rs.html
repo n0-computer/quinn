@@ -598,7 +598,7 @@
 <a href=#598 id=598 data-nosnippet>598</a>        <span class="kw">let </span>dummy_cid = ConnectionId::new(<span class="kw-2">&amp;</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">4</span>]);
 <a href=#599 id=599 data-nosnippet>599</a>
 <a href=#600 id=600 data-nosnippet>600</a>        <span class="comment">// Helper: send next ready probe
-<a href=#601 id=601 data-nosnippet>601</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>send_probe = |state: <span class="kw-2">&amp;mut </span>ServerState| {
+<a href=#601 id=601 data-nosnippet>601</a>        </span><span class="kw">let </span>send_probe = |state: <span class="kw-2">&amp;mut </span>ServerState| {
 <a href=#602 id=602 data-nosnippet>602</a>            <span class="kw">let </span>(remote, _prev_cid) = state.next_probe_info().unwrap();
 <a href=#603 id=603 data-nosnippet>603</a>            state.mark_probe_sent((remote.ip(), remote.port()), dummy_cid);
 <a href=#604 id=604 data-nosnippet>604</a>        };
