@@ -1027,10 +1027,11 @@ fn path_scheduling_path_status() -> TestResult {
     Ok(())
 }
 
-/// NAT traversal round revalidates an existing path by sending a new PATH_CHALLENGE.
+/// NAT traversal round revalidates an existing path via PATH_CHALLENGE.
 ///
 /// Without the fix, `open_path_ensure` finds the existing path and silently reuses it,
-/// leaving a broken path undetected after a network outage.
+/// leaving a broken path undetected after a network outage. The PathChallengeLost
+/// timer in populate_packet handles retransmission automatically.
 #[test]
 fn nat_traversal_revalidates_existing_path() -> TestResult {
     let _guard = subscribe();

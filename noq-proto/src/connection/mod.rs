@@ -6750,6 +6750,12 @@ impl Connection {
                     if let Some(path) = self.paths.get_mut(&path_id) {
                         path.data.pending_on_path_challenge = true;
                     }
+                    let pto = self.pto(SpaceKind::Data, path_id);
+                    self.timers.set(
+                        Timer::PerPath(path_id, PathTimer::PathValidation),
+                        now + 3 * pto,
+                        self.qlog.with_time(now),
+                    );
                 }
                 Ok(Some((path_id, remote)))
             }
