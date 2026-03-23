@@ -3417,11 +3417,33 @@ impl Connection {
                 }
                 // Include max_ack_delay and backoff for ApplicationData.
                 duration += self.ack_frequency.max_ack_delay_for_pto() * backoff;
+
+                // Cap PTO post-handshake, matching picoquic's
+                // picoquic_current_retransmit_timer() (timing.c:42-88):
+                //
+                // 1. Bind to idle_timeout / 16 so ~16 retransmits fit before
+                //    the idle timer fires (timing.c:59-63).
+                if let Some(idle) = self.idle_timeout
+                    && idle > MIN_IDLE_FOR_PTO_CAP
+                {
+                    duration = duration.min(idle / IDLE_TIMEOUT_PTO_DIVISOR);
+                }
+                // 2. Hard cap at 2s, or 1.5 * smoothed_rtt for satellite paths
+                //    with RTT > 610ms (timing.c:77-85).
+                let hard_cap = if path.rtt.get() > SATELLITE_RTT_THRESHOLD {
+                    (path.rtt.get() * 3) / 2
+                } else {
+                    MAX_PTO_INTERVAL
+                };
+                duration = duration.min(hard_cap);
             }
             let Some(last_ack_eliciting) = pns.time_of_last_ack_eliciting_packet else {
                 continue;
             };
-            let pto = last_ack_eliciting + duration;
+            // Use the later of (last_ack_eliciting + duration) and (now + duration)
+            // to prevent the PTO from firing in the past when the cap makes duration
+            // small relative to how long ago the last packet was sent.
+            let pto = last_ack_eliciting.max(now) + duration;
             if result.is_none_or(|(earliest_pto, _)| pto < earliest_pto) {
                 if path.anti_amplification_blocked(1) {
                     // Nothing would be able to be sent.
@@ -7276,6 +7298,22 @@ fn get_max_ack_delay(params: &TransportParameters) -> Duration {
 
 // Prevents overflow and improves behavior in extreme circumstances
 const MAX_BACKOFF_EXPONENT: u32 = 16;
+
+// Hard cap on PTO after backoff, matching picoquic's PICOQUIC_LARGE_RETRANSMIT_TIMER.
+const MAX_PTO_INTERVAL: Duration = Duration::from_secs(2);
+
+// PTO is capped at idle_timeout / IDLE_TIMEOUT_PTO_DIVISOR so ~16 retransmits
+// fit before the idle timer fires. Matches picoquic (idle_timeout >> 4).
+const IDLE_TIMEOUT_PTO_DIVISOR: u32 = 16;
+
+// RTT threshold above which the PTO cap uses 1.5 * smoothed_rtt instead of
+// MAX_PTO_INTERVAL. Matches picoquic's PICOQUIC_TARGET_SATELLITE_RTT (610ms).
+const SATELLITE_RTT_THRESHOLD: Duration = Duration::from_millis(610);
+
+// Idle timeout must exceed this for the idle-bound PTO cap to apply.
+// With short idle timeouts, the cap would make PTO too aggressive.
+// Matches picoquic's guard (idle_timeout > 15).
+const MIN_IDLE_FOR_PTO_CAP: Duration = Duration::from_secs(15);
 
 /// Minimal remaining size to allow packet coalescing, excluding cryptographic tag
 ///
