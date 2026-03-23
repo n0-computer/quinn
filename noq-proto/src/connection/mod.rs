@@ -6618,7 +6618,7 @@ impl Connection {
             .filter(|&(path_id, _path_state)| !self.abandoned_paths.contains(path_id))
             .map(|(_path_id, path_state)| path_state.data.current_mtu())
             .min()
-            .expect("There is always at least one available path")
+            .unwrap_or(INITIAL_MTU)
     }
 
     /// Size of non-frame data for a 1-RTT packet
