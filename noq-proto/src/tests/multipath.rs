@@ -1054,7 +1054,10 @@ fn nat_traversal_revalidates_existing_path() -> TestResult {
     assert_eq!(probed[0], server_addr);
     pair.drive();
 
-    assert_eq!(pair.path_status(Client, PathId::ZERO)?, PathStatus::Available);
+    assert_eq!(
+        pair.path_status(Client, PathId::ZERO)?,
+        PathStatus::Available
+    );
 
     let challenges_before = pair.stats(Client).frame_tx.path_challenge;
 
