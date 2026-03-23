@@ -2387,10 +2387,11 @@ impl Connection {
                         }
                     }
                     ConnTimer::OffPathProbeRetry => {
-                        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
-                            && server_state.queue_retries()
-                        {
-                            trace!("off-path probe retry timer fired, re-queued probes");
+                        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
+                            let (requeued, _expired_cids) = server_state.queue_retries();
+                            if requeued {
+                                trace!("off-path probe retry timer fired, re-queued probes");
+                            }
                         }
                     }
                 },
