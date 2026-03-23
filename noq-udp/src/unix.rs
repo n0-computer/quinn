@@ -212,21 +212,9 @@ impl UdpSocketState {
             // - EMSGSIZE is expected for MTU probes. Future work might be able to avoid
             //   these by automatically clamping the MTUD upper bound to the interface MTU.
             Err(e) if e.raw_os_error() == Some(libc::EMSGSIZE) => Ok(()),
-            // Propagate network-unreachable errors so the QUIC stack can
-            // back off instead of retransmitting into a dead path.
-            Err(e)
-                if e.raw_os_error() == Some(libc::ENETUNREACH)
-                    || e.raw_os_error() == Some(libc::EHOSTUNREACH)
-                    || e.raw_os_error() == Some(libc::EADDRNOTAVAIL)
-                    || e.raw_os_error() == Some(libc::ENETDOWN) =>
-            {
-                Err(io::Error::new(
-                    io::ErrorKind::NetworkUnreachable,
-                    "destination unreachable",
-                ))
-            }
             Err(e) => {
                 log_sendmsg_error(&self.last_send_error, e, transmit);
+
                 Ok(())
             }
         }
