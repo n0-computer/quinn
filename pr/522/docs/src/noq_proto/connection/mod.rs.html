@@ -6613,7 +6613,7 @@
 <a href=#6613 id=6613 data-nosnippet>6613</a>            .filter(|<span class="kw-2">&amp;</span>(path_id, _path_state)| !<span class="self">self</span>.abandoned_paths.contains(path_id))
 <a href=#6614 id=6614 data-nosnippet>6614</a>            .map(|(_path_id, path_state)| path_state.data.current_mtu())
 <a href=#6615 id=6615 data-nosnippet>6615</a>            .min()
-<a href=#6616 id=6616 data-nosnippet>6616</a>            .expect(<span class="string">"There is always at least one available path"</span>)
+<a href=#6616 id=6616 data-nosnippet>6616</a>            .unwrap_or(INITIAL_MTU)
 <a href=#6617 id=6617 data-nosnippet>6617</a>    }
 <a href=#6618 id=6618 data-nosnippet>6618</a>
 <a href=#6619 id=6619 data-nosnippet>6619</a>    <span class="doccomment">/// Size of non-frame data for a 1-RTT packet
