@@ -3508,7 +3508,17 @@ impl Connection {
             .keys()
             .map(|path_id| self.pto(space, *path_id))
             .max()
-            .expect("there should be at least one path")
+            .unwrap_or_else(|| {
+                // No paths remain (e.g. last path was abandoned and the NoViablePath grace timer
+                // fired before any new path was opened). Fall back to a PTO derived from the
+                // configured initial RTT, matching RFC 9002 §6.2.2 initial values.
+                let rtt = self.config.initial_rtt;
+                let max_ack_delay = match space {
+                    SpaceKind::Initial | SpaceKind::Handshake => Duration::ZERO,
+                    SpaceKind::Data => self.ack_frequency.max_ack_delay_for_pto(),
+                };
+                rtt + cmp::max(4 * (rtt / 2), TIMER_GRANULARITY) + max_ack_delay
+            })
     }
 
     /// Probe Timeout
