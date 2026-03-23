@@ -286,6 +286,8 @@ impl std::ops::Add<PathStats> for ConnectionStats {
 
 impl std::ops::AddAssign<PathStats> for ConnectionStats {
     fn add_assign(&mut self, rhs: PathStats) {
+        // Be aware that Connection::stats() relies on the fact this function ignores the
+        // rtt, cwnd and current_mtu fields.
         let PathStats {
             rtt: _,
             udp_tx,
