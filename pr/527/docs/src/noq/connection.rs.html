@@ -1457,9 +1457,9 @@
 <a href=#1457 id=1457 data-nosnippet>1457</a>                    <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
 <a href=#1458 id=1458 data-nosnippet>1458</a>                }
 <a href=#1459 id=1459 data-nosnippet>1459</a>                Poll::Ready(<span class="prelude-val">Err</span>(e)) <span class="kw">if </span>e.kind() == io::ErrorKind::NetworkUnreachable =&gt; {
-<a href=#1460 id=1460 data-nosnippet>1460</a>                    <span class="comment">// Drop the packet — retrying immediately would just fail
-<a href=#1461 id=1461 data-nosnippet>1461</a>                    // again. Timers handle path demotion.
-<a href=#1462 id=1462 data-nosnippet>1462</a>                    </span><span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+<a href=#1460 id=1460 data-nosnippet>1460</a>                    <span class="comment">// Drop the datagram — retrying immediately would just fail
+<a href=#1461 id=1461 data-nosnippet>1461</a>                    // again. Return true to re-poll for packets to other paths.
+<a href=#1462 id=1462 data-nosnippet>1462</a>                    </span><span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">true</span>);
 <a href=#1463 id=1463 data-nosnippet>1463</a>                }
 <a href=#1464 id=1464 data-nosnippet>1464</a>                Poll::Ready(<span class="prelude-val">Err</span>(e)) =&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(e),
 <a href=#1465 id=1465 data-nosnippet>1465</a>                Poll::Ready(<span class="prelude-val">Ok</span>(())) =&gt; {}
