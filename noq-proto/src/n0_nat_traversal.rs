@@ -446,7 +446,6 @@ impl ServerState {
     }
 }
 
-
 impl State {
     pub(crate) fn new(max_remote_addresses: u8, max_local_addresses: u8, side: Side) -> Self {
         match side {
