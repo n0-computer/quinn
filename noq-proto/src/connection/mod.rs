@@ -2058,27 +2058,29 @@ impl Connection {
         buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
-        let server_side = self.n0_nat_traversal.server_side_mut().ok()?;
-        let probe = server_side.next_probe()?;
+        let (remote, prev_cid) = self
+            .n0_nat_traversal
+            .server_side_mut()
+            .ok()?
+            .next_probe_info()?;
+
         if !self.paths.get(&path_id)?.data.validated {
-            // Path is not usable for probing
             return None;
         }
 
-        let remote_cids = self.remote_cids.get_mut(&path_id)?;
-
         // Reuse the CID from the initial probe on retries (same address, RFC 9000 §9.5).
         // On first send, reserve a fresh CID.
-        let cid = if let Some(prev_cid) = probe.previous_cid() {
-            prev_cid
-        } else if remote_cids.remaining() >= 2 {
-            remote_cids.next_reserved()?
+        let cid = if let Some(prev) = prev_cid {
+            prev
         } else {
-            return None;
+            let remote_cids = self.remote_cids.get_mut(&path_id)?;
+            if remote_cids.remaining() >= 2 {
+                remote_cids.next_reserved()?
+            } else {
+                return None;
+            }
         };
-        let remote = probe.remote();
         let token = self.rng.random();
-        probe.mark_as_sent(cid);
 
         let frame = frame::PathChallenge(token);
 
@@ -2093,6 +2095,11 @@ impl Connection {
         // different destination than path_id's network path.
         builder.pad_to(MIN_INITIAL_SIZE);
         builder.finish(self, now);
+
+        // Mark as sent after packet build succeeds.
+        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
+            server_state.mark_probe_sent((remote.ip(), remote.port()), cid);
+        }
 
         let path = &mut self.paths.get_mut(&path_id).expect("checked").data;
         let network_path = FourTuple {
