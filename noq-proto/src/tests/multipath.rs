@@ -25,10 +25,18 @@ const MAX_PATHS: u32 = 3;
 
 /// Returns a connected client-server pair with multipath enabled
 fn multipath_pair() -> ConnPair {
+    multipath_pair_with_nat_traversal(false)
+}
+
+/// Returns a connected client-server pair with multipath and optionally NAT traversal enabled
+fn multipath_pair_with_nat_traversal(nat_traversal: bool) -> ConnPair {
     let mut cfg = TransportConfig::default();
     cfg.max_concurrent_multipath_paths(MAX_PATHS);
     // Assume a low-latency connection so pacing doesn't interfere with the test
     cfg.initial_rtt(Duration::from_millis(10));
+    if nat_traversal {
+        cfg.set_max_remote_nat_traversal_addresses(8);
+    }
     #[cfg(feature = "qlog")]
     cfg.qlog_from_env("multipath_test");
 
@@ -1027,21 +1035,17 @@ fn path_scheduling_path_status() -> TestResult {
     Ok(())
 }
 
-/// NAT traversal round revalidates an existing path via PATH_CHALLENGE.
+/// NAT traversal round revalidates an existing path via new PATH_CHALLENGE.
 ///
-/// Without the fix, `open_path_ensure` finds the existing path and silently reuses it,
-/// leaving a broken path undetected after a network outage. The PathChallengeLost
-/// timer in populate_packet handles retransmission automatically.
+/// Without the fix, `open_path_ensure` finds the existing path and silently reuses it. For NAT
+/// traversal timing matters however, and a new PATH_CHALLENGE needs to be sent
+/// whenever a new round is started. The PathChallengeLost
+/// timer in populate_packet handles retransmission automatically during a round.
 #[test]
 fn nat_traversal_revalidates_existing_path() -> TestResult {
     let _guard = subscribe();
 
-    let mut cfg = TransportConfig::default();
-    cfg.max_concurrent_multipath_paths(MAX_PATHS);
-    cfg.set_max_remote_nat_traversal_addresses(8);
-    cfg.initial_rtt(Duration::from_millis(10));
-    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
-    pair.drive();
+    let mut pair = multipath_pair_with_nat_traversal(true);
 
     let server_addr = pair.server.addr;
     let client_addr = pair.client.addr;
