@@ -392,22 +392,6 @@ impl ServerState {
         Ok(())
     }
 
-    /// Returns the next probe that needs to be sent.
-    ///
-    /// Returns probes that are ready to send: either new probes (`attempts == 0`)
-    /// or probes re-queued for retry (`ready_to_send == true`).
-    pub(crate) fn next_probe(&mut self) -> Option<ServerProbing<'_>> {
-        let remote = self
-            .pending_probes
-            .iter()
-            .find(|(_, state)| state.ready_to_send)
-            .map(|(addr, _)| *addr)?;
-        Some(ServerProbing {
-            remote,
-            pending_probes: &mut self.pending_probes,
-        })
-    }
-
     /// Re-queue all sent probes that haven't exceeded [`MAX_OFF_PATH_PROBE_ATTEMPTS`]
     /// for retransmission. Called when the off-path probe retry timer fires.
     ///
@@ -462,33 +446,6 @@ impl ServerState {
     }
 }
 
-pub(crate) struct ServerProbing<'a> {
-    remote: IpPort,
-    pending_probes: &'a mut FxHashMap<IpPort, ProbeState>,
-}
-
-impl<'a> ServerProbing<'a> {
-    /// Mark this probe as sent with the given CID.
-    pub(crate) fn mark_as_sent(self, cid: ConnectionId) {
-        if let Some(state) = self.pending_probes.get_mut(&self.remote) {
-            if state.cid.is_none() {
-                state.cid = Some(cid);
-            }
-            state.attempts += 1;
-            state.ready_to_send = false;
-        }
-    }
-
-    /// Returns the CID previously used for this probe address, if any.
-    /// On retries, reuse this CID instead of consuming a new one.
-    pub(crate) fn previous_cid(&self) -> Option<ConnectionId> {
-        self.pending_probes.get(&self.remote).and_then(|s| s.cid)
-    }
-
-    pub(crate) fn remote(&self) -> SocketAddr {
-        self.remote.into()
-    }
-}
 
 impl State {
     pub(crate) fn new(max_remote_addresses: u8, max_local_addresses: u8, side: Side) -> Self {
@@ -640,37 +597,41 @@ mod tests {
         assert_eq!(state.pending_probes.len(), 2);
 
         let dummy_cid = ConnectionId::new(&[1, 2, 3, 4]);
-        let probe = state.next_probe().unwrap();
-        probe.mark_as_sent(dummy_cid);
-        let probe = state.next_probe().unwrap();
-        probe.mark_as_sent(dummy_cid);
 
-        // After sending both probes, next_probe() returns None (no ready probes)
-        // but the probes are still tracked for potential retry.
-        assert!(state.next_probe().is_none());
+        // Helper: send next ready probe
+        let mut send_probe = |state: &mut ServerState| {
+            let (remote, _prev_cid) = state.next_probe_info().unwrap();
+            state.mark_probe_sent((remote.ip(), remote.port()), dummy_cid);
+        };
+
+        send_probe(&mut state);
+        send_probe(&mut state);
+
+        // After sending both probes, no ready probes remain but they're still tracked.
+        assert!(state.next_probe_info().is_none());
         assert_eq!(state.pending_probes.len(), 2);
         assert!(state.has_pending_retries());
 
         // After queuing retries, probes become available again
         assert!(state.queue_retries().0);
-        state.next_probe().unwrap().mark_as_sent(dummy_cid);
-        state.next_probe().unwrap().mark_as_sent(dummy_cid);
+        send_probe(&mut state);
+        send_probe(&mut state);
 
         // After 2 attempts each, retries still available (max is 10)
         assert!(state.queue_retries().0);
-        state.next_probe().unwrap().mark_as_sent(dummy_cid);
-        state.next_probe().unwrap().mark_as_sent(dummy_cid);
+        send_probe(&mut state);
+        send_probe(&mut state);
 
         // Exhaust remaining attempts
         for _ in 3..MAX_OFF_PATH_PROBE_ATTEMPTS {
             assert!(state.queue_retries().0);
-            state.next_probe().unwrap().mark_as_sent(dummy_cid);
-            state.next_probe().unwrap().mark_as_sent(dummy_cid);
+            send_probe(&mut state);
+            send_probe(&mut state);
         }
 
         // After max attempts, probes are removed
         assert!(!state.queue_retries().0);
-        assert!(state.next_probe().is_none());
+        assert!(state.next_probe_info().is_none());
         assert_eq!(state.pending_probes.len(), 0);
     }
 
