@@ -1995,8 +1995,7 @@ impl Connection {
         let stats = &mut self.stats.frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
         // Off-path: not tracked in congestion control. The packet is sent to a
-        // different destination than path_id's network path, so ACKs for this
-        // packet number won't arrive on path_id.
+        // different destination than path_id's network path.
         builder.pad_to(MIN_INITIAL_SIZE);
         builder.finish(self, now);
 
@@ -2057,8 +2056,7 @@ impl Connection {
         let stats = &mut self.stats.frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(nat-traversal)"));
         // Off-path: not tracked in congestion control. The packet is sent to a
-        // different destination than path_id's network path, so ACKs for this
-        // packet number won't arrive on path_id.
+        // different destination than path_id's network path.
         builder.pad_to(MIN_INITIAL_SIZE);
         builder.finish(self, now);
 
