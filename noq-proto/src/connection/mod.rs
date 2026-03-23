@@ -1994,7 +1994,10 @@ impl Connection {
         let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, buf, false, self)?;
         let stats = &mut self.stats.frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
-        builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
+        // Off-path: not tracked in congestion control. The packet is sent to a
+        // different destination than path_id's network path.
+        builder.pad_to(MIN_INITIAL_SIZE);
+        builder.finish(self, now);
 
         let size = buf.len();
 
@@ -2052,7 +2055,10 @@ impl Connection {
             PacketBuilder::new(now, SpaceId::Data, path_id, cid, &mut buf, false, self)?;
         let stats = &mut self.stats.frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(nat-traversal)"));
-        builder.finish_and_track(now, self, path_id, PadDatagram::ToMinMtu);
+        // Off-path: not tracked in congestion control. The packet is sent to a
+        // different destination than path_id's network path.
+        builder.pad_to(MIN_INITIAL_SIZE);
+        builder.finish(self, now);
 
         let path = &mut self.paths.get_mut(&path_id).expect("checked").data;
         let network_path = FourTuple {
