@@ -6,7 +6,7 @@ use crate::FrameType;
 /// Statistics about UDP datagrams transmitted or received on a connection
 ///
 /// All QUIC packets are carried by UDP datagrams. Hence, these statistics cover all traffic on a connection.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, derive_more::Add, derive_more::AddAssign)]
 #[non_exhaustive]
 pub struct UdpStats {
     /// The amount of UDP datagrams observed
@@ -24,36 +24,6 @@ impl UdpStats {
         self.datagrams += datagrams;
         self.bytes += bytes as u64;
         self.ios += 1;
-    }
-}
-
-impl std::ops::Add for UdpStats {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        let Self {
-            datagrams,
-            bytes,
-            ios,
-        } = rhs;
-        Self {
-            datagrams: self.datagrams + datagrams,
-            bytes: self.bytes + bytes,
-            ios: self.ios + ios,
-        }
-    }
-}
-
-impl std::ops::AddAssign for UdpStats {
-    fn add_assign(&mut self, rhs: Self) {
-        let Self {
-            datagrams,
-            bytes,
-            ios,
-        } = rhs;
-        self.datagrams += datagrams;
-        self.bytes += bytes;
-        self.ios += ios;
     }
 }
 
