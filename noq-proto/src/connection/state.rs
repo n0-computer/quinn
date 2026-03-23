@@ -2,9 +2,7 @@ use bytes::Bytes;
 use tracing::trace;
 
 use crate::frame::Close;
-use crate::{
-    ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode,
-};
+use crate::{ApplicationClose, ConnectionClose, ConnectionError, TransportError, TransportErrorCode};
 
 #[allow(unreachable_pub)] // fuzzing only
 #[derive(Debug, Clone)]
