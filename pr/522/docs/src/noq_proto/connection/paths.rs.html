@@ -1047,49 +1047,54 @@
 <a href=#1047 id=1047 data-nosnippet>1047</a>}
 <a href=#1048 id=1048 data-nosnippet>1048</a>
 <a href=#1049 id=1049 data-nosnippet>1049</a><span class="kw">impl </span>PathAbandonReason {
-<a href=#1050 id=1050 data-nosnippet>1050</a>    <span class="doccomment">/// Returns the error code to send with a PATH_ABANDON frame.
-<a href=#1051 id=1051 data-nosnippet>1051</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>error_code(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; TransportErrorCode {
-<a href=#1052 id=1052 data-nosnippet>1052</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#1053 id=1053 data-nosnippet>1053</a>            <span class="self">Self</span>::ApplicationClosed { error_code } =&gt; (<span class="kw-2">*</span>error_code).into(),
-<a href=#1054 id=1054 data-nosnippet>1054</a>            <span class="self">Self</span>::NatTraversalRoundEnded =&gt; TransportErrorCode::APPLICATION_ABANDON_PATH,
-<a href=#1055 id=1055 data-nosnippet>1055</a>            <span class="self">Self</span>::ValidationFailed | <span class="self">Self</span>::TimedOut | <span class="self">Self</span>::UnusableAfterNetworkChange =&gt; {
-<a href=#1056 id=1056 data-nosnippet>1056</a>                TransportErrorCode::PATH_UNSTABLE_OR_POOR
-<a href=#1057 id=1057 data-nosnippet>1057</a>            }
-<a href=#1058 id=1058 data-nosnippet>1058</a>            <span class="self">Self</span>::RemoteAbandoned { error_code } =&gt; (<span class="kw-2">*</span>error_code).into(),
-<a href=#1059 id=1059 data-nosnippet>1059</a>        }
-<a href=#1060 id=1060 data-nosnippet>1060</a>    }
-<a href=#1061 id=1061 data-nosnippet>1061</a>}
-<a href=#1062 id=1062 data-nosnippet>1062</a>
-<a href=#1063 id=1063 data-nosnippet>1063</a><span class="doccomment">/// Error from setting path status
-<a href=#1064 id=1064 data-nosnippet>1064</a></span><span class="attr">#[derive(Debug, Error, Clone, PartialEq, Eq)]
-<a href=#1065 id=1065 data-nosnippet>1065</a></span><span class="kw">pub enum </span>SetPathStatusError {
-<a href=#1066 id=1066 data-nosnippet>1066</a>    <span class="doccomment">/// Error indicating that a path has not been opened or has already been abandoned
-<a href=#1067 id=1067 data-nosnippet>1067</a>    </span><span class="attr">#[error(<span class="string">"closed path"</span>)]
-<a href=#1068 id=1068 data-nosnippet>1068</a>    </span>ClosedPath,
-<a href=#1069 id=1069 data-nosnippet>1069</a>    <span class="doccomment">/// Error indicating that this operation requires multipath to be negotiated whereas it hasn't been
-<a href=#1070 id=1070 data-nosnippet>1070</a>    </span><span class="attr">#[error(<span class="string">"multipath not negotiated"</span>)]
-<a href=#1071 id=1071 data-nosnippet>1071</a>    </span>MultipathNotNegotiated,
-<a href=#1072 id=1072 data-nosnippet>1072</a>}
-<a href=#1073 id=1073 data-nosnippet>1073</a>
-<a href=#1074 id=1074 data-nosnippet>1074</a><span class="doccomment">/// Error indicating that a path has not been opened or has already been abandoned
-<a href=#1075 id=1075 data-nosnippet>1075</a></span><span class="attr">#[derive(Debug, Default, Error, Clone, PartialEq, Eq)]
-<a href=#1076 id=1076 data-nosnippet>1076</a>#[error(<span class="string">"closed path"</span>)]
-<a href=#1077 id=1077 data-nosnippet>1077</a></span><span class="kw">pub struct </span>ClosedPath {
-<a href=#1078 id=1078 data-nosnippet>1078</a>    <span class="kw">pub</span>(<span class="kw">super</span>) _private: (),
-<a href=#1079 id=1079 data-nosnippet>1079</a>}
-<a href=#1080 id=1080 data-nosnippet>1080</a>
-<a href=#1081 id=1081 data-nosnippet>1081</a><span class="attr">#[cfg(test)]
-<a href=#1082 id=1082 data-nosnippet>1082</a></span><span class="kw">mod </span>tests {
-<a href=#1083 id=1083 data-nosnippet>1083</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#1084 id=1084 data-nosnippet>1084</a>
-<a href=#1085 id=1085 data-nosnippet>1085</a>    <span class="attr">#[test]
-<a href=#1086 id=1086 data-nosnippet>1086</a>    </span><span class="kw">fn </span>test_path_id_saturating_add() {
-<a href=#1087 id=1087 data-nosnippet>1087</a>        <span class="comment">// add within range behaves normally
-<a href=#1088 id=1088 data-nosnippet>1088</a>        </span><span class="kw">let </span>large: PathId = u16::MAX.into();
-<a href=#1089 id=1089 data-nosnippet>1089</a>        <span class="kw">let </span>next = u32::from(u16::MAX) + <span class="number">1</span>;
-<a href=#1090 id=1090 data-nosnippet>1090</a>        <span class="macro">assert_eq!</span>(large.saturating_add(<span class="number">1u8</span>), PathId::from(next));
-<a href=#1091 id=1091 data-nosnippet>1091</a>
-<a href=#1092 id=1092 data-nosnippet>1092</a>        <span class="comment">// outside range saturates
-<a href=#1093 id=1093 data-nosnippet>1093</a>        </span><span class="macro">assert_eq!</span>(PathId::MAX.saturating_add(<span class="number">1u8</span>), PathId::MAX)
-<a href=#1094 id=1094 data-nosnippet>1094</a>    }
-<a href=#1095 id=1095 data-nosnippet>1095</a>}</code></pre></div></section></main></body></html>
+<a href=#1050 id=1050 data-nosnippet>1050</a>    <span class="doccomment">/// Whether this abandon was initiated by the remote peer.
+<a href=#1051 id=1051 data-nosnippet>1051</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>is_remote(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+<a href=#1052 id=1052 data-nosnippet>1052</a>        <span class="macro">matches!</span>(<span class="self">self</span>, <span class="self">Self</span>::RemoteAbandoned { .. })
+<a href=#1053 id=1053 data-nosnippet>1053</a>    }
+<a href=#1054 id=1054 data-nosnippet>1054</a>
+<a href=#1055 id=1055 data-nosnippet>1055</a>    <span class="doccomment">/// Returns the error code to send with a PATH_ABANDON frame.
+<a href=#1056 id=1056 data-nosnippet>1056</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>error_code(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; TransportErrorCode {
+<a href=#1057 id=1057 data-nosnippet>1057</a>        <span class="kw">match </span><span class="self">self </span>{
+<a href=#1058 id=1058 data-nosnippet>1058</a>            <span class="self">Self</span>::ApplicationClosed { error_code } =&gt; (<span class="kw-2">*</span>error_code).into(),
+<a href=#1059 id=1059 data-nosnippet>1059</a>            <span class="self">Self</span>::NatTraversalRoundEnded =&gt; TransportErrorCode::APPLICATION_ABANDON_PATH,
+<a href=#1060 id=1060 data-nosnippet>1060</a>            <span class="self">Self</span>::ValidationFailed | <span class="self">Self</span>::TimedOut | <span class="self">Self</span>::UnusableAfterNetworkChange =&gt; {
+<a href=#1061 id=1061 data-nosnippet>1061</a>                TransportErrorCode::PATH_UNSTABLE_OR_POOR
+<a href=#1062 id=1062 data-nosnippet>1062</a>            }
+<a href=#1063 id=1063 data-nosnippet>1063</a>            <span class="self">Self</span>::RemoteAbandoned { error_code } =&gt; (<span class="kw-2">*</span>error_code).into(),
+<a href=#1064 id=1064 data-nosnippet>1064</a>        }
+<a href=#1065 id=1065 data-nosnippet>1065</a>    }
+<a href=#1066 id=1066 data-nosnippet>1066</a>}
+<a href=#1067 id=1067 data-nosnippet>1067</a>
+<a href=#1068 id=1068 data-nosnippet>1068</a><span class="doccomment">/// Error from setting path status
+<a href=#1069 id=1069 data-nosnippet>1069</a></span><span class="attr">#[derive(Debug, Error, Clone, PartialEq, Eq)]
+<a href=#1070 id=1070 data-nosnippet>1070</a></span><span class="kw">pub enum </span>SetPathStatusError {
+<a href=#1071 id=1071 data-nosnippet>1071</a>    <span class="doccomment">/// Error indicating that a path has not been opened or has already been abandoned
+<a href=#1072 id=1072 data-nosnippet>1072</a>    </span><span class="attr">#[error(<span class="string">"closed path"</span>)]
+<a href=#1073 id=1073 data-nosnippet>1073</a>    </span>ClosedPath,
+<a href=#1074 id=1074 data-nosnippet>1074</a>    <span class="doccomment">/// Error indicating that this operation requires multipath to be negotiated whereas it hasn't been
+<a href=#1075 id=1075 data-nosnippet>1075</a>    </span><span class="attr">#[error(<span class="string">"multipath not negotiated"</span>)]
+<a href=#1076 id=1076 data-nosnippet>1076</a>    </span>MultipathNotNegotiated,
+<a href=#1077 id=1077 data-nosnippet>1077</a>}
+<a href=#1078 id=1078 data-nosnippet>1078</a>
+<a href=#1079 id=1079 data-nosnippet>1079</a><span class="doccomment">/// Error indicating that a path has not been opened or has already been abandoned
+<a href=#1080 id=1080 data-nosnippet>1080</a></span><span class="attr">#[derive(Debug, Default, Error, Clone, PartialEq, Eq)]
+<a href=#1081 id=1081 data-nosnippet>1081</a>#[error(<span class="string">"closed path"</span>)]
+<a href=#1082 id=1082 data-nosnippet>1082</a></span><span class="kw">pub struct </span>ClosedPath {
+<a href=#1083 id=1083 data-nosnippet>1083</a>    <span class="kw">pub</span>(<span class="kw">super</span>) _private: (),
+<a href=#1084 id=1084 data-nosnippet>1084</a>}
+<a href=#1085 id=1085 data-nosnippet>1085</a>
+<a href=#1086 id=1086 data-nosnippet>1086</a><span class="attr">#[cfg(test)]
+<a href=#1087 id=1087 data-nosnippet>1087</a></span><span class="kw">mod </span>tests {
+<a href=#1088 id=1088 data-nosnippet>1088</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#1089 id=1089 data-nosnippet>1089</a>
+<a href=#1090 id=1090 data-nosnippet>1090</a>    <span class="attr">#[test]
+<a href=#1091 id=1091 data-nosnippet>1091</a>    </span><span class="kw">fn </span>test_path_id_saturating_add() {
+<a href=#1092 id=1092 data-nosnippet>1092</a>        <span class="comment">// add within range behaves normally
+<a href=#1093 id=1093 data-nosnippet>1093</a>        </span><span class="kw">let </span>large: PathId = u16::MAX.into();
+<a href=#1094 id=1094 data-nosnippet>1094</a>        <span class="kw">let </span>next = u32::from(u16::MAX) + <span class="number">1</span>;
+<a href=#1095 id=1095 data-nosnippet>1095</a>        <span class="macro">assert_eq!</span>(large.saturating_add(<span class="number">1u8</span>), PathId::from(next));
+<a href=#1096 id=1096 data-nosnippet>1096</a>
+<a href=#1097 id=1097 data-nosnippet>1097</a>        <span class="comment">// outside range saturates
+<a href=#1098 id=1098 data-nosnippet>1098</a>        </span><span class="macro">assert_eq!</span>(PathId::MAX.saturating_add(<span class="number">1u8</span>), PathId::MAX)
+<a href=#1099 id=1099 data-nosnippet>1099</a>    }
+<a href=#1100 id=1100 data-nosnippet>1100</a>}</code></pre></div></section></main></body></html>
