@@ -411,23 +411,27 @@ impl ServerState {
     /// Re-queue all sent probes that haven't exceeded [`MAX_OFF_PATH_PROBE_ATTEMPTS`]
     /// for retransmission. Called when the off-path probe retry timer fires.
     ///
-    /// Returns `true` if any probes were re-queued.
-    pub(crate) fn queue_retries(&mut self) -> bool {
+    /// Returns `(any_requeued, expired_cids)` where `expired_cids` are CIDs from
+    /// probes that exceeded max attempts and should be retired.
+    pub(crate) fn queue_retries(&mut self) -> (bool, Vec<ConnectionId>) {
         let mut any_requeued = false;
+        let mut expired_cids = Vec::new();
         self.pending_probes.retain(|_, state| {
             if state.attempts > 0 && state.attempts < MAX_OFF_PATH_PROBE_ATTEMPTS {
                 state.ready_to_send = true;
                 any_requeued = true;
                 true
             } else if state.attempts >= MAX_OFF_PATH_PROBE_ATTEMPTS {
-                // Max attempts reached, remove
+                if let Some(cid) = state.cid {
+                    expired_cids.push(cid);
+                }
                 false
             } else {
                 // Not yet sent, keep as-is
                 true
             }
         });
-        any_requeued
+        (any_requeued, expired_cids)
     }
 
     /// Returns whether there are any probes that have been sent but are waiting
@@ -648,24 +652,24 @@ mod tests {
         assert!(state.has_pending_retries());
 
         // After queuing retries, probes become available again
-        assert!(state.queue_retries());
+        assert!(state.queue_retries().0);
         state.next_probe().unwrap().mark_as_sent(dummy_cid);
         state.next_probe().unwrap().mark_as_sent(dummy_cid);
 
         // After 2 attempts each, retries still available (max is 10)
-        assert!(state.queue_retries());
+        assert!(state.queue_retries().0);
         state.next_probe().unwrap().mark_as_sent(dummy_cid);
         state.next_probe().unwrap().mark_as_sent(dummy_cid);
 
         // Exhaust remaining attempts
         for _ in 3..MAX_OFF_PATH_PROBE_ATTEMPTS {
-            assert!(state.queue_retries());
+            assert!(state.queue_retries().0);
             state.next_probe().unwrap().mark_as_sent(dummy_cid);
             state.next_probe().unwrap().mark_as_sent(dummy_cid);
         }
 
         // After max attempts, probes are removed
-        assert!(!state.queue_retries());
+        assert!(!state.queue_retries().0);
         assert!(state.next_probe().is_none());
         assert_eq!(state.pending_probes.len(), 0);
     }
