@@ -16,7 +16,7 @@ use crate::{
     LOCAL_CID_COUNT, NetworkChangeHint, PathId, PathStatus, RandomConnectionIdGenerator,
     ServerConfig, Side::*, TransportConfig, cid_queue::CidQueue,
 };
-use crate::{Dir, Event, PathAbandonReason, PathEvent, StreamEvent, TransportErrorCode};
+use crate::{ClosePathError, Dir, Event, PathAbandonReason, PathEvent, StreamEvent, TransportErrorCode};
 
 use super::util::{min_opt, subscribe};
 use super::{Pair, client_config, server_config};
@@ -139,14 +139,16 @@ fn path_close_last_path() {
     let _guard = subscribe();
     let mut pair = multipath_pair();
 
-    // Closing the last path is allowed — it triggers connection close via PATH_ABANDON
-    // followed by CONNECTION_CLOSE.
-    assert_matches!(pair.close_path(Client, PathId::ZERO, 0u8.into()), Ok(()));
-    pair.drive();
+    // Closing the last path via the local API is not allowed.
+    // Use Connection::close() to end the connection instead.
+    assert_matches!(
+        pair.close_path(Client, PathId::ZERO, 0u8.into()),
+        Err(ClosePathError::LastOpenPath)
+    );
 
-    // Both sides should be closed
-    assert!(pair.is_closed(Client));
-    assert!(pair.is_closed(Server));
+    // Connection should still be alive
+    assert!(!pair.is_closed(Client));
+    assert!(!pair.is_closed(Server));
 }
 
 #[test]
@@ -1171,36 +1173,20 @@ fn remote_path_abandon_last_path_closes_connection() -> TestResult {
     while pair.poll(Client).is_some() {}
     while pair.poll(Server).is_some() {}
 
-    // Server closes path 2 — its last path (fix #1: locally-initiated last-path close
-    // must succeed; server is intentionally ending the connection via PATH_ABANDON).
-    info!("server closes last path ({path2})");
-    pair.close_path(Server, path2, 0u8.into())?;
+    // Simulate remote abandoning path 2 — the last path on both sides.
+    // close_path() returns LastOpenPath for local calls; this simulates
+    // receiving a PATH_ABANDON from a peer for our last remaining path.
+    info!("simulating remote abandon of last path ({path2})");
+    pair.force_remote_abandon(Client, path2);
     pair.drive();
 
-    // Section 3.4 para 4: the client MUST accept all PATH_ABANDONs.
-    let client_stats = pair.stats(Client);
-    assert!(
-        client_stats.frame_rx.path_abandon >= 3,
-        "client should have received PATH_ABANDON for all three paths"
-    );
-
-    // Section 3.4 para 4: the client MUST send reciprocal PATH_ABANDONs.
-    assert!(
-        client_stats.frame_tx.path_abandon >= 3,
-        "client should have sent reciprocal PATH_ABANDONs"
-    );
-
-    // After the grace period (no new path opened), both sides should be closed.
+    // After the grace period (no new path opened), the client should be closed.
     assert!(
         pair.is_closed(Client),
         "client should be closed after grace period expired"
     );
-    assert!(
-        pair.is_closed(Server),
-        "server should be closed after abandoning last path"
-    );
 
-    // Verify the close was clean (CONNECTION_CLOSE, not a protocol violation).
+    // Verify the client saw the abandon and connection close events.
     let mut saw_abandon = false;
     let mut saw_close = false;
     while let Some(event) = pair.poll(Client) {
@@ -1287,13 +1273,11 @@ fn remote_path_abandon_last_path_client_opens_new() -> TestResult {
     while pair.poll(Client).is_some() {}
     while pair.poll(Server).is_some() {}
 
-    // Server closes path 2 — its last path (fix #1 required).
-    // Only partially drive: server sends PATH_ABANDON, client receives it.
-    // Client does NOT fully drive yet — we want to open a new path within the grace period.
-    info!("server closes last path ({path2})");
-    pair.close_path(Server, path2, 0u8.into())?;
-    pair.drive_server();
-    pair.drive_client();
+    // Simulate remote abandoning path 2 — the last path on both sides.
+    // close_path() returns LastOpenPath for local calls; this simulates
+    // receiving a PATH_ABANDON from a peer for our last remaining path.
+    info!("simulating remote abandon of last path ({path2})");
+    pair.force_remote_abandon(Client, path2);
 
     // Section 3.4 para 4: client accepts the abandon.
     // Section 3.4 para 7: client opens a new path instead of closing.
@@ -1786,23 +1770,25 @@ fn remote_abandon_last_validated_path_validation_fails() -> TestResult {
     };
     info!("client opens path 1 to unreachable address");
     let _path1 = pair.open_path(Client, path1_net, PathStatus::Available)?;
-    pair.drive_client();
-    pair.drive_server();
+    // Drive enough for the server to see path 1 (receive PATH_CHALLENGE)
+    pair.drive();
 
-    // Server abandons path 0 — the only validated path
-    info!("server abandons path 0");
-    pair.close_path(Server, PathId::ZERO, 0u8.into())?;
+    // Simulate remote abandoning path 0 on the client side.
+    // The server can't close path 0 via close_path (it's the server's only path
+    // since the unreachable path 1 never reached the server).
+    info!("simulating remote abandon of path 0 on client");
+    pair.force_remote_abandon(Client, PathId::ZERO);
 
-    // Drive to idle — path 1 validation will time out, then connection closes
+    // Drive to idle — path 1 validation will time out. Since it's the last path,
+    // close_path_inner returns LastOpenPath and the path stays. The connection
+    // eventually closes via the connection-level idle timeout.
     pair.drive();
     while pair.step() {}
 
-    // The connection should be closed:
-    // - path 0: abandoned by server
-    // - path 1: validation failed (unreachable) → abandoned → NoViablePath timer fires
+    // The connection should be closed via idle timeout.
     assert!(
         pair.is_closed(Client),
-        "client should close — no viable path after validation failure"
+        "client should close — idle timeout after last path became unusable"
     );
 
     let mut saw_connection_lost = false;

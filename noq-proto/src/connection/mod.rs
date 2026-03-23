@@ -604,8 +604,7 @@ impl Connection {
 
     /// Closes a path and sends a PATH_ABANDON frame with the passed error code.
     ///
-    /// When the last path is closed, a grace timer is started to allow the application
-    /// or peer to open a new path. If no new path appears, the connection closes.
+    /// Returns [`ClosePathError::LastOpenPath`] if this is the last open path.
     /// It does allow closing paths which have not yet been opened, as e.g. is the case
     /// when receiving a PATH_ABANDON from the peer for a path that was never opened locally.
     pub fn close_path(
@@ -625,7 +624,7 @@ impl Connection {
     ///
     /// Other than [`Self::close_path`] this allows to specify the reason for the path being closed.
     /// Internally, this should be used over [`Self::close_path`].
-    fn close_path_inner(
+    pub(crate) fn close_path_inner(
         &mut self,
         now: Instant,
         path_id: PathId,
@@ -650,13 +649,31 @@ impl Connection {
             .keys()
             .any(|id| *id != path_id && !self.abandoned_paths.contains(id));
 
-        // All cases are accepted:
-        // - Locally-initiated last-path close: the caller wants to end the connection via
-        //   PATH_ABANDON; the connection will close after it is sent.
-        // - Remote PATH_ABANDON: non-optional per draft-ietf-quic-multipath-21 Section 3.4
-        //   para 4, always accepted, even for the last path.
-        // - Locally-initiated non-last-path close: normal path close.
+        if is_last_path && !reason.is_remote() {
+            return Err(ClosePathError::LastOpenPath);
+        }
 
+        self.abandon_path(now, path_id, reason);
+
+        // When the remote abandons our last path, start a grace timer to allow
+        // the application to open a replacement path.
+        // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-21.html#section-3.4-8
+        if is_last_path {
+            let initial_pto =
+                self.config.initial_rtt * 2 + self.ack_frequency.max_ack_delay_for_pto();
+            let grace = initial_pto * 3;
+            self.timers.set(
+                Timer::Conn(ConnTimer::NoViablePath),
+                now + grace,
+                self.qlog.with_time(now),
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Unconditionally abandon a path. Called after validation checks pass.
+    fn abandon_path(&mut self, now: Instant, path_id: PathId, reason: PathAbandonReason) {
         trace!(%path_id, ?reason, "closing path");
 
         // Send PATH_ABANDON
@@ -730,25 +747,6 @@ impl Connection {
             id: path_id,
             reason: reason.clone(),
         }));
-
-        // Handle last-path scenarios.
-        // draft-ietf-quic-multipath-21 Section 3.4 para 7:
-        // - Remote-initiated: the application may open a new path within the grace period.
-        // - Locally-initiated: the PATH_ABANDON needs to be sent before CONNECTION_CLOSE.
-        // In both cases, start a grace timer (~1 PTO). When it fires, close the connection
-        // unless a new path has been opened (which cancels the timer in ensure_path).
-        if is_last_path {
-            let pto =
-                self.path_data(path_id).rtt.pto_base() + self.ack_frequency.max_ack_delay_for_pto();
-            let grace = cmp::max(pto, Duration::from_millis(100));
-            self.timers.set(
-                Timer::Conn(ConnTimer::NoViablePath),
-                now + grace,
-                self.qlog.with_time(now),
-            );
-        }
-
-        Ok(())
     }
 
     /// Gets the [`PathData`] for a known [`PathId`].
@@ -2352,7 +2350,7 @@ impl Connection {
                     ConnTimer::NoViablePath => {
                         // Grace period expired: all paths were abandoned and no new path
                         // was opened. Close the connection with CONNECTION_CLOSE.
-                        // See draft-ietf-quic-multipath-21 Section 3.4 para 7.
+                        // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-21.html#section-3.4-8
                         if self.state.is_closed() || self.state.is_drained() {
                             // Connection already closing/drained (e.g. application called
                             // close() before the grace timer fired). Nothing to do.
@@ -2369,7 +2367,6 @@ impl Connection {
                         }
                     }
                 },
-                // TODO: add path_id as span somehow
                 Timer::PerPath(path_id, timer) => {
                     let span = trace_span!("per-path timer fired", %path_id, ?timer);
                     let _guard = span.enter();
@@ -5105,9 +5102,9 @@ impl Connection {
                             ));
                         }
                         Err(ClosePathError::LastOpenPath) => {
-                            unreachable!(
-                                "close_path_inner no longer returns LastOpenPath for remote abandons"
-                            );
+                            // Not reachable: close_path_inner allows remote abandons
+                            // for the last path. But handle gracefully just in case.
+                            trace!("peer abandoned last path");
                         }
                     };
 
@@ -7230,7 +7227,9 @@ pub enum ClosePathError {
     /// The path is already closed or was never opened
     #[error("closed path")]
     ClosedPath,
-    /// Retained for API compatibility. No longer returned by `close_path_inner`.
+    /// Cannot close the last remaining open path via the local API.
+    ///
+    /// Use [`Connection::close`] to end the connection instead.
     #[error("last open path")]
     LastOpenPath,
 }
