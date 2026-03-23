@@ -2101,6 +2101,11 @@ impl Connection {
             server_state.mark_probe_sent((remote.ip(), remote.port()), cid);
         }
 
+        // Mark as sent after packet build succeeds.
+        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
+            server_state.mark_probe_sent((remote.ip(), remote.port()), cid);
+        }
+
         let path = &mut self.paths.get_mut(&path_id).expect("checked").data;
         let network_path = FourTuple {
             remote,
