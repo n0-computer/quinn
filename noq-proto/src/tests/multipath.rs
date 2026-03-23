@@ -1699,7 +1699,6 @@ fn abandon_cycle() -> TestResult {
     Ok(())
 }
 
-
 /// Regression: remote abandons the only validated path while an unvalidated path
 /// exists. Connection survives if the unvalidated path validates (#400).
 #[test]
