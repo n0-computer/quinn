@@ -838,10 +838,17 @@ impl Connection {
             .ok_or(ClosedPath { _private: () })?;
         let prev = std::mem::replace(&mut path.data.idle_timeout, timeout);
 
-        // Re-arm or stop the PathIdle timer.
+        // Adjust the PathIdle timer, accounting for already-elapsed idle time.
         if !self.state.is_closed() {
-            if timeout.is_some() {
-                self.reset_idle_timeout(now, self.highest_space, path_id);
+            if let Some(new_timeout) = timeout {
+                let timer = Timer::PerPath(path_id, PathTimer::PathIdle);
+                let deadline = match (prev, self.timers.get(timer)) {
+                    (Some(old_timeout), Some(old_deadline)) => {
+                        (old_deadline - old_timeout + new_timeout).max(now)
+                    }
+                    _ => now + new_timeout,
+                };
+                self.timers.set(timer, deadline, self.qlog.with_time(now));
             } else {
                 self.timers.stop(
                     Timer::PerPath(path_id, PathTimer::PathIdle),
