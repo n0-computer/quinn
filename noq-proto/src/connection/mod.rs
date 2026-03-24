@@ -3442,8 +3442,9 @@ impl Connection {
             let Some(last_ack_eliciting) = pns.time_of_last_ack_eliciting_packet else {
                 continue;
             };
-            // Clamp to at least `now` — the cap can make this resolve to the
-            // past, which would create a tight PTO loop.
+            // When the cap is active and last_ack_eliciting is far in the past,
+            // schedule PTO at now + duration rather than last_ack_eliciting + duration
+            // to avoid firing immediately in a tight loop.
             let pto = last_ack_eliciting.max(now) + duration;
             if result.is_none_or(|(earliest_pto, _)| pto < earliest_pto) {
                 if path.anti_amplification_blocked(1) {
