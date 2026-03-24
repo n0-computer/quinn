@@ -1,10 +1,9 @@
 use std::{
     cmp,
     collections::{HashMap, HashSet, VecDeque},
-    env,
     io::{self, Write},
     mem,
-    net::{Ipv6Addr, SocketAddr, UdpSocket},
+    net::{Ipv6Addr, SocketAddr},
     num::{NonZeroU32, NonZeroUsize},
     ops::RangeFrom,
     str,
@@ -165,9 +164,6 @@ impl Pair {
                 self.spins += (spin == self.last_spin) as u64;
                 self.last_spin = spin;
             }
-            if let Some(ref socket) = self.client.socket {
-                socket.send_to(&buffer, packet.destination).unwrap();
-            }
             let client_addr = match &self.routes {
                 Some(table) => table.resolve_client_to_server(packet.destination),
                 None => (self.server.addr == packet.destination).then_some(self.client.addr),
@@ -196,9 +192,6 @@ impl Pair {
             if packet_size > self.mtu {
                 info!(packet_size, "dropping packet (max size exceeded)");
                 continue;
-            }
-            if let Some(ref socket) = self.server.socket {
-                socket.send_to(&buffer, packet.destination).unwrap();
             }
             let server_addr = match &self.routes {
                 Some(table) => table.resolve_server_to_client(packet.destination),
@@ -782,19 +775,6 @@ impl Default for Pair {
 pub(super) struct TestEndpoint {
     pub(super) endpoint: Endpoint,
     pub(super) addr: SocketAddr,
-    /// A real bound socket for the endpoint, if `SSLKEYLOGFILE` is set.
-    ///
-    /// Whether this socket exists or not does not affect how the datagrams are routed
-    /// between the [`TestEndpoint`]s. The datagrams always route through [`Self::outbound`]
-    /// and [`Self::Inbound`].
-    ///
-    /// If the socket *is* bound a copy of the datagram is sent over it so that it can be
-    /// intercepted using OS-level mechanisms. The receiving side drains the socket from
-    /// received datagrams, but does not process these as they are mere copies.
-    ///
-    /// Unless the `SSLKEYLOGFILE` is set an actual socket is not bound and this will be
-    /// left as `None`.
-    socket: Option<UdpSocket>,
     timeout: Option<Instant>,
     pub(super) outbound: VecDeque<(Transmit, Bytes)>,
     delayed: VecDeque<(Transmit, Bytes)>,
@@ -835,19 +815,9 @@ pub(super) fn validate_incoming(incoming: &Incoming) -> IncomingConnectionBehavi
 
 impl TestEndpoint {
     fn new(endpoint: Endpoint, addr: SocketAddr) -> Self {
-        let socket = if env::var_os("SSLKEYLOGFILE").is_some() {
-            let socket = UdpSocket::bind(addr).expect("failed to bind UDP socket");
-            socket
-                .set_read_timeout(Some(Duration::from_millis(10)))
-                .unwrap();
-            Some(socket)
-        } else {
-            None
-        };
         Self {
             endpoint,
             addr,
-            socket,
             timeout: None,
             outbound: VecDeque::new(),
             delayed: VecDeque::new(),
@@ -869,16 +839,6 @@ impl TestEndpoint {
     }
 
     pub(super) fn drive_incoming(&mut self, now: Instant) {
-        if let Some(ref socket) = self.socket {
-            // Drain packets from the socket. They are duplicates and live in Self::inbound
-            // as well where we process them from.
-            loop {
-                let mut buf = [0; 8192];
-                if socket.recv_from(&mut buf).is_err() {
-                    break;
-                }
-            }
-        }
         let buffer_size = self.endpoint.config().get_max_udp_payload_size() as usize;
         let mut buf = Vec::with_capacity(buffer_size);
 
