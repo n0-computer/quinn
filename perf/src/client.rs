@@ -229,7 +229,7 @@ async fn drain_stream(
 
     let mut first_byte = true;
 
-    while let Some(size) = stream.read_chunks(&mut bufs[..]).await? {
+    while let Some(size) = stream.read_bytes_many(&mut bufs[..]).await? {
         if first_byte {
             recv_stream_stats.on_first_byte(download_start.elapsed());
             first_byte = false;

@@ -207,7 +207,10 @@ impl RecvStream {
     /// do not correspond to peer writes, and hence cannot be used as framing.
     ///
     /// This operation is cancel-safe.
-    pub async fn read_bytes_many(&mut self, bufs: &mut [Bytes]) -> Result<Option<usize>, ReadError> {
+    pub async fn read_bytes_many(
+        &mut self,
+        bufs: &mut [Bytes],
+    ) -> Result<Option<usize>, ReadError> {
         ReadChunks { stream: self, bufs }.await
     }
 

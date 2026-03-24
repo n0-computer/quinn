@@ -168,7 +168,8 @@ impl RecvStream<'_> {
     /// This is the offset of the next byte to be read, i.e. the length of the contiguous
     /// prefix of the stream consumed by the application.
     pub fn bytes_read(&self) -> Result<u64, ClosedStream> {
-        let recv = self.state
+        let recv = self
+            .state
             .recv
             .get(&self.id)
             .and_then(|s| s.as_ref())
