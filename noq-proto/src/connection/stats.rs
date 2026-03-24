@@ -1,7 +1,11 @@
 //! Connection statistics
 
+use rustc_hash::FxHashMap;
+
 use crate::Duration;
 use crate::FrameType;
+
+use super::PathId;
 
 /// Statistics about UDP datagrams transmitted or received on a connection.
 ///
@@ -311,5 +315,33 @@ impl std::ops::AddAssign<PathStats> for ConnectionStats {
         self.udp_rx += udp_rx;
         self.frame_tx += frame_tx;
         self.frame_rx += frame_rx;
+    }
+}
+
+/// Helper to make [`PathStats`] infallibly available.
+///
+/// This helper also helps with borrowing issues compared to having the [`Self::for_path`]
+/// function as a helper directly on [`Connection`].
+///
+/// [`Connection`]: super::Connection
+#[derive(Debug, Default)]
+pub(super) struct PathStatsMap(FxHashMap<PathId, PathStats>);
+
+impl PathStatsMap {
+    /// Returns the [`PathStats`] for the path.
+    pub(super) fn for_path(&mut self, path_id: PathId) -> &mut PathStats {
+        self.0.entry(path_id).or_default()
+    }
+
+    /// An iterator over all contained [`PathStats`].
+    pub(super) fn iter_stats(&self) -> impl Iterator<Item = &PathStats> {
+        self.0.values()
+    }
+
+    /// Removes the stats for a given path.
+    ///
+    /// Only do this once you are discarding the path.
+    pub(super) fn discard(&mut self, path_id: &PathId) -> PathStats {
+        self.0.remove(path_id).unwrap_or_default()
     }
 }
