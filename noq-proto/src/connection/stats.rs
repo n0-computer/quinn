@@ -233,7 +233,7 @@ pub struct PathStats {
     pub lost_bytes: u64,
     /// The number of PLPMTUD probe packets sent on this path.
     ///
-    /// These are also counted by [`Self::udp_tx.datagrams`].
+    /// These are also counted by [`UdpStats::datagrams`].
     pub sent_plpmtud_probes: u64,
     /// The number of PLPMTUD probe packets lost on this path.
     ///
