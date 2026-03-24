@@ -659,9 +659,12 @@ impl Connection {
         // the application to open a replacement path.
         // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-21.html#section-3.4-8
         if is_last_path {
-            let initial_pto =
-                self.config.initial_rtt * 2 + self.ack_frequency.max_ack_delay_for_pto();
-            let grace = initial_pto * 3;
+            // The spec suggests 1 PTO, but we use 3 * PTO to account for
+            // packet loss when opening a replacement path. Uses initial RTT
+            // since the abandoned path's RTT estimate is no longer valid.
+            let rtt = RttEstimator::new(self.config.initial_rtt);
+            let pto = rtt.pto_base() + self.ack_frequency.max_ack_delay_for_pto();
+            let grace = pto * 3;
             self.timers.set(
                 Timer::Conn(ConnTimer::NoViablePath),
                 now + grace,
@@ -672,7 +675,10 @@ impl Connection {
         Ok(())
     }
 
-    /// Unconditionally abandon a path. Called after validation checks pass.
+    /// Unconditionally abandon a path.
+    ///
+    /// Only to be called once sure this path should be abandoned, all checks
+    /// should have happened before calling this.
     fn abandon_path(&mut self, now: Instant, path_id: PathId, reason: PathAbandonReason) {
         trace!(%path_id, ?reason, "closing path");
 
@@ -745,7 +751,7 @@ impl Connection {
         // Emit event to the application.
         self.events.push_back(Event::Path(PathEvent::Abandoned {
             id: path_id,
-            reason: reason.clone(),
+            reason,
         }));
     }
 
@@ -5104,7 +5110,9 @@ impl Connection {
                         Err(ClosePathError::LastOpenPath) => {
                             // Not reachable: close_path_inner allows remote abandons
                             // for the last path. But handle gracefully just in case.
-                            trace!("peer abandoned last path");
+                            error!(
+                                "peer abandoned last path but close_path_inner returned LastOpenPath"
+                            );
                         }
                     };
 
