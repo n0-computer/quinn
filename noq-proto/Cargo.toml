@@ -57,13 +57,15 @@ arbitrary = { workspace = true, optional = true }
 aws-lc-rs = { workspace = true, optional = true }
 bytes = { workspace = true }
 criterion = { workspace = true, optional = true }
+derive_more = { workspace = true }
+enum-assoc = { workspace = true }
 fastbloom = { workspace = true, optional = true }
 identity-hash = { workspace = true }
 lru-slab = { workspace = true }
 qlog = { workspace = true, optional = true }
-rustc-hash = { workspace = true }
 rand = { workspace = true }
 ring = { workspace = true, optional = true }
+rustc-hash = { workspace = true }
 rustls = { workspace = true, optional = true }
 rustls-platform-verifier = { workspace = true, optional = true }
 slab = { workspace = true }
@@ -71,8 +73,6 @@ sorted-index-buffer = { workspace = true }
 thiserror = { workspace = true }
 tinyvec = { workspace = true, features = ["alloc"] }
 tracing = { workspace = true }
-derive_more = { version = "2.1.0", features = ["debug", "deref", "deref_mut", "display", "from"] }
-enum-assoc = "1.3.0"
 
 # Feature flags & dependencies for wasm
 # wasm-bindgen is assumed for a wasm*-*-unknown target

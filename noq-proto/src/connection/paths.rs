@@ -1000,7 +1000,7 @@ pub enum PathEvent {
         /// The final path stats, they are no longer available via [`Connection::stats`]
         ///
         /// [`Connection::stats`]: super::Connection::stats
-        path_stats: PathStats,
+        path_stats: Box<PathStats>,
     },
     /// The remote changed the status of the path
     ///

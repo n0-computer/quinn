@@ -1580,11 +1580,11 @@ impl State {
                         sender.send_modify(|value| *value = Ok(()));
                     }
                 }
-                Path(evt @ PathEvent::Discarded { id, path_stats }) => {
+                Path(ref evt @ PathEvent::Discarded { id, ref path_stats }) => {
                     if self.path_refs.contains_key(&id) {
-                        self.final_path_stats.insert(id, path_stats);
+                        self.final_path_stats.insert(id, *path_stats.clone());
                     }
-                    self.path_events.send(evt).ok();
+                    self.path_events.send(evt.clone()).ok();
                 }
                 Path(ref evt @ PathEvent::Abandoned { id, .. }) => {
                     if let Some(sender) = self.open_path.remove(&id) {
