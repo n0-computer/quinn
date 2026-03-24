@@ -3,17 +3,18 @@
 use crate::Duration;
 use crate::FrameType;
 
-/// Statistics about UDP datagrams transmitted or received on a connection
+/// Statistics about UDP datagrams transmitted or received on a connection.
 ///
-/// All QUIC packets are carried by UDP datagrams. Hence, these statistics cover all traffic on a connection.
+/// All QUIC packets are carried by UDP datagrams. Hence, these statistics cover all traffic
+/// on a connection.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, derive_more::Add, derive_more::AddAssign)]
 #[non_exhaustive]
 pub struct UdpStats {
-    /// The amount of UDP datagrams observed
+    /// The number of UDP datagrams observed.
     pub datagrams: u64,
-    /// The total amount of bytes which have been transferred inside UDP datagrams
+    /// The total amount of bytes which have been transferred inside UDP datagrams.
     pub bytes: u64,
-    /// The amount of I/O operations executed
+    /// The number of I/O operations executed.
     ///
     /// Can be less than `datagrams` when GSO, GRO, and/or batched system calls are in use.
     pub ios: u64,
@@ -27,7 +28,7 @@ impl UdpStats {
     }
 }
 
-/// Number of frames transmitted or received of each frame type
+/// Number of frames transmitted or received of each frame type.
 #[derive(Default, Copy, Clone, PartialEq, Eq, derive_more::Add, derive_more::AddAssign)]
 #[non_exhaustive]
 #[allow(missing_docs)]
@@ -204,36 +205,39 @@ impl std::fmt::Debug for FrameStats {
     }
 }
 
-/// Statistics related to a transmission path
+/// Statistics related to a transmission path.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PathStats {
-    /// Current best estimate of this connection's latency (round-trip-time)
+    /// Current best estimate of this connection's latency (round-trip-time).
     pub rtt: Duration,
-    /// Statistics about datagrams and bytes sent on this path
+    /// Statistics about datagrams and bytes sent on this path.
     pub udp_tx: UdpStats,
-    /// Statistics about datagrams and bytes received on this path
+    /// Statistics about datagrams and bytes received on this path.
     pub udp_rx: UdpStats,
-    /// Statistics about frames transmitted on this path
+    /// Statistics about frames transmitted on this path.
     pub frame_tx: FrameStats,
-    /// Statistics about frames received on this path
+    /// Statistics about frames received on this path.
     pub frame_rx: FrameStats,
-    /// Current congestion window of the connection
+    /// Current congestion window of the connection.
     pub cwnd: u64,
-    /// Congestion events on the connection
+    /// Congestion events on the connection.
     pub congestion_events: u64,
-    /// The amount of packets lost on this path
+    /// The amount of packets lost on this path.
     pub lost_packets: u64,
-    /// The amount of bytes lost on this path
+    /// The amount of bytes lost on this path.
     pub lost_bytes: u64,
-    /// The amount of PLPMTUD probe packets sent on this path (also counted by `udp_tx.datagrams`)
+    /// The number of PLPMTUD probe packets sent on this path.
+    ///
+    /// These are also counted by [`Self::udp_tx.datagrams`].
     pub sent_plpmtud_probes: u64,
-    /// The amount of PLPMTUD probe packets lost on this path (ignored by `lost_packets` and
-    /// `lost_bytes`)
+    /// The number of PLPMTUD probe packets lost on this path.
+    ///
+    /// These are not included in [`Self::lost_packets`] and [`Self::lost_bytes`].
     pub lost_plpmtud_probes: u64,
-    /// The number of times a black hole was detected in the path
+    /// The number of times a black hole was detected in the path.
     pub black_holes_detected: u64,
-    /// Largest UDP payload size the path currently supports
+    /// Largest UDP payload size the path currently supports.
     pub current_mtu: u16,
 }
 
