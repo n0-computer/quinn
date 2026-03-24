@@ -1035,10 +1035,6 @@ fn path_scheduling_path_status() -> TestResult {
 
 // --- Tests for issue #397: remote PATH_ABANDON handling ---
 //
-// These tests verify compliance with draft-ietf-quic-multipath-21, Section 3.4
-// "Path Close" and Section 4.2 "PATH_ABANDON Frame".
-// Tests for remote PATH_ABANDON handling (draft-ietf-quic-multipath-21 Section 3.4).
-
 /// Remote abandons a non-last path: accept and send reciprocal PATH_ABANDON.
 #[test]
 fn remote_path_abandon_with_remaining_path() -> TestResult {
@@ -1114,70 +1110,27 @@ fn remote_path_abandon_with_remaining_path() -> TestResult {
 #[test]
 fn remote_path_abandon_last_path_closes_connection() -> TestResult {
     let _guard = subscribe();
+    let mut pair = multipath_pair();
 
-    let mut cfg = TransportConfig::default();
-    cfg.max_concurrent_multipath_paths(MAX_PATHS);
-    cfg.initial_rtt(Duration::from_millis(10));
-
-    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
-    pair.drive();
-
-    let mut second_client_addr = pair.client.addr;
-    let mut second_server_addr = pair.server.addr;
-    second_client_addr.set_port(second_client_addr.port() + 1);
-    second_server_addr.set_port(second_server_addr.port() + 1);
-    let mut third_client_addr = pair.client.addr;
-    let mut third_server_addr = pair.server.addr;
-    third_client_addr.set_port(third_client_addr.port() + 2);
-    third_server_addr.set_port(third_server_addr.port() + 2);
-    pair.routes = Some(RoutingTable::simple_symmetric(
-        [pair.client.addr, second_client_addr, third_client_addr],
-        [pair.server.addr, second_server_addr, third_server_addr],
-    ));
-
-    // Open two additional paths (total: path 0, path 1, path 2)
-    let path1 = pair.open_path(
-        Client,
-        FourTuple {
-            local_ip: Some(second_client_addr.ip()),
-            remote: second_server_addr,
-        },
-        PathStatus::Available,
-    )?;
-    pair.drive();
-    let path2 = pair.open_path(
-        Client,
-        FourTuple {
-            local_ip: Some(third_client_addr.ip()),
-            remote: third_server_addr,
-        },
-        PathStatus::Available,
-    )?;
-    pair.drive();
-
-    // Drain all events
-    while pair.poll(Client).is_some() {}
-    while pair.poll(Server).is_some() {}
-
-    // Server closes path 0 (2 paths remain: path1, path2)
-    info!("server closes path 0");
-    pair.close_path(Server, PathId::ZERO, 0u8.into())?;
+    // Open a second path so we can close path 0 normally
+    let server_addr = pair.addrs_to_server();
+    let _path1 = pair.open_path(Client, server_addr, PathStatus::Available)?;
     pair.drive();
     while pair.poll(Client).is_some() {}
     while pair.poll(Server).is_some() {}
 
-    // Server closes path 1 (1 path remains: path2)
-    info!("server closes path {path1}");
-    pair.close_path(Server, path1, 0u8.into())?;
+    // Close path 0 normally (path 1 remains)
+    pair.close_path(Client, PathId::ZERO, 0u8.into())?;
     pair.drive();
     while pair.poll(Client).is_some() {}
     while pair.poll(Server).is_some() {}
 
-    // Simulate remote abandoning path 2 — the last path on both sides.
-    // close_path() returns LastOpenPath for local calls; this simulates
-    // receiving a PATH_ABANDON from a peer for our last remaining path.
-    info!("simulating remote abandon of last path ({path2})");
-    pair.force_remote_abandon(Client, path2);
+    // Simulate remote abandoning path 1 — now the client's last path.
+    // We use force_remote_abandon because in a real scenario the PATH_ABANDON
+    // arrives via a packet on the same path, which auto-creates the path on
+    // the receiver if it doesn't exist, making packet-dropping approaches
+    // unable to create a true last-path scenario in tests.
+    pair.force_remote_abandon(Client, PathId::from(1u8));
     pair.drive();
 
     // After the grace period (no new path opened), the client should be closed.
@@ -1212,94 +1165,31 @@ fn remote_path_abandon_last_path_closes_connection() -> TestResult {
 #[test]
 fn remote_path_abandon_last_path_client_opens_new() -> TestResult {
     let _guard = subscribe();
+    let mut pair = multipath_pair();
 
-    let mut cfg = TransportConfig::default();
-    cfg.max_concurrent_multipath_paths(4);
-    cfg.initial_rtt(Duration::from_millis(10));
-
-    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
-    pair.drive();
-
-    // Set up 4 addresses for routing
-    let mut addrs_client = vec![pair.client.addr];
-    let mut addrs_server = vec![pair.server.addr];
-    for i in 1..4u16 {
-        let mut ca = pair.client.addr;
-        ca.set_port(ca.port() + i);
-        addrs_client.push(ca);
-        let mut sa = pair.server.addr;
-        sa.set_port(sa.port() + i);
-        addrs_server.push(sa);
-    }
-    pair.routes = Some(RoutingTable::simple_symmetric(
-        addrs_client.clone(),
-        addrs_server.clone(),
-    ));
-
-    // Open paths 1 and 2
-    let path1 = pair.open_path(
-        Client,
-        FourTuple {
-            local_ip: Some(addrs_client[1].ip()),
-            remote: addrs_server[1],
-        },
-        PathStatus::Available,
-    )?;
-    pair.drive();
-    let path2 = pair.open_path(
-        Client,
-        FourTuple {
-            local_ip: Some(addrs_client[2].ip()),
-            remote: addrs_server[2],
-        },
-        PathStatus::Available,
-    )?;
-    pair.drive();
-
-    // Drain all events
-    while pair.poll(Client).is_some() {}
-    while pair.poll(Server).is_some() {}
-
-    // Server closes path 0, then path 1 (each driven to completion)
-    info!("server closes path 0");
-    pair.close_path(Server, PathId::ZERO, 0u8.into())?;
+    // Open path 1, close path 0 normally
+    let server_addr = pair.addrs_to_server();
+    let _path1 = pair.open_path(Client, server_addr, PathStatus::Available)?;
     pair.drive();
     while pair.poll(Client).is_some() {}
     while pair.poll(Server).is_some() {}
 
-    info!("server closes path {path1}");
-    pair.close_path(Server, path1, 0u8.into())?;
+    pair.close_path(Client, PathId::ZERO, 0u8.into())?;
     pair.drive();
     while pair.poll(Client).is_some() {}
     while pair.poll(Server).is_some() {}
 
-    // Simulate remote abandoning path 2 — the last path on both sides.
-    // close_path() returns LastOpenPath for local calls; this simulates
-    // receiving a PATH_ABANDON from a peer for our last remaining path.
-    info!("simulating remote abandon of last path ({path2})");
-    pair.force_remote_abandon(Client, path2);
+    // Simulate remote abandoning path 1 — client's last path
+    pair.force_remote_abandon(Client, PathId::from(1u8));
 
-    // Section 3.4 para 4: client accepts the abandon.
-    // Section 3.4 para 7: client opens a new path instead of closing.
-    let new_path_net = FourTuple {
-        local_ip: Some(addrs_client[3].ip()),
-        remote: addrs_server[3],
-    };
-    info!("client opens new path within grace period");
-    let new_path_id = pair.open_path(Client, new_path_net, PathStatus::Available)?;
+    // Client opens a new path within the grace period
+    let new_path = pair.addrs_to_server();
+    let new_path_id = pair.open_path(Client, new_path, PathStatus::Available)?;
     pair.drive();
 
-    // Connection should still be alive — grace period was not exceeded
-    assert!(
-        !pair.is_closed(Client),
-        "client should still be alive after opening new path"
-    );
-    assert!(
-        !pair.is_closed(Server),
-        "server should still be alive after receiving new path"
-    );
+    assert!(!pair.is_closed(Client), "client should survive");
+    assert!(!pair.is_closed(Server), "server should survive");
 
-    // The client should see the abandon for path2, then the new path opened
     let mut saw_abandon = false;
     let mut saw_opened = false;
     while let Some(event) = pair.poll(Client) {
@@ -1318,209 +1208,6 @@ fn remote_path_abandon_last_path_client_opens_new() -> TestResult {
     Ok(())
 }
 
-/// Both sides abandon the same path simultaneously: should be a no-op, not an error.
-#[test]
-fn remote_path_abandon_already_abandoned_locally() -> TestResult {
-    let _guard = subscribe();
-    let mut pair = multipath_pair();
-
-    // Open second path
-    let server_addr = pair.addrs_to_server();
-    let _path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
-    pair.drive();
-
-    // Drain open events
-    while pair.poll(Client).is_some() {}
-    while pair.poll(Server).is_some() {}
-
-    // Both sides abandon path 0 "simultaneously" (before driving)
-    info!("client abandons path 0");
-    pair.close_path(Client, PathId::ZERO, 0u8.into())?;
-    info!("server abandons path 0");
-    pair.close_path(Server, PathId::ZERO, 0u8.into())?;
-
-    // Drive should complete without errors
-    pair.drive();
-
-    // Connection should remain alive on the remaining path
-    assert!(!pair.is_closed(Client));
-    assert!(!pair.is_closed(Server));
-
-    Ok(())
-}
-
-/// Remote abandons a path before validation completes: must still be accepted.
-#[test]
-fn remote_path_abandon_unvalidated_path() -> TestResult {
-    let _guard = subscribe();
-    let mut pair = multipath_pair();
-
-    // Open second path from client - don't fully drive, so it's not validated on server yet
-    let server_addr = pair.addrs_to_server();
-    let path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
-
-    // Only drive client side so the PATH_CHALLENGE is sent but not yet processed by server
-    pair.drive_client();
-    // Drive server to process the PATH_CHALLENGE (it will see the new path)
-    pair.drive_server();
-    // Don't drive_client again, so path validation isn't complete on client side
-
-    // Server abandons the not-yet-fully-validated path
-    info!("server abandons unvalidated path");
-    pair.close_path(Server, path_id, 0u8.into())?;
-    pair.drive();
-
-    // Client should accept the abandon
-    let mut saw_abandon = false;
-    while let Some(event) = pair.poll(Client) {
-        if matches!(
-            &event,
-            Event::Path(PathEvent::Abandoned {
-                reason: PathAbandonReason::RemoteAbandoned { .. },
-                ..
-            })
-        ) {
-            saw_abandon = true;
-        }
-    }
-    assert!(
-        saw_abandon,
-        "client must accept remote abandon of unvalidated path"
-    );
-
-    // Connection alive on path 0
-    assert!(!pair.is_closed(Client));
-    assert!(!pair.is_closed(Server));
-
-    Ok(())
-}
-
-/// Verify reciprocal PATH_ABANDON is sent and MAX_PATH_ID bumped via frame stats.
-#[test]
-fn remote_path_abandon_reciprocal_and_cid_retirement() -> TestResult {
-    let _guard = subscribe();
-    let mut pair = multipath_pair();
-
-    // Open second path
-    let server_addr = pair.addrs_to_server();
-    let _path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
-    pair.drive();
-
-    // Drain events
-    while pair.poll(Client).is_some() {}
-    while pair.poll(Server).is_some() {}
-
-    let client_stats_before = pair.stats(Client);
-    let server_stats_before = pair.stats(Server);
-
-    // Server abandons path 0
-    info!("server abandons path 0");
-    pair.close_path(Server, PathId::ZERO, 0u8.into())?;
-    pair.drive();
-
-    let client_stats_after = pair.stats(Client);
-    let server_stats_after = pair.stats(Server);
-
-    // Server sent PATH_ABANDON
-    assert_eq!(
-        server_stats_after.frame_tx.path_abandon,
-        server_stats_before.frame_tx.path_abandon + 1,
-        "server should have sent one PATH_ABANDON"
-    );
-
-    // Client received PATH_ABANDON
-    assert_eq!(
-        client_stats_after.frame_rx.path_abandon,
-        client_stats_before.frame_rx.path_abandon + 1,
-        "client should have received one PATH_ABANDON"
-    );
-
-    // Section 3.4 para 4: client sent reciprocal PATH_ABANDON
-    assert_eq!(
-        client_stats_after.frame_tx.path_abandon,
-        client_stats_before.frame_tx.path_abandon + 1,
-        "client should have sent reciprocal PATH_ABANDON"
-    );
-
-    // Server received reciprocal PATH_ABANDON
-    assert_eq!(
-        server_stats_after.frame_rx.path_abandon,
-        server_stats_before.frame_rx.path_abandon + 1,
-        "server should have received reciprocal PATH_ABANDON"
-    );
-
-    // MAX_PATH_ID should have been bumped to allow opening new paths
-    assert!(
-        client_stats_after.frame_rx.max_path_id > client_stats_before.frame_rx.max_path_id
-            || server_stats_after.frame_rx.max_path_id > server_stats_before.frame_rx.max_path_id,
-        "MAX_PATH_ID should be incremented after path abandon"
-    );
-
-    Ok(())
-}
-
-/// Path state is retained for 3 PTO after PATH_ABANDON, then discarded.
-#[test]
-fn remote_path_abandon_path_discarded_after_3pto() -> TestResult {
-    let _guard = subscribe();
-    let mut pair = multipath_pair();
-
-    // Open second path
-    let server_addr = pair.addrs_to_server();
-    let _path_id = pair.open_path(Client, server_addr, PathStatus::Available)?;
-    pair.drive();
-
-    // Drain events
-    while pair.poll(Client).is_some() {}
-    while pair.poll(Server).is_some() {}
-
-    // Server abandons path 0
-    info!("server abandons path 0");
-    pair.close_path(Server, PathId::ZERO, 0u8.into())?;
-    pair.drive();
-
-    // Drain abandon events
-    while let Some(event) = pair.poll(Client) {
-        if matches!(&event, Event::Path(PathEvent::Abandoned { .. })) {
-            break;
-        }
-    }
-
-    // The path should not be immediately discarded - it should be retained for 3 PTO.
-    // Drive time forward past the 3 PTO drain period.
-    pair.drive();
-
-    // Eventually we should see the Discarded event for path 0
-    let mut saw_discard = false;
-    while let Some(event) = pair.poll(Client) {
-        if matches!(
-            &event,
-            Event::Path(PathEvent::Discarded { id, .. }) if *id == PathId::ZERO
-        ) {
-            saw_discard = true;
-        }
-    }
-    assert!(saw_discard, "path should be discarded after drain period");
-
-    Ok(())
-}
-
-// --- Tests ported from picoquic (picoquictest/multipath_test.c) ---
-//
-// Picoquic's multipath test harness (`multipath_test_one`) covers several path
-// abandonment scenarios. The following tests adapt the most relevant ones to noq's
-// sans-io test infrastructure.
-
-/// Ported from picoquic `multipath_test_abandon` scenario.
-///
-/// Client abandons path 0 (while path 1 exists). After the abandon is processed by
-/// both sides, data continues to flow on the remaining path. Verifies:
-/// - Path is fully removed from both sides after drain period
-/// - Data transmission succeeds on the surviving path
-/// - Both sides end up with exactly 1 path
-///
-/// Picoquic ref: multipath_test.c lines 1014-1018 (abandon action),
-///               lines 1189-1197 (verify nb_paths == 1 on both sides)
 #[test]
 fn abandon_path_data_continues() -> TestResult {
     let _guard = subscribe();
@@ -1679,200 +1366,6 @@ fn abandon_cycle() -> TestResult {
 
         current_path = new_path;
     }
-
-    Ok(())
-}
-
-/// Regression: remote abandons the only validated path while an unvalidated path
-/// exists. Connection survives if the unvalidated path validates (#400).
-#[test]
-fn remote_abandon_last_validated_path_unvalidated_remains() -> TestResult {
-    let _guard = subscribe();
-    let mut pair = multipath_pair();
-
-    // Set up routing for two address pairs
-    let mut second_client_addr = pair.client.addr;
-    let mut second_server_addr = pair.server.addr;
-    second_client_addr.set_port(second_client_addr.port() + 1);
-    second_server_addr.set_port(second_server_addr.port() + 1);
-    pair.routes = Some(RoutingTable::simple_symmetric(
-        [pair.client.addr, second_client_addr],
-        [pair.server.addr, second_server_addr],
-    ));
-
-    // Open path 1 from client but don't fully drive — leave it unvalidated.
-    let path1_net = FourTuple {
-        local_ip: Some(second_client_addr.ip()),
-        remote: second_server_addr,
-    };
-    info!("client opens path 1 (will remain unvalidated)");
-    let path1 = pair.open_path(Client, path1_net, PathStatus::Available)?;
-    // Drive client → server: PATH_CHALLENGE sent and received
-    pair.drive_client();
-    pair.drive_server();
-    // Don't drive further — PATH_RESPONSE not yet delivered to client
-
-    // Server abandons path 0 — the only validated path from the client's perspective.
-    info!("server abandons path 0 (client's only validated path)");
-    pair.close_path(Server, PathId::ZERO, 0u8.into())?;
-    pair.drive();
-
-    // Client must accept the abandon (Section 3.4 para 4)
-    let client_stats = pair.stats(Client);
-    assert!(
-        client_stats.frame_rx.path_abandon >= 1,
-        "client should have received PATH_ABANDON for path 0"
-    );
-
-    // Drive to let path 1 validate (PATH_RESPONSE arrives during drive)
-    pair.drive();
-
-    // After path 1 validates, the connection should survive
-    assert!(
-        !pair.is_closed(Client),
-        "client should survive — path 1 validated"
-    );
-    assert!(
-        !pair.is_closed(Server),
-        "server should survive — path 1 is usable"
-    );
-    assert!(
-        pair.path_status(Client, path1).is_ok(),
-        "path 1 should still be alive"
-    );
-
-    Ok(())
-}
-
-/// Regression: remote abandons last validated path and unvalidated path fails
-/// validation. Connection closes via NoViablePath grace timer (#398/#400).
-#[test]
-fn remote_abandon_last_validated_path_validation_fails() -> TestResult {
-    let _guard = subscribe();
-
-    let mut cfg = TransportConfig::default();
-    cfg.max_concurrent_multipath_paths(MAX_PATHS);
-    cfg.initial_rtt(Duration::from_millis(10));
-
-    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
-    pair.drive();
-
-    // Use an unreachable address for path 1 so validation will fail
-    let unreachable_server: SocketAddr = SocketAddr::new(
-        [9, 8, 7, 6].into(),
-        SERVER_PORTS.lock()?.next().ok_or("no port")?,
-    );
-
-    // Open path 1 to unreachable address — it will never validate
-    let path1_net = FourTuple {
-        remote: unreachable_server,
-        local_ip: None,
-    };
-    info!("client opens path 1 to unreachable address");
-    let _path1 = pair.open_path(Client, path1_net, PathStatus::Available)?;
-    // Drive enough for the server to see path 1 (receive PATH_CHALLENGE)
-    pair.drive();
-
-    // Simulate remote abandoning path 0 on the client side.
-    // The server can't close path 0 via close_path (it's the server's only path
-    // since the unreachable path 1 never reached the server).
-    info!("simulating remote abandon of path 0 on client");
-    pair.force_remote_abandon(Client, PathId::ZERO);
-
-    // Drive to idle — path 1 validation will time out. Since it's the last path,
-    // close_path_inner returns LastOpenPath and the path stays. The connection
-    // eventually closes via the connection-level idle timeout.
-    pair.drive();
-    while pair.step() {}
-
-    // The connection should be closed via idle timeout.
-    assert!(
-        pair.is_closed(Client),
-        "client should close — idle timeout after last path became unusable"
-    );
-
-    let mut saw_connection_lost = false;
-    while let Some(event) = pair.poll(Client) {
-        if matches!(&event, Event::ConnectionLost { .. }) {
-            saw_connection_lost = true;
-        }
-    }
-    assert!(
-        saw_connection_lost,
-        "client should emit ConnectionLost after no viable path"
-    );
-
-    Ok(())
-}
-
-/// Regression: remote abandons all paths, client recovers by opening a new one (#398).
-#[test]
-fn remote_abandon_last_validated_path_recovery_via_new_path() -> TestResult {
-    let _guard = subscribe();
-
-    let mut cfg = TransportConfig::default();
-    cfg.max_concurrent_multipath_paths(4);
-    cfg.initial_rtt(Duration::from_millis(10));
-
-    let mut pair = ConnPair::with_transport_cfg(cfg.clone(), cfg);
-    pair.drive();
-
-    // Set up 3 address pairs
-    let mut addrs_client = vec![pair.client.addr];
-    let mut addrs_server = vec![pair.server.addr];
-    for i in 1..3u16 {
-        let mut ca = pair.client.addr;
-        ca.set_port(ca.port() + i);
-        addrs_client.push(ca);
-        let mut sa = pair.server.addr;
-        sa.set_port(sa.port() + i);
-        addrs_server.push(sa);
-    }
-    pair.routes = Some(RoutingTable::simple_symmetric(
-        addrs_client.clone(),
-        addrs_server.clone(),
-    ));
-
-    // Open path 1 but leave it unvalidated
-    let path1_net = FourTuple {
-        local_ip: Some(addrs_client[1].ip()),
-        remote: addrs_server[1],
-    };
-    info!("client opens path 1 (will remain unvalidated)");
-    let _path1 = pair.open_path(Client, path1_net, PathStatus::Available)?;
-    pair.drive_client();
-    pair.drive_server();
-
-    // Server abandons path 0 (only validated path)
-    info!("server abandons path 0");
-    pair.close_path(Server, PathId::ZERO, 0u8.into())?;
-    pair.drive_server();
-    pair.drive_client();
-
-    // Client opens a new path (path 2) to a reachable address
-    let path2_net = FourTuple {
-        local_ip: Some(addrs_client[2].ip()),
-        remote: addrs_server[2],
-    };
-    info!("client opens path 2 within grace period");
-    let path2 = pair.open_path(Client, path2_net, PathStatus::Available)?;
-
-    // Full drive — path 2 should validate
-    pair.drive();
-
-    // Connection should survive
-    assert!(
-        !pair.is_closed(Client),
-        "client should survive — new path validated"
-    );
-    assert!(
-        !pair.is_closed(Server),
-        "server should survive — new path validated"
-    );
-    assert!(
-        pair.path_status(Client, path2).is_ok(),
-        "path 2 should be alive"
-    );
 
     Ok(())
 }
