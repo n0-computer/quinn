@@ -257,13 +257,13 @@ pub(super) trait BytesSource<'a> {
 
 /// Indicates how many bytes and chunks had been transferred in a write operation
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
-pub struct Written {
+pub(crate) struct Written {
     /// The amount of bytes which had been written
-    pub bytes: usize,
+    pub(crate) bytes: usize,
     /// The amount of full chunks which had been written
     ///
     /// If a chunk was only partially written, it will not be counted by this field.
-    pub chunks: usize,
+    pub(crate) chunks: usize,
 }
 
 /// Errors triggered while writing to a send stream

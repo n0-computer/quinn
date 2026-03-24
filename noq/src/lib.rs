@@ -66,7 +66,7 @@ pub use proto::{
     InvalidCid, MtuDiscoveryConfig, NetworkChangeHint, NoneTokenLog, NoneTokenStore, PathId,
     PathStats, ServerConfig, Side, StdSystemTime, StreamId, TimeSource, TokenLog, TokenMemoryCache,
     TokenReuseError, TokenStore, Transmit, TransportConfig, TransportErrorCode, UdpStats,
-    ValidationTokenConfig, VarInt, VarIntBoundsExceeded, Written, congestion, crypto,
+    ValidationTokenConfig, VarInt, VarIntBoundsExceeded, congestion, crypto,
 };
 #[cfg(feature = "qlog")]
 pub use proto::{QlogConfig, QlogFactory, QlogFileFactory};

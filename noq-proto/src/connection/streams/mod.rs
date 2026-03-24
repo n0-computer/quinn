@@ -21,7 +21,8 @@ pub use recv::{Chunks, ReadError, ReadableError};
 mod send;
 pub(crate) use send::{ByteSlice, BytesArray};
 use send::{BytesSource, Send, SendState};
-pub use send::{FinishError, WriteError, Written};
+pub use send::{FinishError, WriteError};
+pub(crate) use send::Written;
 
 mod state;
 #[allow(unreachable_pub)] // fuzzing only
@@ -228,10 +229,11 @@ impl<'a> SendStream<'a> {
     ///
     /// Returns the number of bytes and chunks successfully written.
     /// Note that this method might also write a partial chunk. In this case
-    /// [`Written::chunks`] will not count this chunk as fully written. However
     /// the chunk will be advanced and contain only non-written data after the call.
-    pub fn write_chunks(&mut self, data: &mut [Bytes]) -> Result<Written, WriteError> {
-        self.write_source(&mut BytesArray::from_chunks(data))
+    pub fn write_chunks(&mut self, data: &mut &mut [Bytes]) -> Result<usize, WriteError> {
+        let written = self.write_source(&mut BytesArray::from_chunks(data))?;
+        *data = &mut std::mem::take(data)[written.chunks..];
+        Ok(written.bytes)
     }
 
     fn write_source<'b, B: BytesSource<'b>>(
