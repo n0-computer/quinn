@@ -6487,6 +6487,7 @@ impl Connection {
                     timer,
                     Timer::Conn(ConnTimer::KeepAlive)
                         | Timer::PerPath(_, PathTimer::PathKeepAlive)
+                        | Timer::PerPath(_, PathTimer::PathIdle)
                         | Timer::Conn(ConnTimer::PushNewCid)
                         | Timer::Conn(ConnTimer::KeyDiscard)
                 )
