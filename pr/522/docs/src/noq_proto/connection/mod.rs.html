@@ -925,7 +925,7 @@
 <a href=#925 id=925 data-nosnippet>925</a>
 <a href=#926 id=926 data-nosnippet>926</a>        <span class="macro">debug!</span>(%validated, %path_id, %network_path, <span class="string">"path added"</span>);
 <a href=#927 id=927 data-nosnippet>927</a>
-<a href=#928 id=928 data-nosnippet>928</a>        <span class="comment">// A new path appeared — cancel any pending no-viable-path grace timer.
+<a href=#928 id=928 data-nosnippet>928</a>        <span class="comment">// A new path was added. Cancel any pending NoAvailablePath grace timer.
 <a href=#929 id=929 data-nosnippet>929</a>        </span><span class="self">self</span>.timers.stop(
 <a href=#930 id=930 data-nosnippet>930</a>            Timer::Conn(ConnTimer::NoAvailablePath),
 <a href=#931 id=931 data-nosnippet>931</a>            <span class="self">self</span>.qlog.with_time(now),
