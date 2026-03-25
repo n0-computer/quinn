@@ -506,6 +506,25 @@ impl ConnPair {
         self.conn_mut(side).close_path(now, path_id, error_code)
     }
 
+    /// Simulate receiving a remote PATH_ABANDON for the last path.
+    ///
+    /// This bypasses the local LastOpenPath guard. In real usage this happens
+    /// when a remote peer (possibly a different implementation) sends
+    /// PATH_ABANDON for the last shared path.
+    #[track_caller]
+    pub(super) fn force_remote_abandon(&mut self, side: Side, path_id: PathId) {
+        let now = self.pair.time;
+        self.conn_mut(side)
+            .close_path_inner(
+                now,
+                path_id,
+                PathAbandonReason::RemoteAbandoned {
+                    error_code: 0u8.into(),
+                },
+            )
+            .expect("remote abandon should succeed for last path");
+    }
+
     pub(super) fn paths(&self, side: Side) -> Vec<PathId> {
         self.conn(side).paths()
     }

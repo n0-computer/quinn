@@ -609,9 +609,9 @@ impl Connection {
 
     /// Closes a path and sends a PATH_ABANDON frame with the passed error code.
     ///
-    /// This will not allow closing the last path. It does allow closing paths which have
-    /// not yet been opened, as e.g. is the case when receiving a PATH_ABANDON from the peer
-    /// for a path that was never opened locally.
+    /// Returns [`ClosePathError::LastOpenPath`] if this is the last open path.
+    /// It does allow closing paths which have not yet been opened, as e.g. is the case
+    /// when receiving a PATH_ABANDON from the peer for a path that was never opened locally.
     pub fn close_path(
         &mut self,
         now: Instant,
@@ -629,7 +629,7 @@ impl Connection {
     ///
     /// Other than [`Self::close_path`] this allows to specify the reason for the path being closed.
     /// Internally, this should be used over [`Self::close_path`].
-    fn close_path_inner(
+    pub(crate) fn close_path_inner(
         &mut self,
         now: Instant,
         path_id: PathId,
@@ -649,26 +649,42 @@ impl Connection {
             return Err(ClosePathError::ClosedPath);
         }
 
-        if reason.is_locally_initiated() {
-            let has_remaining_validated_paths = self.paths.iter().any(|(id, path)| {
-                *id != path_id && !self.abandoned_paths.contains(id) && path.data.validated
-            });
-            if !has_remaining_validated_paths {
-                return Err(ClosePathError::LastOpenPath);
-            }
-        } else {
-            // The remote abandoned this path. We should always "accept" this. Doing so right now,
-            // however, breaks assumptions throughout the code. We error instead, for the
-            // connection to be killed. See <https://github.com/n0-computer/noq/issues/397>
-            let has_remaining_paths = self
-                .paths
-                .keys()
-                .any(|id| *id != path_id && !self.abandoned_paths.contains(id));
-            if !has_remaining_paths {
-                return Err(ClosePathError::LastOpenPath);
-            }
+        let is_last_path = !self
+            .paths
+            .keys()
+            .any(|id| *id != path_id && !self.abandoned_paths.contains(id));
+
+        if is_last_path && !reason.is_remote() {
+            return Err(ClosePathError::LastOpenPath);
         }
 
+        self.abandon_path(now, path_id, reason);
+
+        // When the remote abandons our last path, start a grace timer to allow
+        // the application to open a replacement path.
+        // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-21.html#section-3.4-8
+        if is_last_path {
+            // The spec suggests 1 PTO, but we use 3 * PTO to account for
+            // packet loss when opening a replacement path. Uses initial RTT
+            // since the abandoned path's RTT estimate is no longer valid.
+            let rtt = RttEstimator::new(self.config.initial_rtt);
+            let pto = rtt.pto_base() + self.ack_frequency.max_ack_delay_for_pto();
+            let grace = pto * 3;
+            self.timers.set(
+                Timer::Conn(ConnTimer::NoAvailablePath),
+                now + grace,
+                self.qlog.with_time(now),
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Unconditionally abandon a path.
+    ///
+    /// Only to be called once sure this path should be abandoned, all checks
+    /// should have happened before calling this.
+    fn abandon_path(&mut self, now: Instant, path_id: PathId, reason: PathAbandonReason) {
         trace!(%path_id, ?reason, "closing path");
 
         // Send PATH_ABANDON
@@ -694,6 +710,9 @@ impl Connection {
             }
         }
 
+        // Note: remote CIDs are NOT removed here. They are removed when the PATH_ABANDON
+        // frame is actually written to a packet (in populate_packet). This allows sending
+        // PATH_ABANDON on the abandoned path itself when no other path exists (#509).
         debug_assert!(!self.state.is_drained()); // requirement for endpoint_events, checked above
         self.endpoint_events
             .push_back(EndpointEventInner::RetireResetToken(path_id));
@@ -739,8 +758,6 @@ impl Connection {
             id: path_id,
             reason,
         }));
-
-        Ok(())
     }
 
     /// Gets the [`PathData`] for a known [`PathId`].
@@ -907,6 +924,12 @@ impl Connection {
         };
 
         debug!(%validated, %path_id, %network_path, "path added");
+
+        // A new path was added. Cancel any pending NoAvailablePath grace timer.
+        self.timers.stop(
+            Timer::Conn(ConnTimer::NoAvailablePath),
+            self.qlog.with_time(now),
+        );
         let peer_max_udp_payload_size =
             u16::try_from(self.peer_params.max_udp_payload_size.into_inner()).unwrap_or(u16::MAX);
         self.path_generation_counter = self.path_generation_counter.wrapping_add(1);
@@ -2322,8 +2345,27 @@ impl Connection {
                             }
                         }
                     }
+                    ConnTimer::NoAvailablePath => {
+                        // Grace period expired: all paths were abandoned and no new path
+                        // was opened. Close the connection. There are no paths left to
+                        // send CONNECTION_CLOSE on, so this is a silent close.
+                        // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-21.html#section-3.4-8
+                        if self.state.is_closed() || self.state.is_drained() {
+                            // Connection already closing/drained (e.g. application called
+                            // close() before the grace timer fired). Nothing to do.
+                            error!("no viable path timer fired, but connection already closing");
+                        } else {
+                            trace!("no viable path grace period expired, closing connection");
+                            let err = TransportError::NO_VIABLE_PATH(
+                                "last path abandoned, no new path opened",
+                            );
+                            self.close_common();
+                            self.set_close_timer(now);
+                            self.connection_close_pending = true;
+                            self.state.move_to_closed(err);
+                        }
+                    }
                 },
-                // TODO: add path_id as span somehow
                 Timer::PerPath(path_id, timer) => {
                     let span = trace_span!("per-path timer fired", %path_id, ?timer);
                     let _guard = span.enter();
@@ -3468,7 +3510,17 @@ impl Connection {
             .keys()
             .map(|path_id| self.pto(space, *path_id))
             .max()
-            .expect("there should be at least one path")
+            .unwrap_or_else(|| {
+                // No paths remain (e.g. last path was abandoned and the NoAvailablePath grace timer
+                // fired before any new path was opened). Fall back to a PTO derived from the
+                // configured initial RTT, matching RFC 9002 §6.2.2 initial values.
+                let rtt = self.config.initial_rtt;
+                let max_ack_delay = match space {
+                    SpaceKind::Initial | SpaceKind::Handshake => Duration::ZERO,
+                    SpaceKind::Data => self.ack_frequency.max_ack_delay_for_pto(),
+                };
+                rtt + cmp::max(4 * (rtt / 2), TIMER_GRANULARITY) + max_ack_delay
+            })
     }
 
     /// Probe Timeout
@@ -5049,12 +5101,6 @@ impl Connection {
                         Ok(()) => {
                             trace!("peer abandoned path");
                         }
-                        Err(ClosePathError::LastOpenPath) => {
-                            trace!("peer abandoned last path, closing connection");
-                            return Err(TransportError::NO_VIABLE_PATH(
-                                "last path abandoned by peer",
-                            ));
-                        }
                         Err(ClosePathError::ClosedPath) => {
                             trace!("peer abandoned already closed path");
                         }
@@ -5062,6 +5108,13 @@ impl Connection {
                             return Err(TransportError::PROTOCOL_VIOLATION(
                                 "received PATH_ABANDON frame when multipath was not negotiated",
                             ));
+                        }
+                        Err(ClosePathError::LastOpenPath) => {
+                            // Not reachable: close_path_inner allows remote abandons
+                            // for the last path. But handle gracefully just in case.
+                            error!(
+                                "peer abandoned last path but close_path_inner returned LastOpenPath"
+                            );
                         }
                     };
 
@@ -6572,7 +6625,7 @@ impl Connection {
             .filter(|&(path_id, _path_state)| !self.abandoned_paths.contains(path_id))
             .map(|(_path_id, path_state)| path_state.data.current_mtu())
             .min()
-            .expect("There is always at least one available path")
+            .unwrap_or(INITIAL_MTU)
     }
 
     /// Size of non-frame data for a 1-RTT packet
@@ -7184,7 +7237,9 @@ pub enum ClosePathError {
     /// The path is already closed or was never opened
     #[error("closed path")]
     ClosedPath,
-    /// This is the last path, which can not be abandoned
+    /// Cannot close the last remaining open path via the local API.
+    ///
+    /// Use [`Connection::close`] to end the connection instead.
     #[error("last open path")]
     LastOpenPath,
 }
