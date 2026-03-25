@@ -25,10 +25,17 @@ const MAX_PATHS: u32 = 3;
 
 /// Returns a connected client-server pair with multipath enabled
 fn multipath_pair() -> ConnPair {
+    multipath_pair_with_nat_traversal(false)
+}
+
+fn multipath_pair_with_nat_traversal(nat_traversal: bool) -> ConnPair {
     let mut cfg = TransportConfig::default();
     cfg.max_concurrent_multipath_paths(MAX_PATHS);
     // Assume a low-latency connection so pacing doesn't interfere with the test
     cfg.initial_rtt(Duration::from_millis(10));
+    if nat_traversal {
+        cfg.set_max_remote_nat_traversal_addresses(8);
+    }
     #[cfg(feature = "qlog")]
     cfg.qlog_from_env("multipath_test");
 
@@ -1323,6 +1330,46 @@ fn abandon_cycle() -> TestResult {
 
         current_path = new_path;
     }
+
+    Ok(())
+}
+
+/// NAT traversal round revalidates an existing path via new PATH_CHALLENGE.
+#[test]
+fn nat_traversal_revalidates_existing_path() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair_with_nat_traversal(true);
+
+    let server_addr = pair.server.addr;
+    let client_addr = pair.client.addr;
+
+    pair.add_nat_traversal_address(Server, server_addr)?;
+    pair.add_nat_traversal_address(Client, client_addr)?;
+    pair.drive();
+
+    let probed = pair.initiate_nat_traversal_round(Client)?;
+    assert_eq!(probed.len(), 1);
+    assert_eq!(probed[0], server_addr);
+    pair.drive();
+
+    assert_eq!(
+        pair.path_status(Client, PathId::ZERO)?,
+        PathStatus::Available
+    );
+
+    let challenges_before = pair.stats(Client).frame_tx.path_challenge;
+
+    // Second round with the same addresses should trigger revalidation
+    let probed = pair.initiate_nat_traversal_round(Client)?;
+    assert_eq!(probed.len(), 1);
+    pair.drive_bounded(20);
+
+    let challenges_after = pair.stats(Client).frame_tx.path_challenge;
+    assert!(
+        challenges_after > challenges_before,
+        "expected new PATH_CHALLENGE for existing path \
+         (before={challenges_before}, after={challenges_after})"
+    );
 
     Ok(())
 }
