@@ -1082,7 +1082,7 @@ fn remote_path_abandon_last_path_closes_connection() -> TestResult {
     while pair.poll(Client).is_some() {}
     while pair.poll(Server).is_some() {}
 
-    // Simulate remote abandoning path 1 — now the client's last path.
+    // Simulate remote abandoning path 1 (now the client's last path)
     // We use force_remote_abandon because in a real scenario the PATH_ABANDON
     // arrives via a packet on the same path, which auto-creates the path on
     // the receiver if it doesn't exist, making packet-dropping approaches
@@ -1136,7 +1136,7 @@ fn remote_path_abandon_last_path_client_opens_new() -> TestResult {
     while pair.poll(Client).is_some() {}
     while pair.poll(Server).is_some() {}
 
-    // Simulate remote abandoning path 1 — client's last path
+    // Simulate remote abandoning path 1 (client's last path)
     pair.force_remote_abandon(Client, PathId::from(1u8));
 
     // Client opens a new path within the grace period

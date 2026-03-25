@@ -920,7 +920,7 @@ impl Connection {
 
         debug!(%validated, %path_id, %network_path, "path added");
 
-        // A new path appeared — cancel any pending no-viable-path grace timer.
+        // A new path was added. Cancel any pending NoAvailablePath grace timer.
         self.timers.stop(
             Timer::Conn(ConnTimer::NoAvailablePath),
             self.qlog.with_time(now),
