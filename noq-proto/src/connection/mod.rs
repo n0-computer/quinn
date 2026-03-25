@@ -3502,10 +3502,12 @@ impl Connection {
                 };
                 duration = duration.min(hard_cap);
             }
-            if pns.time_of_last_ack_eliciting_packet.is_none() {
+            let Some(last_ack_eliciting) = pns.time_of_last_ack_eliciting_packet else {
                 continue;
-            }
-            let pto = now + duration;
+            };
+            // Base the deadline on when the last probe was sent, so the PTO
+            // doesn't fire before the response has had time to arrive.
+            let pto = last_ack_eliciting.max(now) + duration;
             if result.is_none_or(|(earliest_pto, _)| pto < earliest_pto) {
                 if path.anti_amplification_blocked(1) {
                     // Nothing would be able to be sent.
