@@ -6476,7 +6476,9 @@ impl Connection {
             .saturating_sub(path.in_flight.bytes)
     }
 
-    /// Whether no timers but keepalive, idle, rtt, pushnewcid, and key discard are running
+    /// Whether the next timer would close the connection (or a multipath path) due to an idle timeout.
+    ///
+    /// The "next timer" here ignores keep alives, path keep alives, new CIDs and key discard.
     #[cfg(test)]
     pub(crate) fn is_idle(&self) -> bool {
         let current_timers = self.timers.values();
@@ -6487,6 +6489,7 @@ impl Connection {
                     timer,
                     Timer::Conn(ConnTimer::KeepAlive)
                         | Timer::PerPath(_, PathTimer::PathKeepAlive)
+                        | Timer::PerPath(_, PathTimer::PathIdle)
                         | Timer::Conn(ConnTimer::PushNewCid)
                         | Timer::Conn(ConnTimer::KeyDiscard)
                 )
