@@ -3439,13 +3439,10 @@ impl Connection {
                 };
                 duration = duration.min(hard_cap);
             }
-            let Some(last_ack_eliciting) = pns.time_of_last_ack_eliciting_packet else {
+            if pns.time_of_last_ack_eliciting_packet.is_none() {
                 continue;
-            };
-            // When the cap is active and last_ack_eliciting is far in the past,
-            // schedule PTO at now + duration rather than last_ack_eliciting + duration
-            // to avoid firing immediately in a tight loop.
-            let pto = last_ack_eliciting.max(now) + duration;
+            }
+            let pto = now + duration;
             if result.is_none_or(|(earliest_pto, _)| pto < earliest_pto) {
                 if path.anti_amplification_blocked(1) {
                     // Nothing would be able to be sent.
