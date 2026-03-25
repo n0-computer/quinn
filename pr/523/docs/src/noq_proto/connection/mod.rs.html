@@ -7252,23 +7252,23 @@
 <a href=#7252 id=7252 data-nosnippet>7252</a>    Duration::from_micros(params.max_ack_delay.<span class="number">0 </span>* <span class="number">1000</span>)
 <a href=#7253 id=7253 data-nosnippet>7253</a>}
 <a href=#7254 id=7254 data-nosnippet>7254</a>
-<a href=#7255 id=7255 data-nosnippet>7255</a><span class="comment">// Prevents overflow and improves behavior in extreme circumstances
+<a href=#7255 id=7255 data-nosnippet>7255</a><span class="doccomment">/// Prevents overflow and improves behavior in extreme circumstances
 <a href=#7256 id=7256 data-nosnippet>7256</a></span><span class="kw">const </span>MAX_BACKOFF_EXPONENT: u32 = <span class="number">16</span>;
 <a href=#7257 id=7257 data-nosnippet>7257</a>
-<a href=#7258 id=7258 data-nosnippet>7258</a><span class="comment">// Hard cap on PTO after backoff, matching picoquic's PICOQUIC_LARGE_RETRANSMIT_TIMER.
+<a href=#7258 id=7258 data-nosnippet>7258</a><span class="doccomment">/// Hard cap on PTO after backoff, matching picoquic's PICOQUIC_LARGE_RETRANSMIT_TIMER.
 <a href=#7259 id=7259 data-nosnippet>7259</a></span><span class="kw">const </span>MAX_PTO_INTERVAL: Duration = Duration::from_secs(<span class="number">2</span>);
 <a href=#7260 id=7260 data-nosnippet>7260</a>
-<a href=#7261 id=7261 data-nosnippet>7261</a><span class="comment">// PTO is capped at idle_timeout / IDLE_TIMEOUT_PTO_DIVISOR so ~16 retransmits
-<a href=#7262 id=7262 data-nosnippet>7262</a>// fit before the idle timer fires. Matches picoquic (idle_timeout &gt;&gt; 4).
+<a href=#7261 id=7261 data-nosnippet>7261</a><span class="doccomment">/// PTO is capped at idle_timeout / IDLE_TIMEOUT_PTO_DIVISOR so ~16 retransmits
+<a href=#7262 id=7262 data-nosnippet>7262</a>/// fit before the idle timer fires. Matches picoquic (idle_timeout &gt;&gt; 4).
 <a href=#7263 id=7263 data-nosnippet>7263</a></span><span class="kw">const </span>IDLE_TIMEOUT_PTO_DIVISOR: u32 = <span class="number">16</span>;
 <a href=#7264 id=7264 data-nosnippet>7264</a>
-<a href=#7265 id=7265 data-nosnippet>7265</a><span class="comment">// RTT threshold above which the PTO cap uses 1.5 * smoothed_rtt instead of
-<a href=#7266 id=7266 data-nosnippet>7266</a>// MAX_PTO_INTERVAL. Matches picoquic's PICOQUIC_TARGET_SATELLITE_RTT (610ms).
+<a href=#7265 id=7265 data-nosnippet>7265</a><span class="doccomment">/// RTT threshold above which the PTO cap uses 1.5 * smoothed_rtt instead of
+<a href=#7266 id=7266 data-nosnippet>7266</a>/// MAX_PTO_INTERVAL. Matches picoquic's PICOQUIC_TARGET_SATELLITE_RTT (610ms).
 <a href=#7267 id=7267 data-nosnippet>7267</a></span><span class="kw">const </span>SATELLITE_RTT_THRESHOLD: Duration = Duration::from_millis(<span class="number">610</span>);
 <a href=#7268 id=7268 data-nosnippet>7268</a>
-<a href=#7269 id=7269 data-nosnippet>7269</a><span class="comment">// Idle timeout must exceed this for the idle-bound PTO cap to apply.
-<a href=#7270 id=7270 data-nosnippet>7270</a>// With short idle timeouts, the cap would make PTO too aggressive.
-<a href=#7271 id=7271 data-nosnippet>7271</a>// Matches picoquic's guard (idle_timeout &gt; 15).
+<a href=#7269 id=7269 data-nosnippet>7269</a><span class="doccomment">/// Idle timeout must exceed this for the idle-bound PTO cap to apply.
+<a href=#7270 id=7270 data-nosnippet>7270</a>/// With short idle timeouts, the cap would make PTO too aggressive.
+<a href=#7271 id=7271 data-nosnippet>7271</a>/// Matches picoquic's guard (idle_timeout &gt; 15).
 <a href=#7272 id=7272 data-nosnippet>7272</a></span><span class="kw">const </span>MIN_IDLE_FOR_PTO_CAP: Duration = Duration::from_secs(<span class="number">15</span>);
 <a href=#7273 id=7273 data-nosnippet>7273</a>
 <a href=#7274 id=7274 data-nosnippet>7274</a><span class="doccomment">/// Minimal remaining size to allow packet coalescing, excluding cryptographic tag
