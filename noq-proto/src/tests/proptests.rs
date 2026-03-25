@@ -11,11 +11,9 @@ use proptest::{
 use test_strategy::proptest;
 use tracing::error;
 
-use bytes::Bytes;
-
 use crate::{
     Connection, ConnectionClose, ConnectionError, Event, PathStatus, Side, TransportConfig,
-    TransportErrorCode, VarInt,
+    TransportErrorCode,
     tests::{
         Pair, RoutingTable,
         random_interaction::{TestOp, run_random_interaction},
@@ -117,11 +115,6 @@ fn random_interaction_with_multipath_simple_routing(
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
-    // Close the connection explicitly — with PTO caps, active paths with
-    // reachable peers never idle on their own (correct behavior).
-    let now = pair.time;
-    pair.client_conn_mut(client_ch)
-        .close(now, VarInt(0), Bytes::new());
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
     prop_assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
@@ -175,11 +168,6 @@ fn random_interaction_with_multipath_complex_routing(
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
-    // Close the connection explicitly — with PTO caps, active paths with
-    // reachable peers never idle on their own (correct behavior).
-    let now = pair.time;
-    pair.client_conn_mut(client_ch)
-        .close(now, VarInt(0), Bytes::new());
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
     prop_assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
