@@ -2451,11 +2451,21 @@ impl Connection {
                                 Timer::PerPath(path_id, PathTimer::PathChallengeLost),
                                 self.qlog.with_time(now),
                             );
-                            debug!("path validation failed");
                             if let Some((_, prev)) = path.prev.take() {
+                                debug!("path migration validation failed, reverting");
                                 path.data = prev;
+                                path.data.reset_on_path_challenges();
+                            } else {
+                                debug!("path revalidation failed, abandoning");
+                                path.data.reset_on_path_challenges();
+                                if let Err(err) = self.close_path_inner(
+                                    now,
+                                    path_id,
+                                    PathAbandonReason::ValidationFailed,
+                                ) {
+                                    warn!(?err, "failed closing path after revalidation failure");
+                                }
                             }
-                            path.data.reset_on_path_challenges();
                         }
                         PathTimer::PathChallengeLost => {
                             let Some(path) = self.paths.get_mut(&path_id) else {
@@ -6913,7 +6923,16 @@ impl Connection {
         match self.open_path_ensure(network_path, PathStatus::Backup, now) {
             Ok((path_id, path_was_known)) => {
                 if path_was_known {
-                    trace!(%path_id, %remote, "nat traversal: path existed for remote");
+                    trace!(%path_id, %remote, "nat traversal: path existed for remote, revalidating");
+                    if let Some(path) = self.paths.get_mut(&path_id) {
+                        path.data.pending_on_path_challenge = true;
+                    }
+                    let pto = self.pto(SpaceKind::Data, path_id);
+                    self.timers.set(
+                        Timer::PerPath(path_id, PathTimer::PathValidationFailed),
+                        now + 3 * pto,
+                        self.qlog.with_time(now),
+                    );
                 }
                 Ok(Some((path_id, remote)))
             }
