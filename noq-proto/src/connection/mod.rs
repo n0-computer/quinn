@@ -7311,23 +7311,23 @@ fn get_max_ack_delay(params: &TransportParameters) -> Duration {
     Duration::from_micros(params.max_ack_delay.0 * 1000)
 }
 
-// Prevents overflow and improves behavior in extreme circumstances
+/// Prevents overflow and improves behavior in extreme circumstances
 const MAX_BACKOFF_EXPONENT: u32 = 16;
 
-// Hard cap on PTO after backoff, matching picoquic's PICOQUIC_LARGE_RETRANSMIT_TIMER.
+/// Hard cap on PTO after backoff, matching picoquic's PICOQUIC_LARGE_RETRANSMIT_TIMER.
 const MAX_PTO_INTERVAL: Duration = Duration::from_secs(2);
 
-// PTO is capped at idle_timeout / IDLE_TIMEOUT_PTO_DIVISOR so ~16 retransmits
-// fit before the idle timer fires. Matches picoquic (idle_timeout >> 4).
+/// PTO is capped at idle_timeout / IDLE_TIMEOUT_PTO_DIVISOR so ~16 retransmits
+/// fit before the idle timer fires. Matches picoquic (idle_timeout >> 4).
 const IDLE_TIMEOUT_PTO_DIVISOR: u32 = 16;
 
-// RTT threshold above which the PTO cap uses 1.5 * smoothed_rtt instead of
-// MAX_PTO_INTERVAL. Matches picoquic's PICOQUIC_TARGET_SATELLITE_RTT (610ms).
+/// RTT threshold above which the PTO cap uses 1.5 * smoothed_rtt instead of
+/// MAX_PTO_INTERVAL. Matches picoquic's PICOQUIC_TARGET_SATELLITE_RTT (610ms).
 const SATELLITE_RTT_THRESHOLD: Duration = Duration::from_millis(610);
 
-// Idle timeout must exceed this for the idle-bound PTO cap to apply.
-// With short idle timeouts, the cap would make PTO too aggressive.
-// Matches picoquic's guard (idle_timeout > 15).
+/// Idle timeout must exceed this for the idle-bound PTO cap to apply.
+/// With short idle timeouts, the cap would make PTO too aggressive.
+/// Matches picoquic's guard (idle_timeout > 15).
 const MIN_IDLE_FOR_PTO_CAP: Duration = Duration::from_secs(15);
 
 /// Minimal remaining size to allow packet coalescing, excluding cryptographic tag
