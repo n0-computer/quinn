@@ -850,6 +850,7 @@ impl Connection {
     /// Returns the previous value of the setting.
     pub fn set_path_max_idle_timeout(
         &mut self,
+        now: Instant,
         path_id: PathId,
         timeout: Option<Duration>,
     ) -> Result<Option<Duration>, ClosedPath> {
@@ -857,7 +858,30 @@ impl Connection {
             .paths
             .get_mut(&path_id)
             .ok_or(ClosedPath { _private: () })?;
-        Ok(std::mem::replace(&mut path.data.idle_timeout, timeout))
+        let prev = std::mem::replace(&mut path.data.idle_timeout, timeout);
+
+        // Adjust the PathIdle timer, accounting for already-elapsed idle time.
+        if !self.state.is_closed() {
+            if let Some(new_timeout) = timeout {
+                let timer = Timer::PerPath(path_id, PathTimer::PathIdle);
+                let deadline = match (prev, self.timers.get(timer)) {
+                    (Some(old_timeout), Some(old_deadline)) => old_deadline
+                        .checked_sub(old_timeout)
+                        .map(|last_activity| last_activity + new_timeout)
+                        .unwrap_or(now + new_timeout)
+                        .max(now),
+                    _ => now + new_timeout,
+                };
+                self.timers.set(timer, deadline, self.qlog.with_time(now));
+            } else {
+                self.timers.stop(
+                    Timer::PerPath(path_id, PathTimer::PathIdle),
+                    self.qlog.with_time(now),
+                );
+            }
+        }
+
+        Ok(prev)
     }
 
     /// Sets the keep_alive_interval for a specific path
@@ -5540,11 +5564,13 @@ impl Connection {
             }
             open_paths += 1;
 
+            // Read the network path BEFORE clearing local_ip, so the hint can
+            // check which interface the path was using.
+            let network_path = path.data.network_path;
+
             // Clear the local address for it to be obtained from the socket again. This applies to
             // all paths, regardless of being considered recoverable or not
             path.data.network_path.local_ip = None;
-
-            let network_path = path.data.network_path;
             let remote = network_path.remote;
 
             // Without multipath, the connection tries to recover the single path, whereas with
@@ -5614,16 +5640,21 @@ impl Connection {
         /* RECOVERABLE PATHS */
 
         for (path_id, remote) in recoverable_paths.into_iter() {
-            let space = &mut self.spaces[SpaceId::Data];
-
             // Schedule a Ping for a liveness check.
-            if let Some(path_space) = space.number_spaces.get_mut(&path_id) {
+            if let Some(path_space) = self.spaces[SpaceId::Data].number_spaces.get_mut(&path_id) {
                 path_space.ping_pending = true;
 
                 if immediate_ack_allowed {
                     path_space.immediate_ack_pending = true;
                 }
             }
+
+            // Reset PTO backoff so retransmits resume promptly. Congestion controller
+            // and RTT are intentionally preserved for recoverable paths.
+            if let Some(path) = self.paths.get_mut(&path_id) {
+                path.data.pto_count = 0;
+            }
+            self.set_loss_detection_timer(now, path_id);
 
             let Some((reset_token, retired)) =
                 self.remote_cids.get_mut(&path_id).and_then(CidQueue::next)
@@ -5632,7 +5663,7 @@ impl Connection {
             };
 
             // Retire the current remote CID and any CIDs we had to skip.
-            space
+            self.spaces[SpaceId::Data]
                 .pending
                 .retire_cids
                 .extend(retired.map(|seq| (path_id, seq)));
