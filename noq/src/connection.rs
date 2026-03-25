@@ -383,7 +383,7 @@ impl Connection {
     ///
     /// [`open_path`]: Self::open_path
     pub fn open_path_ensure(&self, addr: SocketAddr, initial_status: PathStatus) -> OpenPath {
-        let mut state = self.0.state.lock("open_path");
+        let mut state = self.0.lock_and_wake("open_path");
 
         // If endpoint::State::ipv6 is true we want to keep all our IP addresses as IPv6.
         // If not, we do not support IPv6.  We can not access endpoint::State from here
@@ -416,7 +416,6 @@ impl Connection {
         // However, changing that would mean changing the API.
         let addrs = FourTuple::from_remote(addr);
         let open_res = state.inner.open_path_ensure(addrs, initial_status, now);
-        state.wake();
         match open_res {
             Ok((path_id, existed)) if existed => {
                 let recv = state.open_path.get(&path_id).map(|tx| tx.subscribe());
@@ -451,7 +450,7 @@ impl Connection {
     /// return `None` and the future will be ready immediately.  If the failure happens
     /// later, a [`PathEvent`] will be emitted.
     pub fn open_path(&self, addr: SocketAddr, initial_status: PathStatus) -> OpenPath {
-        let mut state = self.0.state.lock("open_path");
+        let mut state = self.0.lock_and_wake("open_path");
 
         // If endpoint::State::ipv6 is true we want to keep all our IP addresses as IPv6.
         // If not, we do not support IPv6.  We can not access endpoint::State from here
@@ -485,7 +484,6 @@ impl Connection {
         // However, changing that would mean changing the API.
         let addrs = FourTuple::from_remote(addr);
         let open_res = state.inner.open_path(addrs, initial_status, now);
-        state.wake();
         match open_res {
             Ok(path_id) => {
                 state.open_path.insert(path_id, on_open_path_send);
@@ -663,16 +661,13 @@ impl Connection {
     /// Previously queued datagrams which are still unsent may be discarded to make space for this
     /// datagram, in order of oldest to newest.
     pub fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError> {
-        let conn = &mut *self.0.state.lock("send_datagram");
+        let conn = &mut *self.0.lock_and_wake("send_datagram");
         if let Some(ref x) = conn.error {
             return Err(SendDatagramError::ConnectionLost(x.clone()));
         }
         use proto::SendDatagramError::*;
         match conn.inner.datagrams().send(data, true) {
-            Ok(()) => {
-                conn.wake();
-                Ok(())
-            }
+            Ok(()) => Ok(()),
             Err(e) => Err(match e {
                 Blocked(..) => unreachable!(),
                 UnsupportedByPeer => SendDatagramError::UnsupportedByPeer,
@@ -882,24 +877,20 @@ impl Connection {
     /// No streams may be opened by the peer unless fewer than `count` are already open. Large
     /// `count`s increase both minimum and worst-case memory consumption.
     pub fn set_max_concurrent_uni_streams(&self, count: VarInt) {
-        let mut conn = self.0.state.lock("set_max_concurrent_uni_streams");
+        let mut conn = self.0.lock_and_wake("set_max_concurrent_uni_streams");
         conn.inner.set_max_concurrent_streams(Dir::Uni, count);
-        // May need to send MAX_STREAMS to make progress
-        conn.wake();
     }
 
     /// See [`proto::TransportConfig::send_window()`]
     pub fn set_send_window(&self, send_window: u64) {
-        let mut conn = self.0.state.lock("set_send_window");
+        let mut conn = self.0.lock_and_wake("set_send_window");
         conn.inner.set_send_window(send_window);
-        conn.wake();
     }
 
     /// See [`proto::TransportConfig::receive_window()`]
     pub fn set_receive_window(&self, receive_window: VarInt) {
-        let mut conn = self.0.state.lock("set_receive_window");
+        let mut conn = self.0.lock_and_wake("set_receive_window");
         conn.inner.set_receive_window(receive_window);
-        conn.wake();
     }
 
     /// Modify the number of remotely initiated bidirectional streams that may be concurrently open
@@ -907,10 +898,8 @@ impl Connection {
     /// No streams may be opened by the peer unless fewer than `count` are already open. Large
     /// `count`s increase both minimum and worst-case memory consumption.
     pub fn set_max_concurrent_bi_streams(&self, count: VarInt) {
-        let mut conn = self.0.state.lock("set_max_concurrent_bi_streams");
+        let mut conn = self.0.lock_and_wake("set_max_concurrent_bi_streams");
         conn.inner.set_max_concurrent_streams(Dir::Bi, count);
-        // May need to send MAX_STREAMS to make progress
-        conn.wake();
     }
 
     /// Track changes on our external address as reported by the peer.
@@ -937,10 +926,8 @@ impl Connection {
         &self,
         address: SocketAddr,
     ) -> Result<(), n0_nat_traversal::Error> {
-        let mut conn = self.0.state.lock("add_nat_traversal_addresses");
-        let result = conn.inner.add_nat_traversal_address(address);
-        conn.wake();
-        result
+        let mut conn = self.0.lock_and_wake("add_nat_traversal_addresses");
+        conn.inner.add_nat_traversal_address(address)
     }
 
     /// Removes one or more addresses from the set of addresses at which this endpoint is reachable
@@ -956,10 +943,8 @@ impl Connection {
         &self,
         address: SocketAddr,
     ) -> Result<(), n0_nat_traversal::Error> {
-        let mut conn = self.0.state.lock("remove_nat_traversal_addresses");
-        let result = conn.inner.remove_nat_traversal_address(address);
-        conn.wake();
-        result
+        let mut conn = self.0.lock_and_wake("remove_nat_traversal_addresses");
+        conn.inner.remove_nat_traversal_address(address)
     }
 
     /// Get the current local nat traversal addresses
@@ -986,11 +971,9 @@ impl Connection {
     ///
     /// Returns the server addresses that are now being probed.
     pub fn initiate_nat_traversal_round(&self) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
-        let mut conn = self.0.state.lock("initiate_nat_traversal_round");
+        let mut conn = self.0.lock_and_wake("initiate_nat_traversal_round");
         let now = conn.runtime.now();
-        let result = conn.inner.initiate_nat_traversal_round(now);
-        conn.wake();
-        result
+        conn.inner.initiate_nat_traversal_round(now)
     }
 }
 
@@ -1107,13 +1090,12 @@ fn poll_accept<'a>(
     mut notify: Pin<&mut Notified<'a>>,
     dir: Dir,
 ) -> Poll<Result<(ConnectionRef, StreamId, bool), ConnectionError>> {
-    let mut state = conn.state.lock("poll_accept");
+    let mut state = conn.lock_and_wake("poll_accept");
     // Check for incoming streams before checking `state.error` so that already-received streams,
     // which are necessarily finite, can be drained from a closed connection.
     if let Some(id) = state.inner.streams().accept(dir) {
         let is_0rtt = state.inner.is_handshaking();
-        state.wake(); // To send additional stream ID credit
-        drop(state); // Release the lock so clone can take it
+        drop(state); // Release the lock (wake on drop) so clone can take it
         return Poll::Ready(Ok((conn.clone(), id, is_0rtt)));
     } else if let Some(ref e) = state.error {
         return Poll::Ready(Err(e.clone()));
@@ -1176,7 +1158,7 @@ impl Future for SendDatagram<'_> {
     type Output = Result<(), SendDatagramError>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
-        let mut state = this.conn.state.lock("SendDatagram::poll");
+        let mut state = this.conn.lock_and_wake("SendDatagram::poll");
         if let Some(ref e) = state.error {
             return Poll::Ready(Err(SendDatagramError::ConnectionLost(e.clone())));
         }
@@ -1186,10 +1168,7 @@ impl Future for SendDatagram<'_> {
             .datagrams()
             .send(this.data.take().unwrap(), false)
         {
-            Ok(()) => {
-                state.wake();
-                Poll::Ready(Ok(()))
-            }
+            Ok(()) => Poll::Ready(Ok(())),
             Err(e) => Poll::Ready(Err(match e {
                 Blocked(data) => {
                     this.data.replace(data);
@@ -1301,6 +1280,41 @@ impl std::ops::Deref for ConnectionRef {
 pub(crate) struct ConnectionInner {
     pub(crate) state: Mutex<State>,
     pub(crate) shared: Shared,
+}
+
+impl ConnectionInner {
+    /// Lock the state and return a guard that wakes the connection driver on drop.
+    ///
+    /// Use this for operations that may queue frames. The wake ensures the driver sends queued frames.
+    fn lock_and_wake(&self, purpose: &'static str) -> WakeGuard<'_> {
+        WakeGuard {
+            guard: self.state.lock(purpose),
+        }
+    }
+}
+
+/// [`MutexGuard`] wrapper that calls [`State::wake`] on drop.
+struct WakeGuard<'a> {
+    guard: crate::mutex::MutexGuard<'a, State>,
+}
+
+impl Drop for WakeGuard<'_> {
+    fn drop(&mut self) {
+        self.guard.wake();
+    }
+}
+
+impl std::ops::Deref for WakeGuard<'_> {
+    type Target = State;
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
+
+impl std::ops::DerefMut for WakeGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.guard
+    }
 }
 
 /// A handle to some connection internals, use with care.
