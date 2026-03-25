@@ -1,19 +1,24 @@
 //! Connection statistics
 
+use rustc_hash::FxHashMap;
+
 use crate::Duration;
 use crate::FrameType;
 
-/// Statistics about UDP datagrams transmitted or received on a connection
+use super::PathId;
+
+/// Statistics about UDP datagrams transmitted or received on a connection.
 ///
-/// All QUIC packets are carried by UDP datagrams. Hence, these statistics cover all traffic on a connection.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+/// All QUIC packets are carried by UDP datagrams. Hence, these statistics cover all traffic
+/// on a connection.
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, derive_more::Add, derive_more::AddAssign)]
 #[non_exhaustive]
 pub struct UdpStats {
-    /// The amount of UDP datagrams observed
+    /// The number of UDP datagrams observed.
     pub datagrams: u64,
-    /// The total amount of bytes which have been transferred inside UDP datagrams
+    /// The total amount of bytes which have been transferred inside UDP datagrams.
     pub bytes: u64,
-    /// The amount of I/O operations executed
+    /// The number of I/O operations executed.
     ///
     /// Can be less than `datagrams` when GSO, GRO, and/or batched system calls are in use.
     pub ios: u64,
@@ -27,8 +32,8 @@ impl UdpStats {
     }
 }
 
-/// Number of frames transmitted or received of each frame type
-#[derive(Default, Copy, Clone)]
+/// Number of frames transmitted or received of each frame type.
+#[derive(Default, Copy, Clone, PartialEq, Eq, derive_more::Add, derive_more::AddAssign)]
 #[non_exhaustive]
 #[allow(missing_docs)]
 pub struct FrameStats {
@@ -123,83 +128,220 @@ impl FrameStats {
 
 impl std::fmt::Debug for FrameStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            acks,
+            path_acks,
+            ack_frequency,
+            crypto,
+            connection_close,
+            data_blocked,
+            datagram,
+            handshake_done,
+            immediate_ack,
+            max_data,
+            max_stream_data,
+            max_streams_bidi,
+            max_streams_uni,
+            new_connection_id,
+            path_new_connection_id,
+            new_token,
+            path_challenge,
+            path_response,
+            ping,
+            reset_stream,
+            retire_connection_id,
+            path_retire_connection_id,
+            stream_data_blocked,
+            streams_blocked_bidi,
+            streams_blocked_uni,
+            stop_sending,
+            stream,
+            observed_addr,
+            path_abandon,
+            path_status_available,
+            path_status_backup,
+            max_path_id,
+            paths_blocked,
+            path_cids_blocked,
+            add_address,
+            reach_out,
+            remove_address,
+        } = self;
         f.debug_struct("FrameStats")
-            .field("ACK", &self.acks)
-            .field("ACK_FREQUENCY", &self.ack_frequency)
-            .field("CONNECTION_CLOSE", &self.connection_close)
-            .field("CRYPTO", &self.crypto)
-            .field("DATA_BLOCKED", &self.data_blocked)
-            .field("DATAGRAM", &self.datagram)
-            .field("HANDSHAKE_DONE", &self.handshake_done)
-            .field("IMMEDIATE_ACK", &self.immediate_ack)
-            .field("MAX_DATA", &self.max_data)
-            .field("MAX_PATH_ID", &self.max_path_id)
-            .field("MAX_STREAM_DATA", &self.max_stream_data)
-            .field("MAX_STREAMS_BIDI", &self.max_streams_bidi)
-            .field("MAX_STREAMS_UNI", &self.max_streams_uni)
-            .field("NEW_CONNECTION_ID", &self.new_connection_id)
-            .field("NEW_TOKEN", &self.new_token)
-            .field("PATHS_BLOCKED", &self.paths_blocked)
-            .field("PATH_ABANDON", &self.path_abandon)
-            .field("PATH_ACK", &self.path_acks)
-            .field("PATH_STATUS_AVAILABLE", &self.path_status_available)
-            .field("PATH_STATUS_BACKUP", &self.path_status_backup)
-            .field("PATH_CHALLENGE", &self.path_challenge)
-            .field("PATH_CIDS_BLOCKED", &self.path_cids_blocked)
-            .field("PATH_NEW_CONNECTION_ID", &self.path_new_connection_id)
-            .field("PATH_RESPONSE", &self.path_response)
-            .field("PATH_RETIRE_CONNECTION_ID", &self.path_retire_connection_id)
-            .field("PING", &self.ping)
-            .field("RESET_STREAM", &self.reset_stream)
-            .field("RETIRE_CONNECTION_ID", &self.retire_connection_id)
-            .field("STREAM_DATA_BLOCKED", &self.stream_data_blocked)
-            .field("STREAMS_BLOCKED_BIDI", &self.streams_blocked_bidi)
-            .field("STREAMS_BLOCKED_UNI", &self.streams_blocked_uni)
-            .field("STOP_SENDING", &self.stop_sending)
-            .field("STREAM", &self.stream)
+            .field("ACK", acks)
+            .field("ACK_FREQUENCY", ack_frequency)
+            .field("CONNECTION_CLOSE", connection_close)
+            .field("CRYPTO", crypto)
+            .field("DATA_BLOCKED", data_blocked)
+            .field("DATAGRAM", datagram)
+            .field("HANDSHAKE_DONE", handshake_done)
+            .field("IMMEDIATE_ACK", immediate_ack)
+            .field("MAX_DATA", max_data)
+            .field("MAX_PATH_ID", max_path_id)
+            .field("MAX_STREAM_DATA", max_stream_data)
+            .field("MAX_STREAMS_BIDI", max_streams_bidi)
+            .field("MAX_STREAMS_UNI", max_streams_uni)
+            .field("NEW_CONNECTION_ID", new_connection_id)
+            .field("NEW_TOKEN", new_token)
+            .field("PATHS_BLOCKED", paths_blocked)
+            .field("PATH_ABANDON", path_abandon)
+            .field("PATH_ACK", path_acks)
+            .field("PATH_STATUS_AVAILABLE", path_status_available)
+            .field("PATH_STATUS_BACKUP", path_status_backup)
+            .field("PATH_CHALLENGE", path_challenge)
+            .field("PATH_CIDS_BLOCKED", path_cids_blocked)
+            .field("PATH_NEW_CONNECTION_ID", path_new_connection_id)
+            .field("PATH_RESPONSE", path_response)
+            .field("PATH_RETIRE_CONNECTION_ID", path_retire_connection_id)
+            .field("PING", ping)
+            .field("RESET_STREAM", reset_stream)
+            .field("RETIRE_CONNECTION_ID", retire_connection_id)
+            .field("STREAM_DATA_BLOCKED", stream_data_blocked)
+            .field("STREAMS_BLOCKED_BIDI", streams_blocked_bidi)
+            .field("STREAMS_BLOCKED_UNI", streams_blocked_uni)
+            .field("STOP_SENDING", stop_sending)
+            .field("STREAM", stream)
+            .field("OBSERVED_ADDRESS", observed_addr)
+            .field("ADD_ADDRESS", add_address)
+            .field("REACH_OUT", reach_out)
+            .field("REMOVE_ADDRESS", remove_address)
             .finish()
     }
 }
 
-/// Statistics related to a transmission path
+/// Statistics related to a transmission path.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PathStats {
-    /// Current best estimate of this connection's latency (round-trip-time)
+    /// Current best estimate of this connection's latency (round-trip-time).
     pub rtt: Duration,
-    /// Statistics about datagrams and bytes sent on this path
+    /// Statistics about datagrams and bytes sent on this path.
     pub udp_tx: UdpStats,
-    /// Statistics about datagrams and bytes received on this path
+    /// Statistics about datagrams and bytes received on this path.
     pub udp_rx: UdpStats,
-    /// Current congestion window of the connection
+    /// Statistics about frames transmitted on this path.
+    pub frame_tx: FrameStats,
+    /// Statistics about frames received on this path.
+    pub frame_rx: FrameStats,
+    /// Current congestion window of the connection.
     pub cwnd: u64,
-    /// Congestion events on the connection
+    /// Congestion events on the connection.
     pub congestion_events: u64,
-    /// The amount of packets lost on this path
+    /// The amount of packets lost on this path.
     pub lost_packets: u64,
-    /// The amount of bytes lost on this path
+    /// The amount of bytes lost on this path.
     pub lost_bytes: u64,
-    /// The amount of PLPMTUD probe packets sent on this path (also counted by `udp_tx.datagrams`)
+    /// The number of PLPMTUD probe packets sent on this path.
+    ///
+    /// These are also counted by [`UdpStats::datagrams`].
     pub sent_plpmtud_probes: u64,
-    /// The amount of PLPMTUD probe packets lost on this path (ignored by `lost_packets` and
-    /// `lost_bytes`)
+    /// The number of PLPMTUD probe packets lost on this path.
+    ///
+    /// These are not included in [`Self::lost_packets`] and [`Self::lost_bytes`].
     pub lost_plpmtud_probes: u64,
-    /// The number of times a black hole was detected in the path
+    /// The number of times a black hole was detected in the path.
     pub black_holes_detected: u64,
-    /// Largest UDP payload size the path currently supports
+    /// Largest UDP payload size the path currently supports.
     pub current_mtu: u16,
 }
 
-/// Connection statistics
+/// Connection statistics.
+///
+/// The fields here are a sum of the respective fields in the [`PathStats`] for all the
+/// paths that exist as well as all paths that previously existed.
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct ConnectionStats {
-    /// Statistics about UDP datagrams transmitted on a connection
+    /// Statistics about UDP datagrams transmitted on a connection.
     pub udp_tx: UdpStats,
-    /// Statistics about UDP datagrams received on a connection
+    /// Statistics about UDP datagrams received on a connection.
     pub udp_rx: UdpStats,
-    /// Statistics about frames transmitted on a connection
+    /// Statistics about frames transmitted on a connection.
     pub frame_tx: FrameStats,
-    /// Statistics about frames received on a connection
+    /// Statistics about frames received on a connection.
     pub frame_rx: FrameStats,
+}
+
+impl std::ops::Add<PathStats> for ConnectionStats {
+    type Output = Self;
+
+    fn add(self, rhs: PathStats) -> Self::Output {
+        // Be aware that Connection::stats() relies on the fact this function ignores the
+        // rtt, cwnd and current_mtu fields.
+        let PathStats {
+            rtt: _,
+            udp_tx,
+            udp_rx,
+            frame_tx,
+            frame_rx,
+            cwnd: _,
+            congestion_events: _,
+            lost_packets: _,
+            lost_bytes: _,
+            sent_plpmtud_probes: _,
+            lost_plpmtud_probes: _,
+            black_holes_detected: _,
+            current_mtu: _,
+        } = rhs;
+        Self {
+            udp_tx: self.udp_tx + udp_tx,
+            udp_rx: self.udp_rx + udp_rx,
+            frame_tx: self.frame_tx + frame_tx,
+            frame_rx: self.frame_rx + frame_rx,
+        }
+    }
+}
+
+impl std::ops::AddAssign<PathStats> for ConnectionStats {
+    fn add_assign(&mut self, rhs: PathStats) {
+        // Be aware that Connection::stats() relies on the fact this function ignores the
+        // rtt, cwnd and current_mtu fields.
+        let PathStats {
+            rtt: _,
+            udp_tx,
+            udp_rx,
+            frame_tx,
+            frame_rx,
+            cwnd: _,
+            congestion_events: _,
+            lost_packets: _,
+            lost_bytes: _,
+            sent_plpmtud_probes: _,
+            lost_plpmtud_probes: _,
+            black_holes_detected: _,
+            current_mtu: _,
+        } = rhs;
+        self.udp_tx += udp_tx;
+        self.udp_rx += udp_rx;
+        self.frame_tx += frame_tx;
+        self.frame_rx += frame_rx;
+    }
+}
+
+/// Helper to make [`PathStats`] infallibly available.
+///
+/// This helper also helps with borrowing issues compared to having the [`Self::for_path`]
+/// function as a helper directly on [`Connection`].
+///
+/// [`Connection`]: super::Connection
+#[derive(Debug, Default)]
+pub(super) struct PathStatsMap(FxHashMap<PathId, PathStats>);
+
+impl PathStatsMap {
+    /// Returns the [`PathStats`] for the path.
+    pub(super) fn for_path(&mut self, path_id: PathId) -> &mut PathStats {
+        self.0.entry(path_id).or_default()
+    }
+
+    /// An iterator over all contained [`PathStats`].
+    pub(super) fn iter_stats(&self) -> impl Iterator<Item = &PathStats> {
+        self.0.values()
+    }
+
+    /// Removes the stats for a given path.
+    ///
+    /// Only do this once you are discarding the path.
+    pub(super) fn discard(&mut self, path_id: &PathId) -> PathStats {
+        self.0.remove(path_id).unwrap_or_default()
+    }
 }
