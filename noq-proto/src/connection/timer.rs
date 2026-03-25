@@ -31,7 +31,7 @@ pub(crate) enum ConnTimer {
     ///
     /// If no new path is opened before this fires, close the connection.
     /// See <https://www.ietf.org/archive/id/draft-ietf-quic-multipath-21.html#section-3.4-8>
-    NoViablePath = 5,
+    NoAvailablePath = 5,
 }
 
 impl ConnTimer {
@@ -41,7 +41,7 @@ impl ConnTimer {
         Self::KeyDiscard,
         Self::KeepAlive,
         Self::PushNewCid,
-        Self::NoViablePath,
+        Self::NoAvailablePath,
     ];
 }
 

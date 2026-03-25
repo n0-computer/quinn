@@ -666,7 +666,7 @@ impl Connection {
             let pto = rtt.pto_base() + self.ack_frequency.max_ack_delay_for_pto();
             let grace = pto * 3;
             self.timers.set(
-                Timer::Conn(ConnTimer::NoViablePath),
+                Timer::Conn(ConnTimer::NoAvailablePath),
                 now + grace,
                 self.qlog.with_time(now),
             );
@@ -922,7 +922,7 @@ impl Connection {
 
         // A new path appeared — cancel any pending no-viable-path grace timer.
         self.timers.stop(
-            Timer::Conn(ConnTimer::NoViablePath),
+            Timer::Conn(ConnTimer::NoAvailablePath),
             self.qlog.with_time(now),
         );
         let peer_max_udp_payload_size =
@@ -2353,14 +2353,15 @@ impl Connection {
                             }
                         }
                     }
-                    ConnTimer::NoViablePath => {
+                    ConnTimer::NoAvailablePath => {
                         // Grace period expired: all paths were abandoned and no new path
-                        // was opened. Close the connection with CONNECTION_CLOSE.
+                        // was opened. Close the connection. There are no paths left to
+                        // send CONNECTION_CLOSE on, so this is a silent close.
                         // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-21.html#section-3.4-8
                         if self.state.is_closed() || self.state.is_drained() {
                             // Connection already closing/drained (e.g. application called
                             // close() before the grace timer fired). Nothing to do.
-                            trace!("no viable path timer fired, but connection already closing");
+                            error!("no viable path timer fired, but connection already closing");
                         } else {
                             trace!("no viable path grace period expired, closing connection");
                             let err = TransportError::NO_VIABLE_PATH(
@@ -3517,7 +3518,7 @@ impl Connection {
             .map(|path_id| self.pto(space, *path_id))
             .max()
             .unwrap_or_else(|| {
-                // No paths remain (e.g. last path was abandoned and the NoViablePath grace timer
+                // No paths remain (e.g. last path was abandoned and the NoAvailablePath grace timer
                 // fired before any new path was opened). Fall back to a PTO derived from the
                 // configured initial RTT, matching RFC 9002 §6.2.2 initial values.
                 let rtt = self.config.initial_rtt;
