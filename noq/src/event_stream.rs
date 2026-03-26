@@ -93,9 +93,10 @@ impl ObservedExternalAddr {
         Self { rx, stream }
     }
 
-    /// Returns the most recently observed external address, or `None` if the
-    /// peer has not yet reported one. Retains the last value even after the
-    /// stream is closed.
+    /// Returns the most recently observed external address.
+    ///
+    /// `None` is returned if the peer has not yet reported an address. Retains
+    /// the last value even after the stream is closed.
     pub fn get(&self) -> Option<SocketAddr> {
         *self.rx.borrow()
     }
