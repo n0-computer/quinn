@@ -870,7 +870,7 @@ impl Connection {
                 let deadline = match (prev, self.timers.get(timer)) {
                     (Some(old_timeout), Some(old_deadline)) => {
                         let last_activity = old_deadline.checked_sub(old_timeout).unwrap_or(now);
-                        (last_activity + new_timeout).max(now)
+                        last_activity + new_timeout
                     }
                     _ => now + new_timeout,
                 };
