@@ -7335,7 +7335,7 @@ const MAX_BACKOFF_EXPONENT: u32 = 16;
 /// This is the "normal" value we use.
 const MAX_PTO_INTERVAL: Duration = Duration::from_secs(2);
 
-/// The idle time, below which we use the shorter [`MAX_PTO_INTERVAL_FAST`].
+/// The idle time, below which we use the shorter [`MAX_PTO_FAST_INTERVAL`].
 const MIN_IDLE_FOR_FAST_PTO: Duration = Duration::from_secs(25);
 
 /// The max interval between successive tail-loss probes with short idle times.
@@ -7346,7 +7346,7 @@ const MAX_PTO_FAST_INTERVAL: Duration = Duration::from_secs(1);
 
 /// The RTT threshold above which we cap the PTO interval to 1.5 * smoothed_rtt
 ///
-/// This is RTT time above which 1.5 * RTT > [`MAC_PTO_INTERVAL`], for these links we want
+/// This is RTT time above which 1.5 * RTT > [`MAX_PTO_INTERVAL`], for these links we want
 /// to extend the interval between tail-loss probes to not fill the entire pipe with them.
 const SLOW_RTT_THRESHOLD: Duration = Duration::from_millis(610);
 

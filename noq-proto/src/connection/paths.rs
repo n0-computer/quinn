@@ -197,6 +197,8 @@ pub(super) struct PathData {
     /// This is incremented by one every time the [`LossDetection`] timer fires because a
     /// tail-loss probe needs to be sent. Once an acknowledgement for a packet is received
     /// again it is reset to 0. Used to compute the PTO duration.
+    ///
+    /// [`LossDetection`]: super::timer::PathTimer::LossDetection
     pub(super) pto_count: u32,
 
     //
