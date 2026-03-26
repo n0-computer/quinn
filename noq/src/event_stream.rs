@@ -21,6 +21,7 @@ use tokio_stream::Stream;
 pub struct Lagged(pub u64);
 
 /// A stream of [`PathEvent`]s for all paths in a connection.
+#[derive(Debug)]
 pub struct PathEvents {
     inner: BroadcastStream<PathEvent>,
 }
@@ -43,13 +44,8 @@ impl Stream for PathEvents {
     }
 }
 
-impl fmt::Debug for PathEvents {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PathEvents").finish()
-    }
-}
-
 /// A stream of NAT traversal updates for a connection.
+#[derive(Debug)]
 pub struct NatTraversalUpdates {
     inner: BroadcastStream<n0_nat_traversal::Event>,
 }
@@ -69,12 +65,6 @@ impl Stream for NatTraversalUpdates {
         Pin::new(&mut self.inner)
             .poll_next(cx)
             .map(|opt| opt.map(|res| res.map_err(|BroadcastStreamRecvError::Lagged(n)| Lagged(n))))
-    }
-}
-
-impl fmt::Debug for NatTraversalUpdates {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NatTraversalUpdates").finish()
     }
 }
 

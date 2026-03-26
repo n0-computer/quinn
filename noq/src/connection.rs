@@ -502,11 +502,22 @@ impl Connection {
     }
 
     /// A stream of [`PathEvent`]s for all paths in this connection.
+    ///
+    /// The stream will yield a [`PathEvent`] whenever there is a change in the state of any path in this connection.
+    /// The events need to be processed immediately, since there isn't an unbounded buffer for them.
+    ///
+    /// If processing of events lags behind too much, you will get an error of type [`crate::Lagged`] indicating
+    /// how many events were lost. The stream continues after a lag, delivering the oldest retained message next.
     pub fn path_events(&self) -> crate::PathEvents {
         crate::PathEvents::new(self.0.state.lock("path_events").path_events.subscribe())
     }
 
     /// A stream of NAT traversal updates for this connection.
+    ///
+    /// The events need to be processed immediately, since there isn't an unbounded buffer for them.
+    ///
+    /// If processing of events lags behind too much, you will get an error of type [`crate::Lagged`] indicating
+    /// how many events were lost. The stream continues after a lag, delivering the oldest retained message next.
     pub fn nat_traversal_updates(&self) -> crate::NatTraversalUpdates {
         crate::NatTraversalUpdates::new(
             self.0

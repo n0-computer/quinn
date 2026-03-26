@@ -14,6 +14,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use proto::crypto::rustls::QuicServerConfig;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, pem::PemObject};
+use tokio_stream::StreamExt;
 use tracing::{error, info, info_span};
 use tracing_futures::Instrument as _;
 
@@ -186,7 +187,6 @@ async fn handle_connection(root: Arc<Path>, conn: noq::Incoming) -> Result<()> {
     let mut external_addresses = connection.observed_external_addr();
     tokio::spawn(
         async move {
-            use tokio_stream::StreamExt;
             while let Some(new_addr) = external_addresses.next().await {
                 info!(%new_addr, "new external address report");
             }
