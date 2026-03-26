@@ -186,13 +186,9 @@ async fn handle_connection(root: Arc<Path>, conn: noq::Incoming) -> Result<()> {
     let mut external_addresses = connection.observed_external_addr();
     tokio::spawn(
         async move {
-            loop {
-                if let Some(new_addr) = *external_addresses.borrow_and_update() {
-                    info!(%new_addr, "new external address report");
-                }
-                if external_addresses.changed().await.is_err() {
-                    break;
-                }
+            use tokio_stream::StreamExt;
+            while let Some(new_addr) = external_addresses.next().await {
+                info!(%new_addr, "new external address report");
             }
         }
         .instrument(span.clone()),

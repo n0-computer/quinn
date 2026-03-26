@@ -124,13 +124,9 @@ async fn run(options: Opt) -> Result<()> {
     eprintln!("connected at {:?}", start.elapsed());
     let mut external_addresses = conn.observed_external_addr();
     tokio::spawn(async move {
-        loop {
-            if let Some(new_addr) = *external_addresses.borrow_and_update() {
-                info!(%new_addr, "new external address report");
-            }
-            if external_addresses.changed().await.is_err() {
-                break;
-            }
+        use tokio_stream::StreamExt;
+        while let Some(new_addr) = external_addresses.next().await {
+            info!(%new_addr, "new external address report");
         }
     });
 
