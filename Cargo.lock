@@ -1834,6 +1834,7 @@ dependencies = [
  "clap",
  "crc",
  "criterion",
+ "derive_more",
  "directories-next",
  "futures-io",
  "gcc",

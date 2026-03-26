@@ -20,7 +20,7 @@ use tracing::{Instrument, Span, debug_span};
 use crate::{
     ConnectionEvent, Duration, Instant, Path, VarInt,
     endpoint::ensure_ipv6,
-    mutex::Mutex,
+    mutex::{Mutex, MutexGuard},
     path::OpenPath,
     recv_stream::RecvStream,
     runtime::{AsyncTimer, Runtime, UdpSender},
@@ -131,7 +131,7 @@ impl Connecting {
     pub fn into_0rtt(mut self) -> Result<(Connection, ZeroRttAccepted), Self> {
         // This lock borrows `self` and would normally be dropped at the end of this scope, so we'll
         // have to release it explicitly before returning `self` by value.
-        let conn = (self.conn.as_mut().unwrap()).state.lock("into_0rtt");
+        let conn = (self.conn.as_mut().unwrap()).lock_without_waking("into_0rtt");
 
         let is_ok = conn.inner.has_0rtt() || conn.inner.side().is_server();
         drop(conn);
@@ -158,7 +158,7 @@ impl Connecting {
             let _ = x.await;
         }
         let conn = self.conn.as_ref().unwrap();
-        let inner = conn.state.lock("handshake");
+        let inner = conn.lock_without_waking("handshake");
         inner
             .inner
             .crypto_session()
@@ -184,7 +184,7 @@ impl Connecting {
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn local_ip(&self) -> Option<IpAddr> {
         let conn = self.conn.as_ref().unwrap();
-        let inner = conn.state.lock("local_ip");
+        let inner = conn.lock_without_waking("local_ip");
 
         inner
             .inner
@@ -200,8 +200,7 @@ impl Connecting {
         let conn_ref: &ConnectionRef = self.conn.as_ref().expect("used after yielding Ready");
         // TODO: another unwrap
         conn_ref
-            .state
-            .lock("remote_address")
+            .lock_without_waking("remote_address")
             .inner
             .network_path(PathId::ZERO)
             .expect("path exists when connecting")
@@ -214,7 +213,7 @@ impl Future for Connecting {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.connected).poll(cx).map(|_| {
             let conn = self.conn.take().unwrap();
-            let inner = conn.state.lock("connecting");
+            let inner = conn.lock_without_waking("connecting");
             if inner.connected {
                 drop(inner);
                 Ok(Connection(conn))
@@ -259,7 +258,7 @@ impl Future for ConnectionDriver {
     type Output = Result<(), io::Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let conn = &mut *self.0.state.lock("poll");
+        let conn = &mut *self.0.lock_without_waking("poll");
 
         let span = debug_span!("drive", id = conn.handle.0);
         let _guard = span.enter();
@@ -507,7 +506,12 @@ impl Connection {
     /// If processing of events lags behind too much, you will get an error of type [`crate::Lagged`] indicating
     /// how many events were lost. The stream continues after a lag, delivering the oldest retained message next.
     pub fn path_events(&self) -> crate::PathEvents {
-        crate::PathEvents::new(self.0.state.lock("path_events").path_events.subscribe())
+        crate::PathEvents::new(
+            self.0
+                .lock_without_waking("path_events")
+                .path_events
+                .subscribe(),
+        )
     }
 
     /// A stream of NAT traversal updates for this connection.
@@ -519,8 +523,7 @@ impl Connection {
     pub fn nat_traversal_updates(&self) -> crate::NatTraversalUpdates {
         crate::NatTraversalUpdates::new(
             self.0
-                .state
-                .lock("nat_traversal_updates")
+                .lock_without_waking("nat_traversal_updates")
                 .nat_traversal_updates
                 .subscribe(),
         )
@@ -533,7 +536,7 @@ impl Connection {
     /// and [`ConnectionError::ApplicationClosed`].
     pub async fn closed(&self) -> ConnectionError {
         {
-            let conn = self.0.state.lock("closed");
+            let conn = self.0.lock_without_waking("closed");
             if let Some(error) = conn.error.as_ref() {
                 return error.clone();
             }
@@ -544,8 +547,7 @@ impl Connection {
         }
         .await;
         self.0
-            .state
-            .lock("closed")
+            .lock_without_waking("closed")
             .error
             .as_ref()
             .expect("closed without an error")
@@ -563,7 +565,7 @@ impl Connection {
     /// if there are futures returned from this function still being awaited.
     pub fn on_closed(&self) -> OnClosed {
         let (tx, rx) = oneshot::channel();
-        let mut state = self.0.state.lock("on_closed");
+        let mut state = self.0.lock_without_waking("on_closed");
         if let Some(error) = &state.error {
             // Connection already closed, send immediately
             let _ = tx.send((error.clone(), state.inner.stats()));
@@ -581,7 +583,7 @@ impl Connection {
     ///
     /// Returns `None` if the connection is still open.
     pub fn close_reason(&self) -> Option<ConnectionError> {
-        self.0.state.lock("close_reason").error.clone()
+        self.0.lock_without_waking("close_reason").error.clone()
     }
 
     /// Close the connection immediately.
@@ -616,7 +618,7 @@ impl Connection {
     /// [`Endpoint::wait_idle()`]: crate::Endpoint::wait_idle
     /// [`close()`]: Connection::close
     pub fn close(&self, error_code: VarInt, reason: &[u8]) {
-        let conn = &mut *self.0.state.lock("close");
+        let conn = &mut *self.0.lock_without_waking("close"); // conn.close self-wakes
         conn.close(error_code, Bytes::copy_from_slice(reason), &self.0.shared);
     }
 
@@ -632,7 +634,7 @@ impl Connection {
     /// or, if client authentication is not required, accepted our lack of authentication.
     pub async fn handshake_confirmed(&self) -> Result<(), ConnectionError> {
         {
-            let conn = self.0.state.lock("handshake_confirmed");
+            let conn = self.0.lock_without_waking("handshake_confirmed");
             if let Some(error) = conn.error.as_ref() {
                 return Err(error.clone());
             }
@@ -645,7 +647,12 @@ impl Connection {
             self.0.shared.handshake_confirmed.notified()
         }
         .await;
-        if let Some(error) = self.0.state.lock("handshake_confirmed").error.as_ref() {
+        if let Some(error) = self
+            .0
+            .lock_without_waking("handshake_confirmed")
+            .error
+            .as_ref()
+        {
             Err(error.clone())
         } else {
             Ok(())
@@ -706,8 +713,7 @@ impl Connection {
     /// [`send_datagram()`]: Connection::send_datagram
     pub fn max_datagram_size(&self) -> Option<usize> {
         self.0
-            .state
-            .lock("max_datagram_size")
+            .lock_without_waking("max_datagram_size")
             .inner
             .datagrams()
             .max_size()
@@ -719,8 +725,7 @@ impl Connection {
     /// at most this size is guaranteed not to cause older datagrams to be dropped.
     pub fn datagram_send_buffer_space(&self) -> usize {
         self.0
-            .state
-            .lock("datagram_send_buffer_space")
+            .lock_without_waking("datagram_send_buffer_space")
             .inner
             .datagrams()
             .send_buffer_space()
@@ -728,7 +733,7 @@ impl Connection {
 
     /// The side of the connection (client or server)
     pub fn side(&self) -> Side {
-        self.0.state.lock("side").inner.side()
+        self.0.lock_without_waking("side").inner.side()
     }
 
     /// The peer's UDP address
@@ -743,7 +748,7 @@ impl Connection {
     /// [`multipath`]: crate::TransportConfig::max_concurrent_multipath_paths
     pub fn remote_address(&self) -> SocketAddr {
         // TODO: an unwrap again
-        let state = self.0.state.lock("remote_address");
+        let state = self.0.lock_without_waking("remote_address");
         state
             .inner
             .paths()
@@ -765,7 +770,7 @@ impl Connection {
     /// supported platforms when using [`noq_udp`](udp) for I/O, which is the default.
     pub fn local_ip(&self) -> Option<IpAddr> {
         // TODO: an unwrap again
-        let state = self.0.state.lock("remote_address");
+        let state = self.0.lock_without_waking("remote_address");
         state
             .inner
             .paths()
@@ -778,24 +783,23 @@ impl Connection {
 
     /// Current best estimate of this connection's latency (round-trip-time)
     pub fn rtt(&self, path_id: PathId) -> Option<Duration> {
-        self.0.state.lock("rtt").inner.rtt(path_id)
+        self.0.lock_without_waking("rtt").inner.rtt(path_id)
     }
 
     /// Returns connection statistics
     pub fn stats(&self) -> ConnectionStats {
-        self.0.state.lock("stats").inner.stats()
+        self.0.lock_without_waking("stats").inner.stats()
     }
 
     /// Returns path statistics
     pub fn path_stats(&self, path_id: PathId) -> Option<PathStats> {
-        self.0.state.lock("path_stats").path_stats(path_id)
+        self.0.lock_without_waking("path_stats").path_stats(path_id)
     }
 
     /// Current state of the congestion control algorithm, for debugging purposes
     pub fn congestion_state(&self, path_id: PathId) -> Option<Box<dyn Controller>> {
         self.0
-            .state
-            .lock("congestion_state")
+            .lock_without_waking("congestion_state")
             .inner
             .congestion_state(path_id)
             .map(|c| c.clone_box())
@@ -810,8 +814,7 @@ impl Connection {
     /// [`Connection::handshake_data()`]: crate::Connecting::handshake_data
     pub fn handshake_data(&self) -> Option<Box<dyn Any>> {
         self.0
-            .state
-            .lock("handshake_data")
+            .lock_without_waking("handshake_data")
             .inner
             .crypto_session()
             .handshake_data()
@@ -824,8 +827,7 @@ impl Connection {
     /// be [`downcast`](Box::downcast) to a <code>Vec<[rustls::pki_types::CertificateDer]></code>
     pub fn peer_identity(&self) -> Option<Box<dyn Any>> {
         self.0
-            .state
-            .lock("peer_identity")
+            .lock_without_waking("peer_identity")
             .inner
             .crypto_session()
             .peer_identity()
@@ -844,8 +846,7 @@ impl Connection {
     /// This primarily exists for testing purposes.
     pub fn force_key_update(&self) {
         self.0
-            .state
-            .lock("force_key_update")
+            .lock_and_wake("force_key_update")
             .inner
             .force_key_update()
     }
@@ -865,8 +866,7 @@ impl Connection {
         context: &[u8],
     ) -> Result<(), proto::crypto::ExportKeyingMaterialError> {
         self.0
-            .state
-            .lock("export_keying_material")
+            .lock_without_waking("export_keying_material")
             .inner
             .crypto_session()
             .export_keying_material(output, label, context)
@@ -904,7 +904,7 @@ impl Connection {
 
     /// Track changes on our external address as reported by the peer.
     pub fn observed_external_addr(&self) -> crate::ObservedExternalAddr {
-        let conn = self.0.state.lock("external_addr");
+        let conn = self.0.lock_without_waking("external_addr");
         crate::ObservedExternalAddr::new(conn.observed_external_addr.subscribe())
     }
 
@@ -912,7 +912,7 @@ impl Connection {
     // TODO(flub): not a useful API, once we do real things with multipath we can remove
     // this again.
     pub fn is_multipath_enabled(&self) -> bool {
-        let conn = self.0.state.lock("is_multipath_enabled");
+        let conn = self.0.lock_without_waking("is_multipath_enabled");
         conn.inner.is_multipath_negotiated()
     }
 
@@ -951,7 +951,9 @@ impl Connection {
     pub fn get_local_nat_traversal_addresses(
         &self,
     ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
-        let conn = self.0.state.lock("get_local_nat_traversal_addresses");
+        let conn = self
+            .0
+            .lock_without_waking("get_local_nat_traversal_addresses");
         conn.inner.get_local_nat_traversal_addresses()
     }
 
@@ -959,7 +961,9 @@ impl Connection {
     pub fn get_remote_nat_traversal_addresses(
         &self,
     ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
-        let conn = self.0.state.lock("get_remote_nat_traversal_addresses");
+        let conn = self
+            .0
+            .lock_without_waking("get_remote_nat_traversal_addresses");
         conn.inner.get_remote_nat_traversal_addresses()
     }
 
@@ -1023,7 +1027,7 @@ fn poll_open<'a>(
     mut notify: Pin<&mut Notified<'a>>,
     dir: Dir,
 ) -> Poll<Result<(ConnectionRef, StreamId, bool), ConnectionError>> {
-    let mut state = conn.state.lock("poll_open");
+    let mut state = conn.lock_without_waking("poll_open");
     if let Some(ref e) = state.error {
         return Poll::Ready(Err(e.clone()));
     } else if let Some(id) = state.inner.streams().open(dir) {
@@ -1123,7 +1127,7 @@ impl Future for ReadDatagram<'_> {
     type Output = Result<Bytes, ConnectionError>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
-        let mut state = this.conn.state.lock("ReadDatagram::poll");
+        let mut state = this.conn.lock_without_waking("ReadDatagram::poll");
         // Check for buffered datagrams before checking `state.error` so that already-received
         // datagrams, which are necessarily finite, can be drained from a closed connection.
         if let Some(x) = state.inner.datagrams().recv() {
@@ -1206,8 +1210,7 @@ impl Drop for OnClosed {
         if let Some(conn) = self.conn.upgrade() {
             self.rx.close();
             conn.0
-                .state
-                .lock("OnClosed::drop")
+                .lock_without_waking("OnClosed::drop")
                 .on_closed
                 .retain(|tx| !tx.is_closed());
         }
@@ -1234,7 +1237,7 @@ pub(crate) struct ConnectionRef(Arc<Arc<ConnectionInner>>);
 impl ConnectionRef {
     #[allow(clippy::redundant_allocation)]
     fn from_arc(inner: Arc<Arc<ConnectionInner>>) -> Self {
-        inner.state.lock("from_arc").ref_count += 1;
+        inner.lock_without_waking("from_arc").ref_count += 1;
         Self(inner)
     }
 
@@ -1255,7 +1258,7 @@ impl Clone for ConnectionRef {
 
 impl Drop for ConnectionRef {
     fn drop(&mut self) {
-        let conn = &mut *self.state.lock("drop");
+        let conn = &mut *self.lock_without_waking("drop");
         if let Some(x) = conn.ref_count.checked_sub(1) {
             conn.ref_count = x;
             if x == 0 && !conn.inner.is_closed() {
@@ -1278,7 +1281,8 @@ impl std::ops::Deref for ConnectionRef {
 
 #[derive(Debug)]
 pub(crate) struct ConnectionInner {
-    pub(crate) state: Mutex<State>,
+    /// Kept private intentionally, use [`Self::lock_and_wake`].
+    state: Mutex<State>,
     pub(crate) shared: Shared,
 }
 
@@ -1286,34 +1290,46 @@ impl ConnectionInner {
     /// Lock the state and return a guard that wakes the connection driver on drop.
     ///
     /// Use this for operations that may queue frames. The wake ensures the driver sends queued frames.
-    fn lock_and_wake(&self, purpose: &'static str) -> WakeGuard<'_> {
+    /// If that's not needed, use [`Self::lock_without_waking`].
+    pub(crate) fn lock_and_wake(&self, purpose: &'static str) -> WakeGuard<'_> {
         WakeGuard {
             guard: self.state.lock(purpose),
+            wake: true,
+        }
+    }
+
+    /// Lock the state and return a guard that unlocks once dropped.
+    ///
+    /// Use this for operations that don't require any action from the connection driver.
+    /// Otherwise, use [`Self::lock_and_wake`] instead.
+    pub(crate) fn lock_without_waking(&self, purpose: &'static str) -> WakeGuard<'_> {
+        WakeGuard {
+            guard: self.state.lock(purpose),
+            wake: false,
         }
     }
 }
 
 /// [`MutexGuard`] wrapper that calls [`State::wake`] on drop.
-struct WakeGuard<'a> {
-    guard: crate::mutex::MutexGuard<'a, State>,
+#[derive(derive_more::Deref, derive_more::DerefMut)]
+pub(crate) struct WakeGuard<'a> {
+    #[deref]
+    #[deref_mut]
+    guard: MutexGuard<'a, State>,
+    wake: bool,
+}
+
+impl WakeGuard<'_> {
+    pub(crate) fn skip_waking(&mut self) {
+        self.wake = false;
+    }
 }
 
 impl Drop for WakeGuard<'_> {
     fn drop(&mut self) {
-        self.guard.wake();
-    }
-}
-
-impl std::ops::Deref for WakeGuard<'_> {
-    type Target = State;
-    fn deref(&self) -> &Self::Target {
-        &self.guard
-    }
-}
-
-impl std::ops::DerefMut for WakeGuard<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.guard
+        if self.wake {
+            self.guard.wake();
+        }
     }
 }
 
