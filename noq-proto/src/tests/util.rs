@@ -178,7 +178,7 @@ impl Pair {
                     dst_ip: Some(packet.destination.ip()),
                 });
             } else {
-                debug!(?packet.destination, "no route from server to client for packet");
+                debug!(?packet.destination, "no route from client to server for packet");
             }
         }
     }
