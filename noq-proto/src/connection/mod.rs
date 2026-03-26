@@ -5458,11 +5458,13 @@ impl Connection {
             }
             open_paths += 1;
 
+            // Read the network path BEFORE clearing local_ip, so the hint can
+            // check which interface the path was using.
+            let network_path = path.data.network_path;
+
             // Clear the local address for it to be obtained from the socket again. This applies to
             // all paths, regardless of being considered recoverable or not
             path.data.network_path.local_ip = None;
-
-            let network_path = path.data.network_path;
             let remote = network_path.remote;
 
             // Without multipath, the connection tries to recover the single path, whereas with
