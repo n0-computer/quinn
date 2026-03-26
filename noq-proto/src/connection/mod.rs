@@ -843,13 +843,17 @@ impl Connection {
         self.path(path_id).and_then(|path| path.remote_status())
     }
 
-    /// Sets the max_idle_timeout for a specific path
+    /// Sets the max_idle_timeout for a specific path.
+    ///
+    /// The PathIdle timer is immediately re-armed accounting for already-elapsed
+    /// idle time. Setting `None` disables the timeout and stops the timer.
     ///
     /// See [`TransportConfig::default_path_max_idle_timeout`] for details.
     ///
     /// Returns the previous value of the setting.
     pub fn set_path_max_idle_timeout(
         &mut self,
+        now: Instant,
         path_id: PathId,
         timeout: Option<Duration>,
     ) -> Result<Option<Duration>, ClosedPath> {
@@ -857,7 +861,29 @@ impl Connection {
             .paths
             .get_mut(&path_id)
             .ok_or(ClosedPath { _private: () })?;
-        Ok(std::mem::replace(&mut path.data.idle_timeout, timeout))
+        let prev = std::mem::replace(&mut path.data.idle_timeout, timeout);
+
+        // Adjust the PathIdle timer, accounting for already-elapsed idle time.
+        if !self.state.is_closed() {
+            if let Some(new_timeout) = timeout {
+                let timer = Timer::PerPath(path_id, PathTimer::PathIdle);
+                let deadline = match (prev, self.timers.get(timer)) {
+                    (Some(old_timeout), Some(old_deadline)) => {
+                        let last_activity = old_deadline.checked_sub(old_timeout).unwrap_or(now);
+                        (last_activity + new_timeout).max(now)
+                    }
+                    _ => now + new_timeout,
+                };
+                self.timers.set(timer, deadline, self.qlog.with_time(now));
+            } else {
+                self.timers.stop(
+                    Timer::PerPath(path_id, PathTimer::PathIdle),
+                    self.qlog.with_time(now),
+                );
+            }
+        }
+
+        Ok(prev)
     }
 
     /// Sets the keep_alive_interval for a specific path
