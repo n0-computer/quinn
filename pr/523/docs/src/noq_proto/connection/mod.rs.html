@@ -7363,7 +7363,7 @@
 <a href=#7363 id=7363 data-nosnippet>7363</a>/// This is the "normal" value we use.
 <a href=#7364 id=7364 data-nosnippet>7364</a></span><span class="kw">const </span>MAX_PTO_INTERVAL: Duration = Duration::from_secs(<span class="number">2</span>);
 <a href=#7365 id=7365 data-nosnippet>7365</a>
-<a href=#7366 id=7366 data-nosnippet>7366</a><span class="doccomment">/// The idle time, below which we use the shorter [`MAX_PTO_INTERVAL_FAST`].
+<a href=#7366 id=7366 data-nosnippet>7366</a><span class="doccomment">/// The idle time, below which we use the shorter [`MAX_PTO_FAST_INTERVAL`].
 <a href=#7367 id=7367 data-nosnippet>7367</a></span><span class="kw">const </span>MIN_IDLE_FOR_FAST_PTO: Duration = Duration::from_secs(<span class="number">25</span>);
 <a href=#7368 id=7368 data-nosnippet>7368</a>
 <a href=#7369 id=7369 data-nosnippet>7369</a><span class="doccomment">/// The max interval between successive tail-loss probes with short idle times.
@@ -7374,7 +7374,7 @@
 <a href=#7374 id=7374 data-nosnippet>7374</a>
 <a href=#7375 id=7375 data-nosnippet>7375</a><span class="doccomment">/// The RTT threshold above which we cap the PTO interval to 1.5 * smoothed_rtt
 <a href=#7376 id=7376 data-nosnippet>7376</a>///
-<a href=#7377 id=7377 data-nosnippet>7377</a>/// This is RTT time above which 1.5 * RTT &gt; [`MAC_PTO_INTERVAL`], for these links we want
+<a href=#7377 id=7377 data-nosnippet>7377</a>/// This is RTT time above which 1.5 * RTT &gt; [`MAX_PTO_INTERVAL`], for these links we want
 <a href=#7378 id=7378 data-nosnippet>7378</a>/// to extend the interval between tail-loss probes to not fill the entire pipe with them.
 <a href=#7379 id=7379 data-nosnippet>7379</a></span><span class="kw">const </span>SLOW_RTT_THRESHOLD: Duration = Duration::from_millis(<span class="number">610</span>);
 <a href=#7380 id=7380 data-nosnippet>7380</a>
