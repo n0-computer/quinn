@@ -927,7 +927,9 @@ impl Connection {
         address: SocketAddr,
     ) -> Result<(), n0_nat_traversal::Error> {
         let mut conn = self.0.state.lock("add_nat_traversal_addresses");
-        conn.inner.add_nat_traversal_address(address)
+        let result = conn.inner.add_nat_traversal_address(address);
+        conn.wake();
+        result
     }
 
     /// Removes one or more addresses from the set of addresses at which this endpoint is reachable
@@ -944,7 +946,9 @@ impl Connection {
         address: SocketAddr,
     ) -> Result<(), n0_nat_traversal::Error> {
         let mut conn = self.0.state.lock("remove_nat_traversal_addresses");
-        conn.inner.remove_nat_traversal_address(address)
+        let result = conn.inner.remove_nat_traversal_address(address);
+        conn.wake();
+        result
     }
 
     /// Get the current local nat traversal addresses
@@ -973,7 +977,9 @@ impl Connection {
     pub fn initiate_nat_traversal_round(&self) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         let mut conn = self.0.state.lock("initiate_nat_traversal_round");
         let now = conn.runtime.now();
-        conn.inner.initiate_nat_traversal_round(now)
+        let result = conn.inner.initiate_nat_traversal_round(now);
+        conn.wake();
+        result
     }
 }
 
@@ -1580,11 +1586,11 @@ impl State {
                         sender.send_modify(|value| *value = Ok(()));
                     }
                 }
-                Path(evt @ PathEvent::Discarded { id, path_stats }) => {
+                Path(ref evt @ PathEvent::Discarded { id, ref path_stats }) => {
                     if self.path_refs.contains_key(&id) {
-                        self.final_path_stats.insert(id, path_stats);
+                        self.final_path_stats.insert(id, *path_stats.clone());
                     }
-                    self.path_events.send(evt).ok();
+                    self.path_events.send(evt.clone()).ok();
                 }
                 Path(ref evt @ PathEvent::Abandoned { id, .. }) => {
                     if let Some(sender) = self.open_path.remove(&id) {

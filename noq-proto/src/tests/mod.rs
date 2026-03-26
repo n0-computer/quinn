@@ -3904,7 +3904,7 @@ fn network_change_single_path_recovery() {
     pair.passive_migration(Client);
     pair.handle_network_change(Client, None);
 
-    // The path should NOT be closed — there should be no path events
+    // The path should NOT be closed and there should be no path events
     pair.drive();
     assert_matches!(pair.poll(Client), None);
 

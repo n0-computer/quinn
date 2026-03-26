@@ -1000,7 +1000,7 @@ pub enum PathEvent {
         /// The final path stats, they are no longer available via [`Connection::stats`]
         ///
         /// [`Connection::stats`]: super::Connection::stats
-        path_stats: PathStats,
+        path_stats: Box<PathStats>,
     },
     /// The remote changed the status of the path
     ///
@@ -1047,9 +1047,9 @@ pub enum PathAbandonReason {
 }
 
 impl PathAbandonReason {
-    /// Returns `true` if the closing of this path was initiated locally.
-    pub(crate) fn is_locally_initiated(&self) -> bool {
-        !matches!(self, Self::RemoteAbandoned { .. })
+    /// Whether this abandon was initiated by the remote peer.
+    pub(crate) fn is_remote(&self) -> bool {
+        matches!(self, Self::RemoteAbandoned { .. })
     }
 
     /// Returns the error code to send with a PATH_ABANDON frame.
