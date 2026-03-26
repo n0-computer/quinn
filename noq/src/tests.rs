@@ -1273,10 +1273,10 @@ async fn path_clone_stats_after_abandon() {
 
         // Wait for the Abandoned event
         while let Some(Ok(evt)) = path_events.next().await {
-            if let proto::PathEvent::Discarded { id, .. } = evt {
-                if id == path_id {
-                    break;
-                }
+            if let proto::PathEvent::Discarded { id, .. } = evt
+                && id == path_id
+            {
+                break;
             }
         }
 
@@ -1338,10 +1338,10 @@ async fn close_path() -> TestResult {
 
         // Wait for the server to see the Abandoned event for the same path
         while let Some(Ok(evt)) = path_events.next().await {
-            if let proto::PathEvent::Discarded { id, .. } = evt {
-                if id == path_id {
-                    break;
-                }
+            if let proto::PathEvent::Discarded { id, .. } = evt
+                && id == path_id
+            {
+                break;
             }
         }
 
@@ -1383,10 +1383,10 @@ async fn close_path() -> TestResult {
 
         // Wait for the client to see its own Abandoned event
         while let Some(Ok(evt)) = path_events.next().await {
-            if let proto::PathEvent::Discarded { id, .. } = evt {
-                if id == path_id {
-                    break;
-                }
+            if let proto::PathEvent::Discarded { id, .. } = evt
+                && id == path_id
+            {
+                break;
             }
         }
 
