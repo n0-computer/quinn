@@ -3383,11 +3383,15 @@ impl Connection {
     }
 
     /// Returns the earliest next PTO should fire for all spaces on a path.
+    ///
+    /// This needs to be fully deterministic because it is also used to determine the PTO
+    /// that fired, not just to set the next timer. So if it fired in the past it needs to
+    /// return the time from the past at which it fired.
+    ///
+    /// This is the next time a tail-loss probe should be sent.
     fn pto_time_and_space(&mut self, now: Instant, path_id: PathId) -> Option<(Instant, SpaceId)> {
         let path = self.path(path_id)?;
         let pto_count = path.pto_count;
-        let backoff = 2u32.pow(pto_count.min(MAX_BACKOFF_EXPONENT));
-        let mut duration = path.rtt.pto_base() * backoff;
 
         if path_id == PathId::ZERO
             && path.in_flight.ack_eliciting == 0
@@ -3403,8 +3407,25 @@ impl Connection {
                 _ => SpaceId::Initial,
             };
 
+            let backoff = 2u32.pow(path.pto_count.min(MAX_BACKOFF_EXPONENT));
+            let duration = path.rtt.pto_base() * backoff;
             return Some((now + duration, space));
         }
+
+        // Cap the maximum interval between two tail-loss probes.
+        let max_interval = if path.rtt.get() > SLOW_RTT_THRESHOLD {
+            // For slow links we want to increase the interval beyond 2s.
+            (path.rtt.get() * 3) / 2
+        } else if let Some(idle) = path.idle_timeout.or(self.idle_timeout)
+            && idle <= MIN_IDLE_FOR_FAST_PTO
+        {
+            // If the idle timeout is relatively low, cap at 1s so we get plenty of retries
+            // before the idle timeout fires.
+            MAX_PTO_FAST_INTERVAL
+        } else {
+            // Otherwise cap to 2s.
+            MAX_PTO_INTERVAL
+        };
 
         let mut result = None;
         for space in SpaceId::iter() {
@@ -3415,36 +3436,31 @@ impl Connection {
             if !pns.has_in_flight() {
                 continue;
             }
-            if space == SpaceId::Data {
-                // Skip ApplicationData until handshake completes.
-                if self.is_handshaking() {
-                    return result;
-                }
-                // Include max_ack_delay and backoff for ApplicationData.
-                duration += self.ack_frequency.max_ack_delay_for_pto() * backoff;
 
-                // Cap PTO post-handshake so ~16 retransmits fit before the
-                // idle timer fires.
-                let idle = path.idle_timeout.or(self.idle_timeout);
-                if let Some(idle) = idle
-                    && idle > MIN_IDLE_FOR_PTO_CAP
-                {
-                    duration = duration.min(idle / IDLE_TIMEOUT_PTO_DIVISOR);
+            // Compute the PTO duration for this space, we want to cap the maximum interval
+            // between two tail-loss probes so do not do a simple exponential backoff but
+            // rather iterate through the probes.
+            let duration = {
+                let pto_base = path.rtt.pto_base()
+                    + if space == SpaceId::Data {
+                        self.ack_frequency.max_ack_delay_for_pto()
+                    } else {
+                        Duration::ZERO
+                    };
+                let mut duration = pto_base;
+                for i in 0..pto_count {
+                    let increment = (i + 1) * pto_base;
+                    duration += increment.min(max_interval);
                 }
-                // Hard cap at 2s, or 1.5 * smoothed_rtt for satellite paths.
-                let hard_cap = if path.rtt.get() > SATELLITE_RTT_THRESHOLD {
-                    (path.rtt.get() * 3) / 2
-                } else {
-                    MAX_PTO_INTERVAL
-                };
-                duration = duration.min(hard_cap);
-            }
+                duration
+            };
+
             let Some(last_ack_eliciting) = pns.time_of_last_ack_eliciting_packet else {
                 continue;
             };
             // Base the deadline on when the last probe was sent, so the PTO
             // doesn't fire before the response has had time to arrive.
-            let pto = last_ack_eliciting.max(now) + duration;
+            let pto = last_ack_eliciting + duration;
             if result.is_none_or(|(earliest_pto, _)| pto < earliest_pto) {
                 if path.anti_amplification_blocked(1) {
                     // Nothing would be able to be sent.
@@ -7311,24 +7327,28 @@ fn get_max_ack_delay(params: &TransportParameters) -> Duration {
     Duration::from_micros(params.max_ack_delay.0 * 1000)
 }
 
-/// Prevents overflow and improves behavior in extreme circumstances
+/// Prevents overflow and improves behavior in extreme circumstances.
 const MAX_BACKOFF_EXPONENT: u32 = 16;
 
-/// Hard cap on PTO after backoff, matching picoquic's PICOQUIC_LARGE_RETRANSMIT_TIMER.
+/// The max interval between successive tail-loss probes.
+///
+/// This is the "normal" value we use.
 const MAX_PTO_INTERVAL: Duration = Duration::from_secs(2);
 
-/// PTO is capped at idle_timeout / IDLE_TIMEOUT_PTO_DIVISOR so ~16 retransmits
-/// fit before the idle timer fires. Matches picoquic (idle_timeout >> 4).
-const IDLE_TIMEOUT_PTO_DIVISOR: u32 = 16;
+/// The idle time, below which we use the shorter [`MAX_PTO_INTERVAL_FAST`].
+const MIN_IDLE_FOR_FAST_PTO: Duration = Duration::from_secs(25);
 
-/// RTT threshold above which the PTO cap uses 1.5 * smoothed_rtt instead of
-/// MAX_PTO_INTERVAL. Matches picoquic's PICOQUIC_TARGET_SATELLITE_RTT (610ms).
-const SATELLITE_RTT_THRESHOLD: Duration = Duration::from_millis(610);
+/// The max interval between successive tail-loss probes with short idle times.
+///
+/// If the path or connection idle time is less than [`MIN_IDLE_FOR_FAST_PTO`] then we use
+/// this value to ensure we have plenty of retransmits before we reach the idle time.
+const MAX_PTO_FAST_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Idle timeout must exceed this for the idle-bound PTO cap to apply.
-/// With short idle timeouts, the cap would make PTO too aggressive.
-/// Matches picoquic's guard (idle_timeout > 15).
-const MIN_IDLE_FOR_PTO_CAP: Duration = Duration::from_secs(15);
+/// The RTT threshold above which we cap the PTO interval to 1.5 * smoothed_rtt
+///
+/// This is RTT time above which 1.5 * RTT > [`MAC_PTO_INTERVAL`], for these links we want
+/// to extend the interval between tail-loss probes to not fill the entire pipe with them.
+const SLOW_RTT_THRESHOLD: Duration = Duration::from_millis(610);
 
 /// Minimal remaining size to allow packet coalescing, excluding cryptographic tag
 ///

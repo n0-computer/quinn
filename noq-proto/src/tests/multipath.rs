@@ -16,7 +16,9 @@ use crate::{
     LOCAL_CID_COUNT, NetworkChangeHint, PathId, PathStatus, RandomConnectionIdGenerator,
     ServerConfig, Side::*, TransportConfig, cid_queue::CidQueue,
 };
-use crate::{ClosePathError, Dir, Event, PathAbandonReason, PathEvent, StreamEvent, TransportErrorCode};
+use crate::{
+    ClosePathError, Dir, Event, PathAbandonReason, PathEvent, StreamEvent, TransportErrorCode,
+};
 
 use super::util::{min_opt, subscribe};
 use super::{Pair, client_config, server_config};
@@ -517,6 +519,8 @@ fn open_path_validation_fails_client_side() -> TestResult {
     // Make sure the client's path open makes it through to the server and is processed.
     pair.drive_client();
     pair.drive_server();
+
+    info!("dropping client inbound queue");
     pair.client.inbound.clear();
 
     // Sever the connection and run it to idle.
