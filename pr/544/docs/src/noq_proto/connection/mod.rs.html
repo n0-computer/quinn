@@ -870,7 +870,7 @@
 <a href=#870 id=870 data-nosnippet>870</a>                <span class="kw">let </span>deadline = <span class="kw">match </span>(prev, <span class="self">self</span>.timers.get(timer)) {
 <a href=#871 id=871 data-nosnippet>871</a>                    (<span class="prelude-val">Some</span>(old_timeout), <span class="prelude-val">Some</span>(old_deadline)) =&gt; {
 <a href=#872 id=872 data-nosnippet>872</a>                        <span class="kw">let </span>last_activity = old_deadline.checked_sub(old_timeout).unwrap_or(now);
-<a href=#873 id=873 data-nosnippet>873</a>                        (last_activity + new_timeout).max(now)
+<a href=#873 id=873 data-nosnippet>873</a>                        last_activity + new_timeout
 <a href=#874 id=874 data-nosnippet>874</a>                    }
 <a href=#875 id=875 data-nosnippet>875</a>                    <span class="kw">_ </span>=&gt; now + new_timeout,
 <a href=#876 id=876 data-nosnippet>876</a>                };
