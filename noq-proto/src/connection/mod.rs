@@ -5532,16 +5532,24 @@ impl Connection {
         /* RECOVERABLE PATHS */
 
         for (path_id, remote) in recoverable_paths.into_iter() {
-            let space = &mut self.spaces[SpaceId::Data];
-
             // Schedule a Ping for a liveness check.
-            if let Some(path_space) = space.number_spaces.get_mut(&path_id) {
+            if let Some(path_space) = self.spaces[SpaceId::Data]
+                .number_spaces
+                .get_mut(&path_id)
+            {
                 path_space.ping_pending = true;
 
                 if immediate_ack_allowed {
                     path_space.immediate_ack_pending = true;
                 }
             }
+
+            // Reset PTO backoff so retransmits resume promptly. Congestion controller
+            // and RTT are intentionally preserved for recoverable paths.
+            if let Some(path) = self.paths.get_mut(&path_id) {
+                path.data.pto_count = 0;
+            }
+            self.set_loss_detection_timer(now, path_id);
 
             let Some((reset_token, retired)) =
                 self.remote_cids.get_mut(&path_id).and_then(CidQueue::next)
@@ -5550,7 +5558,7 @@ impl Connection {
             };
 
             // Retire the current remote CID and any CIDs we had to skip.
-            space
+            self.spaces[SpaceId::Data]
                 .pending
                 .retire_cids
                 .extend(retired.map(|seq| (path_id, seq)));
