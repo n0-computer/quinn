@@ -12,8 +12,10 @@ use tokio::sync::{broadcast, watch};
 use tokio_stream::wrappers::{BroadcastStream, WatchStream, errors::BroadcastStreamRecvError};
 use tokio_stream::Stream;
 
-/// The receiver lagged too far behind. Attempting to receive again will
-/// return the oldest message still retained by the channel.
+/// The receiver lagged too far behind.
+///
+/// Attempting to receive again will return the oldest message still retained
+/// by the channel.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("channel lagged by {0}")]
 pub struct Lagged(pub u64);
