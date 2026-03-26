@@ -93,31 +93,32 @@
 <a href=#93 id=93 data-nosnippet>93</a>        <span class="self">Self </span>{ rx, stream }
 <a href=#94 id=94 data-nosnippet>94</a>    }
 <a href=#95 id=95 data-nosnippet>95</a>
-<a href=#96 id=96 data-nosnippet>96</a>    <span class="doccomment">/// Returns the most recently observed external address, or `None` if the
-<a href=#97 id=97 data-nosnippet>97</a>    /// peer has not yet reported one. Retains the last value even after the
-<a href=#98 id=98 data-nosnippet>98</a>    /// stream is closed.
-<a href=#99 id=99 data-nosnippet>99</a>    </span><span class="kw">pub fn </span>get(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;SocketAddr&gt; {
-<a href=#100 id=100 data-nosnippet>100</a>        <span class="kw-2">*</span><span class="self">self</span>.rx.borrow()
-<a href=#101 id=101 data-nosnippet>101</a>    }
-<a href=#102 id=102 data-nosnippet>102</a>}
-<a href=#103 id=103 data-nosnippet>103</a>
-<a href=#104 id=104 data-nosnippet>104</a><span class="kw">impl </span>Stream <span class="kw">for </span>ObservedExternalAddr {
-<a href=#105 id=105 data-nosnippet>105</a>    <span class="kw">type </span>Item = SocketAddr;
-<a href=#106 id=106 data-nosnippet>106</a>
-<a href=#107 id=107 data-nosnippet>107</a>    <span class="kw">fn </span>poll_next(<span class="kw-2">mut </span><span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;) -&gt; Poll&lt;<span class="prelude-ty">Option</span>&lt;<span class="self">Self</span>::Item&gt;&gt; {
-<a href=#108 id=108 data-nosnippet>108</a>        <span class="kw">loop </span>{
-<a href=#109 id=109 data-nosnippet>109</a>            <span class="kw">match </span>Pin::new(<span class="kw-2">&amp;mut </span><span class="self">self</span>.stream).poll_next(cx) {
-<a href=#110 id=110 data-nosnippet>110</a>                Poll::Ready(<span class="prelude-val">Some</span>(<span class="prelude-val">Some</span>(addr))) =&gt; <span class="kw">return </span>Poll::Ready(<span class="prelude-val">Some</span>(addr)),
-<a href=#111 id=111 data-nosnippet>111</a>                Poll::Ready(<span class="prelude-val">Some</span>(<span class="prelude-val">None</span>)) =&gt; <span class="kw">continue</span>,
-<a href=#112 id=112 data-nosnippet>112</a>                Poll::Ready(<span class="prelude-val">None</span>) =&gt; <span class="kw">return </span>Poll::Ready(<span class="prelude-val">None</span>),
-<a href=#113 id=113 data-nosnippet>113</a>                Poll::Pending =&gt; <span class="kw">return </span>Poll::Pending,
-<a href=#114 id=114 data-nosnippet>114</a>            }
-<a href=#115 id=115 data-nosnippet>115</a>        }
-<a href=#116 id=116 data-nosnippet>116</a>    }
-<a href=#117 id=117 data-nosnippet>117</a>}
-<a href=#118 id=118 data-nosnippet>118</a>
-<a href=#119 id=119 data-nosnippet>119</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>ObservedExternalAddr {
-<a href=#120 id=120 data-nosnippet>120</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
-<a href=#121 id=121 data-nosnippet>121</a>        f.debug_struct(<span class="string">"ObservedExternalAddr"</span>).finish()
-<a href=#122 id=122 data-nosnippet>122</a>    }
-<a href=#123 id=123 data-nosnippet>123</a>}</code></pre></div></section></main></body></html>
+<a href=#96 id=96 data-nosnippet>96</a>    <span class="doccomment">/// Returns the most recently observed external address.
+<a href=#97 id=97 data-nosnippet>97</a>    ///
+<a href=#98 id=98 data-nosnippet>98</a>    /// `None` is returned if the peer has not yet reported an address. Retains
+<a href=#99 id=99 data-nosnippet>99</a>    /// the last value even after the stream is closed.
+<a href=#100 id=100 data-nosnippet>100</a>    </span><span class="kw">pub fn </span>get(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;SocketAddr&gt; {
+<a href=#101 id=101 data-nosnippet>101</a>        <span class="kw-2">*</span><span class="self">self</span>.rx.borrow()
+<a href=#102 id=102 data-nosnippet>102</a>    }
+<a href=#103 id=103 data-nosnippet>103</a>}
+<a href=#104 id=104 data-nosnippet>104</a>
+<a href=#105 id=105 data-nosnippet>105</a><span class="kw">impl </span>Stream <span class="kw">for </span>ObservedExternalAddr {
+<a href=#106 id=106 data-nosnippet>106</a>    <span class="kw">type </span>Item = SocketAddr;
+<a href=#107 id=107 data-nosnippet>107</a>
+<a href=#108 id=108 data-nosnippet>108</a>    <span class="kw">fn </span>poll_next(<span class="kw-2">mut </span><span class="self">self</span>: Pin&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>&gt;, cx: <span class="kw-2">&amp;mut </span>Context&lt;<span class="lifetime">'_</span>&gt;) -&gt; Poll&lt;<span class="prelude-ty">Option</span>&lt;<span class="self">Self</span>::Item&gt;&gt; {
+<a href=#109 id=109 data-nosnippet>109</a>        <span class="kw">loop </span>{
+<a href=#110 id=110 data-nosnippet>110</a>            <span class="kw">match </span>Pin::new(<span class="kw-2">&amp;mut </span><span class="self">self</span>.stream).poll_next(cx) {
+<a href=#111 id=111 data-nosnippet>111</a>                Poll::Ready(<span class="prelude-val">Some</span>(<span class="prelude-val">Some</span>(addr))) =&gt; <span class="kw">return </span>Poll::Ready(<span class="prelude-val">Some</span>(addr)),
+<a href=#112 id=112 data-nosnippet>112</a>                Poll::Ready(<span class="prelude-val">Some</span>(<span class="prelude-val">None</span>)) =&gt; <span class="kw">continue</span>,
+<a href=#113 id=113 data-nosnippet>113</a>                Poll::Ready(<span class="prelude-val">None</span>) =&gt; <span class="kw">return </span>Poll::Ready(<span class="prelude-val">None</span>),
+<a href=#114 id=114 data-nosnippet>114</a>                Poll::Pending =&gt; <span class="kw">return </span>Poll::Pending,
+<a href=#115 id=115 data-nosnippet>115</a>            }
+<a href=#116 id=116 data-nosnippet>116</a>        }
+<a href=#117 id=117 data-nosnippet>117</a>    }
+<a href=#118 id=118 data-nosnippet>118</a>}
+<a href=#119 id=119 data-nosnippet>119</a>
+<a href=#120 id=120 data-nosnippet>120</a><span class="kw">impl </span>fmt::Debug <span class="kw">for </span>ObservedExternalAddr {
+<a href=#121 id=121 data-nosnippet>121</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
+<a href=#122 id=122 data-nosnippet>122</a>        f.debug_struct(<span class="string">"ObservedExternalAddr"</span>).finish()
+<a href=#123 id=123 data-nosnippet>123</a>    }
+<a href=#124 id=124 data-nosnippet>124</a>}</code></pre></div></section></main></body></html>
