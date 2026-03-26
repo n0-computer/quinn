@@ -157,7 +157,7 @@
 <a href=#157 id=157 data-nosnippet>157</a>            </span>.number_spaces
 <a href=#158 id=158 data-nosnippet>158</a>            .get(<span class="kw-2">&amp;</span>path_id)
 <a href=#159 id=159 data-nosnippet>159</a>            .is_some_and(|s| s.ping_pending || s.immediate_ack_pending);
-<a href=#160 id=160 data-nosnippet>160</a>        <span class="kw">let </span>other = !<span class="self">self</span>.pending.is_empty(streams) || space_specific;
+<a href=#160 id=160 data-nosnippet>160</a>        <span class="kw">let </span>other = !<span class="self">self</span>.pending.is_empty(streams);
 <a href=#161 id=161 data-nosnippet>161</a>        SendableFrames {
 <a href=#162 id=162 data-nosnippet>162</a>            acks,
 <a href=#163 id=163 data-nosnippet>163</a>            close: <span class="bool-val">false</span>,
