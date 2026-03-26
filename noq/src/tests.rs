@@ -1272,13 +1272,11 @@ async fn path_clone_stats_after_abandon() {
         let _ = path_clone.close();
 
         // Wait for the Abandoned event
-        loop {
-            match path_events.recv().await {
-                Ok(proto::PathEvent::Discarded { id, .. }) if id == path_id => {
+        while let Some(Ok(evt)) = path_events.next().await {
+            if let proto::PathEvent::Discarded { id, .. } = evt {
+                if id == path_id {
                     break;
                 }
-                Ok(_) => continue,
-                Err(e) => panic!("path_events error: {e}"),
             }
         }
 
@@ -1329,18 +1327,21 @@ async fn close_path() -> TestResult {
         let mut path_events = conn.path_events();
 
         // The server learns the path ID from the Opened event
-        let path_id = loop {
-            match path_events.recv().await? {
-                proto::PathEvent::Opened { id } => break id,
-                _ => continue,
+        let mut path_id = None;
+        while let Some(Ok(evt)) = path_events.next().await {
+            if let proto::PathEvent::Opened { id } = evt {
+                path_id = Some(id);
+                break;
             }
-        };
+        }
+        let path_id = path_id.expect("path_events closed before Opened event");
 
         // Wait for the server to see the Abandoned event for the same path
-        loop {
-            match path_events.recv().await? {
-                proto::PathEvent::Discarded { id, .. } if id == path_id => break,
-                _ => continue,
+        while let Some(Ok(evt)) = path_events.next().await {
+            if let proto::PathEvent::Discarded { id, .. } = evt {
+                if id == path_id {
+                    break;
+                }
             }
         }
 
@@ -1381,10 +1382,11 @@ async fn close_path() -> TestResult {
         assert_eq!(path.close(), Err(proto::ClosePathError::ClosedPath));
 
         // Wait for the client to see its own Abandoned event
-        loop {
-            match path_events.recv().await? {
-                proto::PathEvent::Discarded { id, .. } if id == path_id => break,
-                _ => continue,
+        while let Some(Ok(evt)) = path_events.next().await {
+            if let proto::PathEvent::Discarded { id, .. } = evt {
+                if id == path_id {
+                    break;
+                }
             }
         }
 

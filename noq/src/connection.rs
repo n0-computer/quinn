@@ -501,20 +501,20 @@ impl Connection {
         Path::new(&self.0, id)
     }
 
-    /// A broadcast receiver of [`PathEvent`]s for all paths in this connection
-    pub fn path_events(&self) -> tokio::sync::broadcast::Receiver<PathEvent> {
-        self.0.state.lock("path_events").path_events.subscribe()
+    /// A stream of [`PathEvent`]s for all paths in this connection.
+    pub fn path_events(&self) -> crate::PathEvents {
+        crate::PathEvents::new(self.0.state.lock("path_events").path_events.subscribe())
     }
 
-    /// A broadcast receiver of [`n0_nat_traversal::Event`]s for updates about server addresses
-    pub fn nat_traversal_updates(
-        &self,
-    ) -> tokio::sync::broadcast::Receiver<n0_nat_traversal::Event> {
-        self.0
-            .state
-            .lock("nat_traversal_updates")
-            .nat_traversal_updates
-            .subscribe()
+    /// A stream of NAT traversal updates for this connection.
+    pub fn nat_traversal_updates(&self) -> crate::NatTraversalUpdates {
+        crate::NatTraversalUpdates::new(
+            self.0
+                .state
+                .lock("nat_traversal_updates")
+                .nat_traversal_updates
+                .subscribe(),
+        )
     }
 
     /// Wait for the connection to be closed for any reason
