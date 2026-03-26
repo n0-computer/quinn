@@ -44,6 +44,7 @@ use std::sync::Arc;
 
 mod connection;
 mod endpoint;
+mod event_stream;
 mod incoming;
 mod mutex;
 mod path;
@@ -78,6 +79,7 @@ pub use crate::connection::{
     AcceptBi, AcceptUni, Connecting, Connection, OnClosed, OpenBi, OpenUni, ReadDatagram,
     SendDatagram, SendDatagramError, WeakConnectionHandle, ZeroRttAccepted,
 };
+pub use crate::event_stream::{ObservedExternalAddr, Lagged, NatTraversalUpdates, PathEvents};
 pub use crate::endpoint::{Accept, Endpoint, EndpointStats};
 pub use crate::incoming::{Incoming, IncomingFuture, RetryError};
 pub use crate::path::{AddressDiscovery, OpenPath, Path, WeakPathHandle};
