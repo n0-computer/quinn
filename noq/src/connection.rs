@@ -902,10 +902,10 @@ impl Connection {
         conn.wake();
     }
 
-    /// Track changed on our external address as reported by the peer.
-    pub fn observed_external_addr(&self) -> watch::Receiver<Option<SocketAddr>> {
+    /// Track changes on our external address as reported by the peer.
+    pub fn observed_external_addr(&self) -> crate::ObservedExternalAddr {
         let conn = self.0.state.lock("external_addr");
-        conn.observed_external_addr.subscribe()
+        crate::ObservedExternalAddr::new(conn.observed_external_addr.subscribe())
     }
 
     /// Is multipath enabled?
