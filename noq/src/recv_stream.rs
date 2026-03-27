@@ -127,7 +127,7 @@ impl RecvStream {
     /// closed.
     ///
     /// [`finish`]: crate::SendStream::finish
-    pub fn poll_read_buf(
+    pub(crate) fn poll_read_buf(
         &mut self,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
