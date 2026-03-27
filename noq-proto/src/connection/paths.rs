@@ -192,7 +192,13 @@ pub(super) struct PathData {
     /// on such an earlier path. Insufficient to determine if a packet was sent on a later
     /// path.
     first_packet: Option<u64>,
-    /// The number of times a PTO has been sent without receiving an ack.
+    /// The number of times a tail-loss probe has been sent without receiving an ack.
+    ///
+    /// This is incremented by one every time the [`LossDetection`] timer fires because a
+    /// tail-loss probe needs to be sent. Once an acknowledgement for a packet is received
+    /// again it is reset to 0. Used to compute the PTO duration.
+    ///
+    /// [`LossDetection`]: super::timer::PathTimer::LossDetection
     pub(super) pto_count: u32,
 
     //

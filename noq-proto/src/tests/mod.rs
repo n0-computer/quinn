@@ -1171,6 +1171,7 @@ fn initial_retransmit() {
     let mut pair = Pair::default();
     let client_ch = pair.begin_connect(client_config());
     pair.client.drive(pair.time);
+    info!("clearing client outbound");
     pair.client.outbound.clear(); // Drop initial
     pair.drive();
     assert_matches!(
