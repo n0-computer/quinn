@@ -3438,9 +3438,9 @@ impl Connection {
             }
 
             // Compute the PTO duration for this space, we want to cap the maximum interval
-            // between two tail-loss probes so do not do a simple exponential backoff but
+            // between two tail-loss probes so to not do a simple exponential backoff but
             // rather iterate through the probes to compute the capped increment for an
-            // exponential backoff.
+            // exponential backoff at each step.
             let duration = {
                 let pto_base = path.rtt.pto_base()
                     + if space == SpaceId::Data {
