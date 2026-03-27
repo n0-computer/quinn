@@ -308,7 +308,7 @@ async fn request(
     static DATA: [u8; 1024 * 1024] = [42; 1024 * 1024];
     while upload > 0 {
         let chunk_len = upload.min(DATA.len() as u64);
-        send.write_chunk(Bytes::from_static(&DATA[..chunk_len as usize]))
+        send.write_bytes(Bytes::from_static(&DATA[..chunk_len as usize]))
             .await
             .context("sending response")?;
         send_stream_stats.on_bytes(chunk_len as usize);

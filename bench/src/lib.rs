@@ -128,14 +128,14 @@ pub async fn send_data_on_stream(stream: &mut noq::SendStream, stream_size: u64)
 
     for _ in 0..full_chunks {
         stream
-            .write_chunk(bytes_data.clone())
+            .write_bytes(bytes_data.clone())
             .await
             .context("failed sending data")?;
     }
 
     if remaining != 0 {
         stream
-            .write_chunk(bytes_data.slice(0..remaining))
+            .write_bytes(bytes_data.slice(0..remaining))
             .await
             .context("failed sending data")?;
     }

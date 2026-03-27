@@ -47,7 +47,7 @@ pub use crate::connection::{
     ConnectionStats, Datagrams, Event, FinishError, FrameStats, MultipathNotNegotiated,
     NetworkChangeHint, PathAbandonReason, PathError, PathEvent, PathId, PathStats, PathStatus,
     ReadError, ReadableError, RecvStream, RttEstimator, SendDatagramError, SendStream,
-    SetPathStatusError, ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError, Written,
+    SetPathStatusError, ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError,
 };
 #[cfg(test)]
 use test_strategy::Arbitrary;

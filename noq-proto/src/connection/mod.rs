@@ -99,7 +99,7 @@ pub use streams::StreamsState;
 use streams::StreamsState;
 pub use streams::{
     Chunks, ClosedStream, FinishError, ReadError, ReadableError, RecvStream, SendStream,
-    ShouldTransmit, StreamEvent, Streams, WriteError, Written,
+    ShouldTransmit, StreamEvent, Streams, WriteError,
 };
 
 mod timer;

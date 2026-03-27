@@ -644,9 +644,9 @@ async fn echo((mut send, mut recv): (SendStream, RecvStream)) {
 
         match recv.read_chunks(&mut bufs).await.expect("read chunks") {
             Some(n) => {
-                send.write_all_chunks(&mut bufs[..n])
+                send.write_bytes_all(&mut bufs[..n])
                     .await
-                    .expect("write chunks");
+                    .expect("write bytes all");
             }
             None => break,
         }

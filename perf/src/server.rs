@@ -192,7 +192,7 @@ async fn respond(mut bytes: u64, mut stream: noq::SendStream) -> Result<()> {
     while bytes > 0 {
         let chunk_len = bytes.min(DATA.len() as u64);
         stream
-            .write_chunk(Bytes::from_static(&DATA[..chunk_len as usize]))
+            .write_bytes(Bytes::from_static(&DATA[..chunk_len as usize]))
             .await
             .context("sending response")?;
         bytes -= chunk_len;
