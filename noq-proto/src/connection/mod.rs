@@ -6195,15 +6195,6 @@ impl Connection {
             }
         }
 
-        // STREAM
-        if !scheduling_info.is_abandoned
-            && scheduling_info.may_send_data
-            && space_id == SpaceId::Data
-        {
-            self.streams
-                .write_stream_frames(builder, self.config.send_fairness, stats);
-        }
-
         // ADD_ADDRESS
         while space_id == SpaceId::Data
             && !scheduling_info.is_abandoned
@@ -6228,6 +6219,15 @@ impl Connection {
             } else {
                 break;
             }
+        }
+
+        // STREAM
+        if !scheduling_info.is_abandoned
+            && scheduling_info.may_send_data
+            && space_id == SpaceId::Data
+        {
+            self.streams
+                .write_stream_frames(builder, self.config.send_fairness, stats);
         }
     }
 
