@@ -5548,7 +5548,7 @@ impl Connection {
 
             // Reset PTO backoff so retransmits resume promptly. Congestion controller and
             // RTT are intentionally preserved for recoverable paths. We explicitly allow
-            // this reset also during the hanshake, so do not check
+            // this reset also during the handshake, so do not check
             // Self::peer_competed_handshake_address_validation.
             if let Some(path) = self.paths.get_mut(&path_id) {
                 path.data.pto_count = 0;
