@@ -2884,7 +2884,11 @@ impl Connection {
         // Must be called before crypto/pto_count are clobbered
         self.detect_lost_packets(now, space, path, true);
 
-        if self.peer_completed_address_validation(path) {
+        // If the peer did not complete the handshake address validation the ACK could be
+        // spoofed, e.g. in the Initial space. Setting the pto_count back to 0 removes the
+        // exponential backoff from the PTO timer and would result in too many tail-loss
+        // probes being sent.
+        if self.peer_completed_handshake_address_validation() {
             self.path_data_mut(path).pto_count = 0;
         }
 
@@ -3067,10 +3071,10 @@ impl Connection {
         );
 
         let count = match self.path_data(path_id).in_flight.ack_eliciting {
-            // A PTO when we're not expecting any ACKs must be due to handshake anti-amplification
-            // deadlock preventions
+            // A PTO when we're not expecting any ACKs must be due to handshake
+            // anti-amplification deadlock prevention.
             0 => {
-                debug_assert!(!self.peer_completed_address_validation(path_id));
+                debug_assert!(!self.peer_completed_handshake_address_validation());
                 1
             }
             // Conventional loss probe
@@ -3391,7 +3395,7 @@ impl Connection {
 
         if path_id == PathId::ZERO
             && path.in_flight.ack_eliciting == 0
-            && !self.peer_completed_address_validation(PathId::ZERO)
+            && !self.peer_completed_handshake_address_validation()
         {
             // Address Validation during Connection Establishment:
             // https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1. To prevent a
@@ -3442,19 +3446,20 @@ impl Connection {
         result
     }
 
-    fn peer_completed_address_validation(&self, path: PathId) -> bool {
-        // TODO(flub): This logic needs updating for multipath
+    /// Whether the peer validated our address in the connection handshake.
+    fn peer_completed_handshake_address_validation(&self) -> bool {
         if self.side.is_server() || self.state.is_closed() {
             return true;
         }
-        // The server is guaranteed to have validated our address if any of our handshake or 1-RTT
-        // packets are acknowledged or we've seen HANDSHAKE_DONE and discarded handshake keys.
+        // The server is guaranteed to have validated our address if any of our handshake or
+        // 1-RTT packets are acknowledged or we've seen HANDSHAKE_DONE and discarded
+        // handshake keys.
         self.spaces[SpaceId::Handshake]
             .path_space(PathId::ZERO)
             .and_then(|pns| pns.largest_acked_packet)
             .is_some()
             || self.spaces[SpaceId::Data]
-                .path_space(path)
+                .path_space(PathId::ZERO)
                 .and_then(|pns| pns.largest_acked_packet)
                 .is_some()
             || (self.crypto_state.has_keys(EncryptionLevel::OneRtt)
@@ -5541,8 +5546,10 @@ impl Connection {
                 }
             }
 
-            // Reset PTO backoff so retransmits resume promptly. Congestion controller
-            // and RTT are intentionally preserved for recoverable paths.
+            // Reset PTO backoff so retransmits resume promptly. Congestion controller and
+            // RTT are intentionally preserved for recoverable paths. We explicitly allow
+            // this reset also during the hanshake, so do not check
+            // Self::peer_competed_handshake_address_validation.
             if let Some(path) = self.paths.get_mut(&path_id) {
                 path.data.pto_count = 0;
             }
