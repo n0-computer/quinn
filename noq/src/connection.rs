@@ -501,20 +501,31 @@ impl Connection {
         Path::new(&self.0, id)
     }
 
-    /// A broadcast receiver of [`PathEvent`]s for all paths in this connection
-    pub fn path_events(&self) -> tokio::sync::broadcast::Receiver<PathEvent> {
-        self.0.state.lock("path_events").path_events.subscribe()
+    /// A stream of [`PathEvent`]s for all paths in this connection.
+    ///
+    /// The stream will yield a [`PathEvent`] whenever there is a change in the state of any path in this connection.
+    /// The events need to be processed immediately, since there isn't an unbounded buffer for them.
+    ///
+    /// If processing of events lags behind too much, you will get an error of type [`crate::Lagged`] indicating
+    /// how many events were lost. The stream continues after a lag, delivering the oldest retained message next.
+    pub fn path_events(&self) -> crate::PathEvents {
+        crate::PathEvents::new(self.0.state.lock("path_events").path_events.subscribe())
     }
 
-    /// A broadcast receiver of [`n0_nat_traversal::Event`]s for updates about server addresses
-    pub fn nat_traversal_updates(
-        &self,
-    ) -> tokio::sync::broadcast::Receiver<n0_nat_traversal::Event> {
-        self.0
-            .state
-            .lock("nat_traversal_updates")
-            .nat_traversal_updates
-            .subscribe()
+    /// A stream of NAT traversal updates for this connection.
+    ///
+    /// The events need to be processed immediately, since there isn't an unbounded buffer for them.
+    ///
+    /// If processing of events lags behind too much, you will get an error of type [`crate::Lagged`] indicating
+    /// how many events were lost. The stream continues after a lag, delivering the oldest retained message next.
+    pub fn nat_traversal_updates(&self) -> crate::NatTraversalUpdates {
+        crate::NatTraversalUpdates::new(
+            self.0
+                .state
+                .lock("nat_traversal_updates")
+                .nat_traversal_updates
+                .subscribe(),
+        )
     }
 
     /// Wait for the connection to be closed for any reason
@@ -902,10 +913,10 @@ impl Connection {
         conn.wake();
     }
 
-    /// Track changed on our external address as reported by the peer.
-    pub fn observed_external_addr(&self) -> watch::Receiver<Option<SocketAddr>> {
+    /// Track changes on our external address as reported by the peer.
+    pub fn observed_external_addr(&self) -> crate::ObservedExternalAddr {
         let conn = self.0.state.lock("external_addr");
-        conn.observed_external_addr.subscribe()
+        crate::ObservedExternalAddr::new(conn.observed_external_addr.subscribe())
     }
 
     /// Is multipath enabled?
@@ -927,7 +938,9 @@ impl Connection {
         address: SocketAddr,
     ) -> Result<(), n0_nat_traversal::Error> {
         let mut conn = self.0.state.lock("add_nat_traversal_addresses");
-        conn.inner.add_nat_traversal_address(address)
+        let result = conn.inner.add_nat_traversal_address(address);
+        conn.wake();
+        result
     }
 
     /// Removes one or more addresses from the set of addresses at which this endpoint is reachable
@@ -944,7 +957,9 @@ impl Connection {
         address: SocketAddr,
     ) -> Result<(), n0_nat_traversal::Error> {
         let mut conn = self.0.state.lock("remove_nat_traversal_addresses");
-        conn.inner.remove_nat_traversal_address(address)
+        let result = conn.inner.remove_nat_traversal_address(address);
+        conn.wake();
+        result
     }
 
     /// Get the current local nat traversal addresses
@@ -973,7 +988,9 @@ impl Connection {
     pub fn initiate_nat_traversal_round(&self) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
         let mut conn = self.0.state.lock("initiate_nat_traversal_round");
         let now = conn.runtime.now();
-        conn.inner.initiate_nat_traversal_round(now)
+        let result = conn.inner.initiate_nat_traversal_round(now);
+        conn.wake();
+        result
     }
 }
 
@@ -1580,11 +1597,11 @@ impl State {
                         sender.send_modify(|value| *value = Ok(()));
                     }
                 }
-                Path(evt @ PathEvent::Discarded { id, path_stats }) => {
+                Path(ref evt @ PathEvent::Discarded { id, ref path_stats }) => {
                     if self.path_refs.contains_key(&id) {
-                        self.final_path_stats.insert(id, path_stats);
+                        self.final_path_stats.insert(id, *path_stats.clone());
                     }
-                    self.path_events.send(evt).ok();
+                    self.path_events.send(evt.clone()).ok();
                 }
                 Path(ref evt @ PathEvent::Abandoned { id, .. }) => {
                     if let Some(sender) = self.open_path.remove(&id) {

@@ -1272,13 +1272,11 @@ async fn path_clone_stats_after_abandon() {
         let _ = path_clone.close();
 
         // Wait for the Abandoned event
-        loop {
-            match path_events.recv().await {
-                Ok(proto::PathEvent::Discarded { id, .. }) if id == path_id => {
-                    break;
-                }
-                Ok(_) => continue,
-                Err(e) => panic!("path_events error: {e}"),
+        while let Some(Ok(evt)) = path_events.next().await {
+            if let proto::PathEvent::Discarded { id, .. } = evt
+                && id == path_id
+            {
+                break;
             }
         }
 
@@ -1329,18 +1327,21 @@ async fn close_path() -> TestResult {
         let mut path_events = conn.path_events();
 
         // The server learns the path ID from the Opened event
-        let path_id = loop {
-            match path_events.recv().await? {
-                proto::PathEvent::Opened { id } => break id,
-                _ => continue,
+        let mut path_id = None;
+        while let Some(Ok(evt)) = path_events.next().await {
+            if let proto::PathEvent::Opened { id } = evt {
+                path_id = Some(id);
+                break;
             }
-        };
+        }
+        let path_id = path_id.expect("path_events closed before Opened event");
 
         // Wait for the server to see the Abandoned event for the same path
-        loop {
-            match path_events.recv().await? {
-                proto::PathEvent::Discarded { id, .. } if id == path_id => break,
-                _ => continue,
+        while let Some(Ok(evt)) = path_events.next().await {
+            if let proto::PathEvent::Discarded { id, .. } = evt
+                && id == path_id
+            {
+                break;
             }
         }
 
@@ -1381,10 +1382,11 @@ async fn close_path() -> TestResult {
         assert_eq!(path.close(), Err(proto::ClosePathError::ClosedPath));
 
         // Wait for the client to see its own Abandoned event
-        loop {
-            match path_events.recv().await? {
-                proto::PathEvent::Discarded { id, .. } if id == path_id => break,
-                _ => continue,
+        while let Some(Ok(evt)) = path_events.next().await {
+            if let proto::PathEvent::Discarded { id, .. } = evt
+                && id == path_id
+            {
+                break;
             }
         }
 
@@ -1400,5 +1402,82 @@ async fn close_path() -> TestResult {
     let (server_res, client_res) = tokio::join!(server_task, client_task);
     server_res?;
     client_res?;
+    Ok(())
+}
+
+/// After `initiate_nat_traversal_round`, the connection driver should be
+/// woken so that the REACH_OUT frame is sent promptly. Without a wake,
+/// the frame sits pending until a timer or application data triggers
+/// packet assembly, causing multi-second delays in NAT traversal.
+///
+/// This test connects two endpoints, initiates NAT traversal on an idle
+/// connection, then checks that the server's `get_remote_nat_traversal_addresses`
+/// returns the client's address within 500ms — proving the REACH_OUT frame
+/// was sent and processed promptly.
+///
+/// Note: `get_remote_nat_traversal_addresses` returns addresses learned
+/// via ADD_ADDRESS frames, not REACH_OUT. So we instead check that the
+/// ADD_ADDRESS from `add_nat_traversal_address` is delivered promptly
+/// (which also requires wake).
+#[tokio::test]
+async fn nat_traversal_wakes_connection_driver() -> TestResult {
+    let _logging = subscribe();
+    let factory = EndpointFactory::new();
+
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_concurrent_multipath_paths(3);
+    transport_config.set_max_remote_nat_traversal_addresses(10);
+    let server = factory.endpoint_with_config("server", transport_config.clone());
+    let server_addr = server.local_addr().unwrap();
+
+    let client = factory.endpoint_with_config("client", transport_config);
+    let (server_conn_tx, server_conn_rx) = tokio::sync::oneshot::channel();
+
+    let server_task = async move {
+        let conn = server.accept().await.unwrap().await.unwrap();
+        server_conn_tx.send(conn.clone()).unwrap();
+        conn.closed().await;
+    }
+    .instrument(info_span!("server"));
+
+    let client_task = async move {
+        let conn = client
+            .connect(server_addr, "localhost")
+            .unwrap()
+            .await
+            .unwrap();
+
+        let server_conn = server_conn_rx.await.unwrap();
+
+        // Wait for the connection to become idle (handshake done, no app data)
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Server adds its address — this queues an ADD_ADDRESS frame.
+        // Without wake(), this frame won't be sent until a timer fires.
+        server_conn.add_nat_traversal_address(server_addr).unwrap();
+
+        // The client should learn the server's address within 500ms.
+        let result = tokio::time::timeout(Duration::from_millis(500), async {
+            loop {
+                if let Ok(addrs) = conn.get_remote_nat_traversal_addresses()
+                    && addrs.contains(&server_addr)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        assert!(
+            result.is_ok(),
+            "Client should learn server's address (via ADD_ADDRESS) within 500ms — \
+             frame likely stuck waiting for connection driver wake"
+        );
+
+        conn.close(0u8.into(), b"done");
+    }
+    .instrument(info_span!("client"));
+
+    tokio::join!(server_task, client_task);
     Ok(())
 }

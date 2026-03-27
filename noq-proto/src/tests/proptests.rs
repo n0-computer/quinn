@@ -76,6 +76,7 @@ fn multipath_transport_config(qlog_prefix: &'static str) -> TransportConfig {
     let mut cfg = TransportConfig::default();
     // enable multipath
     cfg.max_concurrent_multipath_paths(MAX_PATHS);
+    cfg.default_path_max_idle_timeout(Some(std::time::Duration::from_secs(10)));
     // cfg.mtu_discovery_config(None);
     #[cfg(feature = "qlog")]
     cfg.qlog_from_env(qlog_prefix);
@@ -200,7 +201,7 @@ fn allowed_error(err: Option<ConnectionError>) -> bool {
         None => true,
         Some(ConnectionError::TransportError(err)) => {
             // keep in sync with connection/mod.rs
-            &err.reason == "last path abandoned by peer"
+            &err.reason == "last path abandoned, no new path opened"
         }
         Some(ConnectionError::ConnectionClosed(ConnectionClose { error_code, .. })) => {
             *error_code != TransportErrorCode::PROTOCOL_VIOLATION
@@ -757,6 +758,56 @@ fn regression_there_should_be_at_least_one_path() {
         TestOp::CloseConn {
             side: Side::Client,
             error_code: 0,
+        },
+    ];
+
+    let _guard = subscribe();
+    let routes = RoutingTable::simple_symmetric([CLIENT_ADDRS[0]], [SERVER_ADDRS[0]]);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
+
+/// This test will loop forever, unless the loss detection timer is allowed to back off
+/// infinitely beyond the idle timeout.
+///
+/// The situation this test creates is one where there are two paths between client and
+/// server, and path 0 is fully broken, while path 1 is fully working.
+///
+/// There is one packet with acknowledgements on path 0 that is sent but never delivered,
+/// and the path will be broken forever due to the passive migration.
+///
+/// This will cause sending tail-loss probes (in practice that's an IMMEDIATE_ACK frame)
+/// on path 1 forever, or at least until the loss detection timer is bigger than the
+/// idle timeout, at which point the whole connection times out instead of resending.
+///
+/// Changes to the backoff behavior that make the loss detection timer not explode beyond
+/// the idle timeout will make this test fail.
+///
+/// We fix this test by fixing the test setup: If we allow path 0 to time out on its own
+/// with its own idle timeout, then the path closes and we finally stop resending tail
+/// loss probes.
+#[test]
+fn regression_conn_never_idle5() {
+    let prefix = "regression_conn_never_idle5";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::PassiveMigration {
+            side: Side::Server,
+            addr_idx: 0,
+        },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
         },
     ];
 
