@@ -1040,8 +1040,47 @@ fn path_scheduling_path_status() -> TestResult {
     Ok(())
 }
 
-// --- Tests for issue #397: remote PATH_ABANDON handling ---
-//
+#[test]
+fn server_abandon_last_verified_path() -> TestResult {
+    // The client abandons the last verified path the server has. The server is expected to
+    // send PATH_ABANDON on the abandoned path itself in this case.
+
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    // Passively migrate the client and immediately open a second path. This way the client
+    // will assume the 2nd path is validated but to the server it will be
+    // un-validated. Otherwise the client would not allow closing path 0 since there would
+    // be no validated path left over.
+    pair.passive_migration(Client);
+    let route = FourTuple {
+        remote: pair.server.addr,
+        local_ip: None,
+    };
+    pair.open_path(Client, route, PathStatus::Available)?;
+    pair.close_path(Client, PathId::ZERO, 0u8.into())?;
+    pair.drive();
+
+    // We need to move past the Abandoned and Open events, we really only care about getting
+    // the stats from the abandoned path.
+    let evt = pair.poll(Server);
+    assert!(matches!(
+        evt,
+        Some(Event::Path(PathEvent::Abandoned { .. }))
+    ));
+    let evt = pair.poll(Server);
+    assert!(matches!(evt, Some(Event::Path(PathEvent::Opened { .. }))));
+
+    let evt = pair.poll(Server);
+    let Some(Event::Path(PathEvent::Discarded { path_stats, .. })) = evt else {
+        panic!("did not get path discarded event");
+    };
+
+    assert_eq!(path_stats.frame_tx.path_abandon, 1);
+
+    Ok(())
+}
+
 /// Remote abandons a non-last path: error code is propagated in the event.
 #[test]
 fn remote_path_abandon_with_remaining_path() -> TestResult {
