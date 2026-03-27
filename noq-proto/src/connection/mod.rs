@@ -2069,25 +2069,29 @@ impl Connection {
         buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
-        let server_side = self.n0_nat_traversal.server_side_mut().ok()?;
-        let probe = server_side.next_probe()?;
+        let (remote, prev_cid) = self
+            .n0_nat_traversal
+            .server_side_mut()
+            .ok()?
+            .next_probe_info()?;
+
         if !self.paths.get(&path_id)?.data.validated {
-            // Path is not usable for probing
             return None;
         }
 
-        let remote_cids = self.remote_cids.get_mut(&path_id)?;
-
-        // Check if this path has enough CIDs to send a probe. One to be reserved, one in case the
-        // active CID needs to be retired.
-        if remote_cids.remaining() < 2 {
-            return None;
-        }
-
-        let cid = remote_cids.next_reserved()?;
-        let remote = probe.remote();
+        // Reuse the CID from the initial probe on retries (same address, RFC 9000 §9.5).
+        // On first send, reserve a fresh CID.
+        let cid = if let Some(prev) = prev_cid {
+            prev
+        } else {
+            let remote_cids = self.remote_cids.get_mut(&path_id)?;
+            if remote_cids.remaining() >= 2 {
+                remote_cids.next_reserved()?
+            } else {
+                return None;
+            }
+        };
         let token = self.rng.random();
-        probe.mark_as_sent();
 
         let frame = frame::PathChallenge(token);
 
@@ -2103,6 +2107,11 @@ impl Connection {
         builder.pad_to(MIN_INITIAL_SIZE);
         builder.finish(self, now);
 
+        // Mark as sent after packet build succeeds.
+        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
+            server_state.mark_probe_sent((remote.ip(), remote.port()), cid);
+        }
+
         let path = &mut self.paths.get_mut(&path_id).expect("checked").data;
         let network_path = FourTuple {
             remote,
@@ -2110,6 +2119,18 @@ impl Connection {
         };
 
         path.record_path_challenge_sent(now, token, network_path);
+
+        // Set retry timer for off-path probes that got no PATH_RESPONSE.
+        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
+            && server_state.has_pending_retries()
+        {
+            let pto = self.pto(SpaceKind::Data, path_id);
+            self.timers.set(
+                Timer::Conn(ConnTimer::OffPathProbeRetry),
+                now + pto,
+                self.qlog.with_time(now),
+            );
+        }
 
         let size = buf.len();
 
@@ -2389,6 +2410,14 @@ impl Connection {
                             self.set_close_timer(now);
                             self.connection_close_pending = true;
                             self.state.move_to_closed(err);
+                        }
+                    }
+                    ConnTimer::OffPathProbeRetry => {
+                        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
+                            let (requeued, _expired_cids) = server_state.queue_retries();
+                            if requeued {
+                                trace!("off-path probe retry timer fired, re-queued probes");
+                            }
                         }
                     }
                 },
@@ -5301,10 +5330,47 @@ impl Connection {
                         }
                     };
 
+                    let round_before = server_state.current_round();
+
                     if let Err(err) = server_state.handle_reach_out(reach_out, ipv6) {
                         return Err(TransportError::PROTOCOL_VIOLATION(format!(
                             "Nat traversal(REACH_OUT): {err}"
                         )));
+                    }
+
+                    // Only clean up if handle_reach_out actually advanced the round
+                    // (it may silently ignore frames for old rounds or unsupported IP families).
+                    let round_advanced = server_state.current_round() > round_before;
+                    if round_advanced {
+                        self.timers.stop(
+                            Timer::Conn(ConnTimer::OffPathProbeRetry),
+                            self.qlog.with_time(now),
+                        );
+
+                        let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
+                        if path.has_off_path_challenges() {
+                            trace!(
+                                "clearing stale off-path challenges for new NAT traversal round"
+                            );
+                            path.clear_off_path_challenges();
+
+                            if let Some(remote_cids) = self.remote_cids.get_mut(&path_id)
+                                && let Some((reset_token, retired)) = remote_cids.next()
+                            {
+                                self.spaces[SpaceId::Data]
+                                    .pending
+                                    .retire_cids
+                                    .extend(retired.map(|seq| (path_id, seq)));
+                                let remote = self
+                                    .paths
+                                    .get(&path_id)
+                                    .expect("known path")
+                                    .data
+                                    .network_path
+                                    .remote;
+                                self.set_reset_token(path_id, remote, reset_token);
+                            }
+                        }
                     }
                 }
             }
