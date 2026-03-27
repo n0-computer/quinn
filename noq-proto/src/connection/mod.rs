@@ -3449,7 +3449,7 @@ impl Connection {
                         Duration::ZERO
                     };
                 let mut duration = pto_base;
-                for i in 0..pto_count {
+                for i in 0..pto_count.saturating_sub(1) {
                     let exponential_duration =
                         pto_base * 2u32.pow((i + 1).min(MAX_BACKOFF_EXPONENT));
                     let max_duration = duration + max_interval;
