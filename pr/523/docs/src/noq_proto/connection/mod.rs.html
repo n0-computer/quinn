@@ -3479,7 +3479,7 @@
 <a href=#3479 id=3479 data-nosnippet>3479</a>                        Duration::ZERO
 <a href=#3480 id=3480 data-nosnippet>3480</a>                    };
 <a href=#3481 id=3481 data-nosnippet>3481</a>                <span class="kw">let </span><span class="kw-2">mut </span>duration = pto_base;
-<a href=#3482 id=3482 data-nosnippet>3482</a>                <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..pto_count {
+<a href=#3482 id=3482 data-nosnippet>3482</a>                <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..pto_count.saturating_sub(<span class="number">1</span>) {
 <a href=#3483 id=3483 data-nosnippet>3483</a>                    <span class="kw">let </span>exponential_duration =
 <a href=#3484 id=3484 data-nosnippet>3484</a>                        pto_base * <span class="number">2u32</span>.pow((i + <span class="number">1</span>).min(MAX_BACKOFF_EXPONENT));
 <a href=#3485 id=3485 data-nosnippet>3485</a>                    <span class="kw">let </span>max_duration = duration + max_interval;
