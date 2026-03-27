@@ -111,7 +111,7 @@ pub async fn drain_stream(mut stream: noq::RecvStream, read_unordered: bool) -> 
             Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
         ];
 
-        while let Some(n) = stream.read_chunks(&mut bufs[..]).await? {
+        while let Some(n) = stream.read_bytes_many(&mut bufs[..]).await? {
             read += bufs.iter().take(n).map(|buf| buf.len()).sum::<usize>();
         }
     }
