@@ -268,12 +268,12 @@ impl RecvStream {
     /// Discards unread data and notifies the peer to stop transmitting. Once stopped, further
     /// attempts to operate on a stream will yield `ClosedStream` errors.
     pub fn stop(&mut self, error_code: VarInt) -> Result<(), ClosedStream> {
-        let mut conn = self.conn.state.lock("RecvStream::stop");
+        let mut conn = self.conn.lock_and_wake("RecvStream::stop");
         if self.is_0rtt && conn.check_0rtt().is_err() {
+            conn.skip_waking();
             return Ok(());
         }
         conn.inner.recv_stream(self.stream).stop(error_code)?;
-        conn.wake();
         self.all_data_read = true;
         Ok(())
     }
@@ -301,7 +301,7 @@ impl RecvStream {
     /// This operation is cancel-safe.
     pub async fn received_reset(&mut self) -> Result<Option<VarInt>, ResetError> {
         poll_fn(|cx| {
-            let mut conn = self.conn.state.lock("RecvStream::reset");
+            let mut conn = self.conn.lock_without_waking("RecvStream::reset");
             if self.is_0rtt && conn.check_0rtt().is_err() {
                 return Poll::Ready(Err(ResetError::ZeroRttRejected));
             }
@@ -354,7 +354,7 @@ impl RecvStream {
             return Poll::Ready(Ok(None));
         }
 
-        let mut conn = self.conn.state.lock("RecvStream::poll_read");
+        let mut conn = self.conn.lock_without_waking("RecvStream::poll_read");
         if self.is_0rtt {
             conn.check_0rtt().map_err(|()| ReadError::ZeroRttRejected)?;
         }
@@ -581,18 +581,18 @@ impl tokio::io::AsyncRead for RecvStream {
 
 impl Drop for RecvStream {
     fn drop(&mut self) {
-        let mut conn = self.conn.state.lock("RecvStream::drop");
+        let mut conn = self.conn.lock_and_wake("RecvStream::drop");
 
         // clean up any previously registered wakers
         conn.blocked_readers.remove(&self.stream);
 
         if conn.error.is_some() || (self.is_0rtt && conn.check_0rtt().is_err()) {
+            conn.skip_waking();
             return;
         }
         if !self.all_data_read {
             // Ignore ClosedStream errors
             let _ = conn.inner.recv_stream(self.stream).stop(0u32.into());
-            conn.wake();
         }
     }
 }

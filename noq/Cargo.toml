@@ -61,6 +61,7 @@ __rustls-post-quantum-test =  ["rustls/prefer-post-quantum", "rustls", "aws-lc-r
 [dependencies]
 async-io = { workspace = true, optional = true }
 bytes = { workspace = true }
+derive_more = { workspace = true }
 # Enables futures::io::{AsyncRead, AsyncWrite} support for streams
 futures-io = { workspace = true, optional = true }
 rustc-hash = { workspace = true }

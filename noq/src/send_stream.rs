@@ -145,30 +145,33 @@ impl SendStream {
         F: FnOnce(&mut proto::SendStream<'_>) -> Result<R, proto::WriteError>,
     {
         use proto::WriteError::*;
-        let mut conn = self.conn.state.lock("SendStream::poll_write");
-        if self.is_0rtt {
-            conn.check_0rtt()
-                .map_err(|()| WriteError::ZeroRttRejected)?;
+        let mut conn = self.conn.lock_and_wake("SendStream::poll_write");
+        if self.is_0rtt && conn.check_0rtt().is_err() {
+            conn.skip_waking();
+            return Poll::Ready(Err(WriteError::ZeroRttRejected));
         }
-        if let Some(ref x) = conn.error {
-            return Poll::Ready(Err(WriteError::ConnectionLost(x.clone())));
+        if let Some(conn_err) = conn.error.clone() {
+            conn.skip_waking();
+            return Poll::Ready(Err(WriteError::ConnectionLost(conn_err)));
         }
 
         let result = match write_fn(&mut conn.inner.send_stream(self.stream)) {
             Ok(result) => result,
             Err(Blocked) => {
                 conn.blocked_writers.insert(self.stream, cx.waker().clone());
+                conn.skip_waking();
                 return Poll::Pending;
             }
             Err(Stopped(error_code)) => {
+                conn.skip_waking();
                 return Poll::Ready(Err(WriteError::Stopped(error_code)));
             }
             Err(ClosedStream) => {
+                conn.skip_waking();
                 return Poll::Ready(Err(WriteError::ClosedStream));
             }
         };
 
-        conn.wake();
         Poll::Ready(Ok(result))
     }
 
@@ -184,16 +187,17 @@ impl SendStream {
     /// called. This error is harmless and serves only to indicate that the caller may have
     /// incorrect assumptions about the stream's state.
     pub fn finish(&mut self) -> Result<(), ClosedStream> {
-        let mut conn = self.conn.state.lock("finish");
-        match conn.inner.send_stream(self.stream).finish() {
-            Ok(()) => {
-                conn.wake();
-                Ok(())
+        let mut conn = self.conn.lock_and_wake("finish");
+        if let Err(e) = conn.inner.send_stream(self.stream).finish() {
+            conn.skip_waking();
+            match e {
+                FinishError::ClosedStream => Err(ClosedStream::default()),
+                // Harmless. If the application needs to know about stopped streams at this point, it
+                // should call `stopped`.
+                FinishError::Stopped(_) => Ok(()),
             }
-            Err(FinishError::ClosedStream) => Err(ClosedStream::default()),
-            // Harmless. If the application needs to know about stopped streams at this point, it
-            // should call `stopped`.
-            Err(FinishError::Stopped(_)) => Ok(()),
+        } else {
+            Ok(())
         }
     }
 
@@ -207,12 +211,12 @@ impl SendStream {
     /// called. This error is harmless and serves only to indicate that the caller may have
     /// incorrect assumptions about the stream's state.
     pub fn reset(&mut self, error_code: VarInt) -> Result<(), ClosedStream> {
-        let mut conn = self.conn.state.lock("SendStream::reset");
+        let mut conn = self.conn.lock_and_wake("SendStream::reset");
         if self.is_0rtt && conn.check_0rtt().is_err() {
+            conn.skip_waking();
             return Ok(());
         }
         conn.inner.send_stream(self.stream).reset(error_code)?;
-        conn.wake();
         Ok(())
     }
 
@@ -224,14 +228,14 @@ impl SendStream {
     /// transmitted. Using many different priority levels per connection may have a negative
     /// impact on performance.
     pub fn set_priority(&self, priority: i32) -> Result<(), ClosedStream> {
-        let mut conn = self.conn.state.lock("SendStream::set_priority");
+        let mut conn = self.conn.lock_without_waking("SendStream::set_priority");
         conn.inner.send_stream(self.stream).set_priority(priority)?;
         Ok(())
     }
 
     /// Get the priority of the send stream
     pub fn priority(&self) -> Result<i32, ClosedStream> {
-        let mut conn = self.conn.state.lock("SendStream::priority");
+        let mut conn = self.conn.lock_without_waking("SendStream::priority");
         conn.inner.send_stream(self.stream).priority()
     }
 
@@ -249,7 +253,7 @@ impl SendStream {
         let notified = {
             // Create an `OwnedNotified` to move into the future. By creating it before the first poll,
             // we make sure that we don't miss any notifications.
-            let mut conn = self.conn.state.lock("SendStream::stopped");
+            let mut conn = self.conn.lock_without_waking("SendStream::stopped");
             conn.stopped
                 .entry(self.stream)
                 .or_default()
@@ -343,23 +347,26 @@ impl tokio::io::AsyncWrite for SendStream {
 
 impl Drop for SendStream {
     fn drop(&mut self) {
-        let mut conn = self.conn.state.lock("SendStream::drop");
+        let mut conn = self.conn.lock_and_wake("SendStream::drop");
 
         // clean up any previously registered wakers
         conn.blocked_writers.remove(&self.stream);
 
         if conn.error.is_some() || (self.is_0rtt && conn.check_0rtt().is_err()) {
+            conn.skip_waking();
             return;
         }
         match conn.inner.send_stream(self.stream).finish() {
-            Ok(()) => conn.wake(),
+            Ok(()) => {}
             Err(FinishError::Stopped(reason)) => {
-                if conn.inner.send_stream(self.stream).reset(reason).is_ok() {
-                    conn.wake();
+                if conn.inner.send_stream(self.stream).reset(reason).is_err() {
+                    conn.skip_waking()
                 }
             }
             // Already finished or reset, which is fine.
-            Err(FinishError::ClosedStream) => {}
+            Err(FinishError::ClosedStream) => {
+                conn.skip_waking();
+            }
         }
     }
 }
@@ -460,7 +467,7 @@ impl Future for Stopped {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
         loop {
-            let mut conn = this.conn.state.lock("SendStream::stopped");
+            let mut conn = this.conn.lock_without_waking("SendStream::stopped");
             // Check if the stream is stopped before polling the notify. This makes sure that
             // no wakeups are missed.
             if let Some(output) = send_stream_stopped(&mut conn, *this.stream, *this.is_0rtt) {
