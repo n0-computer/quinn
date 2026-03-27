@@ -5576,7 +5576,7 @@
 <a href=#5576 id=5576 data-nosnippet>5576</a>
 <a href=#5577 id=5577 data-nosnippet>5577</a>            <span class="comment">// Reset PTO backoff so retransmits resume promptly. Congestion controller and
 <a href=#5578 id=5578 data-nosnippet>5578</a>            // RTT are intentionally preserved for recoverable paths. We explicitly allow
-<a href=#5579 id=5579 data-nosnippet>5579</a>            // this reset also during the hanshake, so do not check
+<a href=#5579 id=5579 data-nosnippet>5579</a>            // this reset also during the handshake, so do not check
 <a href=#5580 id=5580 data-nosnippet>5580</a>            // Self::peer_competed_handshake_address_validation.
 <a href=#5581 id=5581 data-nosnippet>5581</a>            </span><span class="kw">if let </span><span class="prelude-val">Some</span>(path) = <span class="self">self</span>.paths.get_mut(<span class="kw-2">&amp;</span>path_id) {
 <a href=#5582 id=5582 data-nosnippet>5582</a>                path.data.pto_count = <span class="number">0</span>;
