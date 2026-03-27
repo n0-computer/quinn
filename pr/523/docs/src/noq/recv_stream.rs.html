@@ -268,12 +268,12 @@
 <a href=#268 id=268 data-nosnippet>268</a>    /// Discards unread data and notifies the peer to stop transmitting. Once stopped, further
 <a href=#269 id=269 data-nosnippet>269</a>    /// attempts to operate on a stream will yield `ClosedStream` errors.
 <a href=#270 id=270 data-nosnippet>270</a>    </span><span class="kw">pub fn </span>stop(<span class="kw-2">&amp;mut </span><span class="self">self</span>, error_code: VarInt) -&gt; <span class="prelude-ty">Result</span>&lt;(), ClosedStream&gt; {
-<a href=#271 id=271 data-nosnippet>271</a>        <span class="kw">let </span><span class="kw-2">mut </span>conn = <span class="self">self</span>.conn.state.lock(<span class="string">"RecvStream::stop"</span>);
+<a href=#271 id=271 data-nosnippet>271</a>        <span class="kw">let </span><span class="kw-2">mut </span>conn = <span class="self">self</span>.conn.lock_and_wake(<span class="string">"RecvStream::stop"</span>);
 <a href=#272 id=272 data-nosnippet>272</a>        <span class="kw">if </span><span class="self">self</span>.is_0rtt &amp;&amp; conn.check_0rtt().is_err() {
-<a href=#273 id=273 data-nosnippet>273</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#274 id=274 data-nosnippet>274</a>        }
-<a href=#275 id=275 data-nosnippet>275</a>        conn.inner.recv_stream(<span class="self">self</span>.stream).stop(error_code)<span class="question-mark">?</span>;
-<a href=#276 id=276 data-nosnippet>276</a>        conn.wake();
+<a href=#273 id=273 data-nosnippet>273</a>            conn.skip_waking();
+<a href=#274 id=274 data-nosnippet>274</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#275 id=275 data-nosnippet>275</a>        }
+<a href=#276 id=276 data-nosnippet>276</a>        conn.inner.recv_stream(<span class="self">self</span>.stream).stop(error_code)<span class="question-mark">?</span>;
 <a href=#277 id=277 data-nosnippet>277</a>        <span class="self">self</span>.all_data_read = <span class="bool-val">true</span>;
 <a href=#278 id=278 data-nosnippet>278</a>        <span class="prelude-val">Ok</span>(())
 <a href=#279 id=279 data-nosnippet>279</a>    }
@@ -301,7 +301,7 @@
 <a href=#301 id=301 data-nosnippet>301</a>    /// This operation is cancel-safe.
 <a href=#302 id=302 data-nosnippet>302</a>    </span><span class="kw">pub async fn </span>received_reset(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;VarInt&gt;, ResetError&gt; {
 <a href=#303 id=303 data-nosnippet>303</a>        poll_fn(|cx| {
-<a href=#304 id=304 data-nosnippet>304</a>            <span class="kw">let </span><span class="kw-2">mut </span>conn = <span class="self">self</span>.conn.state.lock(<span class="string">"RecvStream::reset"</span>);
+<a href=#304 id=304 data-nosnippet>304</a>            <span class="kw">let </span><span class="kw-2">mut </span>conn = <span class="self">self</span>.conn.lock_without_waking(<span class="string">"RecvStream::reset"</span>);
 <a href=#305 id=305 data-nosnippet>305</a>            <span class="kw">if </span><span class="self">self</span>.is_0rtt &amp;&amp; conn.check_0rtt().is_err() {
 <a href=#306 id=306 data-nosnippet>306</a>                <span class="kw">return </span>Poll::Ready(<span class="prelude-val">Err</span>(ResetError::ZeroRttRejected));
 <a href=#307 id=307 data-nosnippet>307</a>            }
@@ -354,7 +354,7 @@
 <a href=#354 id=354 data-nosnippet>354</a>            <span class="kw">return </span>Poll::Ready(<span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>));
 <a href=#355 id=355 data-nosnippet>355</a>        }
 <a href=#356 id=356 data-nosnippet>356</a>
-<a href=#357 id=357 data-nosnippet>357</a>        <span class="kw">let </span><span class="kw-2">mut </span>conn = <span class="self">self</span>.conn.state.lock(<span class="string">"RecvStream::poll_read"</span>);
+<a href=#357 id=357 data-nosnippet>357</a>        <span class="kw">let </span><span class="kw-2">mut </span>conn = <span class="self">self</span>.conn.lock_without_waking(<span class="string">"RecvStream::poll_read"</span>);
 <a href=#358 id=358 data-nosnippet>358</a>        <span class="kw">if </span><span class="self">self</span>.is_0rtt {
 <a href=#359 id=359 data-nosnippet>359</a>            conn.check_0rtt().map_err(|()| ReadError::ZeroRttRejected)<span class="question-mark">?</span>;
 <a href=#360 id=360 data-nosnippet>360</a>        }
@@ -581,18 +581,18 @@
 <a href=#581 id=581 data-nosnippet>581</a>
 <a href=#582 id=582 data-nosnippet>582</a><span class="kw">impl </span>Drop <span class="kw">for </span>RecvStream {
 <a href=#583 id=583 data-nosnippet>583</a>    <span class="kw">fn </span>drop(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
-<a href=#584 id=584 data-nosnippet>584</a>        <span class="kw">let </span><span class="kw-2">mut </span>conn = <span class="self">self</span>.conn.state.lock(<span class="string">"RecvStream::drop"</span>);
+<a href=#584 id=584 data-nosnippet>584</a>        <span class="kw">let </span><span class="kw-2">mut </span>conn = <span class="self">self</span>.conn.lock_and_wake(<span class="string">"RecvStream::drop"</span>);
 <a href=#585 id=585 data-nosnippet>585</a>
 <a href=#586 id=586 data-nosnippet>586</a>        <span class="comment">// clean up any previously registered wakers
 <a href=#587 id=587 data-nosnippet>587</a>        </span>conn.blocked_readers.remove(<span class="kw-2">&amp;</span><span class="self">self</span>.stream);
 <a href=#588 id=588 data-nosnippet>588</a>
 <a href=#589 id=589 data-nosnippet>589</a>        <span class="kw">if </span>conn.error.is_some() || (<span class="self">self</span>.is_0rtt &amp;&amp; conn.check_0rtt().is_err()) {
-<a href=#590 id=590 data-nosnippet>590</a>            <span class="kw">return</span>;
-<a href=#591 id=591 data-nosnippet>591</a>        }
-<a href=#592 id=592 data-nosnippet>592</a>        <span class="kw">if </span>!<span class="self">self</span>.all_data_read {
-<a href=#593 id=593 data-nosnippet>593</a>            <span class="comment">// Ignore ClosedStream errors
-<a href=#594 id=594 data-nosnippet>594</a>            </span><span class="kw">let _ </span>= conn.inner.recv_stream(<span class="self">self</span>.stream).stop(<span class="number">0u32</span>.into());
-<a href=#595 id=595 data-nosnippet>595</a>            conn.wake();
+<a href=#590 id=590 data-nosnippet>590</a>            conn.skip_waking();
+<a href=#591 id=591 data-nosnippet>591</a>            <span class="kw">return</span>;
+<a href=#592 id=592 data-nosnippet>592</a>        }
+<a href=#593 id=593 data-nosnippet>593</a>        <span class="kw">if </span>!<span class="self">self</span>.all_data_read {
+<a href=#594 id=594 data-nosnippet>594</a>            <span class="comment">// Ignore ClosedStream errors
+<a href=#595 id=595 data-nosnippet>595</a>            </span><span class="kw">let _ </span>= conn.inner.recv_stream(<span class="self">self</span>.stream).stop(<span class="number">0u32</span>.into());
 <a href=#596 id=596 data-nosnippet>596</a>        }
 <a href=#597 id=597 data-nosnippet>597</a>    }
 <a href=#598 id=598 data-nosnippet>598</a>}
