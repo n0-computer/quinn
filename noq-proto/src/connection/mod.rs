@@ -3450,8 +3450,7 @@ impl Connection {
                     };
                 let mut duration = pto_base;
                 for i in 1..=pto_count {
-                    let exponential_duration =
-                        pto_base * 2u32.pow(i.min(MAX_BACKOFF_EXPONENT));
+                    let exponential_duration = pto_base * 2u32.pow(i.min(MAX_BACKOFF_EXPONENT));
                     let max_duration = duration + max_interval;
                     duration = exponential_duration.min(max_duration);
                 }
@@ -7352,7 +7351,7 @@ const MAX_PTO_FAST_INTERVAL: Duration = Duration::from_secs(1);
 /// This is RTT time above which 1.5 * RTT > [`MAX_PTO_INTERVAL`], for these links we want
 /// to extend the interval between tail-loss probes to not fill the entire pipe with them.
 const SLOW_RTT_THRESHOLD: Duration =
-    Duration::from_millis((MAX_PTO_INTERVAL.as_millis() as u64 * 3) / 2);
+    Duration::from_millis((MAX_PTO_INTERVAL.as_millis() as u64 * 2) / 3);
 
 /// Minimal remaining size to allow packet coalescing, excluding cryptographic tag
 ///
