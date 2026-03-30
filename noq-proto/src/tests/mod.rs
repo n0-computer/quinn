@@ -1347,7 +1347,7 @@ fn close_from_migrated_address() {
 
     // Client closes connection from the NEW address.  The server will see the migration and
     // close the connection on the new address.
-    // TOD(flub): Potentially the server should also send the CONNECTION_CLOSE to the old
+    // TODO(flub): Potentially the server should also send the CONNECTION_CLOSE to the old
     //    address. Because the new one has not yet been validated.
     pair.close(Client, 0, b"bye");
     pair.drive();
