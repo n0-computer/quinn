@@ -7351,7 +7351,8 @@ const MAX_PTO_FAST_INTERVAL: Duration = Duration::from_secs(1);
 ///
 /// This is RTT time above which 1.5 * RTT > [`MAX_PTO_INTERVAL`], for these links we want
 /// to extend the interval between tail-loss probes to not fill the entire pipe with them.
-const SLOW_RTT_THRESHOLD: Duration = Duration::from_millis(610);
+const SLOW_RTT_THRESHOLD: Duration =
+    Duration::from_millis((MAX_PTO_INTERVAL.as_millis() as u64 * 3) / 2);
 
 /// Minimal remaining size to allow packet coalescing, excluding cryptographic tag
 ///
