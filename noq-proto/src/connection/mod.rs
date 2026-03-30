@@ -3393,6 +3393,21 @@ impl Connection {
         let path = self.path(path_id)?;
         let pto_count = path.pto_count;
 
+        // Cap the maximum interval between two tail-loss probes.
+        let max_interval = if path.rtt.get() > SLOW_RTT_THRESHOLD {
+            // For slow links we want to increase the interval beyond 2s.
+            (path.rtt.get() * 3) / 2
+        } else if let Some(idle) = path.idle_timeout.or(self.idle_timeout)
+            && idle <= MIN_IDLE_FOR_FAST_PTO
+        {
+            // If the idle timeout is relatively low, cap at 1s so we get plenty of retries
+            // before the idle timeout fires.
+            MAX_PTO_FAST_INTERVAL
+        } else {
+            // Otherwise cap to 2s.
+            MAX_PTO_INTERVAL
+        };
+
         if path_id == PathId::ZERO
             && path.in_flight.ack_eliciting == 0
             && !self.peer_completed_address_validation(PathId::ZERO)
@@ -3409,23 +3424,9 @@ impl Connection {
 
             let backoff = 2u32.pow(path.pto_count.min(MAX_BACKOFF_EXPONENT));
             let duration = path.rtt.pto_base() * backoff;
+            let duration = duration.min(max_interval);
             return Some((now + duration, space));
         }
-
-        // Cap the maximum interval between two tail-loss probes.
-        let max_interval = if path.rtt.get() > SLOW_RTT_THRESHOLD {
-            // For slow links we want to increase the interval beyond 2s.
-            (path.rtt.get() * 3) / 2
-        } else if let Some(idle) = path.idle_timeout.or(self.idle_timeout)
-            && idle <= MIN_IDLE_FOR_FAST_PTO
-        {
-            // If the idle timeout is relatively low, cap at 1s so we get plenty of retries
-            // before the idle timeout fires.
-            MAX_PTO_FAST_INTERVAL
-        } else {
-            // Otherwise cap to 2s.
-            MAX_PTO_INTERVAL
-        };
 
         let mut result = None;
         for space in SpaceId::iter() {
