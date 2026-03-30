@@ -1332,6 +1332,40 @@ fn connection_close_sends_acks() {
     );
 }
 
+/// Client closes the connection at the same time it experience a passive migration.
+#[test]
+fn close_from_migrated_address() {
+    let _guard = subscribe();
+    let mut pair = ConnPair::default();
+    pair.drive();
+
+    // Change client address - server will see this as migration
+    pair.client.addr = SocketAddr::new(
+        Ipv4Addr::new(127, 0, 0, 1).into(),
+        CLIENT_PORTS.lock().unwrap().next().unwrap(),
+    );
+
+    // Client closes connection from the NEW address.  The server will see the migration and
+    // close the connection on the new address.
+    // TODO(flub): Potentially the server should also send the CONNECTION_CLOSE to the old
+    //    address. Because the new one has not yet been validated.
+    pair.close(Client, 0, b"bye");
+    pair.drive();
+
+    let server_stats = pair.stats(Server);
+    assert_eq!(server_stats.frame_tx.connection_close, 1);
+
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::ConnectionLost {
+            reason: ConnectionError::ApplicationClosed(_)
+        })
+    );
+
+    let path = pair.conn(Server).network_path(PathId::ZERO).unwrap();
+    assert_eq!(path.remote(), pair.client.addr);
+}
+
 #[test]
 fn server_hs_retransmit() {
     let _guard = subscribe();
