@@ -3479,9 +3479,9 @@
 <a href=#3479 id=3479 data-nosnippet>3479</a>                        Duration::ZERO
 <a href=#3480 id=3480 data-nosnippet>3480</a>                    };
 <a href=#3481 id=3481 data-nosnippet>3481</a>                <span class="kw">let </span><span class="kw-2">mut </span>duration = pto_base;
-<a href=#3482 id=3482 data-nosnippet>3482</a>                <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..pto_count.saturating_sub(<span class="number">1</span>) {
+<a href=#3482 id=3482 data-nosnippet>3482</a>                <span class="kw">for </span>i <span class="kw">in </span><span class="number">1</span>..=pto_count {
 <a href=#3483 id=3483 data-nosnippet>3483</a>                    <span class="kw">let </span>exponential_duration =
-<a href=#3484 id=3484 data-nosnippet>3484</a>                        pto_base * <span class="number">2u32</span>.pow((i + <span class="number">1</span>).min(MAX_BACKOFF_EXPONENT));
+<a href=#3484 id=3484 data-nosnippet>3484</a>                        pto_base * <span class="number">2u32</span>.pow(i.min(MAX_BACKOFF_EXPONENT));
 <a href=#3485 id=3485 data-nosnippet>3485</a>                    <span class="kw">let </span>max_duration = duration + max_interval;
 <a href=#3486 id=3486 data-nosnippet>3486</a>                    duration = exponential_duration.min(max_duration);
 <a href=#3487 id=3487 data-nosnippet>3487</a>                }
@@ -6232,39 +6232,39 @@
 <a href=#6232 id=6232 data-nosnippet>6232</a>            }
 <a href=#6233 id=6233 data-nosnippet>6233</a>        }
 <a href=#6234 id=6234 data-nosnippet>6234</a>
-<a href=#6235 id=6235 data-nosnippet>6235</a>        <span class="comment">// STREAM
-<a href=#6236 id=6236 data-nosnippet>6236</a>        </span><span class="kw">if </span>!scheduling_info.is_abandoned
-<a href=#6237 id=6237 data-nosnippet>6237</a>            &amp;&amp; scheduling_info.may_send_data
-<a href=#6238 id=6238 data-nosnippet>6238</a>            &amp;&amp; space_id == SpaceId::Data
-<a href=#6239 id=6239 data-nosnippet>6239</a>        {
-<a href=#6240 id=6240 data-nosnippet>6240</a>            <span class="self">self</span>.streams
-<a href=#6241 id=6241 data-nosnippet>6241</a>                .write_stream_frames(builder, <span class="self">self</span>.config.send_fairness, stats);
-<a href=#6242 id=6242 data-nosnippet>6242</a>        }
-<a href=#6243 id=6243 data-nosnippet>6243</a>
-<a href=#6244 id=6244 data-nosnippet>6244</a>        <span class="comment">// ADD_ADDRESS
-<a href=#6245 id=6245 data-nosnippet>6245</a>        </span><span class="kw">while </span>space_id == SpaceId::Data
-<a href=#6246 id=6246 data-nosnippet>6246</a>            &amp;&amp; !scheduling_info.is_abandoned
-<a href=#6247 id=6247 data-nosnippet>6247</a>            &amp;&amp; scheduling_info.may_send_data
-<a href=#6248 id=6248 data-nosnippet>6248</a>            &amp;&amp; frame::AddAddress::SIZE_BOUND &lt;= builder.frame_space_remaining()
-<a href=#6249 id=6249 data-nosnippet>6249</a>        {
-<a href=#6250 id=6250 data-nosnippet>6250</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(added_address) = space.pending.add_address.pop_last() {
-<a href=#6251 id=6251 data-nosnippet>6251</a>                builder.write_frame(added_address, stats);
-<a href=#6252 id=6252 data-nosnippet>6252</a>            } <span class="kw">else </span>{
-<a href=#6253 id=6253 data-nosnippet>6253</a>                <span class="kw">break</span>;
-<a href=#6254 id=6254 data-nosnippet>6254</a>            }
-<a href=#6255 id=6255 data-nosnippet>6255</a>        }
-<a href=#6256 id=6256 data-nosnippet>6256</a>
-<a href=#6257 id=6257 data-nosnippet>6257</a>        <span class="comment">// REMOVE_ADDRESS
-<a href=#6258 id=6258 data-nosnippet>6258</a>        </span><span class="kw">while </span>space_id == SpaceId::Data
-<a href=#6259 id=6259 data-nosnippet>6259</a>            &amp;&amp; !scheduling_info.is_abandoned
-<a href=#6260 id=6260 data-nosnippet>6260</a>            &amp;&amp; scheduling_info.may_send_data
-<a href=#6261 id=6261 data-nosnippet>6261</a>            &amp;&amp; frame::RemoveAddress::SIZE_BOUND &lt;= builder.frame_space_remaining()
-<a href=#6262 id=6262 data-nosnippet>6262</a>        {
-<a href=#6263 id=6263 data-nosnippet>6263</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(removed_address) = space.pending.remove_address.pop_last() {
-<a href=#6264 id=6264 data-nosnippet>6264</a>                builder.write_frame(removed_address, stats);
-<a href=#6265 id=6265 data-nosnippet>6265</a>            } <span class="kw">else </span>{
-<a href=#6266 id=6266 data-nosnippet>6266</a>                <span class="kw">break</span>;
-<a href=#6267 id=6267 data-nosnippet>6267</a>            }
+<a href=#6235 id=6235 data-nosnippet>6235</a>        <span class="comment">// ADD_ADDRESS
+<a href=#6236 id=6236 data-nosnippet>6236</a>        </span><span class="kw">while </span>space_id == SpaceId::Data
+<a href=#6237 id=6237 data-nosnippet>6237</a>            &amp;&amp; !scheduling_info.is_abandoned
+<a href=#6238 id=6238 data-nosnippet>6238</a>            &amp;&amp; scheduling_info.may_send_data
+<a href=#6239 id=6239 data-nosnippet>6239</a>            &amp;&amp; frame::AddAddress::SIZE_BOUND &lt;= builder.frame_space_remaining()
+<a href=#6240 id=6240 data-nosnippet>6240</a>        {
+<a href=#6241 id=6241 data-nosnippet>6241</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(added_address) = space.pending.add_address.pop_last() {
+<a href=#6242 id=6242 data-nosnippet>6242</a>                builder.write_frame(added_address, stats);
+<a href=#6243 id=6243 data-nosnippet>6243</a>            } <span class="kw">else </span>{
+<a href=#6244 id=6244 data-nosnippet>6244</a>                <span class="kw">break</span>;
+<a href=#6245 id=6245 data-nosnippet>6245</a>            }
+<a href=#6246 id=6246 data-nosnippet>6246</a>        }
+<a href=#6247 id=6247 data-nosnippet>6247</a>
+<a href=#6248 id=6248 data-nosnippet>6248</a>        <span class="comment">// REMOVE_ADDRESS
+<a href=#6249 id=6249 data-nosnippet>6249</a>        </span><span class="kw">while </span>space_id == SpaceId::Data
+<a href=#6250 id=6250 data-nosnippet>6250</a>            &amp;&amp; !scheduling_info.is_abandoned
+<a href=#6251 id=6251 data-nosnippet>6251</a>            &amp;&amp; scheduling_info.may_send_data
+<a href=#6252 id=6252 data-nosnippet>6252</a>            &amp;&amp; frame::RemoveAddress::SIZE_BOUND &lt;= builder.frame_space_remaining()
+<a href=#6253 id=6253 data-nosnippet>6253</a>        {
+<a href=#6254 id=6254 data-nosnippet>6254</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(removed_address) = space.pending.remove_address.pop_last() {
+<a href=#6255 id=6255 data-nosnippet>6255</a>                builder.write_frame(removed_address, stats);
+<a href=#6256 id=6256 data-nosnippet>6256</a>            } <span class="kw">else </span>{
+<a href=#6257 id=6257 data-nosnippet>6257</a>                <span class="kw">break</span>;
+<a href=#6258 id=6258 data-nosnippet>6258</a>            }
+<a href=#6259 id=6259 data-nosnippet>6259</a>        }
+<a href=#6260 id=6260 data-nosnippet>6260</a>
+<a href=#6261 id=6261 data-nosnippet>6261</a>        <span class="comment">// STREAM
+<a href=#6262 id=6262 data-nosnippet>6262</a>        </span><span class="kw">if </span>!scheduling_info.is_abandoned
+<a href=#6263 id=6263 data-nosnippet>6263</a>            &amp;&amp; scheduling_info.may_send_data
+<a href=#6264 id=6264 data-nosnippet>6264</a>            &amp;&amp; space_id == SpaceId::Data
+<a href=#6265 id=6265 data-nosnippet>6265</a>        {
+<a href=#6266 id=6266 data-nosnippet>6266</a>            <span class="self">self</span>.streams
+<a href=#6267 id=6267 data-nosnippet>6267</a>                .write_stream_frames(builder, <span class="self">self</span>.config.send_fairness, stats);
 <a href=#6268 id=6268 data-nosnippet>6268</a>        }
 <a href=#6269 id=6269 data-nosnippet>6269</a>    }
 <a href=#6270 id=6270 data-nosnippet>6270</a>
