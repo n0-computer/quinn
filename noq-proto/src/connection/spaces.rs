@@ -157,7 +157,7 @@ impl PacketSpace {
             .number_spaces
             .get(&path_id)
             .is_some_and(|s| s.ping_pending || s.immediate_ack_pending);
-        let other = !self.pending.is_empty(streams) || space_specific;
+        let other = !self.pending.is_empty(streams);
         SendableFrames {
             acks,
             close: false,
