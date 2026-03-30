@@ -597,8 +597,10 @@ impl ConnPair {
         self.conn_mut(side).handle_timeout(now)
     }
 
-    pub(super) fn close(&mut self, side: Side, now: Instant, error_code: VarInt, reason: Bytes) {
-        self.conn_mut(side).close(now, error_code, reason)
+    pub(super) fn close(&mut self, side: Side, error_code: u32, reason: &[u8]) {
+        let now = self.pair.time;
+        self.conn_mut(side)
+            .close(now, error_code.into(), Bytes::copy_from_slice(reason))
     }
 
     pub(super) fn datagrams(&mut self, side: Side) -> Datagrams<'_> {
