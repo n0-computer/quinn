@@ -7646,6 +7646,9 @@ impl SentFrames {
             MaxStreams(max_streams) => {
                 self.retransmits_mut().max_stream_id[max_streams.dir as usize] = true
             }
+            StreamsBlocked(streams_blocked) => {
+                self.retransmits_mut().streams_blocked[streams_blocked.dir as usize] = true
+            }
         }
     }
 }
