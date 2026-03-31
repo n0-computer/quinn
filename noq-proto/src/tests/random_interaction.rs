@@ -58,6 +58,15 @@ pub(super) enum TestOp {
     },
     /// Perform a stream-level operation on the connection belonging to `side`.
     StreamOp { side: Side, stream_op: StreamOp },
+    /// Send a datagram.
+    SendDatagram {
+        side: Side,
+        #[strategy(0..2000usize)]
+        size: usize,
+        drop: bool,
+    },
+    /// Read all datagrams on given `side`.
+    ReadDatagrams { side: Side },
     /// Close the connection belonging to `side`.
     CloseConn {
         side: Side,
@@ -204,6 +213,28 @@ impl TestOp {
                     Side::Server => server,
                 };
                 stream_op.run(pair, state);
+            }
+            Self::SendDatagram { side, size, drop } => {
+                let state = match side {
+                    Side::Client => client,
+                    Side::Server => server,
+                };
+                let data = vec![42u8; size];
+                state
+                    .conn(pair)?
+                    .datagrams()
+                    .send(data.into(), drop)
+                    .inspect_err(|err| error!(?err, "DatagramOp failed"))
+                    .ok();
+            }
+            Self::ReadDatagrams { side } => {
+                let state = match side {
+                    Side::Client => client,
+                    Side::Server => server,
+                };
+                while let Some(data) = state.conn(pair)?.datagrams().recv() {
+                    trace!(len = data.len(), "ReadDatagrams read a datagram");
+                }
             }
             Self::CloseConn { side, error_code } => {
                 let state = match side {
