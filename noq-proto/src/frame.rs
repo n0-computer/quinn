@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     fmt::{self, Display},
     mem,
     net::{IpAddr, SocketAddr},
@@ -781,6 +782,7 @@ impl Encodable for RetireConnectionId {
 
 #[cfg_attr(test, derive(Arbitrary))]
 #[derive(Clone, Debug, derive_more::Display)]
+#[display("CONNECTION_CLOSE error_code={} reason='{}'", self.error_code(), self.reason())]
 pub(crate) enum Close {
     Connection(ConnectionClose),
     Application(ApplicationClose),
@@ -796,6 +798,20 @@ impl Close {
 
     pub(crate) fn is_transport_layer(&self) -> bool {
         matches!(*self, Self::Connection(_))
+    }
+
+    fn error_code(&self) -> u64 {
+        match self {
+            Self::Connection(ConnectionClose { error_code, .. }) => u64::from(*error_code),
+            Self::Application(ApplicationClose { error_code, .. }) => u64::from(*error_code),
+        }
+    }
+
+    fn reason(&self) -> Cow<'_, str> {
+        match self {
+            Self::Connection(ConnectionClose { reason, .. }) => String::from_utf8_lossy(reason),
+            Self::Application(ApplicationClose { reason, .. }) => String::from_utf8_lossy(reason),
+        }
     }
 }
 
