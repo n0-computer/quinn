@@ -11,6 +11,11 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, Arbitrary)]
 pub(super) enum TestOp {
+    /// Finish the started connection attempt by driving the connection and accepting it on the server side.
+    ///
+    /// If `drive_fully` is set to `true`, then this will call `pair.drive()` before and after to make
+    /// sure the connection drove to completion.
+    FinishConnect { drive_fully: bool },
     /// Drive the endpoint on the given `side`, processing all pending I/O.
     Drive { side: Side },
     /// Advance the simulated time forward, unless both endpoints are idle.
@@ -106,7 +111,7 @@ pub(super) enum StreamOp {
 pub(super) struct State {
     send_streams: Vec<StreamId>,
     recv_streams: Vec<StreamId>,
-    handle: ConnectionHandle,
+    handle: Option<ConnectionHandle>,
     side: Side,
 }
 
@@ -114,6 +119,23 @@ impl TestOp {
     fn run(self, pair: &mut Pair, client: &mut State, server: &mut State) -> Option<()> {
         let now = pair.time;
         match self {
+            Self::FinishConnect { drive_fully } => {
+                if drive_fully {
+                    pair.drive();
+                }
+
+                let accept = pair
+                    .server
+                    .accepted
+                    .take()?
+                    .inspect_err(|err| error!(?err, "FinishConnect error accepting connection"))
+                    .ok()?;
+                server.handle = Some(accept);
+
+                if drive_fully {
+                    pair.drive();
+                }
+            }
             Self::Drive { side: Side::Client } => pair.drive_client(),
             Self::Drive { side: Side::Server } => pair.drive_server(),
             Self::AdvanceTime => {
@@ -314,11 +336,11 @@ impl StreamOp {
 }
 
 impl State {
-    fn new(side: Side, handle: ConnectionHandle) -> Self {
+    fn new(side: Side) -> Self {
         Self {
             send_streams: Vec::new(),
             recv_streams: Vec::new(),
-            handle,
+            handle: None,
             side,
         }
     }
@@ -331,7 +353,7 @@ impl State {
     }
 
     fn conn<'a>(&self, pair: &'a mut Pair) -> Option<&'a mut Connection> {
-        self.endpoint(pair).connections.get_mut(&self.handle)
+        self.endpoint(pair).connections.get_mut(&self.handle?)
     }
 }
 
@@ -363,16 +385,17 @@ pub(super) fn run_random_interaction(
     pair: &mut Pair,
     interactions: Vec<TestOp>,
     client_config: ClientConfig,
-) -> (ConnectionHandle, ConnectionHandle) {
-    let (client_ch, server_ch) = pair.connect_with(client_config);
-    pair.drive(); // finish establishing the connection;
-    info!("INTERACTION SETUP FINISHED");
-    let mut client = State::new(Side::Client, client_ch);
-    let mut server = State::new(Side::Server, server_ch);
+) -> (ConnectionHandle, Option<ConnectionHandle>) {
+    let mut client = State::new(Side::Client);
+    let mut server = State::new(Side::Server);
+
+    let client_handle = pair.begin_connect(client_config);
+    client.handle = Some(client_handle);
 
     for interaction in interactions {
         info!(?interaction, "INTERACTION STEP");
         interaction.run(pair, &mut client, &mut server);
     }
-    (client.handle, server.handle)
+
+    (client_handle, server.handle)
 }

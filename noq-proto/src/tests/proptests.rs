@@ -210,9 +210,11 @@ fn random_interaction(
     prop_assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    prop_assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        prop_assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 fn routing_table() -> impl Strategy<Value = RoutingTable> {
@@ -310,6 +312,7 @@ fn regression_unset_packet_acked() {
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Available,
@@ -334,9 +337,11 @@ fn regression_unset_packet_acked() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 #[test]
@@ -351,6 +356,7 @@ fn regression_invalid_key() {
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Available,
@@ -373,9 +379,11 @@ fn regression_invalid_key() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 /// Regression test for the "invalid key" panic in `noq-proto::Endpoint::handle_event`.
@@ -398,6 +406,7 @@ fn regression_invalid_key2() {
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::CloseConn {
             side: Side::Client,
             error_code: 0,
@@ -424,9 +433,11 @@ fn regression_invalid_key2() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 #[test]
@@ -441,6 +452,7 @@ fn regression_key_update_error() {
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Available,
@@ -458,9 +470,11 @@ fn regression_key_update_error() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 #[test]
@@ -472,6 +486,7 @@ fn regression_never_idle() {
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Available,
@@ -497,9 +512,11 @@ fn regression_never_idle() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 #[test]
@@ -511,6 +528,7 @@ fn regression_never_idle2() {
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Backup,
@@ -539,9 +557,11 @@ fn regression_never_idle2() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 #[test]
@@ -553,6 +573,7 @@ fn regression_packet_number_space_missing() {
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Backup,
@@ -580,9 +601,11 @@ fn regression_packet_number_space_missing() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 #[test]
@@ -594,6 +617,7 @@ fn regression_peer_failed_to_respond_with_path_abandon() {
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Available,
@@ -614,9 +638,11 @@ fn regression_peer_failed_to_respond_with_path_abandon() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 #[test]
@@ -628,6 +654,7 @@ fn regression_peer_failed_to_respond_with_path_abandon2() {
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Available,
@@ -658,9 +685,11 @@ fn regression_peer_failed_to_respond_with_path_abandon2() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 /// This test sets up two addresses for the server side:
@@ -709,6 +738,7 @@ fn regression_path_validation() {
         )),
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Available,
@@ -737,9 +767,11 @@ fn regression_path_validation() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 /// This regression test used to fail with the client never becoming idle.
@@ -767,6 +799,7 @@ fn regression_never_idle3() {
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::CloseConn {
             side: Side::Server,
             error_code: 0,
@@ -794,9 +827,11 @@ fn regression_never_idle3() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 #[test]
@@ -808,6 +843,7 @@ fn regression_frame_encoding_error() {
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Available,
@@ -833,9 +869,11 @@ fn regression_frame_encoding_error() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 #[test]
@@ -847,6 +885,7 @@ fn regression_there_should_be_at_least_one_path() {
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::PassiveMigration {
             side: Side::Client,
             addr_idx: 0,
@@ -865,9 +904,11 @@ fn regression_there_should_be_at_least_one_path() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 /// This test will loop forever, unless the loss detection timer is allowed to back off
@@ -898,6 +939,7 @@ fn regression_conn_never_idle5() {
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::PassiveMigration {
             side: Side::Server,
             addr_idx: 0,
@@ -917,9 +959,11 @@ fn regression_conn_never_idle5() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 /// Yet another regression with PATH_ABANDON "not being answered" by our peer.
@@ -953,6 +997,7 @@ fn regression_peer_ignored_path_abandon() {
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Available,
@@ -985,9 +1030,11 @@ fn regression_peer_ignored_path_abandon() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 /// A regression test that used to put noq into a state of sending PATH_CHALLENGE
@@ -1028,6 +1075,7 @@ fn regression_never_idle4() {
         )),
     };
     let interactions = vec![
+        TestOp::FinishConnect { drive_fully: true },
         // Open path 1 with the same remote address as path 0
         TestOp::OpenPath {
             side: Side::Client,
@@ -1074,9 +1122,11 @@ fn regression_never_idle4() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 /// This test reproduced an infinite loop in loss detection.
@@ -1139,9 +1189,11 @@ fn regression_infinite_loop() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
 
 /// This test reproduced a situation in which a QNT-enabled connection sends path challenges indefinitely.
@@ -1197,7 +1249,9 @@ fn regression_qnt_revalidating_path_forever() {
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
-    assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
 }
