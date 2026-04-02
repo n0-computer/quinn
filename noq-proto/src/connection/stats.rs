@@ -227,9 +227,9 @@ pub struct PathStats {
     pub cwnd: u64,
     /// Congestion events on the connection.
     pub congestion_events: u64,
-    /// The amount of packets lost on this path.
+    /// The number of packets lost on this path.
     pub lost_packets: u64,
-    /// The amount of bytes lost on this path.
+    /// The number of bytes lost on this path.
     pub lost_bytes: u64,
     /// The number of PLPMTUD probe packets sent on this path.
     ///
@@ -252,14 +252,18 @@ pub struct PathStats {
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct ConnectionStats {
-    /// Statistics about UDP datagrams transmitted on a connection.
+    /// Statistics about UDP datagrams transmitted on the connection.
     pub udp_tx: UdpStats,
-    /// Statistics about UDP datagrams received on a connection.
+    /// Statistics about UDP datagrams received on the connection.
     pub udp_rx: UdpStats,
-    /// Statistics about frames transmitted on a connection.
+    /// Statistics about frames transmitted on the connection.
     pub frame_tx: FrameStats,
-    /// Statistics about frames received on a connection.
+    /// Statistics about frames received on the connection.
     pub frame_rx: FrameStats,
+    /// The number of packets lost on the connection.
+    pub lost_packets: u64,
+    /// The number of bytes lost on the connection.
+    pub lost_bytes: u64,
 }
 
 impl std::ops::Add<PathStats> for ConnectionStats {
@@ -276,8 +280,8 @@ impl std::ops::Add<PathStats> for ConnectionStats {
             frame_rx,
             cwnd: _,
             congestion_events: _,
-            lost_packets: _,
-            lost_bytes: _,
+            lost_packets,
+            lost_bytes,
             sent_plpmtud_probes: _,
             lost_plpmtud_probes: _,
             black_holes_detected: _,
@@ -288,6 +292,8 @@ impl std::ops::Add<PathStats> for ConnectionStats {
             udp_rx: self.udp_rx + udp_rx,
             frame_tx: self.frame_tx + frame_tx,
             frame_rx: self.frame_rx + frame_rx,
+            lost_packets: self.lost_packets + lost_packets,
+            lost_bytes: self.lost_bytes + lost_bytes,
         }
     }
 }
@@ -298,23 +304,33 @@ impl std::ops::AddAssign<PathStats> for ConnectionStats {
         // rtt, cwnd and current_mtu fields.
         let PathStats {
             rtt: _,
-            udp_tx,
-            udp_rx,
-            frame_tx,
-            frame_rx,
+            udp_tx: path_udp_tx,
+            udp_rx: path_udp_rx,
+            frame_tx: path_frame_tx,
+            frame_rx: path_frame_rx,
             cwnd: _,
             congestion_events: _,
-            lost_packets: _,
-            lost_bytes: _,
+            lost_packets: path_lost_packets,
+            lost_bytes: path_lost_bytes,
             sent_plpmtud_probes: _,
             lost_plpmtud_probes: _,
             black_holes_detected: _,
             current_mtu: _,
         } = rhs;
-        self.udp_tx += udp_tx;
-        self.udp_rx += udp_rx;
-        self.frame_tx += frame_tx;
-        self.frame_rx += frame_rx;
+        let Self {
+            udp_tx,
+            udp_rx,
+            frame_tx,
+            frame_rx,
+            lost_packets,
+            lost_bytes,
+        } = self;
+        *udp_tx += path_udp_tx;
+        *udp_rx += path_udp_rx;
+        *frame_tx += path_frame_tx;
+        *frame_rx += path_frame_rx;
+        *lost_packets += path_lost_packets;
+        *lost_bytes += path_lost_bytes;
     }
 }
 
