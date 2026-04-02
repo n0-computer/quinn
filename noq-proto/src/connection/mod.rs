@@ -1929,15 +1929,15 @@ impl Connection {
         }
 
         // Pacing check.
-        if let Some(delay) = self.path_data_mut(path_id).pacing_delay(bytes_to_send, now) {
+        if let Some(resume_time) = self.path_data_mut(path_id).pacing_delay(bytes_to_send, now) {
             self.timers.set(
                 Timer::PerPath(path_id, PathTimer::Pacing),
-                delay,
+                resume_time,
                 self.qlog.with_time(now),
             );
             // Loss probes and CONNECTION_CLOSE should be subject to pacing, even though
             // they are not congestion controlled.
-            trace!(?space_id, %path_id, "blocked by pacing");
+            trace!(?space_id, %path_id, delay = ?(resume_time - now), "blocked by pacing");
             return PathBlocked::Pacing;
         }
 
@@ -2592,8 +2592,11 @@ impl Connection {
 
     /// Whether the connection is in the process of being established
     ///
-    /// If this returns `false`, the connection may be either established or closed, signaled by the
-    /// emission of a `Connected` or `ConnectionLost` message respectively.
+    /// If this returns `false`, the connection may be either established or closed,
+    /// signaled by the emission of a `Connected` or `ConnectionLost` message respectively.
+    ///
+    /// For an established connection this essentially means the handshake is **completed**,
+    /// but not necessarily yet confirmed.
     pub fn is_handshaking(&self) -> bool {
         self.state.is_handshake()
     }
@@ -3449,6 +3452,13 @@ impl Connection {
                 continue;
             };
 
+            if space == SpaceId::Data && !self.is_handshake_confirmed() {
+                // https://www.rfc-editor.org/rfc/rfc9002.html#section-6.2.1-7:
+                // An endpoint MUST NOT set its PTO timer for the Application Data packet
+                // number space until the handshake is confirmed.
+                continue;
+            }
+
             if !pns.has_in_flight() {
                 continue;
             }
@@ -3458,12 +3468,12 @@ impl Connection {
             // rather iterate through the probes to compute the capped increment for an
             // exponential backoff at each step.
             let duration = {
-                let pto_base = path.rtt.pto_base()
-                    + if space == SpaceId::Data {
-                        self.ack_frequency.max_ack_delay_for_pto()
-                    } else {
-                        Duration::ZERO
-                    };
+                let max_ack_delay = if space == SpaceId::Data {
+                    self.ack_frequency.max_ack_delay_for_pto()
+                } else {
+                    Duration::ZERO
+                };
+                let pto_base = path.rtt.pto_base() + max_ack_delay;
                 let mut duration = pto_base;
                 for i in 1..=pto_count {
                     let exponential_duration = pto_base * 2u32.pow(i.min(MAX_BACKOFF_EXPONENT));
@@ -6991,6 +7001,21 @@ impl Connection {
                 client_state.report_in_continuation(id, e);
                 Some(false)
             }
+        }
+    }
+
+    /// Whether the handshake is considered **confirmed**.
+    ///
+    /// The handshake is **completed** when the 1-RTT crypto keys are available. However it
+    /// is only **confirmed** once the peer's TLS Finish message is received and validated.
+    fn is_handshake_confirmed(&self) -> bool {
+        if self.side() == Side::Server {
+            // On the server completed and confirmed are different times. So we look for the
+            // handshake keys being gone.
+            !self.is_handshaking() && !self.crypto_state.has_keys(EncryptionLevel::Handshake)
+        } else {
+            // The client is confirmed as soon at it managed to compute 1-RTT keys.
+            self.crypto_state.has_keys(EncryptionLevel::OneRtt)
         }
     }
 }
