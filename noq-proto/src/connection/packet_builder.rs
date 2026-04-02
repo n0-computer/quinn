@@ -49,7 +49,6 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         path_id: PathId,
         dst_cid: ConnectionId,
         buffer: &'a mut TransmitBuf<'b>,
-        ack_eliciting: bool,
         conn: &mut Connection,
     ) -> Option<Self>
     where
@@ -171,7 +170,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
             min_size,
             tag_len,
             level,
-            ack_eliciting,
+            ack_eliciting: false,
             qlog,
             sent_frames: SentFrames::default(),
             _span: span,
@@ -241,6 +240,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
     ) {
         let frame = frame.into();
         frame.encode(&mut self.frame_space_mut());
+        self.ack_eliciting |= frame.is_ack_eliciting();
         stats.record(frame.get_type());
         self.qlog.record(&frame);
         match msg {
@@ -255,7 +255,7 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
     /// The [`BufMut::remaining_mut`] call on the returned buffer indicates the amount of
     /// space available to write QUIC frames into.
     // In rust 1.82 we can use `-> impl BufMut + use<'_, 'a, 'b>`
-    pub(super) fn frame_space_mut(&mut self) -> bytes::buf::Limit<&mut TransmitBuf<'b>> {
+    fn frame_space_mut(&mut self) -> bytes::buf::Limit<&mut TransmitBuf<'b>> {
         self.buf.limit(self.frame_space_remaining())
     }
 

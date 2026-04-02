@@ -1580,15 +1580,9 @@ impl Connection {
                 prev.update_unacked = false;
             }
 
-            let Some(mut builder) = PacketBuilder::new(
-                now,
-                space_id,
-                path_id,
-                remote_cid,
-                transmit,
-                can_send.is_ack_eliciting(),
-                self,
-            ) else {
+            let Some(mut builder) =
+                PacketBuilder::new(now, space_id, path_id, remote_cid, transmit, self)
+            else {
                 // Confidentiality limit is exceeded and the connection has been killed. We
                 // should not send any other packets. This works in a roundabout way: We
                 // have started a datagram but not written anything into it. So even if we
@@ -1802,15 +1796,8 @@ impl Connection {
         let mut transmit = TransmitBuf::new(buf, NonZeroUsize::MIN, probe_size as usize);
         transmit.start_new_datagram_with_size(probe_size as usize);
 
-        let mut builder = PacketBuilder::new(
-            now,
-            SpaceId::Data,
-            path_id,
-            active_cid,
-            &mut transmit,
-            true,
-            self,
-        )?;
+        let mut builder =
+            PacketBuilder::new(now, SpaceId::Data, path_id, active_cid, &mut transmit, self)?;
 
         // We implement MTU probes as ping packets padded up to the probe size
         trace!(?probe_size, "writing MTUD probe");
@@ -1991,8 +1978,7 @@ impl Connection {
         // sent once, immediately after migration, when the CID is known to be valid. Even
         // if a post-migration packet caused the CID to be retired, it's fair to pretend
         // this is sent first.
-        let mut builder =
-            PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
+        let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, self)?;
         let challenge = frame::PathChallenge(token);
         let stats = &mut self.path_stats.for_path(path_id).frame_tx;
         builder.write_frame_with_log_msg(challenge, stats, Some("validating previous path"));
@@ -2039,7 +2025,7 @@ impl Connection {
         let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
         buf.start_new_datagram();
 
-        let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, buf, false, self)?;
+        let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, buf, self)?;
         let stats = &mut self.path_stats.for_path(path_id).frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
         // Off-path: not tracked in congestion control. The packet is sent to a
@@ -2094,8 +2080,7 @@ impl Connection {
         let mut buf = TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
         buf.start_new_datagram();
 
-        let mut builder =
-            PacketBuilder::new(now, SpaceId::Data, path_id, cid, &mut buf, false, self)?;
+        let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, &mut buf, self)?;
         let stats = &mut self.path_stats.for_path(path_id).frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(nat-traversal)"));
         // Off-path: not tracked in congestion control. The packet is sent to a
