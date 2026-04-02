@@ -85,8 +85,6 @@ impl PacketSpace {
 
     /// Queue data for a tail loss probe (or anti-amplification deadlock prevention) packet
     ///
-    /// Does nothing if no tail loss probe needs to be sent.
-    ///
     /// Probes are sent similarly to normal packets when an expected ACK has not arrived. We never
     /// deem a packet lost until we receive an ACK that should have included it, but if a trailing
     /// run of packets (or their ACKs) are lost, this might not happen in a timely fashion. We send
@@ -97,16 +95,12 @@ impl PacketSpace {
     /// waiting to be sent, then we retransmit in-flight data to reduce odds of loss. If there's no
     /// in-flight data either, we're probably a client guarding against a handshake
     /// anti-amplification deadlock and we just make something up.
-    pub(super) fn maybe_queue_probe(
+    pub(super) fn queue_tail_loss_probe(
         &mut self,
         path_id: PathId,
         request_immediate_ack: bool,
         streams: &StreamsState,
     ) {
-        if self.for_path(path_id).loss_probes == 0 {
-            return;
-        }
-
         if request_immediate_ack {
             // The probe should be ACKed without delay (should only be used in the Data space and
             // when the peer supports the acknowledgement frequency extension)

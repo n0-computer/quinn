@@ -1535,7 +1535,7 @@ impl Connection {
                         // We need something to send for a tail-loss probe.
                         let request_immediate_ack =
                             space_id == SpaceId::Data && self.peer_supports_ack_frequency();
-                        self.spaces[space_id].maybe_queue_probe(
+                        self.spaces[space_id].queue_tail_loss_probe(
                             path_id,
                             request_immediate_ack,
                             &self.streams,
