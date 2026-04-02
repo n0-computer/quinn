@@ -76,7 +76,8 @@ fn multipath_transport_config(qlog_prefix: &'static str) -> TransportConfig {
     let mut cfg = TransportConfig::default();
     // enable multipath
     cfg.max_concurrent_multipath_paths(MAX_PATHS);
-    cfg.default_path_max_idle_timeout(Some(std::time::Duration::from_secs(10)));
+    cfg.default_path_max_idle_timeout(Some(std::time::Duration::from_secs(15)));
+    cfg.default_path_keep_alive_interval(Some(std::time::Duration::from_secs(5)));
     // cfg.mtu_discovery_config(None);
     #[cfg(feature = "qlog")]
     cfg.qlog_from_env(qlog_prefix);
@@ -972,6 +973,45 @@ fn regression_never_idle4() {
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
+
+#[test]
+fn regression_infinite_loop() {
+    let prefix = "regression_infinite_loop";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 1,
+        },
+        TestOp::PassiveMigration {
+            side: Side::Server,
+            addr_idx: 0,
+        },
+    ];
+
+    let _guard = subscribe();
+    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    // This bug originally occured at exactly 4540 iterations.
+    // At 4539 it still finishes (but fails the assertion).
+    // At 4540 it the `drive_bounded` call never returns.
+    assert!(!pair.drive_bounded(4540), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
     )));
