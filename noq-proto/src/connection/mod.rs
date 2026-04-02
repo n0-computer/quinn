@@ -6564,13 +6564,17 @@ impl Connection {
                     timer,
                     Timer::Conn(ConnTimer::KeepAlive)
                         | Timer::PerPath(_, PathTimer::PathKeepAlive)
-                        | Timer::PerPath(_, PathTimer::PathIdle)
                         | Timer::Conn(ConnTimer::PushNewCid)
                         | Timer::Conn(ConnTimer::KeyDiscard)
                 )
             })
             .min_by_key(|(_, time)| *time)
-            .is_none_or(|(timer, _)| timer == Timer::Conn(ConnTimer::Idle))
+            .is_none_or(|(timer, _)| {
+                matches!(
+                    timer,
+                    Timer::Conn(ConnTimer::Idle) | Timer::PerPath(_, PathTimer::PathIdle)
+                )
+            })
     }
 
     /// Whether explicit congestion notification is in use on outgoing packets.
