@@ -2069,28 +2069,21 @@ impl Connection {
         buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
-        let (remote, prev_cid) = self
+        let remote = self
             .n0_nat_traversal
             .server_side_mut()
             .ok()?
-            .next_probe_info()?;
+            .next_probe_addr()?;
 
         if !self.paths.get(&path_id)?.data.validated {
             return None;
         }
 
-        // Reuse the CID from the initial probe on retries (same address, RFC 9000 §9.5).
-        // On first send, reserve a fresh CID.
-        let cid = if let Some(prev) = prev_cid {
-            prev
-        } else {
-            let remote_cids = self.remote_cids.get_mut(&path_id)?;
-            if remote_cids.remaining() >= 2 {
-                remote_cids.next_reserved()?
-            } else {
-                return None;
-            }
-        };
+        let remote_cids = self.remote_cids.get_mut(&path_id)?;
+        if remote_cids.remaining() < 2 {
+            return None;
+        }
+        let cid = remote_cids.next_reserved()?;
         let token = self.rng.random();
 
         let frame = frame::PathChallenge(token);
@@ -2109,7 +2102,7 @@ impl Connection {
 
         // Mark as sent after packet build succeeds.
         if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
-            server_state.mark_probe_sent((remote.ip(), remote.port()), cid);
+            server_state.mark_probe_sent((remote.ip(), remote.port()));
         }
 
         let path = &mut self.paths.get_mut(&path_id).expect("checked").data;
@@ -2413,11 +2406,10 @@ impl Connection {
                         }
                     }
                     ConnTimer::OffPathProbeRetry => {
-                        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
-                            let (requeued, _expired_cids) = server_state.queue_retries();
-                            if requeued {
-                                trace!("off-path probe retry timer fired, re-queued probes");
-                            }
+                        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
+                            && server_state.queue_retries()
+                        {
+                            trace!("off-path probe retry timer fired, re-queued probes");
                         }
                     }
                 },
