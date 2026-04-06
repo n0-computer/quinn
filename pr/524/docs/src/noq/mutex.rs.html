@@ -110,7 +110,7 @@
 <a href=#110 id=110 data-nosnippet>110</a>}
 <a href=#111 id=111 data-nosnippet>111</a>
 <a href=#112 id=112 data-nosnippet>112</a><span class="attr">#[cfg(feature = <span class="string">"lock_tracking"</span>)]
-<a href=#113 id=113 data-nosnippet>113</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use </span>tracking::Mutex;
+<a href=#113 id=113 data-nosnippet>113</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use </span>tracking::{Mutex, MutexGuard};
 <a href=#114 id=114 data-nosnippet>114</a>
 <a href=#115 id=115 data-nosnippet>115</a><span class="attr">#[cfg(not(feature = <span class="string">"lock_tracking"</span>))]
 <a href=#116 id=116 data-nosnippet>116</a></span><span class="kw">mod </span>non_tracking {
@@ -160,4 +160,4 @@
 <a href=#160 id=160 data-nosnippet>160</a>}
 <a href=#161 id=161 data-nosnippet>161</a>
 <a href=#162 id=162 data-nosnippet>162</a><span class="attr">#[cfg(not(feature = <span class="string">"lock_tracking"</span>))]
-<a href=#163 id=163 data-nosnippet>163</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use </span>non_tracking::Mutex;</code></pre></div></section></main></body></html>
+<a href=#163 id=163 data-nosnippet>163</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">use </span>non_tracking::{Mutex, MutexGuard};</code></pre></div></section></main></body></html>
