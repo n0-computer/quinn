@@ -289,7 +289,7 @@ pub(crate) const MAX_OFF_PATH_PROBE_ATTEMPTS: u8 = 10;
 pub(crate) struct ProbeState {
     /// Number of times this probe has been sent (0 = not yet sent).
     pub(crate) attempts: u8,
-    /// Whether this probe is ready to be picked up by `next_probe()`.
+    /// Whether this probe is ready to be sent.
     pub(crate) ready_to_send: bool,
     /// The CID used for the first probe to this address, reused on retries.
     pub(crate) cid: Option<ConnectionId>,
@@ -437,9 +437,7 @@ impl ServerState {
     /// Mark a probe as sent by address.
     pub(crate) fn mark_probe_sent(&mut self, remote: IpPort, cid: ConnectionId) {
         if let Some(state) = self.pending_probes.get_mut(&remote) {
-            if state.cid.is_none() {
-                state.cid = Some(cid);
-            }
+            state.cid = Some(cid);
             state.attempts += 1;
             state.ready_to_send = false;
         }

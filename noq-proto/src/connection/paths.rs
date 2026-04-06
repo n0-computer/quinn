@@ -532,8 +532,9 @@ impl PathData {
         !self.off_path_challenges_unconfirmed.is_empty()
     }
 
-    /// Clears all off-path challenges (e.g. when a new NAT traversal round starts
-    /// and old probes are obsolete).
+    /// Clears all off-path challenges.
+    ///
+    /// Used when a new NAT traversal round starts and old probes are obsolete.
     pub(super) fn clear_off_path_challenges(&mut self) {
         self.off_path_challenges_unconfirmed.clear();
     }

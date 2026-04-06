@@ -33,6 +33,7 @@ pub(crate) enum ConnTimer {
     /// See <https://www.ietf.org/archive/id/draft-ietf-quic-multipath-21.html#section-3.4-8>
     NoAvailablePath = 5,
     /// When to retry off-path NAT traversal probes.
+    ///
     /// Fires once per PTO to retransmit probes that got no PATH_RESPONSE.
     OffPathProbeRetry = 6,
 }
