@@ -35,7 +35,7 @@ use crate::{
         self, Close, DataBlocked, Datagram, FrameStruct, NewToken, ObservedAddr, StreamDataBlocked,
         StreamsBlocked,
     },
-    n0_nat_traversal,
+    n0_nat_traversal::{self, FxIndexSet},
     packet::{
         FixedLengthConnectionIdParser, Header, InitialHeader, InitialPacket, LongType, Packet,
         PacketNumber, PartialDecode, SpaceId,
@@ -5993,7 +5993,7 @@ impl Connection {
             && let Some((round, addresses)) = space.pending.reach_out.as_mut()
         {
             while let Some(local_addr) = addresses.iter().next().copied() {
-                let local_addr = addresses.take(&local_addr).expect("found from iter");
+                let local_addr = addresses.shift_take(&local_addr).expect("found from iter");
                 let reach_out = frame::ReachOut::new(*round, local_addr);
                 if builder.frame_space_remaining() > reach_out.size() {
                     builder.write_frame(reach_out, stats);
@@ -7521,7 +7521,7 @@ impl SentFrames {
                 let (recorded_round, reach_outs) = self
                     .retransmits_mut()
                     .reach_out
-                    .get_or_insert_with(|| (round, FxHashSet::default()));
+                    .get_or_insert_with(|| (round, FxIndexSet::default()));
                 // Only record reach outs for the current round or a newer than the recorded one.
                 if *recorded_round == round {
                     // Same round, simply append.
@@ -7529,7 +7529,7 @@ impl SentFrames {
                 } else if *recorded_round < round {
                     // New round.
                     *recorded_round = round;
-                    reach_outs.drain();
+                    reach_outs.clear();
                     reach_outs.insert((ip, port));
                 } else {
                     // ignore old reach out that was sent

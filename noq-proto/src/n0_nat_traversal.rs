@@ -5,7 +5,11 @@ use std::{
     net::{IpAddr, SocketAddr},
 };
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use indexmap::{IndexMap, IndexSet};
+use rustc_hash::{FxBuildHasher, FxHashMap};
+
+pub(crate) type FxIndexSet<T> = IndexSet<T, FxBuildHasher>;
+pub(crate) type FxIndexMap<K, V> = IndexMap<K, V, FxBuildHasher>;
 use tracing::trace;
 
 use crate::{
@@ -41,8 +45,8 @@ pub enum Error {
 pub(crate) struct NatTraversalRound {
     /// Sequence number to use for the new reach out frames.
     pub(crate) new_round: VarInt,
-    /// Addresses to use to send reach out frames.
-    pub(crate) reach_out_at: FxHashSet<IpPort>,
+    /// Addresses to send in REACH_OUT frames, in priority order.
+    pub(crate) reach_out_at: FxIndexSet<IpPort>,
     /// Remotes to probe by attempting to open new paths.
     ///
     /// The addresses include their Id, so that it can be used to signal these should be returned
@@ -88,9 +92,8 @@ pub(crate) struct ClientState {
     /// These are indexed by their advertised Id. For each address, whether the address should be
     /// reported in nat traversal continuations is kept.
     remote_addresses: FxHashMap<VarInt, (IpPort, bool)>,
-    /// Candidate addresses the local client reports as potentially reachable, to use for nat
-    /// traversal attempts.
-    local_addresses: FxHashSet<IpPort>,
+    /// Local candidate addresses, in insertion order.
+    local_addresses: FxIndexSet<IpPort>,
     /// Current nat traversal round.
     round: VarInt,
     /// [`PathId`]s used to probe remotes assigned to this round.
@@ -123,7 +126,7 @@ impl ClientState {
     }
 
     fn remove_local_address(&mut self, address: &IpPort) {
-        self.local_addresses.remove(address);
+        self.local_addresses.shift_remove(address);
     }
 
     /// Initiates a new nat traversal round.
@@ -313,10 +316,10 @@ pub(crate) struct ServerState {
     /// Servers keep track of the client's most recent round and cancel probing related to previous
     /// rounds.
     round: VarInt,
-    /// Addresses to which PATH_CHALLENGES need to be sent, with their probe state.
+    /// Addresses to probe via PATH_CHALLENGE, in insertion order.
     ///
-    /// Probes are retransmitted up to [`MAX_OFF_PATH_PROBE_ATTEMPTS`] times.
-    pending_probes: FxHashMap<IpPort, ProbeState>,
+    /// Retransmitted up to [`MAX_OFF_PATH_PROBE_ATTEMPTS`] times.
+    pending_probes: FxIndexMap<IpPort, ProbeState>,
 }
 
 impl ServerState {
@@ -640,5 +643,67 @@ mod tests {
             map_to_local_socket_family("::ffff:1.1.1.1".parse().unwrap(), false),
             Some("1.1.1.1".parse().unwrap())
         )
+    }
+
+    #[test]
+    fn server_probes_in_insertion_order() {
+        let mut state = ServerState::new(10, 10);
+
+        // Deliberately not sorted by IP to catch ordering bugs.
+        let addrs: Vec<SocketAddr> = vec![
+            "203.0.113.5:4000".parse().unwrap(),
+            "10.0.0.1:3000".parse().unwrap(),
+            "192.168.1.1:5000".parse().unwrap(),
+            "172.17.0.1:6000".parse().unwrap(),
+            "8.8.8.8:7000".parse().unwrap(),
+        ];
+
+        for addr in &addrs {
+            state
+                .handle_reach_out(
+                    ReachOut {
+                        round: 1u32.into(),
+                        ip: addr.ip(),
+                        port: addr.port(),
+                    },
+                    false,
+                )
+                .unwrap();
+        }
+
+        let mut probe_order = Vec::new();
+        while let Some(addr) = state.next_probe_addr() {
+            probe_order.push(addr);
+            state.mark_probe_sent((addr.ip(), addr.port()));
+        }
+
+        assert_eq!(probe_order, addrs);
+    }
+
+    #[test]
+    fn client_reach_out_in_insertion_order() {
+        let mut state = ClientState::new(10, 10);
+
+        // Deliberately not sorted by IP.
+        let addrs: Vec<SocketAddr> = vec![
+            "203.0.113.5:4000".parse().unwrap(),
+            "10.0.0.1:3000".parse().unwrap(),
+            "192.168.1.1:5000".parse().unwrap(),
+            "172.17.0.1:6000".parse().unwrap(),
+            "8.8.8.8:7000".parse().unwrap(),
+        ];
+
+        for addr in &addrs {
+            state.add_local_address((addr.ip(), addr.port())).unwrap();
+        }
+
+        let round = state.initiate_nat_traversal_round(false).unwrap();
+        let reach_out: Vec<SocketAddr> = round
+            .reach_out_at
+            .into_iter()
+            .map(SocketAddr::from)
+            .collect();
+
+        assert_eq!(reach_out, addrs);
     }
 }

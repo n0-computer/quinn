@@ -585,9 +585,9 @@ mod tests {
 mod proptests {
     use super::*;
 
+    use crate::tests::subscribe;
     use proptest::prelude::*;
     use test_strategy::{Arbitrary, proptest};
-    use crate::tests::subscribe;
     use tracing::trace;
 
     #[derive(Debug, Clone, Arbitrary)]

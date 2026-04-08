@@ -8,6 +8,8 @@ use std::{
 
 use rand::{CryptoRng, RngExt};
 use rustc_hash::{FxHashMap, FxHashSet};
+
+use crate::n0_nat_traversal::FxIndexSet;
 use sorted_index_buffer::SortedIndexBuffer;
 use tracing::trace;
 
@@ -544,8 +546,8 @@ pub struct Retransmits {
     pub(super) add_address: BTreeSet<AddAddress>,
     /// Address IDs to remove in `REMOVE_ADDRESS` frames
     pub(super) remove_address: BTreeSet<RemoveAddress>,
-    /// Round and local addresses to advertise in `REACH_OUT` frames
-    pub(super) reach_out: Option<(VarInt, FxHashSet<(IpAddr, u16)>)>,
+    /// Round and local addresses to advertise in `REACH_OUT` frames, in priority order.
+    pub(super) reach_out: Option<(VarInt, FxIndexSet<(IpAddr, u16)>)>,
 }
 
 impl Retransmits {

@@ -1878,6 +1878,7 @@ dependencies = [
  "getrandom 0.4.2",
  "hex-literal",
  "identity-hash",
+ "indexmap",
  "lru-slab",
  "n0-qlog",
  "proptest",
