@@ -5115,9 +5115,9 @@ impl Connection {
                     }
                     if self.crypto_state.has_keys(EncryptionLevel::Handshake) {
                         self.discard_space(now, SpaceKind::Handshake);
+                        self.events.push_back(Event::HandshakeConfirmed);
+                        trace!("handshake confirmed");
                     }
-                    self.events.push_back(Event::HandshakeConfirmed);
-                    trace!("handshake confirmed");
                 }
                 Frame::ObservedAddr(observed) => {
                     // check if params allows the peer to send report and this node to receive it
