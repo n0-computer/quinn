@@ -2076,10 +2076,13 @@ impl Connection {
             .next_probe_addr()?;
 
         if !self.paths.get(&path_id)?.data.validated {
+            // Path is not usable for probing
             return None;
         }
 
         let remote_cids = self.remote_cids.get_mut(&path_id)?;
+        // Check if this path has enough CIDs to send a probe. One to be reserved, one in case the
+        // active CID needs to be retired.
         if remote_cids.remaining() < 2 {
             return None;
         }
