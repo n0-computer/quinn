@@ -281,6 +281,18 @@ impl ClientState {
     }
 }
 
+/// Maximum number of times an off-path probe is sent before giving up.
+pub(crate) const MAX_OFF_PATH_PROBE_ATTEMPTS: u8 = 10;
+
+/// State of an off-path probe to a client address.
+#[derive(Debug)]
+pub(crate) struct ProbeState {
+    /// Number of times this probe has been sent (0 = not yet sent).
+    pub(crate) attempts: u8,
+    /// Whether this probe is ready to be sent.
+    pub(crate) ready_to_send: bool,
+}
+
 #[derive(Debug)]
 pub(crate) struct ServerState {
     /// Max number of remote addresses we allow.
@@ -301,8 +313,10 @@ pub(crate) struct ServerState {
     /// Servers keep track of the client's most recent round and cancel probing related to previous
     /// rounds.
     round: VarInt,
-    /// Addresses to which PATH_CHALLENGES need to be sent.
-    pending_probes: FxHashSet<IpPort>,
+    /// Addresses to which PATH_CHALLENGES need to be sent, with their probe state.
+    ///
+    /// Probes are retransmitted up to [`MAX_OFF_PATH_PROBE_ATTEMPTS`] times.
+    pending_probes: FxHashMap<IpPort, ProbeState>,
 }
 
 impl ServerState {
@@ -335,6 +349,11 @@ impl ServerState {
         self.local_addresses.remove(address).map(RemoveAddress::new)
     }
 
+    /// Returns the current NAT traversal round number.
+    pub(crate) fn current_round(&self) -> VarInt {
+        self.round
+    }
+
     /// Handles a received [`ReachOut`].
     ///
     /// This might ignore the reach out frame if it belongs to an older round or if
@@ -359,38 +378,57 @@ impl ServerState {
             self.round = round;
             self.pending_probes.clear();
         } else if self.pending_probes.len() >= self.max_remote_addresses
-            && !self.pending_probes.contains(&(ip, port))
+            && !self.pending_probes.contains_key(&(ip, port))
         {
             return Err(Error::TooManyAddresses);
         }
-        self.pending_probes.insert((ip, port));
+        self.pending_probes.entry((ip, port)).or_insert(ProbeState {
+            attempts: 0,
+            ready_to_send: true,
+        });
         Ok(())
     }
 
-    pub(crate) fn next_probe(&mut self) -> Option<ServerProbing<'_>> {
+    /// Re-queue all sent probes that haven't exceeded [`MAX_OFF_PATH_PROBE_ATTEMPTS`]
+    /// for retransmission. Called when the off-path probe retry timer fires.
+    ///
+    /// Returns whether any probes were re-queued.
+    pub(crate) fn queue_retries(&mut self) -> bool {
+        let mut any_requeued = false;
+        self.pending_probes.retain(|_, state| {
+            if state.attempts > 0 && state.attempts < MAX_OFF_PATH_PROBE_ATTEMPTS {
+                state.ready_to_send = true;
+                any_requeued = true;
+                true
+            } else {
+                state.attempts < MAX_OFF_PATH_PROBE_ATTEMPTS
+            }
+        });
+        any_requeued
+    }
+
+    /// Returns whether there are any probes that have been sent but are waiting
+    /// for retry (i.e., sent at least once but under the max attempt limit).
+    pub(crate) fn has_pending_retries(&self) -> bool {
+        self.pending_probes
+            .values()
+            .any(|state| state.attempts > 0 && state.attempts < MAX_OFF_PATH_PROBE_ATTEMPTS)
+    }
+
+    /// Returns the next ready probe's address.
+    pub(crate) fn next_probe_addr(&self) -> Option<SocketAddr> {
         self.pending_probes
             .iter()
-            .next()
-            .copied()
-            .map(|remote| ServerProbing {
-                remote,
-                pending_probes: &mut self.pending_probes,
-            })
-    }
-}
-
-pub(crate) struct ServerProbing<'a> {
-    remote: IpPort,
-    pending_probes: &'a mut FxHashSet<IpPort>,
-}
-
-impl<'a> ServerProbing<'a> {
-    pub(crate) fn mark_as_sent(self) {
-        self.pending_probes.remove(&self.remote);
+            .find(|(_, state)| state.ready_to_send)
+            .map(|(addr, _)| (*addr).into())
     }
 
-    pub(crate) fn remote(&self) -> SocketAddr {
-        self.remote.into()
+    /// Mark a probe as sent by address.
+    pub(crate) fn mark_probe_sent(&mut self, remote: IpPort) {
+        if let Some(state) = self.pending_probes.get_mut(&remote) {
+            state.attempts += 1;
+            state.ready_to_send = false;
+        }
     }
 }
 
@@ -543,12 +581,40 @@ mod tests {
         dbg!(&state);
         assert_eq!(state.pending_probes.len(), 2);
 
-        let probe = state.next_probe().unwrap();
-        probe.mark_as_sent();
-        let probe = state.next_probe().unwrap();
-        probe.mark_as_sent();
+        // Helper: send next ready probe
+        let send_probe = |state: &mut ServerState| {
+            let remote = state.next_probe_addr().unwrap();
+            state.mark_probe_sent((remote.ip(), remote.port()));
+        };
 
-        assert!(state.next_probe().is_none());
+        send_probe(&mut state);
+        send_probe(&mut state);
+
+        // After sending both probes, no ready probes remain but they're still tracked.
+        assert!(state.next_probe_addr().is_none());
+        assert_eq!(state.pending_probes.len(), 2);
+        assert!(state.has_pending_retries());
+
+        // After queuing retries, probes become available again
+        assert!(state.queue_retries());
+        send_probe(&mut state);
+        send_probe(&mut state);
+
+        // After 2 attempts each, retries still available (max is 10)
+        assert!(state.queue_retries());
+        send_probe(&mut state);
+        send_probe(&mut state);
+
+        // Exhaust remaining attempts
+        for _ in 3..MAX_OFF_PATH_PROBE_ATTEMPTS {
+            assert!(state.queue_retries());
+            send_probe(&mut state);
+            send_probe(&mut state);
+        }
+
+        // After max attempts, probes are removed
+        assert!(!state.queue_retries());
+        assert!(state.next_probe_addr().is_none());
         assert_eq!(state.pending_probes.len(), 0);
     }
 
