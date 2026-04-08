@@ -32,10 +32,10 @@ pub(crate) enum ConnTimer {
     /// If no new path is opened before this fires, close the connection.
     /// See <https://www.ietf.org/archive/id/draft-ietf-quic-multipath-21.html#section-3.4-8>
     NoAvailablePath = 5,
-    /// When to retry off-path NAT traversal probes.
+    /// When to retry NAT traversal probes.
     ///
-    /// Fires once per PTO to retransmit probes that got no PATH_RESPONSE.
-    OffPathProbeRetry = 6,
+    /// Fires at initial PTO intervals to retransmit probes that got no PATH_RESPONSE.
+    NatTraversalProbeRetry = 6,
 }
 
 impl ConnTimer {
@@ -46,7 +46,7 @@ impl ConnTimer {
         Self::KeepAlive,
         Self::PushNewCid,
         Self::NoAvailablePath,
-        Self::OffPathProbeRetry,
+        Self::NatTraversalProbeRetry,
     ];
 }
 

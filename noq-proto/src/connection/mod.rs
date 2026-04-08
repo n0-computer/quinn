@@ -2113,14 +2113,15 @@ impl Connection {
 
         path.record_path_challenge_sent(now, token, network_path);
 
-        // Set retry timer for off-path probes that got no PATH_RESPONSE.
+        // Set retry timer for NAT traversal probes that got no PATH_RESPONSE.
         if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
             && server_state.has_pending_retries()
         {
-            let pto = self.pto(SpaceKind::Data, path_id);
+            let initial_pto = RttEstimator::new(self.config.initial_rtt).pto_base()
+                + self.ack_frequency.max_ack_delay_for_pto();
             self.timers.set(
-                Timer::Conn(ConnTimer::OffPathProbeRetry),
-                now + pto,
+                Timer::Conn(ConnTimer::NatTraversalProbeRetry),
+                now + initial_pto,
                 self.qlog.with_time(now),
             );
         }
@@ -2405,7 +2406,7 @@ impl Connection {
                             self.state.move_to_closed(err);
                         }
                     }
-                    ConnTimer::OffPathProbeRetry => {
+                    ConnTimer::NatTraversalProbeRetry => {
                         if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
                             && server_state.queue_retries()
                         {
@@ -5377,7 +5378,7 @@ impl Connection {
                     let round_advanced = server_state.current_round() > round_before;
                     if round_advanced {
                         self.timers.stop(
-                            Timer::Conn(ConnTimer::OffPathProbeRetry),
+                            Timer::Conn(ConnTimer::NatTraversalProbeRetry),
                             self.qlog.with_time(now),
                         );
 
