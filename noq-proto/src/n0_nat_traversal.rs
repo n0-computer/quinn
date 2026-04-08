@@ -9,7 +9,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::trace;
 
 use crate::{
-    PathId, Side, VarInt,
+    Side, VarInt,
     frame::{AddAddress, ReachOut, RemoveAddress},
 };
 
@@ -50,8 +50,6 @@ pub(crate) struct NatTraversalRound {
     ///
     /// These are filtered and mapped to the IP family the local socket supports.
     pub(crate) addresses_to_probe: Vec<(VarInt, IpPort)>,
-    /// [`PathId`]s of the cancelled round.
-    pub(crate) prev_round_path_ids: Vec<PathId>,
 }
 
 /// Event emitted when the client receives ADD_ADDRESS or REMOVE_ADDRESS frames.
@@ -93,8 +91,6 @@ pub(crate) struct ClientState {
     local_addresses: FxHashSet<IpPort>,
     /// Current nat traversal round.
     round: VarInt,
-    /// [`PathId`]s used to probe remotes assigned to this round.
-    round_path_ids: Vec<PathId>,
 }
 
 impl ClientState {
@@ -105,7 +101,6 @@ impl ClientState {
             remote_addresses: Default::default(),
             local_addresses: Default::default(),
             round: Default::default(),
-            round_path_ids: Default::default(),
         }
     }
 
@@ -145,7 +140,6 @@ impl ClientState {
             return Err(Error::NotEnoughAddresses);
         }
 
-        let prev_round_path_ids = std::mem::take(&mut self.round_path_ids);
         self.round = self.round.saturating_add(1u8);
         let mut addresses_to_probe = Vec::with_capacity(self.remote_addresses.len());
         for (id, ((ip, port), report_in_continuation)) in self.remote_addresses.iter_mut() {
@@ -162,7 +156,6 @@ impl ClientState {
             new_round: self.round,
             reach_out_at: self.local_addresses.iter().copied().collect(),
             addresses_to_probe,
-            prev_round_path_ids,
         })
     }
 
@@ -208,18 +201,6 @@ impl ClientState {
             .next()?;
         *report_in_continuation = false;
         Some((id, address))
-    }
-
-    /// Add a [`PathId`] as part of the current attempts to create paths based on the server's
-    /// advertised addresses.
-    pub(crate) fn set_round_path_ids(&mut self, path_ids: Vec<PathId>) {
-        self.round_path_ids = path_ids;
-    }
-
-    /// Add a [`PathId`] as part of the current attempts to create paths based on the server's
-    /// advertised addresses.
-    pub(crate) fn add_round_path_id(&mut self, path_id: PathId) {
-        self.round_path_ids.push(path_id);
     }
 
     /// Adds an address to the remote set

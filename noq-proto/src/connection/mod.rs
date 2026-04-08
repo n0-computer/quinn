@@ -6980,7 +6980,6 @@ impl Connection {
             new_round,
             reach_out_at,
             addresses_to_probe,
-            prev_round_path_ids,
         } = client_state.initiate_nat_traversal_round(ipv6)?;
 
         trace!(%new_round, reach_out=reach_out_at.len(), to_probe=addresses_to_probe.len(),
@@ -6988,38 +6987,14 @@ impl Connection {
 
         self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
 
-        for path_id in prev_round_path_ids {
-            let Some(path) = self.path(path_id) else {
-                continue;
-            };
-            let ip = path.network_path.remote.ip();
-            let port = path.network_path.remote.port();
-
-            // We only close paths that aren't validated (thus are working) that we opened
-            // in a previous round.
-            // And we only close paths that we don't want to probe anyways.
-            if !addresses_to_probe
-                .iter()
-                .any(|(_, probe)| *probe == (ip, port))
-                && !path.validated
-                && !self.abandoned_paths.contains(&path_id)
-            {
-                trace!(%path_id, "closing path from previous round");
-                let _ =
-                    self.close_path_inner(now, path_id, PathAbandonReason::NatTraversalRoundEnded);
-            }
-        }
-
         let mut err = None;
 
-        let mut path_ids = Vec::with_capacity(addresses_to_probe.len());
         let mut probed_addresses = Vec::with_capacity(addresses_to_probe.len());
 
         for (id, address) in addresses_to_probe {
             match self.open_nat_traversal_path(now, address) {
                 Ok(None) => {}
-                Ok(Some((path_id, remote))) => {
-                    path_ids.push(path_id);
+                Ok(Some((_path_id, remote))) => {
                     probed_addresses.push(remote);
                 }
                 Err(e) => {
@@ -7039,11 +7014,6 @@ impl Connection {
             }
         }
 
-        self.n0_nat_traversal
-            .client_side_mut()
-            .expect("connection side validated")
-            .set_round_path_ids(path_ids);
-
         Ok(probed_addresses)
     }
 
@@ -7059,10 +7029,7 @@ impl Connection {
         let client_state = self.n0_nat_traversal.client_side_mut().expect("validated");
         match open_result {
             Ok(None) => Some(true),
-            Ok(Some((path_id, _remote))) => {
-                client_state.add_round_path_id(path_id);
-                Some(true)
-            }
+            Ok(Some(_)) => Some(true),
             Err(e) => {
                 client_state.report_in_continuation(id, e);
                 Some(false)
