@@ -7007,7 +7007,7 @@ impl Connection {
 
     /// Whether the handshake is considered **confirmed**.
     ///
-    /// https://www.rfc-editor.org/rfc/rfc9001#section-4.1.2 defines a handshake to be
+    /// <https://www.rfc-editor.org/rfc/rfc9001#section-4.1.2> defines a handshake to be
     /// confirmed when you know the peer successfully received and successfully processed
     /// your TLS Finished message.
     ///
