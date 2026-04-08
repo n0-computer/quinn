@@ -6883,8 +6883,9 @@ impl Connection {
     pub fn add_nat_traversal_address(
         &mut self,
         address: SocketAddr,
+        priority: u8,
     ) -> Result<(), n0_nat_traversal::Error> {
-        if let Some(added) = self.n0_nat_traversal.add_local_address(address)? {
+        if let Some(added) = self.n0_nat_traversal.add_local_address(address, priority)? {
             self.spaces[SpaceId::Data].pending.add_address.insert(added);
         };
         Ok(())

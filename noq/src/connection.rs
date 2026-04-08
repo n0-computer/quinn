@@ -925,9 +925,10 @@ impl Connection {
     pub fn add_nat_traversal_address(
         &self,
         address: SocketAddr,
+        priority: u8,
     ) -> Result<(), n0_nat_traversal::Error> {
         let mut conn = self.0.lock_and_wake("add_nat_traversal_addresses");
-        conn.inner.add_nat_traversal_address(address)
+        conn.inner.add_nat_traversal_address(address, priority)
     }
 
     /// Removes one or more addresses from the set of addresses at which this endpoint is reachable

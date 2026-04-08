@@ -92,8 +92,8 @@ pub(crate) struct ClientState {
     /// These are indexed by their advertised Id. For each address, whether the address should be
     /// reported in nat traversal continuations is kept.
     remote_addresses: FxHashMap<VarInt, (IpPort, bool)>,
-    /// Local candidate addresses, in insertion order.
-    local_addresses: FxIndexSet<IpPort>,
+    /// Local candidate addresses with their priority (lower = more important).
+    local_addresses: FxHashMap<IpPort, u8>,
     /// Current nat traversal round.
     round: VarInt,
     /// [`PathId`]s used to probe remotes assigned to this round.
@@ -112,21 +112,19 @@ impl ClientState {
         }
     }
 
-    fn add_local_address(&mut self, address: IpPort) -> Result<(), Error> {
+    fn add_local_address(&mut self, address: IpPort, priority: u8) -> Result<(), Error> {
         if self.local_addresses.len() < self.max_local_addresses {
-            self.local_addresses.insert(address);
+            self.local_addresses.insert(address, priority);
             Ok(())
-        } else if self.local_addresses.contains(&address) {
-            // at capacity, but the address is known, no issues here
+        } else if self.local_addresses.contains_key(&address) {
             Ok(())
         } else {
-            // at capacity and the address is new
             Err(Error::TooManyAddresses)
         }
     }
 
     fn remove_local_address(&mut self, address: &IpPort) {
-        self.local_addresses.shift_remove(address);
+        self.local_addresses.remove(address);
     }
 
     /// Initiates a new nat traversal round.
@@ -163,7 +161,7 @@ impl ClientState {
 
         Ok(NatTraversalRound {
             new_round: self.round,
-            reach_out_at: self.local_addresses.iter().copied().collect(),
+            reach_out_at: sorted_by_priority(&self.local_addresses),
             addresses_to_probe,
             prev_round_path_ids,
         })
@@ -483,12 +481,13 @@ impl State {
     pub(crate) fn add_local_address(
         &mut self,
         address: SocketAddr,
+        priority: u8,
     ) -> Result<Option<AddAddress>, Error> {
         let ip_port = IpPort::from((address.ip(), address.port()));
         match self {
             Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
             Self::ClientSide(client_state) => {
-                client_state.add_local_address(ip_port)?;
+                client_state.add_local_address(ip_port, priority)?;
                 Ok(None)
             }
             Self::ServerSide(server_state) => server_state.add_local_address(ip_port),
@@ -521,9 +520,8 @@ impl State {
             Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
             Self::ClientSide(client_state) => Ok(client_state
                 .local_addresses
-                .iter()
-                .copied()
-                .map(Into::into)
+                .keys()
+                .map(|addr| SocketAddr::from(*addr))
                 .collect()),
             Self::ServerSide(server_state) => Ok(server_state
                 .local_addresses
@@ -539,6 +537,13 @@ impl State {
 ///
 /// This checks that the address family is supported by our local socket.
 /// If it is supported, then the address is mapped to the respective IP address.
+/// Returns addresses sorted by priority (lower = first).
+fn sorted_by_priority(addrs: &FxHashMap<IpPort, u8>) -> FxIndexSet<IpPort> {
+    let mut set: FxIndexSet<IpPort> = addrs.keys().copied().collect();
+    set.sort_by(|a, b| addrs[a].cmp(&addrs[b]));
+    set
+}
+
 /// If the given address is an IPv6 address, but our local socket doesn't support
 /// IPv6, then this returns `None`.
 pub(crate) fn map_to_local_socket_family(address: IpAddr, ipv6: bool) -> Option<IpAddr> {
@@ -681,21 +686,26 @@ mod tests {
     }
 
     #[test]
-    fn client_reach_out_in_insertion_order() {
+    fn client_reach_out_sorted_by_priority() {
         let mut state = ClientState::new(10, 10);
 
-        // Deliberately not sorted by IP.
-        let addrs: Vec<SocketAddr> = vec![
-            "203.0.113.5:4000".parse().unwrap(),
-            "10.0.0.1:3000".parse().unwrap(),
-            "192.168.1.1:5000".parse().unwrap(),
-            "172.17.0.1:6000".parse().unwrap(),
-            "8.8.8.8:7000".parse().unwrap(),
-        ];
-
-        for addr in &addrs {
-            state.add_local_address((addr.ip(), addr.port())).unwrap();
-        }
+        // Add addresses with priorities in non-sorted IP order.
+        // Priority 0 = most important, should appear first in REACH_OUT.
+        state
+            .add_local_address(("10.0.0.1".parse().unwrap(), 3000), 3)
+            .unwrap();
+        state
+            .add_local_address(("203.0.113.5".parse().unwrap(), 4000), 0)
+            .unwrap();
+        state
+            .add_local_address(("172.17.0.1".parse().unwrap(), 6000), 2)
+            .unwrap();
+        state
+            .add_local_address(("8.8.8.8".parse().unwrap(), 7000), 1)
+            .unwrap();
+        state
+            .add_local_address(("192.168.1.1".parse().unwrap(), 5000), 4)
+            .unwrap();
 
         let round = state.initiate_nat_traversal_round(false).unwrap();
         let reach_out: Vec<SocketAddr> = round
@@ -704,6 +714,15 @@ mod tests {
             .map(SocketAddr::from)
             .collect();
 
-        assert_eq!(reach_out, addrs);
+        assert_eq!(
+            reach_out,
+            vec![
+                "203.0.113.5:4000".parse::<SocketAddr>().unwrap(),
+                "8.8.8.8:7000".parse().unwrap(),
+                "172.17.0.1:6000".parse().unwrap(),
+                "10.0.0.1:3000".parse().unwrap(),
+                "192.168.1.1:5000".parse().unwrap(),
+            ]
+        );
     }
 }

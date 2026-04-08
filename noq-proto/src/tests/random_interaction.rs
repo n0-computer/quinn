@@ -228,7 +228,7 @@ impl TestOp {
                     Side::Server => server,
                 };
                 let conn = state.conn(pair)?;
-                conn.add_nat_traversal_address(address)
+                conn.add_nat_traversal_address(address, 0)
                     .inspect_err(|err| error!(?err, "AddHpAddr failed"))
                     .ok();
             }
