@@ -1929,7 +1929,8 @@ impl Connection {
         }
 
         // Pacing check.
-        if let Some(resume_time) = self.path_data_mut(path_id).pacing_delay(bytes_to_send, now) {
+        if let Some(delay) = self.path_data_mut(path_id).pacing_delay(bytes_to_send, now) {
+            let resume_time = now + delay;
             self.timers.set(
                 Timer::PerPath(path_id, PathTimer::Pacing),
                 resume_time,
@@ -1937,7 +1938,7 @@ impl Connection {
             );
             // Loss probes and CONNECTION_CLOSE should be subject to pacing, even though
             // they are not congestion controlled.
-            trace!(?space_id, %path_id, delay = ?(resume_time - now), "blocked by pacing");
+            trace!(?space_id, %path_id, ?delay, "blocked by pacing");
             return PathBlocked::Pacing;
         }
 

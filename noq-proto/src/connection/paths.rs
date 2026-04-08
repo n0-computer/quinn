@@ -556,7 +556,7 @@ impl PathData {
     /// Return how long we need to wait before sending `bytes_to_send`
     ///
     /// See [`Pacer::delay`].
-    pub(super) fn pacing_delay(&mut self, bytes_to_send: u64, now: Instant) -> Option<Instant> {
+    pub(super) fn pacing_delay(&mut self, bytes_to_send: u64, now: Instant) -> Option<Duration> {
         let smoothed_rtt = self.rtt.get();
         self.pacing.delay(
             smoothed_rtt,

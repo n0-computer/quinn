@@ -39,13 +39,14 @@ impl Pacer {
         self.tokens = self.tokens.saturating_sub(packet_length.into())
     }
 
-    /// Return how long we need to wait before sending `bytes_to_send`
+    /// Return how long we need to wait before sending `bytes_to_send`.
     ///
-    /// If we can send a packet right away, this returns `None`. Otherwise, returns `Some(d)`,
-    /// where `d` is the time before this function should be called again.
+    /// If we can send a packet right away, this returns `None`. Otherwise, returns
+    /// `Some(d)`, where `d` is the duration after which this function should be called
+    /// again.
     ///
-    /// The 5/4 ratio used here comes from the suggestion that N = 1.25 in the draft IETF RFC for
-    /// QUIC.
+    /// The 5/4 ratio used here comes from the suggestion that N = 1.25 in the draft IETF
+    /// RFC for QUIC.
     pub(super) fn delay(
         &mut self,
         smoothed_rtt: Duration,
@@ -53,7 +54,7 @@ impl Pacer {
         mtu: u16,
         window: u64,
         now: Instant,
-    ) -> Option<Instant> {
+    ) -> Option<Duration> {
         debug_assert_ne!(
             window, 0,
             "zero-sized congestion control window is nonsense"
@@ -111,7 +112,7 @@ impl Pacer {
 
         // divisions come before multiplications to prevent overflow
         // this is the time at which the pacing window becomes empty
-        Some(now + (unscaled_delay / 5) * 4)
+        Some((unscaled_delay / 5) * 4)
     }
 }
 
@@ -276,8 +277,7 @@ mod tests {
 
         let actual_delay = pacer
             .delay(rtt, mtu as u64, mtu, window, old_instant)
-            .expect("Send must be delayed")
-            .duration_since(old_instant);
+            .expect("Send must be delayed");
 
         let diff = actual_delay.abs_diff(pace_duration);
 
