@@ -2120,8 +2120,7 @@ impl Connection {
         if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
             && server_state.has_pending_retries()
         {
-            let initial_pto = RttEstimator::new(self.config.initial_rtt).pto_base()
-                + self.ack_frequency.max_ack_delay_for_pto();
+            let initial_pto = RttEstimator::new(self.config.initial_rtt).pto_base();
             self.timers.set(
                 Timer::Conn(ConnTimer::NatTraversalProbeRetry),
                 now + initial_pto,
