@@ -7007,17 +7007,14 @@ impl Connection {
 
     /// Whether the handshake is considered **confirmed**.
     ///
-    /// The handshake is **completed** when the 1-RTT crypto keys are available. However it
-    /// is only **confirmed** once the peer's TLS Finish message is received and validated.
+    /// https://www.rfc-editor.org/rfc/rfc9001#section-4.1.2 defines a handshake to be
+    /// confirmed when you know the peer successfully received and successfully processed
+    /// your TLS Finished message.
+    ///
+    /// Implementation-wise this is the point at which the handshake crypto keys are
+    /// discarded. So we can use this to know if the handshake is confirmed.
     fn is_handshake_confirmed(&self) -> bool {
-        if self.side() == Side::Server {
-            // On the server completed and confirmed are different times. So we look for the
-            // handshake keys being gone.
-            !self.is_handshaking() && !self.crypto_state.has_keys(EncryptionLevel::Handshake)
-        } else {
-            // The client is confirmed as soon at it managed to compute 1-RTT keys.
-            self.crypto_state.has_keys(EncryptionLevel::OneRtt)
-        }
+        !self.is_handshaking() && !self.crypto_state.has_keys(EncryptionLevel::Handshake)
     }
 }
 
