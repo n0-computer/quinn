@@ -967,6 +967,25 @@ impl SendableFrames {
         } = *self;
         !acks && !close && !space_specific && !other
     }
+
+    /// Whether the packet will be congestion controlled.
+    ///
+    /// Packets with only ACK and CONNECTION_CLOSE frames are not congestion controlled.
+    pub(super) fn is_congestion_controlled(&self) -> bool {
+        let Self {
+            acks,
+            close,
+            space_specific,
+            other,
+        } = *self;
+        // ACK-only packets are not congestion controlled.
+        // TODO(flub): We do not congestion-control CONNECTION_CLOSE frames currently. It is
+        //    unclear how correct this is. I suspect this wrong for the first
+        //    CONNECTION_CLOSE being sent, but correct for any further CONNECTION_CLOSE that
+        //    is sent in response to more incoming packets.
+        let is_ack_only = acks && !(space_specific || other);
+        !is_ack_only && !close
+    }
 }
 
 impl ::std::ops::BitOrAssign for SendableFrames {
