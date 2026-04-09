@@ -136,6 +136,7 @@ impl CidQueue {
     }
 
     /// Returns the number of unused CIDs (neither active nor reserved).
+    #[allow(unused)]
     pub(crate) fn remaining(&self) -> usize {
         self.iter_from_reserved()
             .count()
