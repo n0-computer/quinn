@@ -1790,18 +1790,44 @@ impl Connection {
         }
     }
 
+    /// Send an MTU probe on the path if necessary.
+    ///
+    /// We MTU probe all paths for which all of the following is true:
+    /// - We have an active destination CID for the path.
+    /// - The remote address *and* path are validated.
+    /// - The path is not abandoned.
+    /// - The MTU Discovery subsystem wants to probe the path.
+    /// - We have congestion-control window for the probe.
     fn poll_transmit_mtu_probe(
         &mut self,
         now: Instant,
         buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
-        let (active_cid, probe_size) = self.get_mtu_probe_data(now, path_id)?;
+        let active_cid = self.remote_cids.get(&path_id).map(CidQueue::active)?;
+        let is_eligible = self.path_data(path_id).validated
+            && !self.path_data(path_id).is_validating_path()
+            && !self.abandoned_paths.contains(&path_id);
+        if !is_eligible {
+            return None;
+        }
+
+        let probe_size = self.path_data_mut(path_id).mtud.next_probe(now)?;
+        let mut transmit = TransmitBuf::new(buf, NonZeroUsize::MIN, probe_size as usize);
+        let can_send = SendableFrames {
+            acks: false,
+            close: false,
+            space_specific: true,
+            other: false,
+        };
+        if self.path_congestion_check(SpaceId::Data, path_id, &transmit, &can_send, now)
+            != PathBlocked::No
+        {
+            return None;
+        }
 
         // We are definitely sending a DPLPMTUD probe.
-        let mut transmit = TransmitBuf::new(buf, NonZeroUsize::MIN, probe_size as usize);
         transmit.start_new_datagram_with_size(probe_size as usize);
-
         let mut builder = PacketBuilder::new(
             now,
             SpaceId::Data,
@@ -1811,6 +1837,9 @@ impl Connection {
             true,
             self,
         )?;
+        self.path_data_mut(path_id)
+            .mtud
+            .probe_in_flight(builder.packet_number, probe_size);
 
         // We implement MTU probes as ping packets padded up to the probe size
         trace!(?probe_size, "writing MTUD probe");
@@ -1829,33 +1858,6 @@ impl Connection {
         self.path_stats.for_path(path_id).sent_plpmtud_probes += 1;
 
         Some(self.build_transmit(path_id, transmit))
-    }
-
-    /// Returns the CID and probe size if a DPLPMTUD probe is needed.
-    ///
-    /// We MTU probe all paths for which all of the following is true:
-    /// - We have an active destination CID for the path.
-    /// - The remote address *and* path are validated.
-    /// - The path is not abandoned.
-    /// - The MTU Discovery subsystem wants to probe the path.
-    fn get_mtu_probe_data(&mut self, now: Instant, path_id: PathId) -> Option<(ConnectionId, u16)> {
-        let active_cid = self.remote_cids.get(&path_id).map(CidQueue::active)?;
-        let is_eligible = self.path_data(path_id).validated
-            && !self.path_data(path_id).is_validating_path()
-            && !self.abandoned_paths.contains(&path_id);
-
-        if !is_eligible {
-            return None;
-        }
-        let next_pn = self.spaces[SpaceId::Data]
-            .for_path(path_id)
-            .peek_tx_number();
-        let probe_size = self
-            .path_data_mut(path_id)
-            .mtud
-            .poll_transmit(now, next_pn)?;
-
-        Some((active_cid, probe_size))
     }
 
     /// Returns true if there is a further packet to send on [`PathId::ZERO`].
@@ -1927,7 +1929,7 @@ impl Connection {
         let bytes_to_send = transmit.segment_size() as u64;
         let need_loss_probe = self.spaces[space_id].for_path(path_id).loss_probes > 0;
 
-        if can_send.other && !need_loss_probe && !can_send.close {
+        if !need_loss_probe && can_send.is_congestion_controlled() {
             let path = self.path_data(path_id);
             if path.in_flight.bytes + bytes_to_send >= path.congestion.window() {
                 trace!(
