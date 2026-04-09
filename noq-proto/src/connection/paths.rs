@@ -217,6 +217,14 @@ pub(super) struct PathData {
     ///
     /// [`TransportParameters`]: crate::transport_parameters::TransportParameters
     pub(super) keep_alive: Option<Duration>,
+    /// Whether to reset the idle timer when the next ack-eliciting packet is sent.
+    ///
+    /// Whenever we receive an authenticated packet the connection and path idle timers are
+    /// reset if a maximum idle timeout was negotiated. However on the first ack-eliciting
+    /// packet *sent* after this the idle timer also needs to be reset to avoid the idle
+    /// timer firing while the sent packet is in-fight. See
+    /// <https://www.rfc-editor.org/rfc/rfc9000.html#section-10.1>.
+    pub(super) permit_idle_reset: bool,
 
     /// Whether the path has already been considered opened from an application perspective.
     ///
@@ -305,6 +313,7 @@ impl PathData {
             pto_count: 0,
             idle_timeout: config.default_path_max_idle_timeout,
             keep_alive: config.default_path_keep_alive_interval,
+            permit_idle_reset: true,
             open_status: OpenStatus::default(),
             draining: false,
             #[cfg(feature = "qlog")]
@@ -347,6 +356,7 @@ impl PathData {
             pto_count: 0,
             idle_timeout: prev.idle_timeout,
             keep_alive: prev.keep_alive,
+            permit_idle_reset: true,
             open_status: OpenStatus::default(),
             draining: false,
             #[cfg(feature = "qlog")]

@@ -206,8 +206,6 @@ pub struct Connection {
     spaces: [PacketSpace; 3],
     /// Highest usable packet space.
     highest_space: SpaceKind,
-    /// Whether the idle timer should be reset the next time an ack-eliciting packet is transmitted.
-    permit_idle_reset: bool,
     /// Negotiated idle timeout
     idle_timeout: Option<Duration>,
     timers: TimerTable,
@@ -395,7 +393,6 @@ impl Connection {
             spin: false,
             spaces: [initial_space, handshake_space, data_space],
             highest_space: SpaceKind::Initial,
-            permit_idle_reset: true,
             idle_timeout: match config.max_idle_timeout {
                 None | Some(VarInt(0)) => None,
                 Some(dur) => Some(Duration::from_millis(dur.0)),
@@ -3634,28 +3631,42 @@ impl Connection {
         space_id: SpaceKind,
         path_id: PathId,
         ecn: Option<EcnCodepoint>,
-        packet: Option<u64>,
+        packet_number: Option<u64>,
         spin: bool,
         is_1rtt: bool,
+        remote: &FourTuple,
     ) {
+        // During the handshake we already have discarded packets that do not match the path
+        // remote. So any off-path packet here is either a probing packet or a
+        // migration. Handling probing packets here means that the path's idle timeout will
+        // be reset and will delay detecting the path as idle. However tail-loss probes
+        // would still not get acknowledged if the path was broken so eventually the path
+        // would still become idle.
+        let is_on_path = *remote == self.path_data(path_id).network_path;
+
         self.total_authed_packets += 1;
         self.reset_keep_alive(path_id, now);
         self.reset_idle_timeout(now, space_id, path_id);
-        self.permit_idle_reset = true;
-        self.receiving_ecn |= ecn.is_some();
-        if let Some(x) = ecn {
-            let space = &mut self.spaces[space_id];
-            space.for_path(path_id).ecn_counters += x;
+        self.path_data_mut(path_id).permit_idle_reset = true;
 
-            if x.is_ce() {
-                space
-                    .for_path(path_id)
-                    .pending_acks
-                    .set_immediate_ack_required();
+        // Do not process ECN for off-path packets. If this is a migration we'll get ECN
+        // back once we've migrated.
+        if is_on_path {
+            self.receiving_ecn |= ecn.is_some();
+            if let Some(x) = ecn {
+                let space = &mut self.spaces[space_id];
+                space.for_path(path_id).ecn_counters += x;
+
+                if x.is_ce() {
+                    space
+                        .for_path(path_id)
+                        .pending_acks
+                        .set_immediate_ack_required();
+                }
             }
         }
 
-        let Some(packet) = packet else {
+        let Some(packet_number) = packet_number else {
             return;
         };
         match &self.side {
@@ -3683,11 +3694,16 @@ impl Connection {
             }
         }
         let space = self.spaces[space_id].for_path(path_id);
-        space.pending_acks.insert_one(packet, now);
-        if packet >= space.rx_packet.unwrap_or_default() {
-            space.rx_packet = Some(packet);
-            // Update outgoing spin bit, inverting iff we're the client
-            self.spin = self.side.is_client() ^ spin;
+
+        // This needs to happen for off-path packets too
+        space.pending_acks.insert_one(packet_number, now);
+        if packet_number >= space.rx_packet.unwrap_or_default() {
+            space.rx_packet = Some(packet_number);
+
+            // Update outgoing spin bit for on-path packets, inverting iff we're the client
+            if is_on_path {
+                self.spin = self.side.is_client() ^ spin;
+            }
         }
     }
 
@@ -3806,6 +3822,7 @@ impl Connection {
             Some(packet_number),
             false,
             false,
+            &network_path,
         );
 
         let packet: Packet = packet.into();
@@ -4205,6 +4222,7 @@ impl Connection {
                                 number,
                                 spin,
                                 packet.header.is_1rtt(),
+                                &network_path,
                             );
                         }
                     }
