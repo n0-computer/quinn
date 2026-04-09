@@ -2080,13 +2080,18 @@ impl Connection {
             return None;
         }
 
-        let remote_cids = self.remote_cids.get_mut(&path_id)?;
-        // Check if this path has enough CIDs to send a probe. One to be reserved, one in case the
-        // active CID needs to be retired.
-        if remote_cids.remaining() < 2 {
+        // TODO: Using the active CID here makes the paths linkable. This is a violation of
+        //    RFC9000 but something we want to accept in the short term. Eventually we aim
+        //    to fix up the supply of CIDs sufficiently so that we can keep paths unlinkable
+        //    again.
+        let Some(cid) = self
+            .remote_cids
+            .get(&path_id)
+            .map(|cid_queue| cid_queue.active())
+        else {
+            error!("No CIDs for current path, can not send NAT traversal probe");
             return None;
-        }
-        let cid = remote_cids.next_reserved()?;
+        };
         let token = self.rng.random();
 
         let frame = frame::PathChallenge(token);
