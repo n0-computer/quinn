@@ -2089,7 +2089,7 @@ impl Connection {
             .get(&path_id)
             .map(|cid_queue| cid_queue.active())
         else {
-            error!("No CIDs for current path, can not send NAT traversal probe");
+            trace!(%path_id, "Not sending NAT traversal probe for path with no CIDs");
             return None;
         };
         let token = self.rng.random();
