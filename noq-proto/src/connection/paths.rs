@@ -204,6 +204,10 @@ pub(super) struct PathData {
     //
     // Per-path idle & keep alive
     //
+    /// Whether the idle timer should be reset the next time an ack-eliciting packet is
+    /// transmitted on this path. Set when a packet is received on this path, consumed when
+    /// an ack-eliciting packet is sent on this path.
+    pub(super) permit_idle_reset: bool,
     /// Idle timeout for the path
     ///
     /// If expired, the path will be abandoned.  This is different from the connection-wide
@@ -303,6 +307,7 @@ impl PathData {
             status: Default::default(),
             first_packet: None,
             pto_count: 0,
+            permit_idle_reset: true,
             idle_timeout: config.default_path_max_idle_timeout,
             keep_alive: config.default_path_keep_alive_interval,
             open_status: OpenStatus::default(),
@@ -345,6 +350,7 @@ impl PathData {
             status: prev.status.clone(),
             first_packet: None,
             pto_count: 0,
+            permit_idle_reset: true,
             idle_timeout: prev.idle_timeout,
             keep_alive: prev.keep_alive,
             open_status: OpenStatus::default(),

@@ -206,8 +206,6 @@ pub struct Connection {
     spaces: [PacketSpace; 3],
     /// Highest usable packet space.
     highest_space: SpaceKind,
-    /// Whether the idle timer should be reset the next time an ack-eliciting packet is transmitted.
-    permit_idle_reset: bool,
     /// Negotiated idle timeout
     idle_timeout: Option<Duration>,
     timers: TimerTable,
@@ -395,7 +393,6 @@ impl Connection {
             spin: false,
             spaces: [initial_space, handshake_space, data_space],
             highest_space: SpaceKind::Initial,
-            permit_idle_reset: true,
             idle_timeout: match config.max_idle_timeout {
                 None | Some(VarInt(0)) => None,
                 Some(dur) => Some(Duration::from_millis(dur.0)),
@@ -3636,7 +3633,7 @@ impl Connection {
         self.total_authed_packets += 1;
         self.reset_keep_alive(path_id, now);
         self.reset_idle_timeout(now, space_id, path_id);
-        self.permit_idle_reset = true;
+        self.path_data_mut(path_id).permit_idle_reset = true;
         self.receiving_ecn |= ecn.is_some();
         if let Some(x) = ecn {
             let space = &mut self.spaces[space_id];
