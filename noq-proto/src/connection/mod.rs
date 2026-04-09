@@ -3577,8 +3577,10 @@ impl Connection {
         }
 
         // Determine which PN space to arm PTO for.
-        // Calculate PTO duration
-        if let Some((timeout, _)) = self.pto_time_and_space(now, path_id) {
+        // We can only send tail-loss probes on paths that aren't abandoned yet.
+        if !self.abandoned_paths.contains(&path_id)
+            && let Some((timeout, _)) = self.pto_time_and_space(now, path_id)
+        {
             self.timers.set(
                 Timer::PerPath(path_id, PathTimer::LossDetection),
                 timeout,
