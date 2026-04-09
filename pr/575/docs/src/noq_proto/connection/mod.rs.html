@@ -2076,7 +2076,7 @@
 <a href=#2076 id=2076 data-nosnippet>2076</a>            .get(<span class="kw-2">&amp;</span>path_id)
 <a href=#2077 id=2077 data-nosnippet>2077</a>            .map(|cid_queue| cid_queue.active())
 <a href=#2078 id=2078 data-nosnippet>2078</a>        <span class="kw">else </span>{
-<a href=#2079 id=2079 data-nosnippet>2079</a>            <span class="macro">error!</span>(<span class="string">"No CIDs for current path, can not send NAT traversal probe"</span>);
+<a href=#2079 id=2079 data-nosnippet>2079</a>            <span class="macro">trace!</span>(%path_id, <span class="string">"Not sending NAT traversal probe for path with no CIDs"</span>);
 <a href=#2080 id=2080 data-nosnippet>2080</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
 <a href=#2081 id=2081 data-nosnippet>2081</a>        };
 <a href=#2082 id=2082 data-nosnippet>2082</a>        <span class="kw">let </span>token = <span class="self">self</span>.rng.random();
