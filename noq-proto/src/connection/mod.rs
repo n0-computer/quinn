@@ -1580,15 +1580,9 @@ impl Connection {
                 prev.update_unacked = false;
             }
 
-            let Some(mut builder) = PacketBuilder::new(
-                now,
-                space_id,
-                path_id,
-                remote_cid,
-                transmit,
-                can_send.is_ack_eliciting(),
-                self,
-            ) else {
+            let Some(mut builder) =
+                PacketBuilder::new(now, space_id, path_id, remote_cid, transmit, self)
+            else {
                 // Confidentiality limit is exceeded and the connection has been killed. We
                 // should not send any other packets. This works in a roundabout way: We
                 // have started a datagram but not written anything into it. So even if we
@@ -1802,15 +1796,8 @@ impl Connection {
         let mut transmit = TransmitBuf::new(buf, NonZeroUsize::MIN, probe_size as usize);
         transmit.start_new_datagram_with_size(probe_size as usize);
 
-        let mut builder = PacketBuilder::new(
-            now,
-            SpaceId::Data,
-            path_id,
-            active_cid,
-            &mut transmit,
-            true,
-            self,
-        )?;
+        let mut builder =
+            PacketBuilder::new(now, SpaceId::Data, path_id, active_cid, &mut transmit, self)?;
 
         // We implement MTU probes as ping packets padded up to the probe size
         trace!(?probe_size, "writing MTUD probe");
@@ -1943,14 +1930,15 @@ impl Connection {
 
         // Pacing check.
         if let Some(delay) = self.path_data_mut(path_id).pacing_delay(bytes_to_send, now) {
+            let resume_time = now + delay;
             self.timers.set(
                 Timer::PerPath(path_id, PathTimer::Pacing),
-                delay,
+                resume_time,
                 self.qlog.with_time(now),
             );
             // Loss probes and CONNECTION_CLOSE should be subject to pacing, even though
             // they are not congestion controlled.
-            trace!(?space_id, %path_id, "blocked by pacing");
+            trace!(?space_id, %path_id, ?delay, "blocked by pacing");
             return PathBlocked::Pacing;
         }
 
@@ -1991,8 +1979,7 @@ impl Connection {
         // sent once, immediately after migration, when the CID is known to be valid. Even
         // if a post-migration packet caused the CID to be retired, it's fair to pretend
         // this is sent first.
-        let mut builder =
-            PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, false, self)?;
+        let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, *prev_cid, buf, self)?;
         let challenge = frame::PathChallenge(token);
         let stats = &mut self.path_stats.for_path(path_id).frame_tx;
         builder.write_frame_with_log_msg(challenge, stats, Some("validating previous path"));
@@ -2039,7 +2026,7 @@ impl Connection {
         let buf = &mut TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
         buf.start_new_datagram();
 
-        let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, buf, false, self)?;
+        let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, buf, self)?;
         let stats = &mut self.path_stats.for_path(path_id).frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(off-path)"));
         // Off-path: not tracked in congestion control. The packet is sent to a
@@ -2094,8 +2081,7 @@ impl Connection {
         let mut buf = TransmitBuf::new(buf, NonZeroUsize::MIN, MIN_INITIAL_SIZE.into());
         buf.start_new_datagram();
 
-        let mut builder =
-            PacketBuilder::new(now, SpaceId::Data, path_id, cid, &mut buf, false, self)?;
+        let mut builder = PacketBuilder::new(now, SpaceId::Data, path_id, cid, &mut buf, self)?;
         let stats = &mut self.path_stats.for_path(path_id).frame_tx;
         builder.write_frame_with_log_msg(frame, stats, Some("(nat-traversal)"));
         // Off-path: not tracked in congestion control. The packet is sent to a
@@ -2631,8 +2617,11 @@ impl Connection {
 
     /// Whether the connection is in the process of being established
     ///
-    /// If this returns `false`, the connection may be either established or closed, signaled by the
-    /// emission of a `Connected` or `ConnectionLost` message respectively.
+    /// If this returns `false`, the connection may be either established or closed,
+    /// signaled by the emission of a `Connected` or `ConnectionLost` message respectively.
+    ///
+    /// For an established connection this essentially means the handshake is **completed**,
+    /// but not necessarily yet confirmed.
     pub fn is_handshaking(&self) -> bool {
         self.state.is_handshake()
     }
@@ -3488,6 +3477,13 @@ impl Connection {
                 continue;
             };
 
+            if space == SpaceId::Data && !self.is_handshake_confirmed() {
+                // https://www.rfc-editor.org/rfc/rfc9002.html#section-6.2.1-7:
+                // An endpoint MUST NOT set its PTO timer for the Application Data packet
+                // number space until the handshake is confirmed.
+                continue;
+            }
+
             if !pns.has_in_flight() {
                 continue;
             }
@@ -3497,12 +3493,12 @@ impl Connection {
             // rather iterate through the probes to compute the capped increment for an
             // exponential backoff at each step.
             let duration = {
-                let pto_base = path.rtt.pto_base()
-                    + if space == SpaceId::Data {
-                        self.ack_frequency.max_ack_delay_for_pto()
-                    } else {
-                        Duration::ZERO
-                    };
+                let max_ack_delay = if space == SpaceId::Data {
+                    self.ack_frequency.max_ack_delay_for_pto()
+                } else {
+                    Duration::ZERO
+                };
+                let pto_base = path.rtt.pto_base() + max_ack_delay;
                 let mut duration = pto_base;
                 for i in 1..=pto_count {
                     let exponential_duration = pto_base * 2u32.pow(i.min(MAX_BACKOFF_EXPONENT));
@@ -7068,6 +7064,18 @@ impl Connection {
                 Some(false)
             }
         }
+    }
+
+    /// Whether the handshake is considered **confirmed**.
+    ///
+    /// <https://www.rfc-editor.org/rfc/rfc9001#section-4.1.2> defines a handshake to be
+    /// confirmed when you know the peer successfully received and successfully processed
+    /// your TLS Finished message.
+    ///
+    /// Implementation-wise this is the point at which the handshake crypto keys are
+    /// discarded. So we can use this to know if the handshake is confirmed.
+    fn is_handshake_confirmed(&self) -> bool {
+        !self.is_handshaking() && !self.crypto_state.has_keys(EncryptionLevel::Handshake)
     }
 }
 

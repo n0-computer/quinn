@@ -218,6 +218,42 @@ pub(super) enum EncodableFrame<'a> {
     MaxStreams(MaxStreams),
 }
 
+impl<'a> EncodableFrame<'a> {
+    /// Whether this is an ACK-eliciting frame.
+    pub(crate) fn is_ack_eliciting(&self) -> bool {
+        match self {
+            EncodableFrame::PathAck(_) | EncodableFrame::Ack(_) | EncodableFrame::Close(_) => false,
+            EncodableFrame::PathResponse(_)
+            | EncodableFrame::HandshakeDone(_)
+            | EncodableFrame::ReachOut(_)
+            | EncodableFrame::ObservedAddr(_)
+            | EncodableFrame::Ping(_)
+            | EncodableFrame::ImmediateAck(_)
+            | EncodableFrame::AckFrequency(_)
+            | EncodableFrame::PathChallenge(_)
+            | EncodableFrame::Crypto(_)
+            | EncodableFrame::PathAbandon(_)
+            | EncodableFrame::PathStatusAvailable(_)
+            | EncodableFrame::PathStatusBackup(_)
+            | EncodableFrame::MaxPathId(_)
+            | EncodableFrame::PathsBlocked(_)
+            | EncodableFrame::PathCidsBlocked(_)
+            | EncodableFrame::ResetStream(_)
+            | EncodableFrame::StopSending(_)
+            | EncodableFrame::NewConnectionId(_)
+            | EncodableFrame::RetireConnectionId(_)
+            | EncodableFrame::Datagram(_)
+            | EncodableFrame::NewToken(_)
+            | EncodableFrame::AddAddress(_)
+            | EncodableFrame::RemoveAddress(_)
+            | EncodableFrame::StreamMeta(_)
+            | EncodableFrame::MaxData(_)
+            | EncodableFrame::MaxStreamData(_)
+            | EncodableFrame::MaxStreams(_) => true,
+        }
+    }
+}
+
 impl<'a> Encodable for EncodableFrame<'a> {
     fn encode<B: BufMut>(&self, buf: &mut B) {
         self.encode_inner(buf)

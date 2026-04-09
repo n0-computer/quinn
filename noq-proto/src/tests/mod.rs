@@ -746,6 +746,7 @@ fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: 
         .write(&vec![0; CLIENT_WRITES])
         .unwrap();
     pair.drive();
+    info!("accepting connection");
     let incoming = pair.server.waiting_incoming.pop().unwrap();
     assert!(pair.server.waiting_incoming.is_empty());
     let _ = pair.server.try_accept(incoming, pair.time);
