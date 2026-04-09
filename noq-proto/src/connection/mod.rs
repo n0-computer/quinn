@@ -5596,15 +5596,11 @@ impl Connection {
             // multipath, even in a single-path scenario, we attempt to migrate the path to a new
             // PathId.
             let attempt_to_recover = if is_multipath_negotiated {
-                if is_client {
-                    hint.map(|h| h.is_path_recoverable(*path_id, network_path))
-                        .unwrap_or(false)
-                } else {
-                    // Servers should have stable addresses so this scenario is generally discouraged.
-                    // There is no way to prevent this, so the best hope is to attempt to recover the
-                    // path
-                    true
-                }
+                // Use the hint to determine if the path can recover. When no hint is
+                // provided, clients default to non-recoverable (abandon and re-open)
+                // while servers default to recoverable (attempt in-place recovery).
+                hint.map(|h| h.is_path_recoverable(*path_id, network_path))
+                    .unwrap_or(!is_client)
             } else {
                 // In the non multipath case, we try to recover the single active path
                 true
