@@ -65,11 +65,21 @@ impl MtuDiscovery {
     /// Returns the amount of bytes that should be sent as an MTU probe, if any.
     ///
     /// Returns [`None`] if MTUD discovery is disabled. Otherwise delegates to
-    /// [`EnabledMtuDiscovery::poll_transmit`].
-    pub(crate) fn poll_transmit(&mut self, now: Instant, next_pn: u64) -> Option<u16> {
+    /// [`EnabledMtuDiscovery::next_probe`].
+    ///
+    /// If `Some` is returned the probe **must** be sent, the state of the MTU prober
+    /// assumes it has been sent.
+    pub(crate) fn next_probe(&mut self, now: Instant) -> Option<u16> {
         self.state
             .as_mut()
-            .and_then(|state| state.poll_transmit(now, self.current_mtu, next_pn))
+            .and_then(|state| state.next_probe(now, self.current_mtu))
+    }
+
+    pub(crate) fn probe_in_flight(&mut self, pn: u64, size: u16) {
+        match self.state.as_mut() {
+            Some(state) => state.probe_in_flight(pn, size),
+            None => (),
+        }
     }
 
     /// Notifies the [`MtuDiscovery`] that the peer's `max_udp_payload_size` transport parameter has
@@ -187,7 +197,9 @@ impl EnabledMtuDiscovery {
     /// - A search for a new MTU is in progress.
     /// - The MTU discovery was completed but the [`MtuDiscoveryConfig::interval`] expired,
     ///   this re-starts a n MTU search.
-    fn poll_transmit(&mut self, now: Instant, current_mtu: u16, next_pn: u64) -> Option<u16> {
+    ///
+    /// Once a probe has been sent, [`Self::probe_in_flight`] needs to be called.
+    fn next_probe(&mut self, now: Instant, current_mtu: u16) -> Option<u16> {
         if let Phase::Initial = &self.phase {
             // Start the first search
             self.phase = Phase::Searching(SearchState::new(
@@ -216,7 +228,6 @@ impl EnabledMtuDiscovery {
 
             // Retransmit lost probes, if any
             if 0 < state.lost_probe_count && state.lost_probe_count < MAX_PROBE_RETRANSMITS {
-                state.in_flight_probe = Some(next_pn);
                 return Some(state.last_probed_mtu);
             }
 
@@ -229,8 +240,6 @@ impl EnabledMtuDiscovery {
             }
 
             if let Some(probe_udp_payload_size) = state.next_mtu_to_probe(last_probe_succeeded) {
-                state.in_flight_probe = Some(next_pn);
-                state.last_probed_mtu = probe_udp_payload_size;
                 return Some(probe_udp_payload_size);
             } else {
                 let next_mtud_activation = now + self.config.interval;
@@ -240,6 +249,14 @@ impl EnabledMtuDiscovery {
         }
 
         None
+    }
+
+    /// Mark an MTU probe as sent.
+    fn probe_in_flight(&mut self, pn: u64, size: u16) {
+        if let Phase::Searching(state) = &mut self.phase {
+            state.in_flight_probe = Some(pn);
+            state.last_probed_mtu = size;
+        }
     }
 
     /// Called when a packet is acknowledged in [`SpaceId::Data`]
@@ -548,7 +565,10 @@ mod tests {
     ) -> Vec<u16> {
         let mut probed_sizes = Vec::new();
         for probe_pn in 1..100 {
-            let result = mtud.poll_transmit(now, probe_pn);
+            let result = mtud.next_probe(now);
+            if let Some(probe_size) = result {
+                mtud.probe_in_flight(probe_pn, probe_size);
+            }
 
             if completed(mtud) {
                 break;
@@ -605,7 +625,7 @@ mod tests {
     #[test]
     fn mtu_discovery_disabled_does_nothing() {
         let mut mtud = MtuDiscovery::disabled(1_200, 1_200);
-        let probe_size = mtud.poll_transmit(Instant::now(), 0);
+        let probe_size = mtud.next_probe(Instant::now());
         assert_eq!(probe_size, None);
     }
 
@@ -663,15 +683,12 @@ mod tests {
         drive_to_completion(&mut mtud, now, 1_500);
 
         // Polling right after completion does not cause new packets to be sent
-        assert_eq!(mtud.poll_transmit(now, 42), None);
+        assert_eq!(mtud.next_probe(now), None);
         assert!(completed(&mtud));
         assert_eq!(mtud.current_mtu, 1_471);
 
         // Polling after the interval has passed does (taking the current mtu as lower bound)
-        assert_eq!(
-            mtud.poll_transmit(now + Duration::from_secs(600), 43),
-            Some(5235)
-        );
+        assert_eq!(mtud.next_probe(now + Duration::from_secs(600)), Some(5235));
 
         match mtud.state.unwrap().phase {
             Phase::Searching(state) => {
@@ -689,11 +706,13 @@ mod tests {
         let mut mtud = default_mtud();
 
         let mut probe_sizes = (0..4).map(|i| {
-            let probe_size = mtud.poll_transmit(Instant::now(), i);
-            assert!(probe_size.is_some(), "no probe returned for packet {i}");
+            let probe_size = mtud
+                .next_probe(Instant::now())
+                .expect("no probe returned for packet {i}");
+            mtud.probe_in_flight(i, probe_size);
 
             mtud.on_probe_lost();
-            probe_size.unwrap()
+            probe_size
         });
 
         // After the first probe is lost, it gets retransmitted twice
@@ -744,7 +763,7 @@ mod tests {
     #[should_panic(expected = "Transport parameters received after MTU probing started")]
     fn mtu_discovery_with_peer_max_udp_payload_size_during_search_panics() {
         let mut mtud = default_mtud();
-        assert!(mtud.poll_transmit(Instant::now(), 0).is_some());
+        assert!(mtud.next_probe(Instant::now()).is_some());
         assert!(matches!(
             mtud.state.as_ref().unwrap().phase,
             Phase::Searching(_)
@@ -805,9 +824,11 @@ mod tests {
             iterations += 1;
 
             let probe_pn = i * 2 - 1;
-            let other_pn = i * 2;
 
-            let result = mtud.poll_transmit(Instant::now(), probe_pn);
+            let result = mtud.next_probe(Instant::now());
+            if let Some(size) = result {
+                mtud.probe_in_flight(probe_pn, size);
+            }
 
             if completed(&mtud) {
                 break;
@@ -818,7 +839,7 @@ mod tests {
             assert!(mtud.in_flight_mtu_probe().is_some());
 
             // Nothing else to send while the probe is in-flight
-            assert_matches!(mtud.poll_transmit(now, other_pn), None);
+            assert_matches!(mtud.next_probe(now), None);
 
             if i % 2 == 0 {
                 // ACK probe and ensure it results in an increase of current_mtu
