@@ -1515,11 +1515,9 @@ impl Connection {
                         }
                     };
                 }
-            }
 
-            // If the datagram is full (or there never was one started), we need to start a
-            // new one.
-            if transmit.datagram_remaining_mut() == 0 {
+                // If the datagram is full (or there never was one started), we need to start a
+                // new one.
                 if transmit.num_datagrams() >= transmit.max_datagrams().get() {
                     // No more datagrams allowed.
                     // Previous iterations of this loop may have built packets already.
@@ -1536,28 +1534,27 @@ impl Connection {
                     };
                 }
 
-                match self.spaces[space_id].for_path(path_id).loss_probes {
-                    0 => transmit.start_new_datagram(),
-                    _ => {
-                        // We need something to send for a tail-loss probe.
-                        let request_immediate_ack =
-                            space_id == SpaceId::Data && self.peer_supports_ack_frequency();
-                        self.spaces[space_id].queue_tail_loss_probe(
-                            path_id,
-                            request_immediate_ack,
-                            &self.streams,
-                        );
+                if needs_loss_probe {
+                    // Ensure we have something to send for a tail-loss probe.
+                    let request_immediate_ack =
+                        space_id == SpaceId::Data && self.peer_supports_ack_frequency();
+                    self.spaces[space_id].queue_tail_loss_probe(
+                        path_id,
+                        request_immediate_ack,
+                        &self.streams,
+                    );
 
-                        self.spaces[space_id].for_path(path_id).loss_probes -= 1;
+                    self.spaces[space_id].for_path(path_id).loss_probes -= 1; // needs_loss_probe ensures loss_probes > 0
 
-                        // Clamp the datagram to at most the minimum MTU to ensure that loss
-                        // probes can get through and enable recovery even if the path MTU
-                        // has shrank unexpectedly.
-                        transmit.start_new_datagram_with_size(std::cmp::min(
-                            usize::from(INITIAL_MTU),
-                            transmit.segment_size(),
-                        ));
-                    }
+                    // Clamp the datagram to at most the minimum MTU to ensure that loss
+                    // probes can get through and enable recovery even if the path MTU
+                    // has shrank unexpectedly.
+                    transmit.start_new_datagram_with_size(std::cmp::min(
+                        usize::from(INITIAL_MTU),
+                        transmit.segment_size(),
+                    ));
+                } else {
+                    transmit.start_new_datagram();
                 }
                 trace!(count = transmit.num_datagrams(), "new datagram started");
 
