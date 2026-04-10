@@ -3700,10 +3700,9 @@ impl Connection {
         }
         let space = self.spaces[space_id].for_path(path_id);
 
-        // This needs to happen for off-path packets too
         space.pending_acks.insert_one(packet_number, now);
-        if packet_number >= space.rx_packet.unwrap_or_default() {
-            space.rx_packet = Some(packet_number);
+        if packet_number >= space.largest_received_packet_number.unwrap_or_default() {
+            space.largest_received_packet_number = Some(packet_number);
 
             // Update outgoing spin bit for on-path packets, inverting iff we're the client
             if is_on_path {
@@ -5469,7 +5468,10 @@ impl Connection {
             self.connection_close_pending = true;
         }
 
-        if Some(number) == self.spaces[SpaceId::Data].for_path(path_id).rx_packet
+        if Some(number)
+            == self.spaces[SpaceId::Data]
+                .for_path(path_id)
+                .largest_received_packet_number
             && !is_probing_packet
             && network_path != self.path_data(path_id).network_path
         {
@@ -6561,18 +6563,18 @@ impl Connection {
         if result.outgoing_key_update_acked
             && let Some(prev) = self.crypto_state.prev_crypto.as_mut()
         {
-            prev.end_packet = Some((result.number, now));
+            prev.end_packet = Some((result.packet_number, now));
             self.set_key_discard_timer(now, packet.header.space());
         }
 
         if result.incoming_key_update {
             trace!("key update authenticated");
             self.crypto_state
-                .update_keys(Some((result.number, now)), true);
+                .update_keys(Some((result.packet_number, now)), true);
             self.set_key_discard_timer(now, packet.header.space());
         }
 
-        Ok(Some(result.number))
+        Ok(Some(result.packet_number))
     }
 
     fn peer_supports_ack_frequency(&self) -> bool {
