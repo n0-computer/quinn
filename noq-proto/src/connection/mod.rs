@@ -682,16 +682,15 @@ impl Connection {
     /// Only to be called once sure this path should be abandoned, all checks
     /// should have happened before calling this.
     fn abandon_path(&mut self, now: Instant, path_id: PathId, reason: PathAbandonReason) {
-        trace!(%path_id, ?reason, "closing path");
+        trace!(%path_id, ?reason, "abandoning path");
 
+        let pending_space = &mut self.spaces[SpaceId::Data].pending;
         // Send PATH_ABANDON
-        self.spaces[SpaceId::Data]
-            .pending
+        pending_space
             .path_abandon
             .insert(path_id, reason.error_code());
 
         // Remove pending NEW CIDs for this path
-        let pending_space = &mut self.spaces[SpaceId::Data].pending;
         pending_space.new_cids.retain(|cid| cid.path_id != path_id);
         pending_space.path_cids_blocked.retain(|&id| id != path_id);
         pending_space.path_status.retain(|&id| id != path_id);
@@ -707,14 +706,19 @@ impl Connection {
             }
         }
 
+        // We can't send anything on abandoned paths, so we set
+        // tail-loss probes to zero.
+        // This likely doesn't do much, as the path won't even be tried for sending
+        // in poll_transmit after the path is abandoned.
+        self.spaces[SpaceId::Data].for_path(path_id).loss_probes = 0;
+
         // Note: remote CIDs are NOT removed here. They are removed when the PATH_ABANDON
         // frame is actually written to a packet (in populate_packet). This allows sending
         // PATH_ABANDON on the abandoned path itself when no other path exists (#509).
-        debug_assert!(!self.state.is_drained()); // requirement for endpoint_events, checked above
+        debug_assert!(!self.state.is_drained()); // requirement for endpoint_events, checked in `close_path_inner`
         self.endpoint_events
             .push_back(EndpointEventInner::RetireResetToken(path_id));
 
-        trace!(%path_id, "abandoning path");
         self.abandoned_paths.insert(path_id);
 
         for timer in timer::PathTimer::VALUES {
@@ -749,6 +753,12 @@ impl Connection {
                 self.timers.stop(Timer::PerPath(path_id, timer), qlog);
             }
         }
+
+        // Set the loss detection timer again, as now it should only be set
+        // for time-based loss detection, not tail-loss probes, but currently it
+        // could still be set to a tail-loss probe.
+        // This will reset it to the next time-based loss time, if applicable.
+        self.set_loss_detection_timer(now, path_id);
 
         // Emit event to the application.
         self.events.push_back(Event::Path(PathEvent::Abandoned {
@@ -3308,14 +3318,7 @@ impl Connection {
         in_persistent_congestion: bool,
         size_of_lost_packets: u64,
     ) {
-        debug_assert!(
-            {
-                let mut sorted = lost_packets.clone();
-                sorted.sort();
-                sorted == lost_packets
-            },
-            "lost_packets must be sorted"
-        );
+        debug_assert!(lost_packets.is_sorted(), "lost_packets must be sorted");
 
         self.drain_lost_packets(now, pn_space, path_id);
 
