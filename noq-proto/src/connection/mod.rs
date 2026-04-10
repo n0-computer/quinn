@@ -1284,8 +1284,6 @@ impl Connection {
         scheduling_info: &PathSchedulingInfo,
         connection_close_pending: bool,
     ) -> Option<Transmit> {
-        // Unless we experience congestion, we'll be application limited.
-        self.path_data_mut(path_id).app_limited = true;
         // Check if there is at least one active CID to use for sending
         let Some(remote_cid) = self.remote_cids.get(&path_id).map(CidQueue::active) else {
             if !self.abandoned_paths.contains(&path_id) {
@@ -1368,9 +1366,8 @@ impl Connection {
             );
         }
 
-        if congestion_blocked {
-            self.path_data_mut(path_id).app_limited = true;
-        }
+        self.path_data_mut(path_id).app_limited =
+            last_packet_number.is_none() && !congestion_blocked;
 
         match last_packet_number {
             Some(last_packet_number) => {
