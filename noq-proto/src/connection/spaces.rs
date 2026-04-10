@@ -107,13 +107,13 @@ impl PacketSpace {
             self.for_path(path_id).immediate_ack_pending = true;
         }
 
-        // Retransmit the data of the oldest in-flight packet
+        // We prefer to send new data to make most efficient use of bandwidth.
         if !self.pending.is_empty(streams) {
             // There's real data to send here, no need to make something up
             return;
         }
 
-        // We use retransmits from any path.
+        // Retransmit data from the oldest in-flight data from any path
         for packet in self
             .number_spaces
             .values_mut()
