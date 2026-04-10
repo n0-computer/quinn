@@ -1494,6 +1494,13 @@ impl Connection {
             if transmit.datagram_remaining_mut() == 0 {
                 let congestion_blocked =
                     self.path_congestion_check(space_id, path_id, transmit, &can_send, now);
+                if let PathBlocked::Pacing(resume_time) = congestion_blocked {
+                    self.timers.set(
+                        Timer::PerPath(path_id, PathTimer::Pacing),
+                        resume_time,
+                        self.qlog.with_time(now),
+                    );
+                }
                 if congestion_blocked != PathBlocked::No {
                     // Previous iterations of this loop may have built packets already.
                     return match last_packet_number {
@@ -1944,16 +1951,11 @@ impl Connection {
         }
 
         // Pacing check.
-        if let Some(delay) = self.path_data_mut(path_id).pacing_delay(bytes_to_send, now) {
-            self.timers.set(
-                Timer::PerPath(path_id, PathTimer::Pacing),
-                delay,
-                self.qlog.with_time(now),
-            );
+        if let Some(resume_time) = self.path_data_mut(path_id).pacing_delay(bytes_to_send, now) {
             // Loss probes and CONNECTION_CLOSE should be subject to pacing, even though
             // they are not congestion controlled.
             trace!(?space_id, %path_id, "blocked by pacing");
-            return PathBlocked::Pacing;
+            return PathBlocked::Pacing(resume_time);
         }
 
         PathBlocked::No
@@ -7190,7 +7192,7 @@ enum PathBlocked {
     No,
     AntiAmplification,
     Congestion,
-    Pacing,
+    Pacing(Instant),
 }
 
 /// Fields of `Connection` specific to it being client-side or server-side
