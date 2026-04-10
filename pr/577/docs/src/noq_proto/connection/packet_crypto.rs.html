@@ -202,7 +202,7 @@
 <a href=#202 id=202 data-nosnippet>202</a>        // having received packets on that path yet. So both of these cases are represented by `None`.
 <a href=#203 id=203 data-nosnippet>203</a>        </span><span class="kw">let </span>rx_packet_number = spaces[space]
 <a href=#204 id=204 data-nosnippet>204</a>            .path_space(path_id)
-<a href=#205 id=205 data-nosnippet>205</a>            .and_then(|s| s.rx_packet_number);
+<a href=#205 id=205 data-nosnippet>205</a>            .and_then(|s| s.largest_received_packet_number);
 <a href=#206 id=206 data-nosnippet>206</a>        <span class="kw">let </span>packet_number = packet
 <a href=#207 id=207 data-nosnippet>207</a>            .header
 <a href=#208 id=208 data-nosnippet>208</a>            .number()
