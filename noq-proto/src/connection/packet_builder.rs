@@ -307,10 +307,10 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
                 conn.spaces[space_id]
                     .for_path(path_id)
                     .time_of_last_ack_eliciting_packet = Some(now);
-                if conn.permit_idle_reset {
+                if conn.path_data(path_id).permit_idle_reset {
                     conn.reset_idle_timeout(now, space_id.kind(), path_id);
                 }
-                conn.permit_idle_reset = false;
+                conn.path_data_mut(path_id).permit_idle_reset = false;
             }
             conn.set_loss_detection_timer(now, path_id);
             conn.path_data_mut(path_id).pacing.on_transmit(size);
