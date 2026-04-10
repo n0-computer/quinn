@@ -998,7 +998,7 @@ fn regression_never_idle4() {
 /// Usually, the timer would fire and then cause something to happen, e.g. we send
 /// a tail-loss probe.
 /// But in this case it didn't because the tail-loss probe was "scheduled" for path 1,
-/// which in tihs example is already abandoned by the time the loss detection timer fired.
+/// which in this example is already abandoned by the time the loss detection timer fired.
 ///
 /// This caused the conditions for the loss detection timer to never be cleared, as in-flight
 /// packets would sit in that path indefinitely.
@@ -1032,7 +1032,7 @@ fn regression_infinite_loop() {
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
-    // This bug originally occured at exactly 4540 iterations.
+    // This bug originally occurred at exactly 4540 iterations.
     // At 4539 it still finishes (but fails the assertion).
     // At 4540 it the `drive_bounded` call never returns.
     assert!(!pair.drive_bounded(1000), "connection never became idle");
