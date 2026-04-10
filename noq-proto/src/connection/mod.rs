@@ -5133,10 +5133,12 @@ impl Connection {
                         space.pending_acks.set_ack_frequency_params(&ack_frequency);
 
                         // Our `max_ack_delay` has been updated, so we may need to adjust
-                        // its associated timeout
-                        if let Some(timeout) = space
-                            .pending_acks
-                            .max_ack_delay_timeout(self.ack_frequency.max_ack_delay)
+                        // its associated timeout.
+                        // Packets received on abandoned paths are always acknowledged immediately.
+                        if !self.abandoned_paths.contains(&path_id)
+                            && let Some(timeout) = space
+                                .pending_acks
+                                .max_ack_delay_timeout(self.ack_frequency.max_ack_delay)
                         {
                             self.timers.set(
                                 Timer::PerPath(*path_id, PathTimer::MaxAckDelay),
