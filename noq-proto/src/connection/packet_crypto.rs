@@ -202,7 +202,7 @@ impl CryptoState {
         // having received packets on that path yet. So both of these cases are represented by `None`.
         let rx_packet_number = spaces[space]
             .path_space(path_id)
-            .and_then(|s| s.rx_packet_number);
+            .and_then(|s| s.largest_received_packet_number);
         let packet_number = packet
             .header
             .number()

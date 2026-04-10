@@ -3696,8 +3696,8 @@ impl Connection {
         let space = self.spaces[space_id].for_path(path_id);
 
         space.pending_acks.insert_one(packet_number, now);
-        if packet_number >= space.rx_packet_number.unwrap_or_default() {
-            space.rx_packet_number = Some(packet_number);
+        if packet_number >= space.largest_received_packet_number.unwrap_or_default() {
+            space.largest_received_packet_number = Some(packet_number);
 
             // Update outgoing spin bit for on-path packets, inverting iff we're the client
             if is_on_path {
@@ -5464,7 +5464,7 @@ impl Connection {
         if Some(number)
             == self.spaces[SpaceId::Data]
                 .for_path(path_id)
-                .rx_packet_number
+                .largest_received_packet_number
             && !is_probing_packet
             && network_path != self.path_data(path_id).network_path
         {
