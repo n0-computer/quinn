@@ -864,6 +864,7 @@ impl RecvState {
         now: Instant,
     ) -> Result<PollProgress, io::Error> {
         let mut received_connection_packet = false;
+        let mut response_buffer = Vec::new();
         let mut metas = [RecvMeta::default(); BATCH_SIZE];
         let mut iovs: [IoSliceMut<'_>; BATCH_SIZE] = {
             let mut bufs = self
@@ -884,7 +885,7 @@ impl RecvState {
                         let mut data: BytesMut = buf[0..meta.len].into();
                         while !data.is_empty() {
                             let buf = data.split_to(meta.stride.min(data.len()));
-                            let mut response_buffer = Vec::new();
+                            response_buffer.clear();
                             let addresses = FourTuple::new(meta.addr, meta.dst_ip);
                             match endpoint.handle(
                                 now,
