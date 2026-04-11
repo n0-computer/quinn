@@ -23,12 +23,18 @@ qlog = ["noq/qlog"]
 # WARNING: it requires special compilation flags
 #    RUSTFLAGS="--cfg tokio_unstable" cargo build -r -p perf -F tokio-console
 tokio-console = ["console-subscriber"]
+# Enable heap allocation profiling via dhat
+#    cargo build -r -p perf -F dhat-heap
+# Run the resulting binary normally; on exit it writes dhat-heap.json
+# Visualize at https://nnethercote.github.io/dh_view/dh_view.html
+dhat-heap = ["dhat"]
 
 [dependencies]
 anyhow = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { version = "0.5.0", features = ["parking_lot"], optional = true }
+dhat = { workspace = true, optional = true }
 hdrhistogram = { workspace = true }
 noq = { package = "noq", path = "../noq" }
 noq-proto = { package = "noq-proto", path = "../noq-proto" }
