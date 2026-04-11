@@ -1454,7 +1454,9 @@ async fn nat_traversal_wakes_connection_driver() -> TestResult {
 
         // Server adds its address — this queues an ADD_ADDRESS frame.
         // Without wake(), this frame won't be sent until a timer fires.
-        server_conn.add_nat_traversal_address(server_addr).unwrap();
+        server_conn
+            .add_nat_traversal_address(server_addr, 0)
+            .unwrap();
 
         // The client should learn the server's address within 500ms.
         let result = tokio::time::timeout(Duration::from_millis(500), async {

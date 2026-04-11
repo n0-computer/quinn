@@ -32,6 +32,7 @@ getrandom = { version = "0.4", default-features = false }
 hdrhistogram = { version = "7.2", default-features = false }
 hex-literal = "0.4"
 identity-hash = "0.1.0"
+indexmap = "2"
 log = "0.4"
 lru-slab = "0.1.2"
 pin-project-lite = "0.2"

@@ -745,7 +745,7 @@ impl ConnPair {
         side: Side,
         address: SocketAddr,
     ) -> Result<(), n0_nat_traversal::Error> {
-        self.conn_mut(side).add_nat_traversal_address(address)
+        self.conn_mut(side).add_nat_traversal_address(address, 0)
     }
 
     pub(super) fn remove_nat_traversal_address(

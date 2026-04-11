@@ -61,6 +61,7 @@ derive_more = { workspace = true }
 enum-assoc = { workspace = true }
 fastbloom = { workspace = true, optional = true }
 identity-hash = { workspace = true }
+indexmap = { workspace = true }
 lru-slab = { workspace = true }
 qlog = { workspace = true, optional = true }
 rand = { workspace = true }
