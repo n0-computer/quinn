@@ -1009,7 +1009,12 @@ mod tests {
     fn pn_expand_roundtrip() {
         for expected in 0..1024 {
             for actual in expected..1024 {
-                assert_eq!(actual, PacketNumber::new(actual, expected).unwrap().expand(expected));
+                assert_eq!(
+                    actual,
+                    PacketNumber::new(actual, expected)
+                        .unwrap()
+                        .expand(expected)
+                );
             }
         }
     }
