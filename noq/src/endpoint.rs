@@ -826,7 +826,11 @@ impl std::ops::Deref for EndpointRef {
 struct RecvState {
     incoming: VecDeque<proto::Incoming>,
     connections: ConnectionSet,
-    recv_buf: Box<[u8]>,
+    /// Per-slot receive buffers, one per `BATCH_SIZE` slot. Each is passed directly
+    /// to `recvmmsg` and then handed to the proto layer without copying.
+    recv_bufs: Vec<BytesMut>,
+    /// The size each recv buffer slot is (re)initialized to before receiving.
+    recv_buf_chunk_size: usize,
     recv_limiter: WorkLimiter,
 }
 
@@ -836,12 +840,11 @@ impl RecvState {
         max_receive_segments: NonZeroUsize,
         endpoint: &proto::Endpoint,
     ) -> Self {
-        let recv_buf = vec![
-            0;
-            endpoint.config().get_max_udp_payload_size().min(64 * 1024) as usize
-                * max_receive_segments.get()
-                * BATCH_SIZE
-        ];
+        let chunk_size = endpoint.config().get_max_udp_payload_size().min(64 * 1024) as usize
+            * max_receive_segments.get();
+        let recv_bufs = (0..BATCH_SIZE)
+            .map(|_| BytesMut::zeroed(chunk_size))
+            .collect();
         Self {
             connections: ConnectionSet {
                 senders: FxHashMap::default(),
@@ -849,7 +852,8 @@ impl RecvState {
                 close: None,
             },
             incoming: VecDeque::new(),
-            recv_buf: recv_buf.into(),
+            recv_bufs,
+            recv_buf_chunk_size: chunk_size,
             recv_limiter: WorkLimiter::new(RECV_TIME_BOUND),
         }
     }
@@ -864,27 +868,52 @@ impl RecvState {
         now: Instant,
     ) -> Result<PollProgress, io::Error> {
         let mut received_connection_packet = false;
+        let mut response_buffer = Vec::new();
         let mut metas = [RecvMeta::default(); BATCH_SIZE];
-        let mut iovs: [IoSliceMut<'_>; BATCH_SIZE] = {
-            let mut bufs = self
-                .recv_buf
-                .chunks_mut(self.recv_buf.len() / BATCH_SIZE)
-                .map(IoSliceMut::new);
-
-            // expect() safe as self.recv_buf is chunked into BATCH_SIZE items
-            // and iovs will be of size BATCH_SIZE, thus from_fn is called
-            // exactly BATCH_SIZE times.
-            std::array::from_fn(|_| bufs.next().expect("BATCH_SIZE elements"))
-        };
         loop {
-            match socket.poll_recv(cx, &mut iovs, &mut metas) {
+            // Ensure all recv buffer slots are ready for the next recvmmsg call.
+            // Slots that were consumed in the previous iteration need re-initialization.
+            for buf in self.recv_bufs.iter_mut() {
+                if buf.capacity() < self.recv_buf_chunk_size {
+                    *buf = BytesMut::zeroed(self.recv_buf_chunk_size);
+                } else {
+                    buf.resize(self.recv_buf_chunk_size, 0);
+                }
+            }
+
+            // Scope iovs to just the poll_recv call so that self.recv_bufs is
+            // borrowable again for the processing loop below.
+            let poll_result = {
+                let mut iovs: [IoSliceMut<'_>; BATCH_SIZE] = {
+                    let mut bufs = self
+                        .recv_bufs
+                        .iter_mut()
+                        .map(|b| IoSliceMut::new(&mut **b));
+                    std::array::from_fn(|_| bufs.next().expect("BATCH_SIZE elements"))
+                };
+                socket.poll_recv(cx, &mut iovs, &mut metas)
+            };
+
+            match poll_result {
                 Poll::Ready(Ok(msgs)) => {
                     self.recv_limiter.record_work(msgs);
-                    for (meta, buf) in metas.iter().zip(iovs.iter()).take(msgs) {
-                        let mut data: BytesMut = buf[0..meta.len].into();
+                    for i in 0..msgs {
+                        let meta = &metas[i];
+                        // Truncate to the actual received length and take ownership.
+                        // The proto layer gets the BytesMut directly — no copy.
+                        self.recv_bufs[i].truncate(meta.len);
+                        let mut data =
+                            mem::replace(&mut self.recv_bufs[i], BytesMut::new());
                         while !data.is_empty() {
-                            let buf = data.split_to(meta.stride.min(data.len()));
-                            let mut response_buffer = Vec::new();
+                            let stride = meta.stride.min(data.len());
+                            let buf = if stride == data.len() {
+                                // Common case (no GRO coalescing): take the whole
+                                // buffer without allocating a shared refcount.
+                                mem::take(&mut data)
+                            } else {
+                                data.split_to(stride)
+                            };
+                            response_buffer.clear();
                             let addresses = FourTuple::new(meta.addr, meta.dst_ip);
                             match endpoint.handle(
                                 now,
