@@ -95,10 +95,13 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         let packet_number = space.for_path(path_id).get_tx_number(&mut conn.rng);
         let span = trace_span!("send", space = ?space_id, pn = packet_number, %path_id).entered();
 
-        let number = PacketNumber::new(
+        let Some(number) = PacketNumber::new(
             packet_number,
             space.for_path(path_id).largest_acked_packet.unwrap_or(0),
-        );
+        ) else {
+            debug!("packet number too large to encode");
+            return None;
+        };
         let header = match level {
             EncryptionLevel::OneRtt => Header::Short {
                 dst_cid,

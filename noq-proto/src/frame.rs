@@ -1757,9 +1757,17 @@ impl From<InvalidFrame> for TransportError {
 /// - ACK Ranges
 ///
 /// Ref <https://www.rfc-editor.org/rfc/rfc9000.html#name-ack-ranges>
+/// Maximum number of ACK ranges we accept per ACK frame. RFC 9000 does not mandate a specific
+/// limit, but an unbounded count allows a single small packet to cause near-infinite processing.
+/// 512 ranges is generous — legitimate peers rarely exceed a few dozen.
+const MAX_ACK_RANGES: u64 = 512;
+
 fn read_ack_blocks(buf: &mut Bytes, mut largest: u64) -> Result<ArrayRangeSet, IterErr> {
     // Ack Range Count
     let num_blocks = buf.get_var()?;
+    if num_blocks > MAX_ACK_RANGES {
+        return Err(IterErr::Malformed);
+    }
 
     let mut out = ArrayRangeSet::new();
     let mut block_to_block;

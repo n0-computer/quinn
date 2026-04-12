@@ -6813,7 +6813,7 @@ impl Connection {
                 .largest_acked_packet
                 .unwrap_or(0),
         )
-        .len();
+        .map_or(4, PacketNumber::len);
 
         // 1 byte for flags
         1 + self
