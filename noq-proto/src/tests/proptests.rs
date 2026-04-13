@@ -168,10 +168,10 @@ impl PairSetup {
 }
 
 impl Seed {
-    fn into_slice(&self) -> [u8; 32] {
+    fn into_slice(self) -> [u8; 32] {
         match self {
-            Seed::Zeroes => [0u8; 32],
-            Seed::Generated(generated) => *generated,
+            Self::Zeroes => [0u8; 32],
+            Self::Generated(generated) => generated,
         }
     }
 }
