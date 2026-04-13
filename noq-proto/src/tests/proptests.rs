@@ -55,6 +55,14 @@ const SERVER_ADDRS: [SocketAddr; 3] = [
     ),
 ];
 
+/// Struct for generating random pair setups.
+///
+/// Compared to randomly generating e.g. the `TransportConfig` on both sides,
+/// this has several advantages:
+/// - On a proptest failure, it is easy to see which minimal setup the proptest fails with.
+/// - The definition of the setup itself is concise, e.g. when copying it into regression tests.
+/// - We can be more precise/smaller in the "search space" and have more efficient shrinking,
+///   see [`Seed`] or [`RoutingSetup`].
 #[derive(Debug, test_strategy::Arbitrary)]
 struct PairSetup {
     seed: Seed,
@@ -63,16 +71,38 @@ struct PairSetup {
     routing_setup: RoutingSetup,
 }
 
+/// Categories of routing setups used for proptests.
+///
+/// The advantage of using this is very efficient shrinking: The first attempt at shrinking the
+/// routing setup will be to reduce the routing setup to nothing or a simple symmetric one.
 #[derive(Debug, test_strategy::Arbitrary)]
 enum RoutingSetup {
+    /// Set [`Pair::routes`] to `None`
     None,
+    /// Use [`RoutingTable::simple_symmetric`] with the default [`CLIENT_ADDRS`] and [`SERVER_ADDRS`].
     SimpleSymmetric,
+    /// Use given generated routing table.
     Complex(#[strategy(routing_table())] RoutingTable),
 }
 
+/// Which seed to use in the test setup.
+///
+/// This structure has an advantage over a simple `[u8; 32]`, because on one hand, we don't want
+/// to waste too much time shrinking the seed itself (reducing individual values inside the array),
+/// but also we don't want to disable shrinking altogether: when the seed shrinks to zero, this
+/// helps us understand that the seed is likely irrelevant to the test failure.
+///
+/// This struct achieves the best of both worlds: If the seed is generated as `Generated(some_seed)`,
+/// shrinking will try `Zeroes` once, and if that fails, fall back to using the generated seed
+/// and avoid doing any further shrinking of `some_seed`.
 #[derive(Debug, test_strategy::Arbitrary)]
 enum Seed {
+    /// The zero seed.
+    ///
+    /// If a test generates the zero seed, then it's likely that the seed doesn't have
+    /// any effect on the test failure.
     Zeroes,
+    /// A specific generated seed.
     Generated(#[strategy(any::<[u8; 32]>().no_shrink())] [u8; 32]),
 }
 
