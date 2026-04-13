@@ -153,6 +153,7 @@ pub(super) struct PathData {
     /// > the congestion window is underutilized. This can happen due to insufficient application data
     /// > or flow control limits. When this occurs, the congestion window SHOULD NOT be increased in
     /// > either slow start or congestion avoidance.
+    ///
     /// (RFC9002, section 7.8)
     ///
     /// I.e. when app_limited is true, the congestion controller doesn't increase the congestion window.
