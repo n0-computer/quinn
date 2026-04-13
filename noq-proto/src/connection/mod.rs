@@ -1035,12 +1035,18 @@ impl Connection {
         // Check whether we need to send a close message
         let connection_close_pending = match self.state.as_type() {
             StateType::Drained => {
+                for path in self.paths.values_mut() {
+                    path.data.app_limited = true;
+                }
                 return None;
             }
             StateType::Draining | StateType::Closed => {
                 // self.connection_close_pending is only reset once the associated packet
                 // had been encoded successfully
                 if !self.connection_close_pending {
+                    for path in self.paths.values_mut() {
+                        path.data.app_limited = true;
+                    }
                     return None;
                 }
                 true
