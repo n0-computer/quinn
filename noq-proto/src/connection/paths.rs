@@ -145,6 +145,20 @@ pub(super) struct PathData {
     pub(super) congestion: Box<dyn congestion::Controller>,
     /// Pacing state
     pub(super) pacing: Pacer,
+    /// Whether the last `poll_transmit_on_path` call yielded no data because there was
+    /// no outgoing application data.
+    ///
+    /// The RFC writes:
+    /// > When bytes in flight is smaller than the congestion window and sending is not pacing limited,
+    /// > the congestion window is underutilized. This can happen due to insufficient application data
+    /// > or flow control limits. When this occurs, the congestion window SHOULD NOT be increased in
+    /// > either slow start or congestion avoidance.
+    ///
+    /// (RFC9002, section 7.8)
+    ///
+    /// I.e. when app_limited is true, the congestion controller doesn't increase the congestion window.
+    pub(super) app_limited: bool,
+
     /// Path challenges sent (on the wire, on-path) that we didn't receive a path response for yet
     on_path_challenges_unconfirmed: IntMap<u64, SentChallengeInfo>,
     /// Path challenges sent (on the wire, off-path) that we didn't receive a path response for yet
@@ -282,6 +296,7 @@ impl PathData {
                 now,
             ),
             congestion,
+            app_limited: false,
             on_path_challenges_unconfirmed: Default::default(),
             off_path_challenges_unconfirmed: Default::default(),
             pending_on_path_challenge: false,
@@ -339,6 +354,7 @@ impl PathData {
             pacing: Pacer::new(smoothed_rtt, congestion.window(), prev.current_mtu(), now),
             sending_ecn: true,
             congestion,
+            app_limited: false,
             on_path_challenges_unconfirmed: Default::default(),
             off_path_challenges_unconfirmed: Default::default(),
             pending_on_path_challenge: false,

@@ -230,9 +230,6 @@ pub struct Connection {
     receiving_ecn: bool,
     /// Number of packets authenticated
     total_authed_packets: u64,
-    /// Whether the last `poll_transmit` call yielded no data because there was
-    /// no outgoing application data.
-    app_limited: bool,
 
     //
     // ObservedAddr
@@ -405,7 +402,6 @@ impl Connection {
                 &TransportParameters::default(),
             )),
 
-            app_limited: false,
             receiving_ecn: false,
             total_authed_packets: 0,
 
@@ -1039,14 +1035,18 @@ impl Connection {
         // Check whether we need to send a close message
         let connection_close_pending = match self.state.as_type() {
             StateType::Drained => {
-                self.app_limited = true;
+                for path in self.paths.values_mut() {
+                    path.data.app_limited = true;
+                }
                 return None;
             }
             StateType::Draining | StateType::Closed => {
                 // self.connection_close_pending is only reset once the associated packet
                 // had been encoded successfully
                 if !self.connection_close_pending {
-                    self.app_limited = true;
+                    for path in self.paths.values_mut() {
+                        path.data.app_limited = true;
+                    }
                     return None;
                 }
                 true
@@ -1069,10 +1069,6 @@ impl Connection {
                 && self.peer_supports_ack_frequency();
         }
 
-        // If we end up not sending anything, we need to know if that was because there was
-        // nothing to send or because we were congestion blocked.
-        let mut congestion_blocked = false;
-
         let mut next_path_id = self.paths.first_entry().map(|e| *e.key());
         while let Some(path_id) = next_path_id {
             if !connection_close_pending
@@ -1082,7 +1078,7 @@ impl Connection {
             }
 
             let info = self.scheduling_info(path_id);
-            match self.poll_transmit_on_path(
+            if let Some(transmit) = self.poll_transmit_on_path(
                 now,
                 buf,
                 path_id,
@@ -1090,21 +1086,15 @@ impl Connection {
                 &info,
                 connection_close_pending,
             ) {
-                PollPathStatus::Send(transmit) => {
-                    return Some(transmit);
-                }
-                PollPathStatus::NothingToSend {
-                    congestion_blocked: cb,
-                } => {
-                    congestion_blocked |= cb;
-                    // Continue checking other paths, tail-loss probes may need to be sent
-                    // in all spaces.
-                    debug_assert!(
-                        buf.is_empty(),
-                        "nothing to send on path but buffer not empty"
-                    );
-                }
+                return Some(transmit);
             }
+
+            // Continue checking other paths, tail-loss probes may need to be sent
+            // in all spaces.
+            debug_assert!(
+                buf.is_empty(),
+                "nothing to send on path but buffer not empty"
+            );
 
             next_path_id = self.paths.keys().find(|i| **i > path_id).copied();
         }
@@ -1114,8 +1104,6 @@ impl Connection {
             buf.is_empty(),
             "there was data in the buffer, but it was not sent"
         );
-
-        self.app_limited = !congestion_blocked;
 
         if self.state.is_established() {
             // Try MTU probing now
@@ -1301,15 +1289,13 @@ impl Connection {
         max_datagrams: NonZeroUsize,
         scheduling_info: &PathSchedulingInfo,
         connection_close_pending: bool,
-    ) -> PollPathStatus {
+    ) -> Option<Transmit> {
         // Check if there is at least one active CID to use for sending
         let Some(remote_cid) = self.remote_cids.get(&path_id).map(CidQueue::active) else {
             if !self.abandoned_paths.contains(&path_id) {
                 debug!(%path_id, "no remote CIDs for path");
             }
-            return PollPathStatus::NothingToSend {
-                congestion_blocked: false,
-            };
+            return None;
         };
 
         // Whether the last packet in the datagram must be padded so the datagram takes up
@@ -1386,6 +1372,9 @@ impl Connection {
             );
         }
 
+        self.path_data_mut(path_id).app_limited =
+            last_packet_number.is_none() && !congestion_blocked;
+
         match last_packet_number {
             Some(last_packet_number) => {
                 // Note that when sending in multiple spaces the last packet number will be
@@ -1395,9 +1384,9 @@ impl Connection {
                     transmit.len() as u64,
                     last_packet_number,
                 );
-                PollPathStatus::Send(self.build_transmit(path_id, transmit))
+                Some(self.build_transmit(path_id, transmit))
             }
-            None => PollPathStatus::NothingToSend { congestion_blocked },
+            None => None,
         }
     }
 
@@ -1515,11 +1504,9 @@ impl Connection {
                         }
                     };
                 }
-            }
 
-            // If the datagram is full (or there never was one started), we need to start a
-            // new one.
-            if transmit.datagram_remaining_mut() == 0 {
+                // If the datagram is full (or there never was one started), we need to start a
+                // new one.
                 if transmit.num_datagrams() >= transmit.max_datagrams().get() {
                     // No more datagrams allowed.
                     // Previous iterations of this loop may have built packets already.
@@ -1536,28 +1523,27 @@ impl Connection {
                     };
                 }
 
-                match self.spaces[space_id].for_path(path_id).loss_probes {
-                    0 => transmit.start_new_datagram(),
-                    _ => {
-                        // We need something to send for a tail-loss probe.
-                        let request_immediate_ack =
-                            space_id == SpaceId::Data && self.peer_supports_ack_frequency();
-                        self.spaces[space_id].queue_tail_loss_probe(
-                            path_id,
-                            request_immediate_ack,
-                            &self.streams,
-                        );
+                if needs_loss_probe {
+                    // Ensure we have something to send for a tail-loss probe.
+                    let request_immediate_ack =
+                        space_id == SpaceId::Data && self.peer_supports_ack_frequency();
+                    self.spaces[space_id].queue_tail_loss_probe(
+                        path_id,
+                        request_immediate_ack,
+                        &self.streams,
+                    );
 
-                        self.spaces[space_id].for_path(path_id).loss_probes -= 1;
+                    self.spaces[space_id].for_path(path_id).loss_probes -= 1; // needs_loss_probe ensures loss_probes > 0
 
-                        // Clamp the datagram to at most the minimum MTU to ensure that loss
-                        // probes can get through and enable recovery even if the path MTU
-                        // has shrank unexpectedly.
-                        transmit.start_new_datagram_with_size(std::cmp::min(
-                            usize::from(INITIAL_MTU),
-                            transmit.segment_size(),
-                        ));
-                    }
+                    // Clamp the datagram to at most the minimum MTU to ensure that loss
+                    // probes can get through and enable recovery even if the path MTU
+                    // has shrank unexpectedly.
+                    transmit.start_new_datagram_with_size(std::cmp::min(
+                        usize::from(INITIAL_MTU),
+                        transmit.segment_size(),
+                    ));
+                } else {
+                    transmit.start_new_datagram();
                 }
                 trace!(count = transmit.num_datagrams(), "new datagram started");
 
@@ -2902,8 +2888,8 @@ impl Connection {
         }
 
         let largest_ackd = self.spaces[space].for_path(path).largest_acked_packet;
-        let app_limited = self.app_limited;
         let path_data = self.path_data_mut(path);
+        let app_limited = path_data.app_limited;
         let in_flight = path_data.in_flight.bytes;
 
         path_data
@@ -3043,8 +3029,8 @@ impl Connection {
     // Not timing-aware, so it's safe to call this for inferred acks, such as arise from
     // high-latency handshakes
     fn on_packet_acked(&mut self, now: Instant, path_id: PathId, info: SentPacket) {
-        let app_limited = self.app_limited;
         let path = self.path_data_mut(path_id);
+        let app_limited = path.app_limited;
         path.remove_in_flight(&info);
         if info.ack_eliciting && info.path_generation == path.generation() {
             // Only pass ACKs to the congestion controller if it belongs to this exact
@@ -7130,18 +7116,6 @@ pub trait NetworkChangeHint: std::fmt::Debug + 'static {
     ///
     /// Paths that are deemed recoverable will simply be sent a PING for a liveness check.
     fn is_path_recoverable(&self, path_id: PathId, network_path: FourTuple) -> bool;
-}
-
-/// Return value for [`Connection::poll_transmit_on_path`].
-#[derive(Debug)]
-enum PollPathStatus {
-    /// Nothing to send on the path, nothing was written into the [`TransmitBuf`].
-    NothingToSend {
-        /// If true there was data to send but congestion control did not allow so.
-        congestion_blocked: bool,
-    },
-    /// The transmit is ready to be sent.
-    Send(Transmit),
 }
 
 /// Return value for [`Connection::poll_transmit_path_space`].
