@@ -967,6 +967,134 @@ fn network_change_selective_hint() -> TestResult {
     Ok(())
 }
 
+/// Server-side network change with two paths and a selective hint.
+///
+/// The non-recoverable path is abandoned, leaving only the recoverable one.
+#[test]
+fn network_change_server_two_paths_selective_hint() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    // Open a second path from the client side.
+    let server_addr = pair.addrs_to_server();
+    let second_path = pair.open_path(Client, server_addr, PathStatus::Available)?;
+    pair.drive();
+
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Opened { id })) if id == second_path
+    );
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Opened { id })) if id == second_path
+    );
+
+    // Hint: The provided PathId is recoverable, others are not.
+    #[derive(Debug)]
+    struct SelectiveHint(PathId);
+    impl NetworkChangeHint for SelectiveHint {
+        fn is_path_recoverable(&self, path_id: PathId, _network_path: FourTuple) -> bool {
+            path_id == self.0
+        }
+    }
+
+    pair.handle_network_change(Server, Some(&SelectiveHint(second_path)));
+
+    pair.drive();
+
+    // The non-recoverable path is abandoned on the server. No replacement opens because
+    // servers cannot call open_path.
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Abandoned {
+            id,
+            reason: PathAbandonReason::UnusableAfterNetworkChange,
+        })) if id == PathId::ZERO
+    );
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Discarded { id, .. })) if id == PathId::ZERO
+    );
+    assert_matches!(pair.poll(Server), None);
+
+    // The client sees PathId::ZERO abandoned by the remote, then discarded.
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Abandoned {
+            id: PathId::ZERO,
+            reason: PathAbandonReason::RemoteAbandoned { .. },
+        }))
+    );
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Discarded {
+            id: PathId::ZERO,
+            ..
+        }))
+    );
+    assert_matches!(pair.poll(Client), None);
+
+    Ok(())
+}
+
+/// Server-side network change with a single path and a non-recoverable hint.
+///
+/// The path cannot be closed because it is the last one.
+#[test]
+fn network_change_server_single_path_non_recoverable_falls_back() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    // Hint that says all paths are non-recoverable
+    #[derive(Debug)]
+    struct NonRecoverableHint;
+    impl NetworkChangeHint for NonRecoverableHint {
+        fn is_path_recoverable(&self, _path_id: PathId, _network_path: FourTuple) -> bool {
+            false
+        }
+    }
+
+    pair.handle_network_change(Server, Some(&NonRecoverableHint));
+    pair.drive();
+
+    // The path should NOT be abandoned. The last open path cannot be closed.
+    assert_matches!(pair.poll(Server), None);
+    assert_matches!(pair.poll(Client), None);
+
+    Ok(())
+}
+
+/// Server-side network change with no hint defaults to recoverable. Both paths stay open.
+#[test]
+fn network_change_server_no_hint_recovers() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    // Open a second path from the client side.
+    let server_addr = pair.addrs_to_server();
+    let second_path = pair.open_path(Client, server_addr, PathStatus::Available)?;
+    pair.drive();
+
+    assert_matches!(
+        pair.poll(Client),
+        Some(Event::Path(PathEvent::Opened { id })) if id == second_path
+    );
+    assert_matches!(
+        pair.poll(Server),
+        Some(Event::Path(PathEvent::Opened { id })) if id == second_path
+    );
+
+    pair.handle_network_change(Server, None);
+    pair.drive();
+
+    // No path events: the server defaults to recoverable when no hint is provided.
+    // Neither path should be abandoned.
+    assert_matches!(pair.poll(Server), None);
+    assert_matches!(pair.poll(Client), None);
+
+    Ok(())
+}
+
 /// Checks that the deadline given before a path fails to be considered open start only when the
 /// first packet is sent.
 ///
