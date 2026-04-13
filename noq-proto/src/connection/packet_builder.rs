@@ -250,6 +250,34 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
         self.sent_frames.record_sent_frame(frame);
     }
 
+    /// Writes/injects a test frame into this packet.
+    ///
+    /// Exactly like [`Self::write_frame`], but
+    /// - logs with "(injected frame)" as the log message
+    /// - doesn't record the frame in `sent_frames` to avoid triggering retransmission and
+    ///   unwanted processing of ACKs that were intentionally invalid.
+    #[cfg(test)]
+    pub(super) fn inject_test_frame<'c>(
+        &mut self,
+        frame: EncodableFrame<'c>,
+        stats: &mut FrameStats,
+    ) {
+        frame.encode(&mut self.frame_space_mut());
+        stats.record(frame.get_type());
+        self.qlog.record(&frame);
+        trace!(%frame, "(test-injected frame)");
+    }
+
+    /// Inserts arbitrary bytes into this packet for testing purposes.
+    #[cfg(test)]
+    pub(super) fn inject_test_bytes(&mut self, bytes: Vec<u8>) {
+        use std::io::Write;
+
+        let len = bytes.len();
+        let res = self.frame_space_mut().writer().write_all(&bytes);
+        trace!(len, ?res, "(test-injected data)");
+    }
+
     /// Returns a writable buffer limited to the remaining frame space
     ///
     /// The [`BufMut::remaining_mut`] call on the returned buffer indicates the amount of

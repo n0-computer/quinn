@@ -10,14 +10,15 @@ use proptest::{
     prop_assert,
 };
 use test_strategy::proptest;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     ClientConfig, Connection, ConnectionClose, ConnectionError, Event, PathStatus, Side,
     TransportConfig, TransportErrorCode,
+    connection::DataToInject,
     tests::{
         Pair, RoutingTable, client_config,
-        random_interaction::{TestOp, run_random_interaction},
+        random_interaction::{State, TestOp, run_random_interaction},
         server_config, subscribe,
     },
 };
@@ -213,6 +214,45 @@ fn random_interaction(
     prop_assert!(allowed_error(poll_to_close(
         pair.server_conn_mut(server_ch)
     )));
+}
+
+#[derive(Debug, test_strategy::Arbitrary)]
+enum TestOpOrMonkey {
+    Normal(TestOp),
+    Monkey(#[strategy(vec(any::<DataToInject>(), 1..50))] Vec<DataToInject>),
+}
+
+#[proptest(cases = 256)]
+fn monkey_interaction(
+    side: Side,
+    setup: PairSetup,
+    #[strategy(vec(any::<TestOpOrMonkey>(), 0..100))] interactions: Vec<TestOpOrMonkey>,
+) {
+    let (mut pair, client_config) = setup.run("monkey_client_interaction");
+    let (client_ch, server_ch) = pair.connect_with(client_config);
+    pair.drive(); // finish establishing the connection;
+    info!("INTERACTION SETUP FINISHED");
+    let mut client = State::new(Side::Client, client_ch);
+    let mut server = State::new(Side::Server, server_ch);
+
+    for interaction in interactions {
+        match interaction {
+            TestOpOrMonkey::Normal(interaction) => {
+                info!(?interaction, "INTERACTION STEP");
+                interaction.run(&mut pair, &mut client, &mut server);
+            }
+            TestOpOrMonkey::Monkey(data) => {
+                info!(?data, ?side, "MONKEY INJECTION STEP");
+                match side {
+                    Side::Client => pair.client_conn_mut(client_ch),
+                    Side::Server => pair.server_conn_mut(server_ch),
+                }
+                .test_inject_data(data)
+            }
+        }
+    }
+
+    prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
 }
 
 fn routing_table() -> impl Strategy<Value = RoutingTable> {
