@@ -8,4 +8,17 @@
 
 ## Notes & open questions
 
-<!-- Any notes, remarks or open questions you have to make about the PR. -->
+<!-- Any notes, remarks or open questions you have to make about the -->
+<!-- PR. -->
+
+## Change checklist
+<!-- Remove any that are not relevant. -->
+- [ ] Self-review.
+- [ ] Documentation updates following the [style guide](https://rust-lang.github.io/rfcs/1574-more-api-documentation-conventions.html#appendix-a-full-conventions-text), if relevant.
+- [ ] Tests if relevant.
+- [ ] All breaking changes documented.
+
+<!--
+tip:
+   Run `cargo make` in the workspace root to check many light-weight CI steps locally.
+-->

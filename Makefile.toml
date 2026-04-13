@@ -1,7 +1,26 @@
 # Use cargo-make to run tasks here: https://crates.io/crates/cargo-make
 
+[config]
+skip_core_tasks = true
+default_to_workspace = false
+
+[tasks.default]
+alias = "dev-flow"
+
+[tasks.dev-flow]
+description = "Fast local sub-set of all CI checks"
+dependencies = [
+     "format-check",
+     "check",
+     "clippy",
+     "doc",
+     "test",
+     "proptests-extralight",
+]
+
+
 [tasks.format]
-workspace = false
+description = "Format the rust files following style rules"
 command = "cargo"
 args = [
      "fmt",
@@ -14,7 +33,7 @@ args = [
 ]
 
 [tasks.format-check]
-workspace = false
+description = "Check the rust files for formatting style"
 command = "cargo"
 args = [
      "fmt",
@@ -27,18 +46,49 @@ args = [
      "imports_granularity=Crate,group_imports=Preserve,reorder_imports=false,format_code_in_doc_comments=true",
 ]
 
+[tasks.check]
+description = "Run cargo-check for entire project"
+command = "cargo"
+args = ["check", "--workspace", "--all-features", "--all-targets"]
+
+[tasks.clippy]
+description = "Run cargo-clippy for entire project"
+command = "cargo"
+args = ["clippy", "--workspace", "--all-features", "--all-targets"]
+
+[tasks.doc]
+description = "Check the documentation build"
+command = "cargo"
+args = ["doc", "--workspace", "--all-features", "--no-deps", "--document-private-items"]
+
+[tasks.test]
+description = "Run unit tests"
+command = "cargo"
+args = [
+     "nextest",
+     "run",
+     "--workspace",
+     "--all-features",
+     "--exclude=fuzz",
+     "--lib",
+     "--bins",
+     "--tests",
+     "--no-fail-fast",
+]
+
 [tasks.proptests-long]
-# Run proptests with high case count (runs for ~10 minutes)
-# Usage: cargo make proptests-long
-workspace = false
+description = "Run proptests with high case count (runs for ~10 minutes)"
 command = "cargo"
 args = ["nextest", "run", "-P", "proptests", "--no-fail-fast"]
 env = { "PROPTEST_CASES" = "100000" }
 
 [tasks.proptests-light]
-# Run proptests for CI (~1 minute)
-# Usage: cargo make proptests-light
-workspace = false
+description = "Run proptests for CI (~1 minute)"
 command = "cargo"
 args = ["nextest", "run", "-P", "proptests", "--no-fail-fast"]
 env = { "PROPTEST_CASES" = "10000" }
+
+[tasks.proptests-extralight]
+description = "Run proptests in regression-only mode (runs for <5 seconds)"
+command = "cargo"
+args = ["nextest", "run", "-P", "proptests", "--no-fail-fast"]

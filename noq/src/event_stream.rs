@@ -9,8 +9,8 @@ use proto::PathEvent;
 use proto::n0_nat_traversal;
 use thiserror::Error;
 use tokio::sync::{broadcast, watch};
-use tokio_stream::wrappers::{BroadcastStream, WatchStream, errors::BroadcastStreamRecvError};
 use tokio_stream::Stream;
+use tokio_stream::wrappers::{BroadcastStream, WatchStream, errors::BroadcastStreamRecvError};
 
 /// The receiver lagged too far behind.
 ///
