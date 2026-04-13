@@ -76,7 +76,8 @@ fn multipath_transport_config(qlog_prefix: &'static str) -> TransportConfig {
     let mut cfg = TransportConfig::default();
     // enable multipath
     cfg.max_concurrent_multipath_paths(MAX_PATHS);
-    cfg.default_path_max_idle_timeout(Some(std::time::Duration::from_secs(10)));
+    cfg.default_path_max_idle_timeout(Some(std::time::Duration::from_secs(15)));
+    cfg.default_path_keep_alive_interval(Some(std::time::Duration::from_secs(5)));
     // cfg.mtu_discovery_config(None);
     #[cfg(feature = "qlog")]
     cfg.qlog_from_env(qlog_prefix);
@@ -971,6 +972,69 @@ fn regression_never_idle4() {
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
 
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
+
+/// This test reproduced an infinite loop in loss detection.
+///
+/// After `pair.drive_bounded(4539)` this still didn't finish driving.
+/// With `pair.drive_bounded(4540)` the `drive_bounded` call never finishes
+/// due to an infinite LossDetection timer loop:
+/// - The loss detection timer would fire
+/// - Upon detecting loss, it would re-set the loss detection timer to `now` (0ms delay) again
+/// - Within a single `pair.step()` it would go back to the loss detection timer firing
+///   (it expects timers to fire in the future eventually.)
+///
+/// The reason this tight loop existed was because the loss detection timer is relative to the
+/// `time_of_last_ack_eliciting_packet`. If this becomes too old (and we cap the PTO duration to
+/// a maximum), then this will always be in the past, thus causing timers to be set to the past.
+///
+/// Usually, the timer would fire and then cause something to happen, e.g. we send
+/// a tail-loss probe.
+/// But in this case it didn't because the tail-loss probe was "scheduled" for path 1,
+/// which in this example is already abandoned by the time the loss detection timer fired.
+///
+/// This caused the conditions for the loss detection timer to never be cleared, as in-flight
+/// packets would sit in that path indefinitely.
+///
+/// The fix was to only schedule loss detection timers for tail-loss probes when the path
+/// is not yet abandoned.
+#[test]
+fn regression_infinite_loop() {
+    let prefix = "regression_infinite_loop";
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 1,
+        },
+        TestOp::PassiveMigration {
+            side: Side::Server,
+            addr_idx: 0,
+        },
+    ];
+
+    let _guard = subscribe();
+    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    // This bug originally occurred at exactly 4540 iterations.
+    // At 4539 it still finishes (but fails the assertion).
+    // At 4540 it the `drive_bounded` call never returns.
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)

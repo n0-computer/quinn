@@ -31,7 +31,7 @@ pub(super) struct UnprotectHeaderResult {
 
 pub(super) struct DecryptPacketResult {
     /// The packet number
-    pub(super) number: u64,
+    pub(super) packet_number: u64,
     /// Whether a locally initiated key update has been acknowledged by the peer
     pub(super) outgoing_key_update_acked: bool,
     /// Whether the peer has initiated a key update
@@ -200,12 +200,14 @@ impl CryptoState {
         // Packets that do not belong to known path ids are valid as long as they can be decrypted.
         // If we didn't have a path, that's for the purposes of this function equivalent to not
         // having received packets on that path yet. So both of these cases are represented by `None`.
-        let rx_packet = spaces[space].path_space(path_id).and_then(|s| s.rx_packet);
-        let number = packet
+        let rx_packet_number = spaces[space]
+            .path_space(path_id)
+            .and_then(|s| s.largest_received_packet_number);
+        let packet_number = packet
             .header
             .number()
             .ok_or(None)?
-            .expand(rx_packet.map(|n| n + 1).unwrap_or_default());
+            .expand(rx_packet_number.map(|n| n + 1).unwrap_or_default());
         let packet_key_phase = packet.header.key_phase();
 
         let mut crypto_update = false;
@@ -217,7 +219,7 @@ impl CryptoState {
             packet
         } else if let Some(prev) = self.prev_crypto.as_ref().and_then(|crypto| {
             // If this packet comes prior to acknowledgment of the key update by the peer,
-            if crypto.end_packet.is_none_or(|(pn, _)| number < pn) {
+            if crypto.end_packet.is_none_or(|(pn, _)| packet_number < pn) {
                 // use the previous keys.
                 Some(crypto)
             } else {
@@ -237,9 +239,14 @@ impl CryptoState {
         };
 
         crypto
-            .decrypt(path_id, number, &packet.header_data, &mut packet.payload)
+            .decrypt(
+                path_id,
+                packet_number,
+                &packet.header_data,
+                &mut packet.payload,
+            )
             .map_err(|_| {
-                trace!("decryption failed with packet number {}", number);
+                trace!("decryption failed with packet number {}", packet_number);
                 None
             })?;
 
@@ -262,16 +269,17 @@ impl CryptoState {
             // If `rx_packet` is `None`, then either the path is entirely new, or we haven't received
             // any packets on this path yet. In that case, having the first packet be a crypto update
             // is fine.
-            let invalid_packet_number = rx_packet.is_some_and(|rx_packet| number <= rx_packet);
+            let invalid_packet_number =
+                rx_packet_number.is_some_and(|rx_packet| packet_number <= rx_packet);
             if invalid_packet_number || self.prev_crypto.as_ref().is_some_and(|x| x.update_unacked)
             {
-                trace!(?number, ?rx_packet, %path_id, "crypto update failed");
+                trace!(?packet_number, ?rx_packet_number, %path_id, "crypto update failed");
                 return Err(Some(TransportError::KEY_UPDATE_ERROR("")));
             }
         }
 
         Ok(Some(DecryptPacketResult {
-            number,
+            packet_number,
             outgoing_key_update_acked,
             incoming_key_update: crypto_update,
         }))

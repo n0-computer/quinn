@@ -107,13 +107,13 @@ impl PacketSpace {
             self.for_path(path_id).immediate_ack_pending = true;
         }
 
-        // Retransmit the data of the oldest in-flight packet
+        // We prefer to send new data to make most efficient use of bandwidth.
         if !self.pending.is_empty(streams) {
             // There's real data to send here, no need to make something up
             return;
         }
 
-        // We use retransmits from any path.
+        // Retransmit data from the oldest in-flight data from any path
         for packet in self
             .number_spaces
             .values_mut()
@@ -218,7 +218,7 @@ impl IndexMut<SpaceKind> for [PacketSpace; 3] {
 /// this via [`PacketSpace::for_path`].
 pub(super) struct PacketNumberSpace {
     /// Highest received packet number, if any
-    pub(super) rx_packet: Option<u64>,
+    pub(super) largest_received_packet_number: Option<u64>,
     /// The packet number of the next packet that will be sent, if any. In the Data space, the
     /// packet number stored here is sometimes skipped by [`PacketNumberFilter`] logic.
     pub(super) next_packet_number: u64,
@@ -278,7 +278,7 @@ impl PacketNumberSpace {
             SpaceId::Data => Some(PacketNumberFilter::new(rng)),
         };
         Self {
-            rx_packet: None,
+            largest_received_packet_number: None,
             next_packet_number: 0,
             largest_acked_packet: None,
             largest_acked_packet_sent: now,
@@ -306,7 +306,7 @@ impl PacketNumberSpace {
             SpaceId::Data => Some(PacketNumberFilter::disabled()),
         };
         Self {
-            rx_packet: None,
+            largest_received_packet_number: None,
             next_packet_number: 0,
             largest_acked_packet: None,
             largest_acked_packet_sent: now,
