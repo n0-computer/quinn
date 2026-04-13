@@ -212,10 +212,19 @@ impl IndexMut<SpaceKind> for [PacketSpace; 3] {
     }
 }
 
-/// The per-path packet number space to support multipath.
+/// The state of a single packet number space.
 ///
-/// This contains the data specific to a per-path packet number space.  You should access
-/// this via [`PacketSpace::for_path`].
+/// In RFC9000 there are 3 packet number spaces: Initial, Handshake and Data. In QUIC
+/// Multipath there multiple packet number spaces for Data, each identified by a single
+/// [`PathId`].
+///
+/// This contains the state for a packet number space which is not specific to the 4-tuple
+/// this space is currently using. The 4-tuple specific state, like congestion controller,
+/// pacing, ECN, MTU etc, is stored in [`PathData`].
+///
+/// You should access this via [`PacketSpace::for_path`].
+///
+/// [`PathData`]: super::paths::PathData
 pub(super) struct PacketNumberSpace {
     /// Highest received packet number, if any
     pub(super) largest_received_packet_number: Option<u64>,
