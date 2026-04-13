@@ -1138,3 +1138,44 @@ fn regression_infinite_loop() {
         pair.server_conn_mut(server_ch)
     )));
 }
+
+#[test]
+fn regression_qnt_without_multipath() {
+    let prefix = "regression_qnt_without_multipath";
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        multipath: false,
+        qnt: true,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
+    let interactions = vec![
+        TestOp::AddHpAddr {
+            side: Side::Server,
+            addr_idx: 0,
+        },
+        TestOp::Drive { side: Side::Server },
+        TestOp::AdvanceTime,
+        TestOp::Drive { side: Side::Client },
+        TestOp::PassiveMigration {
+            side: Side::Server,
+            addr_idx: 0,
+        },
+        TestOp::AddHpAddr {
+            side: Side::Client,
+            addr_idx: 0,
+        },
+        TestOp::InitiateHpRound { side: Side::Client },
+    ];
+
+    let _guard = subscribe();
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
