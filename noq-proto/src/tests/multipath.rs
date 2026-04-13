@@ -1017,7 +1017,7 @@ fn network_change_server_two_paths_selective_hint() -> TestResult {
     );
     assert_matches!(pair.poll(Server), None);
 
-    // The client sees PathId::ZERO abandoned by the remote, then discarded.
+    // The client sees PathId::ZERO abandoned by the remote, then discards it.
     assert_matches!(
         pair.poll(Client),
         Some(Event::Path(PathEvent::Abandoned {
