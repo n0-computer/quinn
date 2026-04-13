@@ -147,7 +147,7 @@ pub(super) struct SentChallengeInfo {
 ///   This is stored in [`PacketSpace::number_spaces`] indexed on [`PathId`].
 ///
 /// - [`PathData`]: The state we keep for each unique 4-tuple within a space. Of note is
-///   that a single [`PathData`] can never belong to a diffferent [`PacketNumberSpace`].
+///   that a single [`PathData`] can never belong to a different [`PacketNumberSpace`].
 ///
 ///   This is stored in [`Connection::paths`] indexed by the current [`PathId`] for which
 ///   space it exists. Either as the primary 4-tuple or as the previous 4-tuple just after a
