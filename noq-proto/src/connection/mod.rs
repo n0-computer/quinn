@@ -725,7 +725,7 @@ impl Connection {
                 // these frames or their timing
                 PathTimer::PathValidationFailed
                 | PathTimer::PathChallengeLost
-                | PathTimer::PathOpenFailed => false,
+                | PathTimer::AbandonFromValidation => false,
                 // These timers deal with the lifetime of the path. Now that the path is abandoned,
                 // these are not relevant.
                 PathTimer::PathKeepAlive | PathTimer::PathIdle => false,
@@ -1949,8 +1949,6 @@ impl Connection {
         path_id: PathId,
     ) -> Option<Transmit> {
         let (prev_cid, prev_path) = self.paths.get_mut(&path_id)?.prev.as_mut()?;
-        // TODO (matheus23): We could use !prev_path.is_validating() here instead to
-        // (possibly) also re-send challenges when they get lost.
         if !prev_path.pending_on_path_challenge {
             return None;
         };
@@ -2445,7 +2443,7 @@ impl Connection {
                             trace!("path challenge deemed lost");
                             path.data.pending_on_path_challenge = true;
                         }
-                        PathTimer::PathOpenFailed => {
+                        PathTimer::AbandonFromValidation => {
                             let Some(path) = self.paths.get_mut(&path_id) else {
                                 continue;
                             };
@@ -4864,7 +4862,7 @@ impl Connection {
                             self.timers
                                 .stop(Timer::PerPath(path_id, PathValidationFailed), qlog.clone());
                             self.timers
-                                .stop(Timer::PerPath(path_id, PathOpenFailed), qlog.clone());
+                                .stop(Timer::PerPath(path_id, AbandonFromValidation), qlog.clone());
 
                             let next_challenge = path
                                 .data
@@ -5922,13 +5920,26 @@ impl Connection {
             builder.write_frame(challenge, stats);
             builder.require_padding();
             let pto = self.ack_frequency.max_ack_delay_for_pto() + path.rtt.pto_base();
-            if path.open_status == paths::OpenStatus::Pending {
-                path.open_status = paths::OpenStatus::Sent;
-                self.timers.set(
-                    Timer::PerPath(path_id, PathTimer::PathOpenFailed),
-                    now + 3 * pto,
-                    self.qlog.with_time(now),
-                );
+            match path.open_status {
+                paths::OpenStatus::Sent | paths::OpenStatus::Informed => {}
+                paths::OpenStatus::Pending => {
+                    path.open_status = paths::OpenStatus::Sent;
+                    self.timers.set(
+                        Timer::PerPath(path_id, PathTimer::AbandonFromValidation),
+                        now + 3 * pto,
+                        self.qlog.with_time(now),
+                    );
+                }
+                // The path open status was informed before, we just want to revalidate again.
+                // For that, we want to make sure we set the PathOpenFailed timer again.
+                paths::OpenStatus::Revalidating => {
+                    path.open_status = paths::OpenStatus::Informed;
+                    self.timers.set(
+                        Timer::PerPath(path_id, PathTimer::AbandonFromValidation),
+                        now + 3 * pto,
+                        self.qlog.with_time(now),
+                    );
+                }
             }
 
             self.timers.set(
@@ -6959,7 +6970,29 @@ impl Connection {
                 if path_was_known {
                     trace!(%path_id, %remote, "nat traversal: path existed for remote, revalidating");
                     if let Some(path) = self.paths.get_mut(&path_id) {
+                        use paths::OpenStatus::*;
+
                         path.data.pending_on_path_challenge = true;
+                        path.data.open_status = match path.data.open_status {
+                            // If we just opened the path and have never sent a `PATH_CHALLENGE` yet,
+                            // then we need to keep it at pending, to ensure that
+                            // 1. The PathOpenFailed timer for stopping the PathChallengeLost retries will be set.
+                            // 2. When validation eventually succeeds, then we inform the application layer about this path opening.
+                            Pending => Pending,
+                            // If we had already sent a path challenge in the past, but it hasn't been validated yet (and also not
+                            // failed via the PathOpenFailed timer yet), then we need to go back to pending, to ensure we properly
+                            // re-arm the `PathOpenFailed` timer again.
+                            Sent => Pending,
+                            // If we're already revalidating this path, but haven't sent a `PATH_CHALLENGE` yet, then we just keep
+                            // that state.
+                            Revalidating => Revalidating,
+                            // If we've informed the application layer about the path opening in the past, but we now re-send
+                            // PATH_CHALLENGEs for validation, then using this we ensure:
+                            // 1. The PathOpenFailed timer for stopping the PathChallengeLost retries will be set.
+                            // 2. When validation eventually succeeds, we *don't* inform the application layer about the path
+                            //    opening again.
+                            Informed => Revalidating,
+                        }
                     }
                 }
                 Ok(Some((path_id, remote)))

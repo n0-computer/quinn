@@ -512,7 +512,10 @@ impl PathData {
 
                 let prev_status = std::mem::replace(&mut self.open_status, OpenStatus::Informed);
                 OnPathResponseReceived::OnPath {
-                    was_open: prev_status == OpenStatus::Informed,
+                    was_open: matches!(
+                        prev_status,
+                        OpenStatus::Informed | OpenStatus::Revalidating
+                    ),
                 }
             }
             // Response to an on-path PathChallenge that does not validate this path
@@ -678,6 +681,12 @@ pub(super) enum OpenStatus {
     Sent,
     /// The application has been informed of this path.
     Informed,
+    /// The path was [`Self::Informed`] before, but we want to trigger path validation again.
+    ///
+    /// This is used to ensure we properly stop trying to re-send path challenges eventually, without
+    /// having to switch to [`Self::Pending`] when re-validating, as that would trigger another
+    /// application-level event about the path opening once validation succeeds.
+    Revalidating,
 }
 
 /// Congestion metrics as described in [`recovery_metrics_updated`].
