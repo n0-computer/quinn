@@ -1139,9 +1139,27 @@ fn regression_infinite_loop() {
     )));
 }
 
+/// This test reproduced a situation in which a QNT-enabled connection sends path challenges indefinitely.
+///
+/// In this test setup, we enable QNT, call the required functions for adding addresses to holepunch,
+/// and then eventually initiate the first holepunching round.
+/// Before that, we also trigger a passive migration on the server side, effectively severing the connection
+/// in the server -> client direction on path 0 (the only path at that time), because all packets are
+/// rejected on the client side as coming from the wrong address.
+///
+/// What follows is that the server sends PATH_CHALLENGEs for path 0 (as that's what we've added as the
+/// "holepunching address"), and initiating the holepunching means that we re-use existing paths if we
+/// already have one on the required address, but we do *revalidate* them (triggering new PATH_CHALLENGEs).
+///
+/// However, in this code path, we didn't have anything that would prevent re-validated path challenges
+/// to ever be stopped, so this revalidation would keep the connection busy in the path challenge sent ->
+/// path challenge lost -> path challenge sent loop.
+///
+/// We fixed this bug by introducing another `OpenState::Revalidating`, and arming the `PathOpenFailed`
+/// timer when we start revalidating a path.
 #[test]
-fn regression_qnt_without_multipath() {
-    let prefix = "regression_qnt_without_multipath";
+fn regression_qnt_revalidating_path_forever() {
+    let prefix = "regression_qnt_revalidating_path_forever";
     let setup = PairSetup {
         seed: Seed::Zeroes,
         multipath: false,
