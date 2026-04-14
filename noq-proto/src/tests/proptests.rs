@@ -66,9 +66,16 @@ const SERVER_ADDRS: [SocketAddr; 3] = [
 #[derive(Debug, test_strategy::Arbitrary)]
 struct PairSetup {
     seed: Seed,
-    multipath: bool,
-    qnt: bool,
+    extensions: Extensions,
     routing_setup: RoutingSetup,
+}
+
+/// Extensions to enable or not enable in the proptests.
+#[derive(Debug, test_strategy::Arbitrary)]
+enum Extensions {
+    None,
+    MultipathOnly,
+    QntAndMultipath,
 }
 
 /// Categories of routing setups used for proptests.
@@ -119,14 +126,14 @@ impl PairSetup {
         #[cfg(not(feature = "qlog"))]
         let _ = prefix;
 
-        if self.multipath {
+        if self.extensions.is_multipath_enabled() {
             // enable multipath
             transport.max_concurrent_multipath_paths(MAX_PATHS);
             transport.default_path_max_idle_timeout(Some(std::time::Duration::from_secs(15)));
             transport.default_path_keep_alive_interval(Some(std::time::Duration::from_secs(5)));
         }
 
-        if self.qnt {
+        if self.extensions.is_qnt_enabled() {
             // enable QNT:
             transport.set_max_remote_nat_traversal_addresses(12);
         }
@@ -164,6 +171,16 @@ impl PairSetup {
         }
 
         (pair, client_cfg)
+    }
+}
+
+impl Extensions {
+    fn is_multipath_enabled(&self) -> bool {
+        matches!(self, Self::MultipathOnly | Self::QntAndMultipath)
+    }
+
+    fn is_qnt_enabled(&self) -> bool {
+        matches!(self, Self::QntAndMultipath)
     }
 }
 
@@ -284,8 +301,7 @@ fn regression_unset_packet_acked() {
             60, 116, 60, 165, 136, 238, 239, 131, 14, 159, 221, 16, 80, 60, 30, 15, 15, 69, 133,
             33, 89, 203, 28, 107, 123, 117, 6, 54, 215, 244, 47, 1,
         ]),
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -326,8 +342,7 @@ fn regression_invalid_key() {
             41, 24, 232, 72, 136, 73, 31, 115, 14, 101, 61, 219, 30, 168, 130, 122, 120, 238, 6,
             130, 117, 84, 250, 190, 50, 237, 14, 167, 60, 5, 140, 149,
         ]),
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -374,8 +389,7 @@ fn regression_invalid_key2() {
     let prefix = "regression_invalid_key2";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -418,8 +432,7 @@ fn regression_key_update_error() {
             68, 93, 15, 237, 88, 31, 93, 255, 246, 51, 203, 224, 20, 124, 107, 163, 143, 43, 193,
             187, 208, 54, 158, 239, 190, 82, 198, 62, 91, 51, 53, 226,
         ]),
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -450,8 +463,7 @@ fn regression_never_idle() {
     let prefix = "regression_never_idle";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -490,8 +502,7 @@ fn regression_never_idle2() {
     let prefix = "regression_never_idle2";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -533,8 +544,7 @@ fn regression_packet_number_space_missing() {
     let prefix = "regression_packet_number_space_missing";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -575,8 +585,7 @@ fn regression_peer_failed_to_respond_with_path_abandon() {
     let prefix = "regression_peer_failed_to_respond_with_path_abandon";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -610,8 +619,7 @@ fn regression_peer_failed_to_respond_with_path_abandon2() {
     let prefix = "regression_peer_failed_to_respond_with_path_abandon2";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -686,8 +694,7 @@ fn regression_path_validation() {
     let prefix = "regression_path_validation";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::Complex(RoutingTable::from_routes(
             vec![("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0)],
             vec![
@@ -751,8 +758,7 @@ fn regression_never_idle3() {
     let prefix = "regression_never_idle3";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -793,8 +799,7 @@ fn regression_frame_encoding_error() {
     let prefix = "regression_frame_encoding_error";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -833,8 +838,7 @@ fn regression_there_should_be_at_least_one_path() {
     let prefix = "regression_there_should_be_at_least_one_path";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -885,8 +889,7 @@ fn regression_conn_never_idle5() {
     let prefix = "regression_conn_never_idle5";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -941,8 +944,7 @@ fn regression_peer_ignored_path_abandon() {
     let prefix = "regression_peer_ignored_path_abandon";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -1011,8 +1013,7 @@ fn regression_never_idle4() {
     let prefix = "regression_never_idle4";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::Complex(RoutingTable::from_routes(
             vec![
                 ("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0),
@@ -1102,8 +1103,7 @@ fn regression_infinite_loop() {
     let prefix = "regression_infinite_loop";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: true,
-        qnt: false,
+        extensions: Extensions::MultipathOnly,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -1148,7 +1148,7 @@ fn regression_infinite_loop() {
 /// rejected on the client side as coming from the wrong address.
 ///
 /// What follows is that the server sends PATH_CHALLENGEs for path 0 (as that's what we've added as the
-/// "holepunching address"), and initiating the holepunching means that we re-use existing paths if we
+/// "holepunching address"), and initiating the holepunching means that we reuse existing paths if we
 /// already have one on the required address, but we do *revalidate* them (triggering new PATH_CHALLENGEs).
 ///
 /// However, in this code path, we didn't have anything that would prevent re-validated path challenges
@@ -1162,8 +1162,7 @@ fn regression_qnt_revalidating_path_forever() {
     let prefix = "regression_qnt_revalidating_path_forever";
     let setup = PairSetup {
         seed: Seed::Zeroes,
-        multipath: false,
-        qnt: true,
+        extensions: Extensions::QntAndMultipath,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
