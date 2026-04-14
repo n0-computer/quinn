@@ -4816,6 +4816,11 @@ impl Connection {
                     self.on_ack_received(now, SpaceId::Data, ack)?;
                 }
                 Frame::PathAck(ack) => {
+                    if !self.is_multipath_negotiated() {
+                        return Err(TransportError::PROTOCOL_VIOLATION(
+                            "received PATH_ACK frame when multipath was not negotiated",
+                        ));
+                    }
                     span.record("path", tracing::field::display(&ack.path_id));
                     self.on_path_ack_received(now, SpaceId::Data, ack)?;
                 }
