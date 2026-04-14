@@ -134,7 +134,31 @@ pub(super) struct SentChallengeInfo {
     pub(super) network_path: FourTuple,
 }
 
-/// Description of a particular network path
+/// State of particular network path 4-tuple within a [`PacketNumberSpace`].
+///
+/// With QUIC-Multipath a path is identified by a [`PathId`] and it is possible to have
+/// multiple paths on the same 4-tuple. Furthermore a single QUIC-Multipath path can migrate
+/// to a different 4-tuple, in a similar manner as an RFC9000 connection can use "path
+/// migration" to move to a different 4-tuple. There are thus two states we keep for paths:
+///
+/// - [`PacketNumberSpace`]: The state for a single packet number space, i.e. [`PathId`],
+///   which remains in place across path migrations to different 4-tuples.
+///
+///   This is stored in [`PacketSpace::number_spaces`] indexed on [`PathId`].
+///
+/// - [`PathData`]: The state we keep for each unique 4-tuple within a space. Of note is
+///   that a single [`PathData`] can never belong to a different [`PacketNumberSpace`].
+///
+///   This is stored in [`Connection::paths`] indexed by the current [`PathId`] for which
+///   space it exists. Either as the primary 4-tuple or as the previous 4-tuple just after a
+///   migration.
+///
+/// It follows that there might be several [`PathData`] structs for the same 4-tuple if
+/// several spaces are sharing the same 4-tuple. Note that during the handshake, the
+/// Initial, Handshake and Data spaces for [`PathId::ZERO`] all share the same [`PathData`].
+///
+/// [`PacketSpace::number_spaces`]: super::spaces::PacketSpace::number_spaces
+/// [`Connection::paths`]: super::Connection::paths
 #[derive(Debug)]
 pub(super) struct PathData {
     pub(super) network_path: FourTuple,
