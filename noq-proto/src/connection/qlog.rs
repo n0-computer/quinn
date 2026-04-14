@@ -322,7 +322,9 @@ impl QlogSink {
                 PathTimer::PathIdle => Some(TimerType::custom("path_idle")),
                 PathTimer::PathValidationFailed => Some(QlogTimerType::PathValidation.into()),
                 PathTimer::PathChallengeLost => Some(TimerType::custom("path_challenge_lost")),
-                PathTimer::PathOpenFailed => Some(TimerType::custom("path_open")),
+                PathTimer::AbandonFromValidation => {
+                    Some(TimerType::custom("abandon_from_validation"))
+                }
                 PathTimer::PathKeepAlive => Some(TimerType::custom("path_keep_alive")),
                 PathTimer::Pacing => Some(TimerType::custom("pacing")),
                 PathTimer::MaxAckDelay => Some(QlogTimerType::Ack.into()),
