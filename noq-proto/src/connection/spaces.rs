@@ -215,7 +215,7 @@ impl IndexMut<SpaceKind> for [PacketSpace; 3] {
 /// The state of a single packet number space.
 ///
 /// In RFC9000 there are 3 packet number spaces: Initial, Handshake and Data. In QUIC
-/// Multipath there multiple packet number spaces for Data, each identified by a single
+/// Multipath there are multiple packet number spaces for Data, each identified by a
 /// [`PathId`].
 ///
 /// This contains the state for a packet number space which is not specific to the 4-tuple
