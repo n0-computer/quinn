@@ -1,6 +1,7 @@
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
+    time::Duration,
 };
 
 use proptest::{
@@ -21,8 +22,12 @@ use crate::{
     },
 };
 
-const MAX_PATHS: u32 = 12;
+// These TransportConfig constants are designed to match iroh for now.
+const MAX_MULTIPATH_PATHS: u32 = 13;
 const MAX_QNT_ADDRS: u8 = 12;
+const PATH_MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(15);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+
 const CLIENT_PORT: u16 = 44433;
 const SERVER_PORT: u16 = 4433;
 
@@ -128,14 +133,14 @@ impl PairSetup {
 
         if self.extensions.is_multipath_enabled() {
             // enable multipath
-            transport.max_concurrent_multipath_paths(MAX_PATHS);
-            transport.default_path_max_idle_timeout(Some(std::time::Duration::from_secs(15)));
-            transport.default_path_keep_alive_interval(Some(std::time::Duration::from_secs(5)));
+            transport.max_concurrent_multipath_paths(MAX_MULTIPATH_PATHS);
+            transport.default_path_max_idle_timeout(Some(PATH_MAX_IDLE_TIMEOUT));
+            transport.default_path_keep_alive_interval(Some(HEARTBEAT_INTERVAL));
         }
 
         if self.extensions.is_qnt_enabled() {
             // enable QNT:
-            transport.set_max_remote_nat_traversal_addresses(12);
+            transport.set_max_remote_nat_traversal_addresses(MAX_QNT_ADDRS);
         }
 
         // Initialize the server config

@@ -79,16 +79,16 @@ args = [
 [tasks.proptests-long]
 description = "Run proptests with high case count (runs for ~10 minutes)"
 command = "cargo"
-args = ["nextest", "run", "--package", "noq-proto", "-P", "proptests", "--cargo-profile", "proptests", "--no-fail-fast", "${@}"]
+args = ["nextest", "run", "--package=noq-proto", "-P", "proptests", "--cargo-profile=proptests", "--no-fail-fast", "${@}"]
 env = { "PROPTEST_CASES" = "100000" }
 
 [tasks.proptests-light]
 description = "Run proptests for CI (~1 minute)"
 command = "cargo"
-args = ["nextest", "run", "--package", "noq-proto", "-P", "proptests", "--cargo-profile", "proptests", "--no-fail-fast", "${@}"]
+args = ["nextest", "run", "--package=noq-proto", "-P", "proptests", "--cargo-profile=proptests", "--no-fail-fast", "${@}"]
 env = { "PROPTEST_CASES" = "10000" }
 
 [tasks.proptests-extralight]
 description = "Run proptests in regression-only mode (runs for <5 seconds)"
 command = "cargo"
-args = ["nextest", "run", "--package", "noq-proto", "-P", "proptests", "--no-fail-fast", "${@}"]
+args = ["nextest", "run", "--package=noq-proto", "-P", "proptests", "--no-fail-fast", "${@}"]
