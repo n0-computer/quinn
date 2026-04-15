@@ -1,6 +1,7 @@
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
+    time::Duration,
 };
 
 use proptest::{
@@ -12,20 +13,25 @@ use test_strategy::proptest;
 use tracing::error;
 
 use crate::{
-    Connection, ConnectionClose, ConnectionError, Event, PathStatus, Side, TransportConfig,
-    TransportErrorCode,
+    ClientConfig, Connection, ConnectionClose, ConnectionError, Event, PathStatus, Side,
+    TransportConfig, TransportErrorCode,
     tests::{
-        Pair, RoutingTable,
+        Pair, RoutingTable, client_config,
         random_interaction::{TestOp, run_random_interaction},
         server_config, subscribe,
     },
 };
 
-const MAX_PATHS: u32 = 3;
+// These TransportConfig constants are designed to match iroh for now.
+const MAX_MULTIPATH_PATHS: u32 = 13;
+const MAX_QNT_ADDRS: u8 = 12;
+const PATH_MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(15);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+
 const CLIENT_PORT: u16 = 44433;
 const SERVER_PORT: u16 = 4433;
 
-const CLIENT_ADDRS: [SocketAddr; MAX_PATHS as usize] = [
+const CLIENT_ADDRS: [SocketAddr; 3] = [
     SocketAddr::new(
         IpAddr::V6(Ipv4Addr::new(1, 1, 1, 0).to_ipv6_mapped()),
         CLIENT_PORT,
@@ -39,7 +45,7 @@ const CLIENT_ADDRS: [SocketAddr; MAX_PATHS as usize] = [
         CLIENT_PORT,
     ),
 ];
-const SERVER_ADDRS: [SocketAddr; MAX_PATHS as usize] = [
+const SERVER_ADDRS: [SocketAddr; 3] = [
     SocketAddr::new(
         IpAddr::V6(Ipv4Addr::new(2, 2, 2, 0).to_ipv6_mapped()),
         SERVER_PORT,
@@ -54,67 +60,151 @@ const SERVER_ADDRS: [SocketAddr; MAX_PATHS as usize] = [
     ),
 ];
 
-fn setup_deterministic_with_multipath(
-    seed: [u8; 32],
-    routes: RoutingTable,
-    qlog_prefix: &'static str,
-) -> Pair {
-    let mut pair = Pair::seeded(seed);
-
-    let mut cfg = server_config();
-    let transport = multipath_transport_config(qlog_prefix);
-    cfg.transport = Arc::new(transport);
-    pair.server.endpoint.set_server_config(Some(Arc::new(cfg)));
-
-    pair.client.addr = routes.client_addr(0).unwrap();
-    pair.server.addr = routes.server_addr(0).unwrap();
-    pair.routes = Some(routes);
-    pair
+/// Struct for generating random pair setups.
+///
+/// Compared to randomly generating e.g. the `TransportConfig` on both sides,
+/// this has several advantages:
+/// - On a proptest failure, it is easy to see which minimal setup the proptest fails with.
+/// - The definition of the setup itself is concise, e.g. when copying it into regression tests.
+/// - We can be more precise/smaller in the "search space" and have more efficient shrinking,
+///   see [`Seed`] or [`RoutingSetup`].
+#[derive(Debug, test_strategy::Arbitrary)]
+struct PairSetup {
+    seed: Seed,
+    extensions: Extensions,
+    routing_setup: RoutingSetup,
 }
 
-fn multipath_transport_config(qlog_prefix: &'static str) -> TransportConfig {
-    let mut cfg = TransportConfig::default();
-    // enable multipath
-    cfg.max_concurrent_multipath_paths(MAX_PATHS);
-    cfg.default_path_max_idle_timeout(Some(std::time::Duration::from_secs(15)));
-    cfg.default_path_keep_alive_interval(Some(std::time::Duration::from_secs(5)));
-    // cfg.mtu_discovery_config(None);
-    #[cfg(feature = "qlog")]
-    cfg.qlog_from_env(qlog_prefix);
-    #[cfg(not(feature = "qlog"))]
-    let _ = qlog_prefix;
-    cfg
+/// Extensions to enable or not enable in the proptests.
+#[derive(Debug, test_strategy::Arbitrary)]
+enum Extensions {
+    None,
+    MultipathOnly,
+    QntAndMultipath,
+}
+
+/// Categories of routing setups used for proptests.
+///
+/// The advantage of using this is very efficient shrinking: The first attempt at shrinking the
+/// routing setup will be to reduce the routing setup to nothing or a simple symmetric one.
+#[derive(Debug, test_strategy::Arbitrary)]
+enum RoutingSetup {
+    /// Set [`Pair::routes`] to `None`
+    None,
+    /// Use [`RoutingTable::simple_symmetric`] with the default [`CLIENT_ADDRS`] and [`SERVER_ADDRS`].
+    SimpleSymmetric,
+    /// Use given generated routing table.
+    Complex(#[strategy(routing_table())] RoutingTable),
+}
+
+/// Which seed to use in the test setup.
+///
+/// This structure has an advantage over a simple `[u8; 32]`, because on one hand, we don't want
+/// to waste too much time shrinking the seed itself (reducing individual values inside the array),
+/// but also we don't want to disable shrinking altogether: when the seed shrinks to zero, this
+/// helps us understand that the seed is likely irrelevant to the test failure.
+///
+/// This struct achieves the best of both worlds: If the seed is generated as `Generated(some_seed)`,
+/// shrinking will try `Zeroes` once, and if that fails, fall back to using the generated seed
+/// and avoid doing any further shrinking of `some_seed`.
+#[derive(Debug, test_strategy::Arbitrary)]
+enum Seed {
+    /// The zero seed.
+    ///
+    /// If a test generates the zero seed, then it's likely that the seed doesn't have
+    /// any effect on the test failure.
+    Zeroes,
+    /// A specific generated seed.
+    Generated(#[strategy(any::<[u8; 32]>().no_shrink())] [u8; 32]),
+}
+
+impl PairSetup {
+    fn run(self, prefix: &'static str) -> (Pair, ClientConfig) {
+        let mut pair = Pair::seeded(self.seed.into_slice());
+
+        // Initialize the transport config
+
+        let mut transport = TransportConfig::default();
+        // Set the qlog prefix, if the feature is enabled
+        #[cfg(feature = "qlog")]
+        transport.qlog_from_env(prefix);
+        #[cfg(not(feature = "qlog"))]
+        let _ = prefix;
+
+        if self.extensions.is_multipath_enabled() {
+            // enable multipath
+            transport.max_concurrent_multipath_paths(MAX_MULTIPATH_PATHS);
+            transport.default_path_max_idle_timeout(Some(PATH_MAX_IDLE_TIMEOUT));
+            transport.default_path_keep_alive_interval(Some(HEARTBEAT_INTERVAL));
+        }
+
+        if self.extensions.is_qnt_enabled() {
+            // enable QNT:
+            transport.set_max_remote_nat_traversal_addresses(MAX_QNT_ADDRS);
+        }
+
+        // Initialize the server config
+
+        let mut server_cfg = server_config();
+        server_cfg.transport = Arc::new(transport.clone());
+        pair.server
+            .endpoint
+            .set_server_config(Some(Arc::new(server_cfg)));
+
+        // Initialize the client config
+
+        let mut client_cfg = client_config();
+        client_cfg.transport = Arc::new(transport);
+
+        // Add routing, if enabled
+
+        match self.routing_setup {
+            RoutingSetup::None => {
+                pair.routes = None;
+            }
+            RoutingSetup::SimpleSymmetric => {
+                let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
+                pair.client.addr = routes.client_addr(0).unwrap();
+                pair.server.addr = routes.server_addr(0).unwrap();
+                pair.routes = Some(routes);
+            }
+            RoutingSetup::Complex(routes) => {
+                pair.client.addr = routes.client_addr(0).unwrap();
+                pair.server.addr = routes.server_addr(0).unwrap();
+                pair.routes = Some(routes);
+            }
+        }
+
+        (pair, client_cfg)
+    }
+}
+
+impl Extensions {
+    fn is_multipath_enabled(&self) -> bool {
+        matches!(self, Self::MultipathOnly | Self::QntAndMultipath)
+    }
+
+    fn is_qnt_enabled(&self) -> bool {
+        matches!(self, Self::QntAndMultipath)
+    }
+}
+
+impl Seed {
+    fn into_slice(self) -> [u8; 32] {
+        match self {
+            Self::Zeroes => [0u8; 32],
+            Self::Generated(generated) => generated,
+        }
+    }
 }
 
 #[proptest(cases = 256)]
 fn random_interaction(
-    #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
+    setup: PairSetup,
     #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
 ) {
-    let prefix = "random_interaction";
-    let mut pair = Pair::seeded(seed);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
-
-    prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-    prop_assert!(allowed_error(poll_to_close(
-        pair.client_conn_mut(client_ch)
-    )));
-    prop_assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
-}
-
-#[proptest(cases = 256)]
-fn random_interaction_with_multipath_simple_routing(
-    #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
-    #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
-) {
-    let prefix = "random_interaction_with_multipath_simple_routing";
-    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run("random_interaction");
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
     prop_assert!(allowed_error(poll_to_close(
@@ -156,26 +246,6 @@ fn routing_table() -> impl Strategy<Value = RoutingTable> {
 
         RoutingTable::from_routes(client_routes, server_routes)
     })
-}
-
-#[proptest(cases = 256)]
-fn random_interaction_with_multipath_complex_routing(
-    #[strategy(any::<[u8; 32]>().no_shrink())] seed: [u8; 32],
-    #[strategy(vec(any::<TestOp>(), 0..100))] interactions: Vec<TestOp>,
-    #[strategy(routing_table())] routes: RoutingTable,
-) {
-    let prefix = "random_interaction_with_multipath_complex_routing";
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
-
-    prop_assert!(!pair.drive_bounded(1000), "connection never became idle");
-    prop_assert!(allowed_error(poll_to_close(
-        pair.client_conn_mut(client_ch)
-    )));
-    prop_assert!(allowed_error(poll_to_close(
-        pair.server_conn_mut(server_ch)
-    )));
 }
 
 /// All outgoing links go to first destination interface.
@@ -231,10 +301,14 @@ fn poll_to_close(conn: &mut Connection) -> Option<ConnectionError> {
 #[test]
 fn regression_unset_packet_acked() {
     let prefix = "regression_unset_packet_acked";
-    let seed: [u8; 32] = [
-        60, 116, 60, 165, 136, 238, 239, 131, 14, 159, 221, 16, 80, 60, 30, 15, 15, 69, 133, 33,
-        89, 203, 28, 107, 123, 117, 6, 54, 215, 244, 47, 1,
-    ];
+    let setup = PairSetup {
+        seed: Seed::Generated([
+            60, 116, 60, 165, 136, 238, 239, 131, 14, 159, 221, 16, 80, 60, 30, 15, 15, 69, 133,
+            33, 89, 203, 28, 107, 123, 117, 6, 54, 215, 244, 47, 1,
+        ]),
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::Complex(old_routing_table()),
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -253,13 +327,8 @@ fn regression_unset_packet_acked() {
     ];
 
     let _guard = subscribe();
-    let routes = old_routing_table();
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    #[allow(unused_mut)]
-    let mut cfg = TransportConfig::default();
-    #[cfg(feature = "qlog")]
-    cfg.qlog_from_env(prefix);
-    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, cfg);
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -273,10 +342,14 @@ fn regression_unset_packet_acked() {
 #[test]
 fn regression_invalid_key() {
     let prefix = "regression_invalid_key";
-    let seed = [
-        41, 24, 232, 72, 136, 73, 31, 115, 14, 101, 61, 219, 30, 168, 130, 122, 120, 238, 6, 130,
-        117, 84, 250, 190, 50, 237, 14, 167, 60, 5, 140, 149,
-    ];
+    let setup = PairSetup {
+        seed: Seed::Generated([
+            41, 24, 232, 72, 136, 73, 31, 115, 14, 101, 61, 219, 30, 168, 130, 122, 120, 238, 6,
+            130, 117, 84, 250, 190, 50, 237, 14, 167, 60, 5, 140, 149,
+        ]),
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::Complex(old_routing_table()),
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -293,10 +366,8 @@ fn regression_invalid_key() {
     ];
 
     let _guard = subscribe();
-    let routes = old_routing_table();
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -321,7 +392,11 @@ fn regression_invalid_key() {
 #[test]
 fn regression_invalid_key2() {
     let prefix = "regression_invalid_key2";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
     let interactions = vec![
         TestOp::CloseConn {
             side: Side::Client,
@@ -342,10 +417,8 @@ fn regression_invalid_key2() {
     ];
 
     let _guard = subscribe();
-    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -359,10 +432,14 @@ fn regression_invalid_key2() {
 #[test]
 fn regression_key_update_error() {
     let prefix = "regression_key_update_error";
-    let seed: [u8; 32] = [
-        68, 93, 15, 237, 88, 31, 93, 255, 246, 51, 203, 224, 20, 124, 107, 163, 143, 43, 193, 187,
-        208, 54, 158, 239, 190, 82, 198, 62, 91, 51, 53, 226,
-    ];
+    let setup = PairSetup {
+        seed: Seed::Generated([
+            68, 93, 15, 237, 88, 31, 93, 255, 246, 51, 203, 224, 20, 124, 107, 163, 143, 43, 193,
+            187, 208, 54, 158, 239, 190, 82, 198, 62, 91, 51, 53, 226,
+        ]),
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::Complex(old_routing_table()),
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -374,10 +451,8 @@ fn regression_key_update_error() {
     ];
 
     let _guard = subscribe();
-    let routes = old_routing_table();
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -391,7 +466,11 @@ fn regression_key_update_error() {
 #[test]
 fn regression_never_idle() {
     let prefix = "regression_never_idle";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::Complex(old_routing_table()),
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -411,10 +490,8 @@ fn regression_never_idle() {
     ];
 
     let _guard = subscribe();
-    let routes = old_routing_table();
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -428,7 +505,11 @@ fn regression_never_idle() {
 #[test]
 fn regression_never_idle2() {
     let prefix = "regression_never_idle2";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::Complex(old_routing_table()),
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -450,10 +531,8 @@ fn regression_never_idle2() {
     ];
 
     let _guard = subscribe();
-    let routes = old_routing_table();
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     // We needed to increase the bounds. It eventually times out.
     assert!(!pair.drive_bounded(1000), "connection never became idle");
@@ -468,7 +547,11 @@ fn regression_never_idle2() {
 #[test]
 fn regression_packet_number_space_missing() {
     let prefix = "regression_packet_number_space_missing";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -490,10 +573,8 @@ fn regression_packet_number_space_missing() {
     ];
 
     let _guard = subscribe();
-    let routes = RoutingTable::simple_symmetric([CLIENT_ADDRS[0]], [SERVER_ADDRS[0]]);
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -507,7 +588,11 @@ fn regression_packet_number_space_missing() {
 #[test]
 fn regression_peer_failed_to_respond_with_path_abandon() {
     let prefix = "regression_peer_failed_to_respond_with_path_abandon";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::Complex(old_routing_table()),
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -522,10 +607,8 @@ fn regression_peer_failed_to_respond_with_path_abandon() {
     ];
 
     let _guard = subscribe();
-    let routes = old_routing_table();
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -539,7 +622,11 @@ fn regression_peer_failed_to_respond_with_path_abandon() {
 #[test]
 fn regression_peer_failed_to_respond_with_path_abandon2() {
     let prefix = "regression_peer_failed_to_respond_with_path_abandon2";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -564,10 +651,8 @@ fn regression_peer_failed_to_respond_with_path_abandon2() {
     ];
 
     let _guard = subscribe();
-    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -612,7 +697,17 @@ fn regression_peer_failed_to_respond_with_path_abandon2() {
 #[test]
 fn regression_path_validation() {
     let prefix = "regression_path_validation";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::Complex(RoutingTable::from_routes(
+            vec![("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0)],
+            vec![
+                ("[::ffff:2.2.2.0]:4433".parse().unwrap(), 0),
+                ("[::ffff:2.2.2.1]:4433".parse().unwrap(), 0),
+            ],
+        )),
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -633,18 +728,10 @@ fn regression_path_validation() {
             error_code: 0,
         },
     ];
-    let routes = RoutingTable::from_routes(
-        vec![("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0)],
-        vec![
-            ("[::ffff:2.2.2.0]:4433".parse().unwrap(), 0),
-            ("[::ffff:2.2.2.1]:4433".parse().unwrap(), 0),
-        ],
-    );
 
     let _guard = subscribe();
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -674,7 +761,11 @@ fn regression_path_validation() {
 #[test]
 fn regression_never_idle3() {
     let prefix = "regression_never_idle3";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
     let interactions = vec![
         TestOp::CloseConn {
             side: Side::Server,
@@ -696,10 +787,8 @@ fn regression_never_idle3() {
     ];
 
     let _guard = subscribe();
-    let routes = RoutingTable::simple_symmetric([CLIENT_ADDRS[0]], [SERVER_ADDRS[0]]);
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -713,7 +802,11 @@ fn regression_never_idle3() {
 #[test]
 fn regression_frame_encoding_error() {
     let prefix = "regression_frame_encoding_error";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -733,10 +826,8 @@ fn regression_frame_encoding_error() {
     ];
 
     let _guard = subscribe();
-    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -750,7 +841,11 @@ fn regression_frame_encoding_error() {
 #[test]
 fn regression_there_should_be_at_least_one_path() {
     let prefix = "regression_there_should_be_at_least_one_path";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
     let interactions = vec![
         TestOp::PassiveMigration {
             side: Side::Client,
@@ -763,10 +858,8 @@ fn regression_there_should_be_at_least_one_path() {
     ];
 
     let _guard = subscribe();
-    let routes = RoutingTable::simple_symmetric([CLIENT_ADDRS[0]], [SERVER_ADDRS[0]]);
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -799,7 +892,11 @@ fn regression_there_should_be_at_least_one_path() {
 #[test]
 fn regression_conn_never_idle5() {
     let prefix = "regression_conn_never_idle5";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
     let interactions = vec![
         TestOp::PassiveMigration {
             side: Side::Server,
@@ -813,10 +910,8 @@ fn regression_conn_never_idle5() {
     ];
 
     let _guard = subscribe();
-    let routes = RoutingTable::simple_symmetric([CLIENT_ADDRS[0]], [SERVER_ADDRS[0]]);
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -852,8 +947,11 @@ fn regression_conn_never_idle5() {
 #[test]
 fn regression_peer_ignored_path_abandon() {
     let prefix = "regression_peer_ignored_path_abandon";
-
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -880,10 +978,8 @@ fn regression_peer_ignored_path_abandon() {
     ];
 
     let _guard = subscribe();
-    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -920,7 +1016,17 @@ fn regression_peer_ignored_path_abandon() {
 #[test]
 fn regression_never_idle4() {
     let prefix = "regression_never_idle4";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::Complex(RoutingTable::from_routes(
+            vec![
+                ("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0),
+                ("[::ffff:1.1.1.1]:44433".parse().unwrap(), 0),
+            ],
+            vec![("[::ffff:2.2.2.0]:4433".parse().unwrap(), 0)],
+        )),
+    };
     let interactions = vec![
         // Open path 1 with the same remote address as path 0
         TestOp::OpenPath {
@@ -959,18 +1065,10 @@ fn regression_never_idle4() {
             addr_idx: 0,
         },
     ];
-    let routes = RoutingTable::from_routes(
-        vec![
-            ("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0),
-            ("[::ffff:1.1.1.1]:44433".parse().unwrap(), 0),
-        ],
-        vec![("[::ffff:2.2.2.0]:4433".parse().unwrap(), 0)],
-    );
 
     let _guard = subscribe();
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
@@ -1008,7 +1106,11 @@ fn regression_never_idle4() {
 #[test]
 fn regression_infinite_loop() {
     let prefix = "regression_infinite_loop";
-    let seed = [0u8; 32];
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
     let interactions = vec![
         TestOp::OpenPath {
             side: Side::Client,
@@ -1027,14 +1129,70 @@ fn regression_infinite_loop() {
     ];
 
     let _guard = subscribe();
-    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
-    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
-    let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
 
     // This bug originally occurred at exactly 4540 iterations.
     // At 4539 it still finishes (but fails the assertion).
     // At 4540 it the `drive_bounded` call never returns.
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
+
+/// This test reproduced a situation in which a QNT-enabled connection sends path challenges indefinitely.
+///
+/// In this test setup, we enable QNT, call the required functions for adding addresses to holepunch,
+/// and then eventually initiate the first holepunching round.
+/// Before that, we also trigger a passive migration on the server side, effectively severing the connection
+/// in the server -> client direction on path 0 (the only path at that time), because all packets are
+/// rejected on the client side as coming from the wrong address.
+///
+/// What follows is that the server sends PATH_CHALLENGEs for path 0 (as that's what we've added as the
+/// "holepunching address"), and initiating the holepunching means that we reuse existing paths if we
+/// already have one on the required address, but we do *revalidate* them (triggering new PATH_CHALLENGEs).
+///
+/// However, in this code path, we didn't have anything that would prevent re-validated path challenges
+/// to ever be stopped, so this revalidation would keep the connection busy in the path challenge sent ->
+/// path challenge lost -> path challenge sent loop.
+///
+/// We fixed this bug by introducing another `OpenState::Revalidating`, and arming the `PathOpenFailed`
+/// timer when we start revalidating a path.
+#[test]
+fn regression_qnt_revalidating_path_forever() {
+    let prefix = "regression_qnt_revalidating_path_forever";
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::QntAndMultipath,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
+    let interactions = vec![
+        TestOp::AddHpAddr {
+            side: Side::Server,
+            addr_idx: 0,
+        },
+        TestOp::Drive { side: Side::Server },
+        TestOp::AdvanceTime,
+        TestOp::Drive { side: Side::Client },
+        TestOp::PassiveMigration {
+            side: Side::Server,
+            addr_idx: 0,
+        },
+        TestOp::AddHpAddr {
+            side: Side::Client,
+            addr_idx: 0,
+        },
+        TestOp::InitiateHpRound { side: Side::Client },
+    ];
+
+    let _guard = subscribe();
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
+
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
         pair.client_conn_mut(client_ch)
