@@ -136,7 +136,11 @@ impl TestOp {
                     .ok()?;
                 server.handle = Some(accept);
             }
-            Self::DriveBothToIdle => pair.drive(),
+            Self::DriveBothToIdle => {
+                if pair.drive_bounded(100) {
+                    error!("DriveBothToIdle exceeded 100 steps");
+                }
+            }
             Self::Drive { side: Side::Client } => pair.drive_client(),
             Self::Drive { side: Side::Server } => pair.drive_server(),
             Self::AdvanceTime => {
