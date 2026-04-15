@@ -106,7 +106,14 @@ impl TokenStore for NoneTokenStore {
 pub(crate) struct IncomingToken {
     pub(crate) retry_src_cid: Option<ConnectionId>,
     pub(crate) orig_dst_cid: ConnectionId,
-    pub(crate) validated: bool,
+    /// The remote address that the retry/validation token was issued for, if any.
+    ///
+    /// A valid token proves that something could receive a packet at this address,
+    /// even if the current Initial arrived from a different source. The strict
+    /// `remote_address_validated()` check requires this to equal the current source
+    /// address; other consumers may treat any `Some` as sufficient anti-amplification
+    /// evidence.
+    pub(crate) validated_addr: Option<SocketAddr>,
 }
 
 impl IncomingToken {
@@ -120,7 +127,7 @@ impl IncomingToken {
         let unvalidated = Self {
             retry_src_cid: None,
             orig_dst_cid: header.dst_cid,
-            validated: false,
+            validated_addr: None,
         };
 
         // Decode token or short-circuit
@@ -148,17 +155,19 @@ impl IncomingToken {
                 orig_dst_cid,
                 issued,
             } => {
-                if address != remote_address {
-                    return Err(InvalidRetryTokenError);
-                }
                 if issued + server_config.retry_token_lifetime < server_config.time_source.now() {
                     return Err(InvalidRetryTokenError);
                 }
 
+                // We used to reject the token entirely when `address != remote_address`.
+                // Instead we record the validated address from the token: a caller that
+                // wants strict source matching can compare it against `remote_address`,
+                // while a multipath-aware caller can treat any `Some` as sufficient
+                // proof of reachability.
                 Ok(Self {
                     retry_src_cid: Some(header.dst_cid),
                     orig_dst_cid,
-                    validated: true,
+                    validated_addr: Some(address),
                 })
             }
             TokenPayload::Validation { ip, issued } => {
@@ -182,7 +191,7 @@ impl IncomingToken {
                 Ok(Self {
                     retry_src_cid: None,
                     orig_dst_cid: header.dst_cid,
-                    validated: true,
+                    validated_addr: Some(remote_address),
                 })
             }
         }

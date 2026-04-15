@@ -296,6 +296,75 @@ async fn retry_unspecified() {
     server_task.abort();
 }
 
+/// Retry test with client and server each bound to two explicit loopback interfaces.
+///
+/// Each client is its own noq Endpoint with its own socket and its own DCID, so
+/// the retry dance is independent per connection: both connections should succeed.
+///
+/// This documents the noq-level baseline: when each path is a distinct Endpoint,
+/// the source-bound retry token works as designed. The multipath bug reproduced
+/// in iroh#4114 happens one layer up, where iroh sends Initials with the same
+/// DCID across multiple sockets, causing the server's per-source retry tokens
+/// to mismatch when the client's Initial+token arrives on a different path than
+/// the one the token was issued for.
+///
+/// Uses two loopback IPs (127.0.0.1 and 127.0.0.2):
+/// - On Linux, 127.0.0.0/8 is all routed to `lo` by default, so no setup is
+///   needed.
+/// - On macOS, only 127.0.0.1 is available by default; run
+///   `sudo ifconfig lo0 alias 127.0.0.2` once to enable the alias, then run
+///   the test with `--ignored`.
+#[tokio::test]
+#[cfg_attr(
+    not(target_os = "linux"),
+    ignore = "macOS needs `sudo ifconfig lo0 alias 127.0.0.2`; run with --ignored"
+)]
+async fn retry_multi_interface() {
+    let _guard = subscribe();
+    let endpoint_factory = EndpointFactory::new();
+
+    // Server bound to all interfaces so it can receive on both loopback IPs.
+    let server = endpoint_factory
+        .endpoint_on("server", SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
+    let server_port = server.local_addr().unwrap().port();
+
+    // Two clients, each bound to a specific loopback IP. Each is its own
+    // Endpoint with its own DCID.
+    let client1 = endpoint_factory.endpoint_on(
+        "client1",
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
+    );
+    let client2 = endpoint_factory.endpoint_on(
+        "client2",
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)), 0),
+    );
+
+    // The server address each client dials: 127.0.0.1 and 127.0.0.2 respectively.
+    let server_addr1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), server_port);
+    let server_addr2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)), server_port);
+
+    let server_task = tokio::spawn(async move {
+        loop {
+            let accepting = server.accept().await.unwrap();
+            if accepting.remote_address_validated() {
+                accepting.await.expect("connection accepted");
+            } else {
+                accepting.retry().unwrap();
+            }
+        }
+    });
+
+    // Both clients retry-accept independently.
+    let (r1, r2) = tokio::join!(
+        client1.connect(server_addr1, "localhost").unwrap(),
+        client2.connect(server_addr2, "localhost").unwrap(),
+    );
+    r1.expect("client1 should connect via retry");
+    r2.expect("client2 should connect via retry");
+
+    server_task.abort();
+}
+
 /// Construct an endpoint suitable for connecting to itself
 fn endpoint() -> Endpoint {
     EndpointFactory::new().endpoint("ep")

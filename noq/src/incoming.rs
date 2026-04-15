@@ -86,6 +86,17 @@ impl Incoming {
         self.0.as_ref().unwrap().inner.remote_address_validated()
     }
 
+    /// The remote socket address that was validated by the client's retry/validation token.
+    ///
+    /// Returns `None` if the client did not present a valid token.
+    ///
+    /// A valid token proves that an endpoint at this address could receive traffic; it
+    /// does not necessarily equal the current `remote_address()` if the Initial arrived
+    /// via a different path (e.g. under multipath).
+    pub fn validated_addr(&self) -> Option<SocketAddr> {
+        self.0.as_ref().unwrap().inner.validated_addr()
+    }
+
     /// Whether it is legal to respond with a retry packet
     ///
     /// If `self.remote_address_validated()` is false, `self.may_retry()` is guaranteed to be true.
