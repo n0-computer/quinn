@@ -623,13 +623,20 @@ impl PathData {
     /// See [`Pacer::delay`].
     pub(super) fn pacing_delay(&mut self, bytes_to_send: u64, now: Instant) -> Option<Duration> {
         let smoothed_rtt = self.rtt.get();
-        self.pacing.update_and_delay(
+        trace!(?self.pacing, ?smoothed_rtt, mtu = ?self.current_mtu(), window = ?self.congestion.window(), "pacing state before");
+        if let Some(delay) = self.pacing.update_and_delay(
             smoothed_rtt,
             bytes_to_send,
             self.current_mtu(),
             self.congestion.window(),
             now,
-        )
+        ) {
+            let after = now.saturating_duration_since(self.pacing.prev);
+            trace!(?self.pacing, ?bytes_to_send, ?after, "pacing state");
+            Some(delay)
+        } else {
+            None
+        }
     }
 
     /// Updates the last observed address report received on this path.

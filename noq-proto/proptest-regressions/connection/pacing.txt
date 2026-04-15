@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 4183d5e15b0b2f5c0f55ca6121c1f1cc0bd09f059090e84a14afc74d12552506 # shrinks to input = _PacerSeparateAndCombinedCheckEqualArgs { params: PacerParams { smoothed_rtt: 0ns, window: 1, mtu: 1200 }, transmitted: 1, smoothed_rtt: 1ms, bytes_to_send: 1, mtu: 1200, window: 1, after: 1ms }
