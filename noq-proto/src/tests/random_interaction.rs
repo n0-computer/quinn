@@ -11,11 +11,8 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, Arbitrary)]
 pub(super) enum TestOp {
-    /// Finish the started connection attempt by driving the connection and accepting it on the server side.
-    ///
-    /// If `drive_fully` is set to `true`, then this will call `pair.drive()` before and after to make
-    /// sure the connection drove to completion.
-    FinishConnect { drive_fully: bool },
+    /// Finish the started connection attempt by accepting it on the server side.
+    FinishConnect,
     /// Drive the endpoint on the given `side`, processing all pending I/O.
     Drive { side: Side },
     /// Advance the simulated time forward, unless both endpoints are idle.
@@ -128,11 +125,7 @@ impl TestOp {
     fn run(self, pair: &mut Pair, client: &mut State, server: &mut State) -> Option<()> {
         let now = pair.time;
         match self {
-            Self::FinishConnect { drive_fully } => {
-                if drive_fully {
-                    pair.drive();
-                }
-
+            Self::FinishConnect => {
                 let accept = pair
                     .server
                     .accepted
@@ -140,10 +133,6 @@ impl TestOp {
                     .inspect_err(|err| error!(?err, "FinishConnect error accepting connection"))
                     .ok()?;
                 server.handle = Some(accept);
-
-                if drive_fully {
-                    pair.drive();
-                }
             }
             Self::Drive { side: Side::Client } => pair.drive_client(),
             Self::Drive { side: Side::Server } => pair.drive_server(),
@@ -403,7 +392,9 @@ pub(super) fn run_random_interaction(
     client.handle = Some(client_handle);
 
     if matches!(establishment, Establishment::Full) {
-        TestOp::FinishConnect { drive_fully: true }.run(pair, &mut client, &mut server);
+        pair.drive();
+        TestOp::FinishConnect.run(pair, &mut client, &mut server);
+        pair.drive();
     }
 
     info!("INTERACTION SETUP COMPLETE");
