@@ -1488,6 +1488,9 @@ impl Connection {
             // if we will need to start a new datagram. If we are coalescing into an already
             // started datagram we do not need to check congestion control again.
             if transmit.datagram_remaining_mut() == 0 {
+                // We need to update the pacer once to make sure it actually has update its available tokens in case
+                // we need them in `path_congestion_check`.
+                self.path_data_mut(path_id).update_pacer(now);
                 let congestion_blocked =
                     self.path_congestion_check(space_id, path_id, transmit, &can_send, now);
                 if congestion_blocked != PathBlocked::No {
@@ -1922,7 +1925,7 @@ impl Connection {
         }
 
         // Pacing check.
-        if let Some(delay) = self.path_data_mut(path_id).pacing_delay(bytes_to_send, now) {
+        if let Some(delay) = self.path_data(path_id).pacing_delay(bytes_to_send) {
             let resume_time = now + delay;
             self.timers.set(
                 Timer::PerPath(path_id, PathTimer::Pacing),
