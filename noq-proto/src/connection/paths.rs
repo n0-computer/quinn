@@ -623,7 +623,7 @@ impl PathData {
     /// See [`Pacer::delay`].
     pub(super) fn pacing_delay(&mut self, bytes_to_send: u64, now: Instant) -> Option<Duration> {
         let smoothed_rtt = self.rtt.get();
-        self.pacing.delay(
+        self.pacing.update_and_delay(
             smoothed_rtt,
             bytes_to_send,
             self.current_mtu(),
