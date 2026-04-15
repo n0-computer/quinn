@@ -13,6 +13,8 @@ use crate::{
 pub(super) enum TestOp {
     /// Finish the started connection attempt by accepting it on the server side.
     FinishConnect,
+    /// Drive both sides until the connection is idle.
+    DriveBothToIdle,
     /// Drive the endpoint on the given `side`, processing all pending I/O.
     Drive { side: Side },
     /// Advance the simulated time forward, unless both endpoints are idle.
@@ -134,6 +136,7 @@ impl TestOp {
                     .ok()?;
                 server.handle = Some(accept);
             }
+            Self::DriveBothToIdle => pair.drive(),
             Self::Drive { side: Side::Client } => pair.drive_client(),
             Self::Drive { side: Side::Server } => pair.drive_server(),
             Self::AdvanceTime => {
