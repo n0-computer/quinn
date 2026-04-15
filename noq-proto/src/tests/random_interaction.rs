@@ -108,6 +108,15 @@ pub(super) enum StreamOp {
     Stop(#[strategy(0..3usize)] usize, u32),
 }
 
+/// The type of connection establishment to generate.
+#[derive(Debug, Clone, Copy, Arbitrary)]
+pub(super) enum Establishment {
+    /// Fully establish the connection before test operations.
+    Full,
+    /// Start running test operations before the handshake is finished.
+    BeforeHandshake,
+}
+
 pub(super) struct State {
     send_streams: Vec<StreamId>,
     recv_streams: Vec<StreamId>,
@@ -385,12 +394,19 @@ pub(super) fn run_random_interaction(
     pair: &mut Pair,
     interactions: Vec<TestOp>,
     client_config: ClientConfig,
+    establishment: Establishment,
 ) -> (ConnectionHandle, Option<ConnectionHandle>) {
     let mut client = State::new(Side::Client);
     let mut server = State::new(Side::Server);
 
     let client_handle = pair.begin_connect(client_config);
     client.handle = Some(client_handle);
+
+    if matches!(establishment, Establishment::Full) {
+        TestOp::FinishConnect { drive_fully: true }.run(pair, &mut client, &mut server);
+    }
+
+    info!("INTERACTION SETUP COMPLETE");
 
     for interaction in interactions {
         info!(?interaction, "INTERACTION STEP");
