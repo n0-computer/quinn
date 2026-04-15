@@ -13,8 +13,8 @@ use test_strategy::proptest;
 use tracing::error;
 
 use crate::{
-    ClientConfig, Connection, ConnectionClose, ConnectionError, Event, PathStatus, Side,
-    TransportConfig, TransportErrorCode,
+    ClientConfig, Connection, ConnectionClose, ConnectionError, Event, MtuDiscoveryConfig,
+    PathStatus, Side, TransportConfig, TransportErrorCode,
     tests::{
         Pair, RoutingTable, client_config,
         random_interaction::{Establishment, TestOp, run_random_interaction},
@@ -72,6 +72,7 @@ const SERVER_ADDRS: [SocketAddr; 3] = [
 struct PairSetup {
     seed: Seed,
     extensions: Extensions,
+    mtud_enabled: bool,
     routing_setup: RoutingSetup,
 }
 
@@ -142,6 +143,9 @@ impl PairSetup {
             // enable QNT:
             transport.set_max_remote_nat_traversal_addresses(MAX_QNT_ADDRS);
         }
+
+        // enable/disable MTUD
+        transport.mtu_discovery_config(self.mtud_enabled.then_some(MtuDiscoveryConfig::default()));
 
         // Initialize the server config
 
@@ -311,6 +315,7 @@ fn regression_unset_packet_acked() {
             33, 89, 203, 28, 107, 123, 117, 6, 54, 215, 244, 47, 1,
         ]),
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -355,6 +360,7 @@ fn regression_invalid_key() {
             130, 117, 84, 250, 190, 50, 237, 14, 167, 60, 5, 140, 149,
         ]),
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -405,6 +411,7 @@ fn regression_invalid_key2() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -451,6 +458,7 @@ fn regression_key_update_error() {
             187, 208, 54, 158, 239, 190, 82, 198, 62, 91, 51, 53, 226,
         ]),
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -485,6 +493,7 @@ fn regression_never_idle() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -527,6 +536,7 @@ fn regression_never_idle2() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -572,6 +582,7 @@ fn regression_packet_number_space_missing() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -616,6 +627,7 @@ fn regression_peer_failed_to_respond_with_path_abandon() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::Complex(old_routing_table()),
     };
     let interactions = vec![
@@ -653,6 +665,7 @@ fn regression_peer_failed_to_respond_with_path_abandon2() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -731,6 +744,7 @@ fn regression_path_validation() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::Complex(RoutingTable::from_routes(
             vec![("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0)],
             vec![
@@ -798,6 +812,7 @@ fn regression_never_idle3() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -842,6 +857,7 @@ fn regression_frame_encoding_error() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -884,6 +900,7 @@ fn regression_there_should_be_at_least_one_path() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -938,6 +955,7 @@ fn regression_conn_never_idle5() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -996,6 +1014,7 @@ fn regression_peer_ignored_path_abandon() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -1068,6 +1087,7 @@ fn regression_never_idle4() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::Complex(RoutingTable::from_routes(
             vec![
                 ("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0),
@@ -1161,6 +1181,7 @@ fn regression_infinite_loop() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -1223,6 +1244,7 @@ fn regression_qnt_revalidating_path_forever() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::QntAndMultipath,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -1266,6 +1288,7 @@ fn regression_1() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -1310,6 +1333,7 @@ fn regression_2() {
     let setup = PairSetup {
         seed: Seed::Zeroes,
         extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
     let interactions = vec![
@@ -1336,6 +1360,55 @@ fn regression_2() {
     let (mut pair, client_config) = setup.run(prefix);
     let (client_ch, server_ch) =
         run_random_interaction(&mut pair, interactions, client_config, Establishment::Full);
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    if let Some(server_ch) = server_ch {
+        assert!(allowed_error(poll_to_close(
+            pair.server_conn_mut(server_ch)
+        )));
+    }
+}
+
+#[test]
+fn regression_3() {
+    let prefix = "regression_3";
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        mtud_enabled: true,
+        routing_setup: RoutingSetup::SimpleSymmetric,
+    };
+    let establishment = Establishment::BeforeHandshake;
+    let interactions = vec![
+        TestOp::DriveBothToIdle,
+        TestOp::PassiveMigration {
+            side: Side::Server,
+            addr_idx: 0,
+        },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 2,
+        },
+        TestOp::PassiveMigration {
+            side: Side::Server,
+            addr_idx: 2,
+        },
+        TestOp::DriveBothToIdle,
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+    ];
+
+    let _guard = subscribe();
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, client_config, establishment);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
