@@ -1492,8 +1492,16 @@ impl Connection {
                 // we need them in `path_congestion_check`.
                 self.path_data_mut(path_id).update_pacer(now);
                 let congestion_blocked =
-                    self.path_congestion_check(space_id, path_id, transmit, &can_send, now);
+                    self.path_congestion_check(space_id, path_id, transmit, &can_send);
                 if congestion_blocked != PathBlocked::No {
+                    if let PathBlocked::Pacing(delay) = congestion_blocked {
+                        let resume_time = now + delay;
+                        self.timers.set_if_earlier(
+                            Timer::PerPath(path_id, PathTimer::Pacing),
+                            resume_time,
+                            self.qlog.with_time(now),
+                        );
+                    }
                     // Previous iterations of this loop may have built packets already.
                     return match last_packet_number {
                         Some(pn) => PollPathSpaceStatus::WrotePacket {
@@ -1882,14 +1890,22 @@ impl Connection {
         false
     }
 
-    /// Checks if creating a new datagram would be blocked by congestion control
+    /// Checks if creating a new datagram would be blocked by congestion control or pacing.
+    ///
+    /// This is a pure function - it doesn't modify state, so neither does it update the pacer
+    /// nor does it set the pacing timer. Callers need to handle that:
+    ///
+    /// - To make new pacing tokens available, the pacer needs to be update before a call to
+    ///   this function using [`PathData::update_pacer`].
+    /// - When this function returns [`PathBlocked::Pacing`], and you decide to actually send
+    ///   the given packet, call [`TimerTable::set_if_earlier`] with [`PathTimer::Pacing`]
+    ///   and given delay relative to the time used for `update_pacer`.
     fn path_congestion_check(
         &mut self,
         space_id: SpaceId,
         path_id: PathId,
         transmit: &TransmitBuf<'_>,
         can_send: &SendableFrames,
-        now: Instant,
     ) -> PathBlocked {
         // Anti-amplification is only based on `total_sent`, which gets updated after
         // the transmit is sent. Therefore we pass the amount of bytes for datagrams
@@ -1926,16 +1942,10 @@ impl Connection {
 
         // Pacing check.
         if let Some(delay) = self.path_data(path_id).pacing_delay(bytes_to_send) {
-            let resume_time = now + delay;
-            self.timers.set(
-                Timer::PerPath(path_id, PathTimer::Pacing),
-                resume_time,
-                self.qlog.with_time(now),
-            );
             // Loss probes and CONNECTION_CLOSE should be subject to pacing, even though
             // they are not congestion controlled.
             trace!(?space_id, %path_id, ?delay, "blocked by pacing");
-            return PathBlocked::Pacing;
+            return PathBlocked::Pacing(delay);
         }
 
         PathBlocked::No
@@ -7243,7 +7253,7 @@ enum PathBlocked {
     No,
     AntiAmplification,
     Congestion,
-    Pacing,
+    Pacing(Duration),
 }
 
 /// Fields of `Connection` specific to it being client-side or server-side

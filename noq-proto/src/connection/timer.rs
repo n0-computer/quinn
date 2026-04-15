@@ -292,6 +292,20 @@ impl TimerTable {
         qlog.emit_timer_set(timer, time);
     }
 
+    /// Sets the timer, but only if the timer was unset or was set to a later value before.
+    pub(super) fn set_if_earlier(
+        &mut self,
+        timer: Timer,
+        time: Instant,
+        qlog: QlogSinkWithTime<'_>,
+    ) {
+        match self.get(timer) {
+            Some(already_set) if already_set <= time => {}
+            None => {}
+            Some(_) => self.set(timer, time, qlog),
+        }
+    }
+
     pub(super) fn get(&self, timer: Timer) -> Option<Instant> {
         match timer {
             Timer::Conn(timer) => self.generic[timer as usize],
