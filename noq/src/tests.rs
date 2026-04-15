@@ -262,6 +262,40 @@ async fn ip_blocking() {
     server_task.abort();
 }
 
+/// Basic retry test with the server bound to all interfaces.
+///
+/// Regression test for iroh#4114.
+#[tokio::test]
+async fn retry_unspecified() {
+    let _guard = subscribe();
+    let endpoint_factory = EndpointFactory::new();
+    let server = endpoint_factory
+        .endpoint_on("server", SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
+    let server_port = server.local_addr().unwrap().port();
+    let client = endpoint_factory
+        .endpoint_on("client", SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
+    let server_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server_port);
+
+    let server_task = tokio::spawn(async move {
+        loop {
+            let accepting = server.accept().await.unwrap();
+            if accepting.remote_address_validated() {
+                accepting.await.expect("connection accepted");
+            } else {
+                accepting.retry().unwrap();
+            }
+        }
+    });
+
+    client
+        .connect(server_addr, "localhost")
+        .unwrap()
+        .await
+        .expect("client should connect via retry");
+
+    server_task.abort();
+}
+
 /// Construct an endpoint suitable for connecting to itself
 fn endpoint() -> Endpoint {
     EndpointFactory::new().endpoint("ep")
@@ -294,6 +328,23 @@ impl EndpointFactory {
         name: impl Into<String>,
         transport_config: TransportConfig,
     ) -> Endpoint {
+        self.endpoint_with_config_on(
+            name,
+            transport_config,
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        )
+    }
+
+    fn endpoint_on(&self, name: impl Into<String>, bind_addr: SocketAddr) -> Endpoint {
+        self.endpoint_with_config_on(name, TransportConfig::default(), bind_addr)
+    }
+
+    fn endpoint_with_config_on(
+        &self,
+        name: impl Into<String>,
+        transport_config: TransportConfig,
+        bind_addr: SocketAddr,
+    ) -> Endpoint {
         let span = info_span!("dummy");
         span.record("otel.name", name.into());
         let _guard = span.entered();
@@ -308,7 +359,7 @@ impl EndpointFactory {
         let endpoint = Endpoint::new(
             self.endpoint_config.clone(),
             Some(server_config),
-            UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap(),
+            UdpSocket::bind(bind_addr).unwrap(),
             Arc::new(TokioRuntime),
         )
         .unwrap();
