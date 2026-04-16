@@ -891,6 +891,22 @@ mod tests {
         assert_eq!(state.upper_bound, 1450);
     }
 
+    #[test]
+    fn next_probe_should_be_idempotent() {
+        let mut config = MtuDiscoveryConfig::default();
+        config.upper_bound(MAX_UDP_PAYLOAD);
+        let mut mtud = MtuDiscovery::new(1200, 1200, None, config);
+
+        let now = Instant::now();
+        let first_probe = mtud.next_probe(now);
+        let second_probe = mtud.next_probe(now);
+        assert_eq!(first_probe, second_probe);
+
+        mtud.probe_in_flight(1, first_probe.unwrap());
+        let third_probe = mtud.next_probe(now);
+        assert_ne!(first_probe, third_probe);
+    }
+
     // Loss of packets larger than have been acknowledged should indicate a black hole
     #[test]
     fn simple_black_hole_detection() {
