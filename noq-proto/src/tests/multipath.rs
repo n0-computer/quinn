@@ -16,9 +16,7 @@ use crate::{
     LOCAL_CID_COUNT, NetworkChangeHint, PathId, PathStatus, RandomConnectionIdGenerator,
     ServerConfig, Side::*, TransportConfig, cid_queue::CidQueue,
 };
-use crate::{
-    ClosePathError, Dir, Event, PathAbandonReason, PathEvent, StreamEvent, TransportErrorCode,
-};
+use crate::{ClosePathError, Dir, Event, PathAbandonReason, PathEvent, StreamEvent, TransportErrorCode};
 
 use super::util::{min_opt, subscribe};
 use super::{EndpointIndepedentNatRoutingTable, Pair, client_config, server_config};
