@@ -16,10 +16,12 @@ use crate::{
     LOCAL_CID_COUNT, NetworkChangeHint, PathId, PathStatus, RandomConnectionIdGenerator,
     ServerConfig, Side::*, TransportConfig, cid_queue::CidQueue,
 };
-use crate::{ClosePathError, Dir, Event, PathAbandonReason, PathEvent, StreamEvent, TransportErrorCode};
+use crate::{
+    ClosePathError, Dir, Event, PathAbandonReason, PathEvent, StreamEvent, TransportErrorCode,
+};
 
 use super::util::{min_opt, subscribe};
-use super::{Pair, client_config, server_config};
+use super::{EndpointIndepedentNatRoutingTable, Pair, client_config, server_config};
 
 const MAX_PATHS: u32 = 3;
 
@@ -545,10 +547,10 @@ fn open_path_ensure_after_abandon() -> TestResult {
     let mut second_server_addr = pair.server.addr;
     second_client_addr.set_port(second_client_addr.port() + 1);
     second_server_addr.set_port(second_server_addr.port() + 1);
-    pair.routes = Some(RoutingTable::simple_symmetric(
+    pair.routes = Some(Box::new(RoutingTable::simple_symmetric(
         [pair.client.addr, second_client_addr],
         [pair.server.addr, second_server_addr],
-    ));
+    )));
 
     let second_path = FourTuple {
         local_ip: Some(second_client_addr.ip()),
@@ -1425,10 +1427,10 @@ fn abandon_cycle() -> TestResult {
         sa.set_port(sa.port() + i);
         addrs_server.push(sa);
     }
-    pair.routes = Some(RoutingTable::simple_symmetric(
+    pair.routes = Some(Box::new(RoutingTable::simple_symmetric(
         addrs_client.clone(),
         addrs_server.clone(),
-    ));
+    )));
 
     // Cycle: open a second path, abandon path 0, verify cleanup, repeat with new paths.
     // Each cycle uses a fresh pair of addresses.
@@ -1623,6 +1625,30 @@ fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
         received_post_gap,
         "client should receive data after the gap recovers"
     );
+
+    Ok(())
+}
+
+/// Tests NAT traversal manages to open a 2nd path.
+///
+/// There is no NAT involved, all paths are open already.
+#[test]
+fn test_simple_nat_traveral_opens_path() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair_with_nat_traversal(true);
+
+    info!("setting routes, adding addrs");
+    pair.routes = Some(Box::new(EndpointIndepedentNatRoutingTable::new()));
+    pair.add_nat_traversal_address(Server, EndpointIndepedentNatRoutingTable::SERVER_NAT)?;
+    pair.add_nat_traversal_address(Client, EndpointIndepedentNatRoutingTable::CLIENT_NAT)?;
+    pair.drive();
+
+    info!("init NAT traversal");
+    pair.initiate_nat_traversal_round(Client)?;
+
+    pair.drive();
+
+    // TODO
 
     Ok(())
 }

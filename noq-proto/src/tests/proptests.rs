@@ -68,7 +68,7 @@ fn setup_deterministic_with_multipath(
 
     pair.client.addr = routes.client_addr(0).unwrap();
     pair.server.addr = routes.server_addr(0).unwrap();
-    pair.routes = Some(routes);
+    pair.routes = Some(Box::new(routes));
     pair
 }
 

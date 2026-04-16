@@ -43,11 +43,16 @@ pub(super) struct Pair {
     pub(super) spins: u64,
     /// The routing table used for resolving addresses observed for incoming packets
     /// and determining whether they should get lost.
-    pub(super) routes: Option<RoutingTable>,
+    pub(super) routes: Option<Box<dyn PairRoutingTable>>,
     last_spin: bool,
 }
 
 impl Pair {
+    pub(super) const CLIENT_ADDR: SocketAddr =
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 1, 1)), 1);
+    pub(super) const SERVER_ADDR: SocketAddr =
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 2, 1)), 1);
+
     /// Creates an endpoint pair that'll run deterministically with hardcoded addresses.
     pub(super) fn seeded(seed: [u8; 32]) -> Self {
         let mut rng = StdRng::from_seed(seed);
@@ -102,18 +107,10 @@ impl Pair {
     }
 
     pub(super) fn new_from_endpoint(client: Endpoint, server: Endpoint) -> Self {
-        let server_addr = SocketAddr::new(
-            Ipv6Addr::LOCALHOST.into(),
-            SERVER_PORTS.lock().unwrap().next().unwrap(),
-        );
-        let client_addr = SocketAddr::new(
-            Ipv6Addr::LOCALHOST.into(),
-            CLIENT_PORTS.lock().unwrap().next().unwrap(),
-        );
         let now = Instant::now();
         Self {
-            server: TestEndpoint::new(server, server_addr),
-            client: TestEndpoint::new(client, client_addr),
+            server: TestEndpoint::new(server, Self::SERVER_ADDR),
+            client: TestEndpoint::new(client, Self::CLIENT_ADDR),
             epoch: now,
             time: now,
             mtu: DEFAULT_MTU,
@@ -128,6 +125,29 @@ impl Pair {
     /// Returns whether the connection is not idle
     pub(super) fn step(&mut self) -> bool {
         self.blackhole_step(false, false)
+    }
+
+    /// Drive both endpoints once, optionally preventing them from receiving traffic.
+    ///
+    /// Returns `false` if the connection is idle after the step.
+    pub(super) fn blackhole_step(
+        &mut self,
+        server_blackhole: bool,
+        client_blackhole: bool,
+    ) -> bool {
+        self.drive_client();
+        if server_blackhole {
+            self.server.inbound.clear();
+        }
+        self.drive_server();
+        if client_blackhole {
+            self.client.inbound.clear();
+        }
+        if self.client.is_idle() && self.server.is_idle() {
+            return false;
+        }
+
+        self.advance_time()
     }
 
     /// Advance time until both connections are idle
@@ -164,8 +184,8 @@ impl Pair {
                 self.spins += (spin == self.last_spin) as u64;
                 self.last_spin = spin;
             }
-            let client_addr = match &self.routes {
-                Some(table) => table.resolve_client_to_server(packet.destination),
+            let client_addr = match self.routes.as_mut() {
+                Some(table) => table.route_client_to_server(&packet),
                 None => (self.server.addr == packet.destination).then_some(self.client.addr),
             };
             if let Some(client_addr) = client_addr {
@@ -193,8 +213,8 @@ impl Pair {
                 info!(packet_size, "dropping packet (max size exceeded)");
                 continue;
             }
-            let server_addr = match &self.routes {
-                Some(table) => table.resolve_server_to_client(packet.destination),
+            let server_addr = match self.routes.as_mut() {
+                Some(table) => table.route_server_to_client(&packet),
                 None => (self.client.addr == packet.destination).then_some(self.server.addr),
             };
             if let Some(server_addr) = server_addr {
@@ -210,29 +230,6 @@ impl Pair {
                 debug!(?packet.destination, "no route from server to client for packet");
             }
         }
-    }
-
-    /// Drive both endpoints once, optionally preventing them from receiving traffic.
-    ///
-    /// Returns `false` if the connection is idle after the step.
-    pub(super) fn blackhole_step(
-        &mut self,
-        server_blackhole: bool,
-        client_blackhole: bool,
-    ) -> bool {
-        self.drive_client();
-        if server_blackhole {
-            self.server.inbound.clear();
-        }
-        self.drive_server();
-        if client_blackhole {
-            self.client.inbound.clear();
-        }
-        if self.client.is_idle() && self.server.is_idle() {
-            return false;
-        }
-
-        self.advance_time()
     }
 
     pub(super) fn advance_time(&mut self) -> bool {
@@ -1265,6 +1262,22 @@ impl TokenLog for SimpleTokenLog {
     }
 }
 
+/// Generic router interface for the [`Pair::routes`].
+///
+/// This allows implementing different routing strategies.
+pub(super) trait PairRoutingTable: std::any::Any {
+    /// Routes a datagram from client to server.
+    ///
+    /// Returns the address the server will observe as the sender of the datagram. Or `None`
+    /// if there is no open link.
+    fn route_client_to_server(&mut self, transmit: &Transmit) -> Option<SocketAddr>;
+    /// Routes a datagram from server to client.
+    ///
+    /// Returns the address the client will observe as the sender of the datagram. Or `None`
+    /// if there is no open link.
+    fn route_server_to_client(&mut self, transmit: &Transmit) -> Option<SocketAddr>;
+}
+
 /// Set of uni-directional links between interfaces of a client and server.
 ///
 /// Each entry on the client or server side represents a single interface in a /32
@@ -1390,5 +1403,149 @@ impl RoutingTable {
         let route = self.server_routes.get_mut(route_idx)?;
         route.0 = modify_fn(route.0);
         Some(route.0)
+    }
+}
+
+impl PairRoutingTable for RoutingTable {
+    fn route_client_to_server(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
+        self.resolve_client_to_server(transmit.destination)
+    }
+
+    fn route_server_to_client(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
+        self.resolve_server_to_client(transmit.destination)
+    }
+}
+
+/// A routing table that simulates an Endpoint Independent NAT for both endpoints.
+///
+/// This is pretty simplistic, but tests the basics.
+///
+/// The client and server both have 2 interfaces:
+///
+/// 1. One "direct" interface, which has a link to the peer's "direct" interface.
+/// 2. One "nat" interface, which has a link to the peer's "nat" interface. This link
+///    however does not allow an incoming packet unless it has seen an outgoing packet
+///    first.
+///
+/// When an outgoing transmit has no `src_ip` is set, the source IP is set based on the
+/// destination. This is the same as the kernel selecting the correct outbound interface. If
+/// an outgoing transmit has an `src_ip` of an interface that is not linked to the interface
+/// of the destination IP then a transmit is dropped.
+#[derive(Debug)]
+pub(super) struct EndpointIndepedentNatRoutingTable {
+    client_direct: SocketAddr,
+    server_direct: SocketAddr,
+    client_nat: SocketAddr,
+    server_nat: SocketAddr,
+    /// Whether the client has sent a packet from `client_nat` to `server_nat`.
+    ///
+    /// If so packets from `server_nat` to `client_nat` will be allowed. If not they will be
+    /// dropped.
+    client_nat_open: bool,
+    /// Whether the server has sent a packet from `server_nat` to `client_nat`.
+    server_nat_open: bool,
+}
+
+impl EndpointIndepedentNatRoutingTable {
+    // pub(super) const CLIENT_DIRECT: SocketAddr =
+    //     SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 1, 1)), 1);
+    // pub(super) const SERVER_DIRECT: SocketAddr =
+    //     SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 2, 1)), 1);
+    pub(super) const CLIENT_DIRECT: SocketAddr = Pair::CLIENT_ADDR;
+    pub(super) const SERVER_DIRECT: SocketAddr = Pair::SERVER_ADDR;
+    pub(super) const CLIENT_NAT: SocketAddr =
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 1, 2)), 1);
+    pub(super) const SERVER_NAT: SocketAddr =
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 2, 2)), 1);
+
+    pub(super) fn new() -> Self {
+        Self {
+            client_direct: Self::CLIENT_DIRECT,
+            server_direct: Self::SERVER_DIRECT,
+            client_nat: Self::CLIENT_NAT,
+            server_nat: Self::SERVER_NAT,
+            client_nat_open: false,
+            server_nat_open: false,
+        }
+    }
+}
+
+impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
+    /// Routes a datagram from client to server.
+    ///
+    /// Returns the address the server will observe as the sender of the datagram. Or `None`
+    /// if there is no open link.
+    ///
+    /// If there is no [`Transmit::src_ip`] then this routing table selects one based on the
+    /// destination, if reachable. Otherwise if the `src_ip` does not match an open link the
+    /// datagram is blocked.
+    fn route_client_to_server(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
+        // Find the address this datagram SHOULD have been sent on to be able to reach the
+        // destination.
+        let link_src = if transmit.destination == self.server_direct {
+            self.client_direct
+        } else if transmit.destination == self.server_nat && self.server_nat_open {
+            self.client_nat
+        } else if transmit.destination == self.server_nat {
+            debug!(?transmit.destination, "NAT blocked");
+            if !self.client_nat_open {
+                info!("client NAT opened");
+                self.client_nat_open = true;
+            }
+            return None;
+        } else {
+            // There is no possible link to this destination.
+            return None;
+        };
+
+        // Check if the datagram IS sent from that addr.
+        if transmit.src_ip.unwrap_or_else(|| link_src.ip()) == link_src.ip() {
+            if link_src == self.client_nat {
+                info!("client NAT opened");
+                self.client_nat_open = true
+            }
+            Some(link_src)
+        } else {
+            None
+        }
+    }
+
+    /// Routes a datagram from server to client.
+    ///
+    /// Returns the address the client will observe as the sender of the datagram. Or `None`
+    /// if there is no open link.
+    ///
+    /// If there is no [`Transmit::src_ip`] then this routing table selects one based on the
+    /// destination, if reachable. Otherwise if the `src_ip` does not match an open link the
+    /// datagram is blocked.
+    fn route_server_to_client(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
+        // Find the address this datagram SHOULD have been sent on to be able to reach the
+        // destination.
+        let link_src = if transmit.destination == self.client_direct {
+            self.server_direct
+        } else if transmit.destination == self.client_nat && self.client_nat_open {
+            self.server_nat
+        } else if transmit.destination == self.server_nat {
+            debug!(?transmit.destination, "NAT blocked");
+            if !self.server_nat_open {
+                info!("server NAT opened");
+                self.server_nat_open = true;
+            }
+            return None;
+        } else {
+            // There is no possible link to this destination.
+            return None;
+        };
+
+        // Check if the datagram IS sent from that addr.
+        if transmit.src_ip.unwrap_or_else(|| link_src.ip()) == link_src.ip() {
+            if link_src == self.server_nat {
+                info!("server NAT opened");
+                self.server_nat_open = true;
+            }
+            Some(link_src)
+        } else {
+            None
+        }
     }
 }
