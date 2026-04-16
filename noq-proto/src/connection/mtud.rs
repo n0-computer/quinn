@@ -76,9 +76,8 @@ impl MtuDiscovery {
     }
 
     pub(crate) fn probe_in_flight(&mut self, pn: u64, size: u16) {
-        match self.state.as_mut() {
-            Some(state) => state.probe_in_flight(pn, size),
-            None => (),
+        if let Some(state) = self.state.as_mut() {
+            state.probe_in_flight(pn, size);
         }
     }
 
