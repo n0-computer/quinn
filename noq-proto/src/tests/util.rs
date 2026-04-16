@@ -5,7 +5,6 @@ use std::{
     mem,
     net::{Ipv6Addr, SocketAddr},
     num::{NonZeroU32, NonZeroUsize},
-    ops::RangeFrom,
     str,
     sync::{Arc, LazyLock, Mutex},
 };
@@ -1237,10 +1236,6 @@ fn set_congestion_experienced(
     })
 }
 
-pub(crate) static SERVER_PORTS: LazyLock<Mutex<RangeFrom<u16>>> =
-    LazyLock::new(|| Mutex::new(4433..));
-pub(crate) static CLIENT_PORTS: LazyLock<Mutex<RangeFrom<u16>>> =
-    LazyLock::new(|| Mutex::new(44433..));
 pub(crate) static CERTIFIED_KEY: LazyLock<rcgen::CertifiedKey<rcgen::KeyPair>> =
     LazyLock::new(|| rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap());
 
