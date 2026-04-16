@@ -181,7 +181,7 @@ async fn drain_stream(mut stream: noq::RecvStream) -> Result<()> {
         Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
         Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
     ];
-    while stream.read_chunks(&mut bufs[..]).await?.is_some() {}
+    while stream.read_bytes_many(&mut bufs[..]).await?.is_some() {}
     debug!("finished reading {}", stream.id());
     Ok(())
 }

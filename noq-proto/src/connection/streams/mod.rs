@@ -163,6 +163,21 @@ impl RecvStream<'_> {
         Ok(())
     }
 
+    /// Returns the number of bytes read from this stream
+    ///
+    /// This is the offset of the next byte to be read, i.e. the length of the contiguous
+    /// prefix of the stream consumed by the application.
+    pub fn bytes_read(&self) -> Result<u64, ClosedStream> {
+        let recv = self
+            .state
+            .recv
+            .get(&self.id)
+            .and_then(|s| s.as_ref())
+            .and_then(|s| s.as_open_recv())
+            .ok_or(ClosedStream { _private: () })?;
+        Ok(recv.assembler.bytes_read())
+    }
+
     /// Check whether this stream has been reset by the peer, returning the reset error code if so
     ///
     /// After returning `Ok(Some(_))` once, stream state will be discarded and all future calls will
