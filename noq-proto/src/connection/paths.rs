@@ -185,8 +185,6 @@ pub(super) struct PathData {
 
     /// Path challenges sent (on the wire, on-path) that we didn't receive a path response for yet
     on_path_challenges_unconfirmed: IntMap<u64, SentChallengeInfo>,
-    /// Path challenges sent (on the wire, off-path) that we didn't receive a path response for yet
-    off_path_challenges_unconfirmed: IntMap<u64, SentChallengeInfo>,
     /// Whether to trigger sending another PATH_CHALLENGE in the next poll_transmit.
     ///
     /// This is picked up by [`super::Connection::space_can_send`].
@@ -322,7 +320,6 @@ impl PathData {
             congestion,
             app_limited: false,
             on_path_challenges_unconfirmed: Default::default(),
-            off_path_challenges_unconfirmed: Default::default(),
             pending_on_path_challenge: false,
             path_responses: PathResponses::default(),
             validated: false,
@@ -380,7 +377,6 @@ impl PathData {
             congestion,
             app_limited: false,
             on_path_challenges_unconfirmed: Default::default(),
-            off_path_challenges_unconfirmed: Default::default(),
             pending_on_path_challenge: false,
             path_responses: PathResponses::default(),
             validated: false,
@@ -442,11 +438,8 @@ impl PathData {
             sent_instant: now,
             network_path,
         };
-        if network_path == self.network_path {
-            self.on_path_challenges_unconfirmed.insert(token, info);
-        } else {
-            self.off_path_challenges_unconfirmed.insert(token, info);
-        }
+        debug_assert_eq!(network_path, self.network_path);
+        self.on_path_challenges_unconfirmed.insert(token, info);
     }
 
     /// Remove `packet` with number `pn` from this path's congestion control counters, or return
@@ -517,16 +510,15 @@ impl PathData {
         match self.on_path_challenges_unconfirmed.remove(&token) {
             // Response to an on-path PathChallenge that validates this path.
             // The sent path should match the current path. However, it's possible that the
-            // challenge was sent when no local_ip was known. This case is allowed as well
+            // challenge was sent when no local_ip was known. This case is allowed as well.
             Some(info) if info.network_path.is_probably_same_path(&self.network_path) => {
                 self.network_path.update_local_if_same_remote(&network_path);
                 let sent_instant = info.sent_instant;
                 if !std::mem::replace(&mut self.validated, true) {
                     trace!("new path validated");
                 }
-                // Clear any other on-path sent challenge
+                // Clear any other on-path sent challenges and stop sending new ones.
                 self.on_path_challenges_unconfirmed.clear();
-
                 self.pending_on_path_challenge = false;
 
                 // This RTT can only be used for the initial RTT, not as a normal
@@ -542,15 +534,14 @@ impl PathData {
                     ),
                 }
             }
-            // Response to an on-path PathChallenge that does not validate this path
+            // Response to an on-path PathChallenge that does not validate this path.
             Some(info) => {
-                // This is a valid path response, but this validates a path we no longer have in
-                // use. Keep only sent challenges for the current path.
-
+                // This is a valid path response, but this validates a 4-tuple we no longer
+                // have in use. Keep only sent challenges for the current path.
                 self.on_path_challenges_unconfirmed
                     .retain(|_token, i| i.network_path == self.network_path);
 
-                // if there are no challenges for the current path, schedule one
+                // If there are no challenges for the current path, schedule one
                 if !self.on_path_challenges_unconfirmed.is_empty() {
                     self.pending_on_path_challenge = true;
                 }
@@ -559,18 +550,10 @@ impl PathData {
                     current_path: self.network_path,
                 }
             }
-            None => match self.off_path_challenges_unconfirmed.remove(&token) {
-                // Response to an off-path PathChallenge
-                Some(info) => {
-                    // Since we do not store validation state for these paths, we only really care
-                    // about reaching the same remote
-                    self.off_path_challenges_unconfirmed
-                        .retain(|_token, i| i.network_path.remote != info.network_path.remote);
-                    OnPathResponseReceived::OffPath
-                }
-                // Response to an unknown PathChallenge. Does not indicate failure
-                None => OnPathResponseReceived::Unknown,
-            },
+            None => {
+                // Response to an unknown PathChallenge. Does not indicate failure.
+                OnPathResponseReceived::Unknown
+            }
         }
     }
 
@@ -578,18 +561,6 @@ impl PathData {
     pub(super) fn reset_on_path_challenges(&mut self) {
         self.on_path_challenges_unconfirmed.clear();
         self.pending_on_path_challenge = false;
-    }
-
-    /// Returns whether there are any pending off-path challenges.
-    pub(super) fn has_off_path_challenges(&self) -> bool {
-        !self.off_path_challenges_unconfirmed.is_empty()
-    }
-
-    /// Clears all off-path challenges.
-    ///
-    /// Used when a new NAT traversal round starts and old probes are obsolete.
-    pub(super) fn clear_off_path_challenges(&mut self) {
-        self.off_path_challenges_unconfirmed.clear();
     }
 
     #[cfg(feature = "qlog")]
@@ -684,8 +655,6 @@ impl PathData {
 pub(super) enum OnPathResponseReceived {
     /// This response validates the path on its current remote address.
     OnPath { was_open: bool },
-    /// This response is valid, but it's for a remote other than the path's current remote address.
-    OffPath,
     /// The received token is unknown.
     Unknown,
     /// The response is valid but it's not usable for path validation.

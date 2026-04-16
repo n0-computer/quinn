@@ -6,10 +6,10 @@ use std::{
 };
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::{
-    PathId, Side, VarInt,
+    FourTuple, PathId, Side, VarInt,
     frame::{AddAddress, ReachOut, RemoveAddress},
 };
 
@@ -281,16 +281,36 @@ impl ClientState {
     }
 }
 
-/// Maximum number of times an off-path probe is sent before giving up.
-pub(crate) const MAX_OFF_PATH_PROBE_ATTEMPTS: u8 = 10;
+/// Maximum number of times we send a NAT probe to the same remote address in a round.
+///
+/// This is a trade-off between several factors:
+/// - Probe packets could be lost. This allows recovery.
+/// - We may need two probes to reach the NAT firewall to get through.
+/// - We may be sending probes to innocent bystanders on the internet.
+/// - A round never "finishes": probing of remotes only stops when:
+///   1. A new round is started.
+///   2. A probe was successful.
+///   3. This number of attempts is exhausted.
+///
+/// Currently probes are retried after 2/3rd of the configured initial RTT. At a
+/// fixed interval, so without exponential backoff. For the default initial RTT of 333ms
+/// this is 222ms. So 10 attempts covers 2220ms.
+// TODO(flub): I would like to improve this sometime so that we cover about 2s but with only
+//    about 5-6 probes. The three initial probes should be faster, later probes should start
+//    to slow down. Unfortunately we only have one timer for the entire round currently, we
+//    would need to have a timer per remote. Because REACH_OUT frames can appear in the
+//    middle of a round.
+pub(crate) const MAX_NAT_PROBE_ATTEMPTS: u8 = 10;
 
-/// State of an off-path probe to a client address.
+/// State of an off-path NAT traversal probe to a remote address.
 #[derive(Debug)]
-pub(crate) struct ProbeState {
-    /// Number of times this probe has been sent (0 = not yet sent).
-    pub(crate) attempts: u8,
-    /// Whether this probe is ready to be sent.
-    pub(crate) ready_to_send: bool,
+enum ProbeState {
+    /// The remote still needs to be probed in this round.
+    ///
+    /// The remaining number of retries are stored in the `u8`.
+    Active(u8),
+    /// We received a probe response for this remote.
+    Succeeded,
 }
 
 #[derive(Debug)]
@@ -313,10 +333,22 @@ pub(crate) struct ServerState {
     /// Servers keep track of the client's most recent round and cancel probing related to previous
     /// rounds.
     round: VarInt,
-    /// Addresses to which PATH_CHALLENGES need to be sent, with their probe state.
+    /// The remote addresses participating in this round.
     ///
-    /// Probes are retransmitted up to [`MAX_OFF_PATH_PROBE_ATTEMPTS`] times.
-    pending_probes: FxHashMap<IpPort, ProbeState>,
+    /// The set is cleared when a new round starts.
+    remotes: FxHashMap<IpPort, ProbeState>,
+    /// The data of PATH_CHALLENGE frames sent in probes.
+    ///
+    /// These are cleared when a new round starts, so any late-arriving PATH_RESPONSEs will
+    /// have no effect.
+    sent_challenges: FxHashMap<u64, IpPort>,
+    /// Queued probes to be sent in the next [`poll_transmit`] call.
+    ///
+    /// At the beginning of a round and at every retry this is populated with the
+    /// [`Self::active_probes`]. As [`poll_transmit`] sends probes they are removed.
+    ///
+    /// [`poll_transmit`]: crate::connection::Connection::poll_transmit
+    pending_probes: FxHashSet<IpPort>,
 }
 
 impl ServerState {
@@ -327,6 +359,8 @@ impl ServerState {
             local_addresses: Default::default(),
             next_local_addr_id: Default::default(),
             round: Default::default(),
+            remotes: Default::default(),
+            sent_challenges: Default::default(),
             pending_probes: Default::default(),
         }
     }
@@ -354,10 +388,12 @@ impl ServerState {
         self.round
     }
 
-    /// Handles a received [`ReachOut`].
+    /// Handles a received REACH_OUT frame.
     ///
-    /// This might ignore the reach out frame if it belongs to an older round or if
-    /// the reach out can't be handled by an ipv4-only local socket.
+    /// This might ignore the reach out frame if it belongs to an older round or if the
+    /// frame contains an IPv6 address while the local socket is IPv4-only.
+    ///
+    /// If a new round was started, the `NatTraversalProbeRetry` timer needs to be reset.
     pub(crate) fn handle_reach_out(
         &mut self,
         reach_out: ReachOut,
@@ -376,59 +412,70 @@ impl ServerState {
 
         if round > self.round {
             self.round = round;
+            self.remotes.clear();
+            self.sent_challenges.clear();
             self.pending_probes.clear();
-        } else if self.pending_probes.len() >= self.max_remote_addresses
-            && !self.pending_probes.contains_key(&(ip, port))
-        {
+        } else if self.remotes.contains_key(&(ip, port)) {
+            // Retransmitted frame.
+            return Ok(());
+        } else if self.remotes.len() >= self.max_remote_addresses {
             return Err(Error::TooManyAddresses);
         }
-        self.pending_probes.entry((ip, port)).or_insert(ProbeState {
-            attempts: 0,
-            ready_to_send: true,
-        });
+        self.remotes
+            .entry((ip, port))
+            .or_insert(ProbeState::Active(MAX_NAT_PROBE_ATTEMPTS - 1));
+        self.pending_probes.insert((ip, port));
         Ok(())
     }
 
-    /// Re-queue all sent probes that haven't exceeded [`MAX_OFF_PATH_PROBE_ATTEMPTS`]
-    /// for retransmission. Called when the off-path probe retry timer fires.
+    /// Re-queues probes that have not yet succeeded or reached [`MAX_NAT_PROBE_ATTEMPTS`].
     ///
-    /// Returns whether any probes were re-queued.
+    /// Returns whether any probes are now queued to send.  In this case the
+    /// `NatTraversalProbeRetry` timer needs to be reset.
     pub(crate) fn queue_retries(&mut self) -> bool {
-        let mut any_requeued = false;
-        self.pending_probes.retain(|_, state| {
-            if state.attempts > 0 && state.attempts < MAX_OFF_PATH_PROBE_ATTEMPTS {
-                state.ready_to_send = true;
-                any_requeued = true;
-                true
-            } else {
-                state.attempts < MAX_OFF_PATH_PROBE_ATTEMPTS
-            }
-        });
-        any_requeued
-    }
-
-    /// Returns whether there are any probes that have been sent but are waiting
-    /// for retry (i.e., sent at least once but under the max attempt limit).
-    pub(crate) fn has_pending_retries(&self) -> bool {
-        self.pending_probes
-            .values()
-            .any(|state| state.attempts > 0 && state.attempts < MAX_OFF_PATH_PROBE_ATTEMPTS)
+        self.remotes
+            .iter_mut()
+            .for_each(|(remote, state)| match state {
+                ProbeState::Active(remaining) if *remaining > 0 => {
+                    *remaining -= 1;
+                    self.pending_probes.insert(*remote);
+                }
+                ProbeState::Active(_) | ProbeState::Succeeded => (),
+            });
+        !self.pending_probes.is_empty()
     }
 
     /// Returns the next ready probe's address.
+    ///
+    /// If this is actually sent you must call [`Self::mark_probe_sent`].
     pub(crate) fn next_probe_addr(&self) -> Option<SocketAddr> {
-        self.pending_probes
-            .iter()
-            .find(|(_, state)| state.ready_to_send)
-            .map(|(addr, _)| (*addr).into())
+        self.pending_probes.iter().next().map(|addr| (*addr).into())
     }
 
-    /// Mark a probe as sent by address.
-    pub(crate) fn mark_probe_sent(&mut self, remote: IpPort) {
-        if let Some(state) = self.pending_probes.get_mut(&remote) {
-            state.attempts += 1;
-            state.ready_to_send = false;
+    /// Marks a probe as sent to the address with the challenge.
+    pub(crate) fn mark_probe_sent(&mut self, remote: IpPort, challenge: u64) {
+        self.pending_probes.remove(&remote);
+        self.sent_challenges.insert(challenge, remote);
+    }
+
+    /// Marks a remote as successful if the response matches a sent probe.
+    ///
+    /// Returns `true` if it was a response to one of the NAT traversal probes.
+    pub(crate) fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> bool {
+        if let Entry::Occupied(entry) = self.sent_challenges.entry(challenge) {
+            let remote = (src.remote().ip(), src.remote().port());
+            if *entry.get() == remote {
+                entry.remove();
+                self.remotes
+                    .entry(remote)
+                    .insert_entry(ProbeState::Succeeded);
+                return true;
+            } else {
+                debug!(?challenge, ?src.remote,
+                    "PATH_RESPONSE matched a NAT traversal probe but mismatching addr")
+            }
         }
+        false
     }
 }
 
@@ -451,6 +498,14 @@ impl State {
             Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
             Self::ClientSide(client_side) => Ok(client_side),
             Self::ServerSide(_) => Err(Error::WrongConnectionSide),
+        }
+    }
+
+    pub(crate) fn server_side(&self) -> Result<&ServerState, Error> {
+        match self {
+            State::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            State::ClientSide(_) => Err(Error::WrongConnectionSide),
+            State::ServerSide(state) => Ok(state),
         }
     }
 
@@ -582,9 +637,11 @@ mod tests {
         assert_eq!(state.pending_probes.len(), 2);
 
         // Helper: send next ready probe
-        let send_probe = |state: &mut ServerState| {
+        let mut challenge = 0;
+        let mut send_probe = |state: &mut ServerState| {
             let remote = state.next_probe_addr().unwrap();
-            state.mark_probe_sent((remote.ip(), remote.port()));
+            challenge += 1;
+            state.mark_probe_sent((remote.ip(), remote.port()), challenge);
         };
 
         send_probe(&mut state);
@@ -592,8 +649,6 @@ mod tests {
 
         // After sending both probes, no ready probes remain but they're still tracked.
         assert!(state.next_probe_addr().is_none());
-        assert_eq!(state.pending_probes.len(), 2);
-        assert!(state.has_pending_retries());
 
         // After queuing retries, probes become available again
         assert!(state.queue_retries());
@@ -606,7 +661,7 @@ mod tests {
         send_probe(&mut state);
 
         // Exhaust remaining attempts
-        for _ in 3..MAX_OFF_PATH_PROBE_ATTEMPTS {
+        for _ in 3..MAX_NAT_PROBE_ATTEMPTS {
             assert!(state.queue_retries());
             send_probe(&mut state);
             send_probe(&mut state);
@@ -615,7 +670,6 @@ mod tests {
         // After max attempts, probes are removed
         assert!(!state.queue_retries());
         assert!(state.next_probe_addr().is_none());
-        assert_eq!(state.pending_probes.len(), 0);
     }
 
     #[test]
