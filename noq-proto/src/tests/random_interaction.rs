@@ -1,16 +1,12 @@
-use std::{
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4},
-    sync::Arc,
-};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4};
 
 use bytes::Bytes;
 use test_strategy::Arbitrary;
 use tracing::{debug, error, info, trace};
 
 use crate::{
-    Connection, ConnectionHandle, Dir, FourTuple, PathId, PathStatus, Side, StreamId,
-    TransportConfig,
-    tests::{Pair, TestEndpoint, client_config},
+    ClientConfig, Connection, ConnectionHandle, Dir, FourTuple, PathId, PathStatus, Side, StreamId,
+    tests::{Pair, TestEndpoint},
 };
 
 use super::RoutingTable;
@@ -141,7 +137,7 @@ impl TestOp {
                 side: Side::Client,
                 addr_idx,
             } => {
-                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?;
+                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?.as_mut();
                 let routes = routes.downcast_mut::<RoutingTable>().unwrap();
                 routes.sim_client_migration(addr_idx, inc_last_addr_octet);
             }
@@ -149,7 +145,7 @@ impl TestOp {
                 side: Side::Server,
                 addr_idx,
             } => {
-                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?;
+                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?.as_mut();
                 let routes = routes.downcast_mut::<RoutingTable>().unwrap();
                 routes.sim_server_migration(addr_idx, inc_last_addr_octet);
             }
@@ -158,7 +154,7 @@ impl TestOp {
                 status,
                 addr_idx,
             } => {
-                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?;
+                let routes: &dyn std::any::Any = pair.routes.as_ref()?.as_ref();
                 let routes = routes.downcast_ref::<RoutingTable>().unwrap();
                 let remote = match side {
                     Side::Client => routes.server_addr(addr_idx)?,
@@ -223,7 +219,7 @@ impl TestOp {
                 conn.close(now, error_code.into(), Bytes::new());
             }
             Self::AddHpAddr { side, addr_idx } => {
-                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?;
+                let routes: &dyn std::any::Any = pair.routes.as_ref()?.as_ref();
                 let routes = routes.downcast_ref::<RoutingTable>().unwrap();
                 let address = match side {
                     Side::Client => routes.client_addr(addr_idx)?,
@@ -341,11 +337,9 @@ fn inc_last_addr_octet(addr: SocketAddr) -> SocketAddr {
 pub(super) fn run_random_interaction(
     pair: &mut Pair,
     interactions: Vec<TestOp>,
-    transport_config: TransportConfig,
+    client_config: ClientConfig,
 ) -> (ConnectionHandle, ConnectionHandle) {
-    let mut client_cfg = client_config();
-    client_cfg.transport = Arc::new(transport_config);
-    let (client_ch, server_ch) = pair.connect_with(client_cfg);
+    let (client_ch, server_ch) = pair.connect_with(client_config);
     pair.drive(); // finish establishing the connection;
     info!("INTERACTION SETUP FINISHED");
     let mut client = State::new(Side::Client, client_ch);

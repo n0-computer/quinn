@@ -80,6 +80,10 @@ debug = true
 [profile.release]
 debug = true
 
+[profile.proptests]
+inherits = "dev"
+opt-level = 3
+
 [workspace.lints.rust]
 elided_lifetimes_in_paths = "warn"
 # https://rust-fuzz.github.io/book/cargo-fuzz/guide.html#cfgfuzzing

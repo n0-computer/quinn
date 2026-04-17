@@ -1005,8 +1005,7 @@ impl proptest::arbitrary::Arbitrary for PathAck {
         (
             any::<PathId>(),
             varint_u64(),
-            any::<ArrayRangeSet>()
-                .prop_filter("ranges must be non empty", |ranges| !ranges.is_empty()),
+            any::<ArrayRangeSet>(),
             any::<Option<EcnCounts>>(),
         )
             .prop_map(|(path_id, delay, ranges, ecn)| Self {
@@ -1134,8 +1133,7 @@ impl proptest::arbitrary::Arbitrary for Ack {
         use proptest::prelude::*;
         (
             varint_u64(),
-            any::<ArrayRangeSet>()
-                .prop_filter("ranges must be non empty", |ranges| !ranges.is_empty()),
+            any::<ArrayRangeSet>(),
             any::<Option<EcnCounts>>(),
         )
             .prop_map(|(delay, ranges, ecn)| Self {
