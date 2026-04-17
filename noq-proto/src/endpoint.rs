@@ -496,8 +496,17 @@ impl Endpoint {
 
         let token = match IncomingToken::from_header(&header, &server_config, network_path.remote) {
             Ok(token) => token,
-            Err(InvalidRetryTokenError) => {
-                debug!("rejecting invalid retry token");
+            Err(InvalidRetryTokenError::AddressMismatch) => {
+                // The token is valid but bound to a different remote address. This can
+                // legitimately happen when a client races the handshake over multiple paths:
+                // the Retry token is bound to one path's remote, and retried Initials arriving
+                // on other paths land here. Silently drop so the client's Initial on the
+                // matching path can still validate.
+                debug!("silently dropping retry token with mismatched address");
+                return None;
+            }
+            Err(InvalidRetryTokenError::Expired) => {
+                debug!("rejecting expired retry token");
                 return Some(DatagramEvent::Response(self.initial_close(
                     header.version,
                     network_path,

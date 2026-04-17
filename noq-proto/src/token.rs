@@ -149,10 +149,10 @@ impl IncomingToken {
                 issued,
             } => {
                 if address != remote_address {
-                    return Err(InvalidRetryTokenError);
+                    return Err(InvalidRetryTokenError::AddressMismatch);
                 }
                 if issued + server_config.retry_token_lifetime < server_config.time_source.now() {
-                    return Err(InvalidRetryTokenError);
+                    return Err(InvalidRetryTokenError::Expired);
                 }
 
                 Ok(Self {
@@ -192,7 +192,17 @@ impl IncomingToken {
 /// Error for a token being unambiguously from a Retry packet, and not valid
 ///
 /// The connection cannot be established.
-pub(crate) struct InvalidRetryTokenError;
+#[derive(Debug)]
+pub(crate) enum InvalidRetryTokenError {
+    /// The token was decoded successfully but was not bound to the packet's remote address.
+    ///
+    /// This can legitimately happen when a client races the handshake over multiple paths:
+    /// the Retry token is bound to one path's remote address, and retried Initials arriving
+    /// on other paths will hit this case.
+    AddressMismatch,
+    /// The token is past its retry token lifetime.
+    Expired,
+}
 
 /// Retry or validation token
 pub(crate) struct Token {
