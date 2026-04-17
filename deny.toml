@@ -1,5 +1,7 @@
 [advisories]
 ignore = [
+    # gcc is only included as a minimal-versions workaround, not actually used
+    "RUSTSEC-2025-0121",
 ]
 
 [licenses]
