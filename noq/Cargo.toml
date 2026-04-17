@@ -1,6 +1,6 @@
 [package]
 name = "noq"
-version = "0.17.0"
+version = "0.18.0"
 license.workspace = true
 repository.workspace = true
 description = "General purpose QUIC transport protocol implementation"
@@ -66,13 +66,13 @@ derive_more = { workspace = true }
 futures-io = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 pin-project-lite = { workspace = true }
-proto = { package = "noq-proto", path = "../noq-proto", version = "0.16.0", default-features = false }
+proto = { package = "noq-proto", path = "../noq-proto", version = "0.17.0", default-features = false }
 rustls = { workspace = true, optional = true }
 smol = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tracing =  { workspace = true }
 tokio = { workspace = true }
-udp = { package = "noq-udp", path = "../noq-udp", version = "0.9", default-features = false, features = ["tracing"] }
+udp = { package = "noq-udp", path = "../noq-udp", version = "0.10", default-features = false, features = ["tracing"] }
 
 # Fix minimal dependencies for indirect deps
 async-global-executor = { workspace = true, optional = true }

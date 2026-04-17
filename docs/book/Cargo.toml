@@ -11,6 +11,6 @@ categories.workspace = true
 [dependencies]
 anyhow.workspace = true
 bytes = { workspace = true }
-noq = { version = "0.17", path = "../../noq", package = "noq" }
+noq = { version = "0.18", path = "../../noq", package = "noq" }
 rcgen.workspace = true
 rustls.workspace = true
