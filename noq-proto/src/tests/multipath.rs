@@ -1629,8 +1629,6 @@ fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
 }
 
 /// Tests NAT traversal manages to open a 2nd path.
-///
-/// There is no NAT involved, all paths are open already.
 #[test]
 fn test_simple_nat_traveral_opens_path() -> TestResult {
     let _guard = subscribe();
