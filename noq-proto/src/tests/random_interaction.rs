@@ -404,7 +404,7 @@ pub(super) fn run_random_interaction(
         pair.drive();
     }
 
-    info!("INTERACTION SETUP COMPLETE");
+    info!(?establishment, "INTERACTION SETUP COMPLETE");
 
     for interaction in interactions {
         info!(?interaction, "INTERACTION STEP");

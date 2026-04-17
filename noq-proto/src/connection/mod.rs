@@ -28,7 +28,7 @@ use crate::{
         qlog::{QlogRecvPacket, QlogSink},
         spaces::LostPacket,
         stats::PathStatsMap,
-        timer::{ConnTimer, PathTimer},
+        timer::{ConnTimer, PathTimer, Timer, TimerTable},
     },
     crypto::{self, Keys},
     frame::{
@@ -102,8 +102,7 @@ pub use streams::{
     ShouldTransmit, StreamEvent, Streams, WriteError, Written,
 };
 
-mod timer;
-use timer::{Timer, TimerTable};
+pub(crate) mod timer;
 
 mod transmit_buf;
 use transmit_buf::TransmitBuf;
@@ -456,6 +455,12 @@ impl Connection {
     #[must_use]
     pub fn poll_timeout(&mut self) -> Option<Instant> {
         self.timers.peek()
+    }
+
+    /// Returns the unhandled timers that would expire at given instant.
+    #[cfg(test)]
+    pub(crate) fn peek_expiring_timers(&self, now: Instant) -> Vec<Timer> {
+        self.timers.timers_before(now)
     }
 
     /// Returns application-facing events
@@ -3711,6 +3716,7 @@ impl Connection {
                     .stop(Timer::Conn(ConnTimer::Idle), self.qlog.with_time(now));
             } else {
                 let dt = cmp::max(timeout, 3 * self.max_pto_for_space(space));
+                trace!(?dt, "setting idle timer");
                 self.timers.set(
                     Timer::Conn(ConnTimer::Idle),
                     now + dt,
@@ -6644,9 +6650,13 @@ impl Connection {
             .saturating_sub(path.in_flight.bytes)
     }
 
-    /// Whether no timers but keepalive, idle, rtt, pushnewcid, and key discard are running
+    /// Which timer keeps this connection from being idle right now.
+    ///
+    /// Idle in this case means the next thing that would happen on this
+    /// connection (unless other traffic is received) would be the connection just sending
+    /// more keep alives, CIDs, key updates or outright closing due to idle.
     #[cfg(test)]
-    pub(crate) fn is_idle(&self) -> bool {
+    pub(crate) fn non_idle_timer(&self) -> Option<Timer> {
         let current_timers = self.timers.values();
         current_timers
             .into_iter()
@@ -6660,12 +6670,13 @@ impl Connection {
                 )
             })
             .min_by_key(|(_, time)| *time)
-            .is_none_or(|(timer, _)| {
-                matches!(
-                    timer,
+            .filter(|(next_timer, _)| {
+                !matches!(
+                    next_timer,
                     Timer::Conn(ConnTimer::Idle) | Timer::PerPath(_, PathTimer::PathIdle)
                 )
             })
+            .map(|(timer, _time)| timer)
     }
 
     /// Whether explicit congestion notification is in use on outgoing packets.

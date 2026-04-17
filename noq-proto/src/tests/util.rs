@@ -1,6 +1,6 @@
 use std::{
     cmp,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     io::{self, Write},
     mem,
     net::{Ipv6Addr, SocketAddr},
@@ -22,7 +22,7 @@ use tracing::{debug, info_span, trace};
 
 use super::crypto::rustls::{QuicClientConfig, QuicServerConfig, configured_provider};
 use super::*;
-use crate::{Duration, Instant, congestion::Controller};
+use crate::{Duration, Instant, congestion::Controller, connection::timer::Timer};
 
 pub(super) const DEFAULT_MTU: usize = 1452;
 
@@ -228,8 +228,13 @@ impl Pair {
         if client_blackhole {
             self.client.inbound.clear();
         }
-        if self.client.is_idle() && self.server.is_idle() {
+
+        let client_timers = self.client.non_idle_timers().collect::<Vec<_>>();
+        let server_timers = self.server.non_idle_timers().collect::<Vec<_>>();
+        if client_timers.is_empty() && server_timers.is_empty() {
             return false;
+        } else {
+            trace!(?client_timers, ?server_timers, "pair not yet idle");
         }
 
         self.advance_time()
@@ -242,14 +247,34 @@ impl Pair {
             Some(t) if Some(t) == client_t => {
                 if t != self.time {
                     self.time = self.time.max(t);
-                    trace!("advancing to {:?} for client", self.time - self.epoch);
+                    let expiring_timers = self
+                        .client
+                        .connections
+                        .iter()
+                        .map(|(&handle, conn)| (handle, conn.peek_expiring_timers(self.time)))
+                        .collect::<BTreeMap<ConnectionHandle, Vec<Timer>>>();
+                    trace!(
+                        ?expiring_timers,
+                        "advancing to {:?} for client",
+                        self.time - self.epoch
+                    );
                 }
                 true
             }
             Some(t) if Some(t) == server_t => {
                 if t != self.time {
                     self.time = self.time.max(t);
-                    trace!("advancing to {:?} for server", self.time - self.epoch);
+                    let expiring_timers = self
+                        .server
+                        .connections
+                        .iter()
+                        .map(|(&handle, conn)| (handle, conn.peek_expiring_timers(self.time)))
+                        .collect::<BTreeMap<ConnectionHandle, Vec<Timer>>>();
+                    trace!(
+                        ?expiring_timers,
+                        "advancing to {:?} for server",
+                        self.time - self.epoch
+                    );
                 }
                 true
             }
@@ -967,7 +992,13 @@ impl TestEndpoint {
     }
 
     pub(super) fn is_idle(&self) -> bool {
-        self.connections.values().all(|x| x.is_idle())
+        self.non_idle_timers().next().is_none()
+    }
+
+    pub(super) fn non_idle_timers(&self) -> impl Iterator<Item = Timer> {
+        self.connections
+            .values()
+            .filter_map(|conn| conn.non_idle_timer())
     }
 
     pub(super) fn delay_outbound(&mut self) {
