@@ -1428,10 +1428,6 @@ impl PairRoutingTable for RoutingTable {
 /// of the destination IP then a transmit is dropped.
 #[derive(Debug)]
 pub(super) struct EndpointIndepedentNatRoutingTable {
-    client_direct: SocketAddr,
-    server_direct: SocketAddr,
-    client_nat: SocketAddr,
-    server_nat: SocketAddr,
     /// Whether the client has sent a packet from `client_nat` to `server_nat`.
     ///
     /// If so packets from `server_nat` to `client_nat` will be allowed. If not they will be
@@ -1442,10 +1438,6 @@ pub(super) struct EndpointIndepedentNatRoutingTable {
 }
 
 impl EndpointIndepedentNatRoutingTable {
-    // pub(super) const CLIENT_DIRECT: SocketAddr =
-    //     SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 1, 1)), 1);
-    // pub(super) const SERVER_DIRECT: SocketAddr =
-    //     SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 2, 1)), 1);
     pub(super) const CLIENT_DIRECT: SocketAddr = Pair::CLIENT_ADDR;
     pub(super) const SERVER_DIRECT: SocketAddr = Pair::SERVER_ADDR;
     pub(super) const CLIENT_NAT: SocketAddr =
@@ -1455,10 +1447,6 @@ impl EndpointIndepedentNatRoutingTable {
 
     pub(super) fn new() -> Self {
         Self {
-            client_direct: Self::CLIENT_DIRECT,
-            server_direct: Self::SERVER_DIRECT,
-            client_nat: Self::CLIENT_NAT,
-            server_nat: Self::SERVER_NAT,
             client_firewall_open: false,
             server_firewall_open: false,
         }
@@ -1477,11 +1465,11 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
     fn route_client_to_server(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
         // Find the address this datagram SHOULD have been sent on to be able to reach the
         // destination.
-        let link_src = if transmit.destination == self.server_direct {
-            self.client_direct
-        } else if transmit.destination == self.server_nat && self.server_firewall_open {
-            self.client_nat
-        } else if transmit.destination == self.server_nat {
+        let link_src = if transmit.destination == Self::SERVER_DIRECT {
+            Self::CLIENT_DIRECT
+        } else if transmit.destination == Self::SERVER_NAT && self.server_firewall_open {
+            Self::CLIENT_NAT
+        } else if transmit.destination == Self::SERVER_NAT {
             debug!(?transmit.destination, "NAT blocked");
             if !self.client_firewall_open {
                 info!("client NAT opened");
@@ -1495,7 +1483,7 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
 
         // Check if the datagram IS sent from that addr.
         if transmit.src_ip.unwrap_or_else(|| link_src.ip()) == link_src.ip() {
-            if link_src == self.client_nat {
+            if link_src == Self::CLIENT_NAT {
                 info!("client NAT opened");
                 self.client_firewall_open = true
             }
@@ -1516,11 +1504,11 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
     fn route_server_to_client(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
         // Find the address this datagram SHOULD have been sent on to be able to reach the
         // destination.
-        let link_src = if transmit.destination == self.client_direct {
-            self.server_direct
-        } else if transmit.destination == self.client_nat && self.client_firewall_open {
-            self.server_nat
-        } else if transmit.destination == self.server_nat {
+        let link_src = if transmit.destination == Self::CLIENT_DIRECT {
+            Self::SERVER_DIRECT
+        } else if transmit.destination == Self::CLIENT_NAT && self.client_firewall_open {
+            Self::SERVER_NAT
+        } else if transmit.destination == Self::SERVER_NAT {
             debug!(?transmit.destination, "NAT blocked");
             if !self.server_firewall_open {
                 info!("server NAT opened");
@@ -1534,7 +1522,7 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
 
         // Check if the datagram IS sent from that addr.
         if transmit.src_ip.unwrap_or_else(|| link_src.ip()) == link_src.ip() {
-            if link_src == self.server_nat {
+            if link_src == Self::SERVER_NAT {
                 info!("server NAT opened");
                 self.server_firewall_open = true;
             }
