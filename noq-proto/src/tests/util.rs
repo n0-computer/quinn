@@ -1436,9 +1436,9 @@ pub(super) struct EndpointIndepedentNatRoutingTable {
     ///
     /// If so packets from `server_nat` to `client_nat` will be allowed. If not they will be
     /// dropped.
-    client_nat_open: bool,
+    client_firewall_open: bool,
     /// Whether the server has sent a packet from `server_nat` to `client_nat`.
-    server_nat_open: bool,
+    server_firewall_open: bool,
 }
 
 impl EndpointIndepedentNatRoutingTable {
@@ -1459,8 +1459,8 @@ impl EndpointIndepedentNatRoutingTable {
             server_direct: Self::SERVER_DIRECT,
             client_nat: Self::CLIENT_NAT,
             server_nat: Self::SERVER_NAT,
-            client_nat_open: false,
-            server_nat_open: false,
+            client_firewall_open: false,
+            server_firewall_open: false,
         }
     }
 }
@@ -1479,13 +1479,13 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
         // destination.
         let link_src = if transmit.destination == self.server_direct {
             self.client_direct
-        } else if transmit.destination == self.server_nat && self.server_nat_open {
+        } else if transmit.destination == self.server_nat && self.server_firewall_open {
             self.client_nat
         } else if transmit.destination == self.server_nat {
             debug!(?transmit.destination, "NAT blocked");
-            if !self.client_nat_open {
+            if !self.client_firewall_open {
                 info!("client NAT opened");
-                self.client_nat_open = true;
+                self.client_firewall_open = true;
             }
             return None;
         } else {
@@ -1497,7 +1497,7 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
         if transmit.src_ip.unwrap_or_else(|| link_src.ip()) == link_src.ip() {
             if link_src == self.client_nat {
                 info!("client NAT opened");
-                self.client_nat_open = true
+                self.client_firewall_open = true
             }
             Some(link_src)
         } else {
@@ -1518,13 +1518,13 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
         // destination.
         let link_src = if transmit.destination == self.client_direct {
             self.server_direct
-        } else if transmit.destination == self.client_nat && self.client_nat_open {
+        } else if transmit.destination == self.client_nat && self.client_firewall_open {
             self.server_nat
         } else if transmit.destination == self.server_nat {
             debug!(?transmit.destination, "NAT blocked");
-            if !self.server_nat_open {
+            if !self.server_firewall_open {
                 info!("server NAT opened");
-                self.server_nat_open = true;
+                self.server_firewall_open = true;
             }
             return None;
         } else {
@@ -1536,7 +1536,7 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
         if transmit.src_ip.unwrap_or_else(|| link_src.ip()) == link_src.ip() {
             if link_src == self.server_nat {
                 info!("server NAT opened");
-                self.server_nat_open = true;
+                self.server_firewall_open = true;
             }
             Some(link_src)
         } else {
