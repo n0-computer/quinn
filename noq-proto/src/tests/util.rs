@@ -1362,32 +1362,6 @@ impl RoutingTable {
         }
     }
 
-    /// Returns the client address a server would see on an incoming packet if
-    /// sent to given server address.
-    ///
-    /// Returns none if the packet would not find a route and get lost.
-    fn resolve_client_to_server(&self, server_addr: SocketAddr) -> Option<SocketAddr> {
-        let (_, client_addr_idx) = self
-            .server_routes
-            .iter()
-            .find(|(addr, _)| *addr == server_addr)?;
-        let (client_addr, _) = self.client_routes.get(*client_addr_idx)?;
-        Some(*client_addr)
-    }
-
-    /// Returns the server address a client would see on an incoming packet if
-    /// sent to given client address.
-    ///
-    /// Returns none if the packet would not find a route and get lost.
-    fn resolve_server_to_client(&self, client_addr: SocketAddr) -> Option<SocketAddr> {
-        let (_, server_addr_idx) = self
-            .client_routes
-            .iter()
-            .find(|(addr, _)| *addr == client_addr)?;
-        let (server_addr, _) = self.server_routes.get(*server_addr_idx)?;
-        Some(*server_addr)
-    }
-
     /// Adds a new route from an existing server address (identified by index) to a new client address.
     pub(super) fn add_client_route(&mut self, client_addr: SocketAddr, server_addr_idx: usize) {
         assert!(server_addr_idx < self.server_routes.len());
@@ -1433,11 +1407,21 @@ impl RoutingTable {
 
 impl PairRoutingTable for RoutingTable {
     fn route_client_to_server(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
-        self.resolve_client_to_server(transmit.destination)
+        let (_, client_addr_idx) = self
+            .server_routes
+            .iter()
+            .find(|(addr, _)| *addr == transmit.destination)?;
+        let (client_addr, _) = self.client_routes.get(*client_addr_idx)?;
+        Some(*client_addr)
     }
 
     fn route_server_to_client(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
-        self.resolve_server_to_client(transmit.destination)
+        let (_, server_addr_idx) = self
+            .client_routes
+            .iter()
+            .find(|(addr, _)| *addr == transmit.destination)?;
+        let (server_addr, _) = self.server_routes.get(*server_addr_idx)?;
+        Some(*server_addr)
     }
 }
 
