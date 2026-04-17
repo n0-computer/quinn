@@ -363,6 +363,26 @@ impl Pair {
             local_ip: Some(self.server.addr.ip()),
         }
     }
+
+    /// Helper to get access to the test-specific routing table.
+    pub(super) fn downcast_routes_ref<T: PairRoutingTable>(&self) -> Option<&T> {
+        let routes: &dyn std::any::Any = self.routes.as_ref()?.as_ref();
+        Some(
+            routes
+                .downcast_ref::<T>()
+                .expect("downcast type does not match"),
+        )
+    }
+
+    /// Helper to get mutable access to the test-specific routing table.
+    pub(super) fn downcast_routes_mut<T: PairRoutingTable>(&mut self) -> Option<&mut T> {
+        let routes: &mut dyn std::any::Any = self.routes.as_mut()?.as_mut();
+        Some(
+            routes
+                .downcast_mut::<T>()
+                .expect("downcast type does not match"),
+        )
+    }
 }
 
 /// Wrapper to a [`Pair`] which keeps handles to the client and server connections.
