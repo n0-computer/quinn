@@ -1467,30 +1467,44 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
         // destination.
         let link_src = if transmit.destination == Self::SERVER_DIRECT {
             Self::CLIENT_DIRECT
-        } else if transmit.destination == Self::SERVER_NAT && self.server_firewall_open {
-            Self::CLIENT_NAT
         } else if transmit.destination == Self::SERVER_NAT {
-            debug!(?transmit.destination, "NAT blocked");
-            if !self.client_firewall_open {
-                info!("client NAT opened");
-                self.client_firewall_open = true;
-            }
-            return None;
+            Self::CLIENT_NAT
         } else {
-            // There is no possible link to this destination.
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: unknown destination (network unreachable)",
+            );
             return None;
         };
 
-        // Check if the datagram IS sent from that addr.
-        if transmit.src_ip.unwrap_or_else(|| link_src.ip()) == link_src.ip() {
-            if link_src == Self::CLIENT_NAT {
-                info!("client NAT opened");
-                self.client_firewall_open = true
-            }
-            Some(link_src)
-        } else {
-            None
+        // If the datagram is NOT sent from this source then it can't be sent.
+        if transmit.src_ip.unwrap_or_else(|| link_src.ip()) != link_src.ip() {
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: sent from wrong source (network unreachable)",
+            );
+            return None;
         }
+
+        // Open the local firewall for outgoing packet.
+        if link_src == Self::CLIENT_NAT && !self.client_firewall_open {
+            info!("client firewall opened");
+            self.client_firewall_open = true;
+        }
+
+        if transmit.destination == Self::SERVER_NAT && !self.server_firewall_open {
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: blocked by server firewall",
+            );
+            return None;
+        }
+
+        // Allow the datagram to be delivered.
+        Some(link_src)
     }
 
     /// Routes a datagram from server to client.
@@ -1506,29 +1520,43 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
         // destination.
         let link_src = if transmit.destination == Self::CLIENT_DIRECT {
             Self::SERVER_DIRECT
-        } else if transmit.destination == Self::CLIENT_NAT && self.client_firewall_open {
+        } else if transmit.destination == Self::CLIENT_NAT {
             Self::SERVER_NAT
-        } else if transmit.destination == Self::SERVER_NAT {
-            debug!(?transmit.destination, "NAT blocked");
-            if !self.server_firewall_open {
-                info!("server NAT opened");
-                self.server_firewall_open = true;
-            }
-            return None;
         } else {
-            // There is no possible link to this destination.
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: unknown destination (network unreachable)",
+            );
             return None;
         };
 
-        // Check if the datagram IS sent from that addr.
-        if transmit.src_ip.unwrap_or_else(|| link_src.ip()) == link_src.ip() {
-            if link_src == Self::SERVER_NAT {
-                info!("server NAT opened");
-                self.server_firewall_open = true;
-            }
-            Some(link_src)
-        } else {
-            None
+        // If the datagram is NOT sent from this source then it can't be sent.
+        if transmit.src_ip.unwrap_or_else(|| link_src.ip()) != link_src.ip() {
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: sent from wrong source (network unreachable)",
+            );
+            return None;
         }
+
+        // Open the local firewall for outgoing packet.
+        if link_src == Self::SERVER_NAT && !self.server_firewall_open {
+            info!("server firewall opened");
+            self.server_firewall_open = true;
+        }
+
+        if transmit.destination == Self::CLIENT_NAT && !self.client_firewall_open {
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: blocked by client firewall",
+            );
+            return None;
+        }
+
+        // Allow the datagram to be delivered.
+        Some(link_src)
     }
 }
