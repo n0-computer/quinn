@@ -13,6 +13,7 @@ allow = [
     "ISC",
     "MIT",
     "NCSA",
+    "OpenSSL",
     "Unicode-3.0",
     "Zlib", # foldhash, dependency of fastbloom
 ]
@@ -22,6 +23,7 @@ private = { ignore = true }
 multiple-versions = "warn"
 skip = [
     # hdrhistogram uses base64 0.21, newer crates use 0.22
+-    { crate = "base64", reason = "hdrhistogram uses 0.21, newer crates use 0.22" },
     { crate = "cpufeatures", reason = "rand 0.10 pulls in newer chacha (which depends on this), but aes-gcm hasn't updated yet" },
     # ring uses getrandom 0.2, newer crates use 0.3
     { crate = "getrandom", reason = "ring depends on 0.2, newer ecosystem uses 0.3" },
