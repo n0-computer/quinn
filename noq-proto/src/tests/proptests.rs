@@ -1291,6 +1291,7 @@ fn regression_1() {
         mtud_enabled: true,
         routing_setup: RoutingSetup::SimpleSymmetric,
     };
+    let establishment = Establishment::Full;
     let interactions = vec![
         TestOp::PassiveMigration {
             side: Side::Server,
@@ -1302,8 +1303,6 @@ fn regression_1() {
             drop: false,
         },
         TestOp::DriveBothToIdle,
-        TestOp::FinishConnect,
-        TestOp::DriveBothToIdle,
         TestOp::OpenPath {
             side: Side::Client,
             status: PathStatus::Available,
@@ -1314,7 +1313,7 @@ fn regression_1() {
     let _guard = subscribe();
     let (mut pair, client_config) = setup.run(prefix);
     let (client_ch, server_ch) =
-        run_random_interaction(&mut pair, interactions, client_config, Establishment::Full);
+        run_random_interaction(&mut pair, interactions, client_config, establishment);
 
     assert!(!pair.drive_bounded(1000), "connection never became idle");
     assert!(allowed_error(poll_to_close(
