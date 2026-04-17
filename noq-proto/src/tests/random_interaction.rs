@@ -141,7 +141,7 @@ impl TestOp {
                 side: Side::Client,
                 addr_idx,
             } => {
-                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?;
+                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?.as_mut();
                 let routes = routes.downcast_mut::<RoutingTable>().unwrap();
                 routes.sim_client_migration(addr_idx, inc_last_addr_octet);
             }
@@ -149,7 +149,7 @@ impl TestOp {
                 side: Side::Server,
                 addr_idx,
             } => {
-                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?;
+                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?.as_mut();
                 let routes = routes.downcast_mut::<RoutingTable>().unwrap();
                 routes.sim_server_migration(addr_idx, inc_last_addr_octet);
             }
@@ -158,7 +158,7 @@ impl TestOp {
                 status,
                 addr_idx,
             } => {
-                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?;
+                let routes: &dyn std::any::Any = pair.routes.as_ref()?.as_ref();
                 let routes = routes.downcast_ref::<RoutingTable>().unwrap();
                 let remote = match side {
                     Side::Client => routes.server_addr(addr_idx)?,
@@ -223,7 +223,7 @@ impl TestOp {
                 conn.close(now, error_code.into(), Bytes::new());
             }
             Self::AddHpAddr { side, addr_idx } => {
-                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?;
+                let routes: &mut dyn std::any::Any = pair.routes.as_mut()?.as_mut();
                 let routes = routes.downcast_ref::<RoutingTable>().unwrap();
                 let address = match side {
                     Side::Client => routes.client_addr(addr_idx)?,
