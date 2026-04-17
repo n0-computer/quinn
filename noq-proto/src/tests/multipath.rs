@@ -22,7 +22,7 @@ use crate::{
 };
 
 use super::util::{min_opt, subscribe};
-use super::{EndpointIndepedentNatRoutingTable, Pair, client_config, server_config};
+use super::{Pair, SimpleFirewallRoutingTable, client_config, server_config};
 
 const MAX_PATHS: u32 = 3;
 
@@ -1635,9 +1635,9 @@ fn test_simple_nat_traveral_opens_path() -> TestResult {
     let mut pair = multipath_pair_with_nat_traversal(true);
 
     info!("setting routes, adding addrs");
-    pair.routes = Some(Box::new(EndpointIndepedentNatRoutingTable::new()));
-    pair.add_nat_traversal_address(Server, EndpointIndepedentNatRoutingTable::SERVER_NAT)?;
-    pair.add_nat_traversal_address(Client, EndpointIndepedentNatRoutingTable::CLIENT_NAT)?;
+    pair.routes = Some(Box::new(SimpleFirewallRoutingTable::new()));
+    pair.add_nat_traversal_address(Server, SimpleFirewallRoutingTable::SERVER_FW_ADDR)?;
+    pair.add_nat_traversal_address(Client, SimpleFirewallRoutingTable::CLIENT_FW_ADDR)?;
     pair.drive();
 
     let event = pair.poll(Client).expect("should have event");

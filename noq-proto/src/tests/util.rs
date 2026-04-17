@@ -47,8 +47,18 @@ pub(super) struct Pair {
 }
 
 impl Pair {
+    /// The default client address of the pair.
+    ///
+    /// IPv6 address `::1:1`. This is a normal unicast address.
+    /// - `::1:1` is for the first client address.
+    /// - `::1:0/112` is the subnet used for all client addresses.
     pub(super) const CLIENT_ADDR: SocketAddr =
         SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 1, 1)), 1);
+    /// The default server address of the pair.
+    ///
+    /// IPv6 address `::2:1`. This is a normal unicast address.
+    /// - `::2:1` is for the first server address.
+    /// - `::2:0/112` is the subnet used for all server addresses.
     pub(super) const SERVER_ADDR: SocketAddr =
         SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 2, 1)), 1);
 
@@ -1431,7 +1441,10 @@ impl PairRoutingTable for RoutingTable {
     }
 }
 
-/// A routing table that simulates an Endpoint Independent NAT for both endpoints.
+/// A routing table with one open and one firewalled interface.
+///
+/// This essentially behaves like a Destination Endpoint Independent NAT with address and
+/// port filtering. But without having to simulate the public side of the network.
 ///
 /// This is pretty simplistic, but tests the basics.
 ///
@@ -1447,7 +1460,7 @@ impl PairRoutingTable for RoutingTable {
 /// an outgoing transmit has an `src_ip` of an interface that is not linked to the interface
 /// of the destination IP then a transmit is dropped.
 #[derive(Debug)]
-pub(super) struct EndpointIndepedentNatRoutingTable {
+pub(super) struct SimpleFirewallRoutingTable {
     /// Whether the client has sent a packet from `client_nat` to `server_nat`.
     ///
     /// If so packets from `server_nat` to `client_nat` will be allowed. If not they will be
@@ -1457,12 +1470,32 @@ pub(super) struct EndpointIndepedentNatRoutingTable {
     server_firewall_open: bool,
 }
 
-impl EndpointIndepedentNatRoutingTable {
-    pub(super) const CLIENT_DIRECT: SocketAddr = Pair::CLIENT_ADDR;
-    pub(super) const SERVER_DIRECT: SocketAddr = Pair::SERVER_ADDR;
-    pub(super) const CLIENT_NAT: SocketAddr =
+impl SimpleFirewallRoutingTable {
+    /// The address of the client's non-firewalled interface.
+    ///
+    /// IPv6 address `::1:1`. This is a normal unicast address.
+    /// - `::1:1` is for the first client address.
+    /// - `::1:0/112` is the subnet used for all client addresses.
+    pub(super) const CLIENT_DIRECT_ADDR: SocketAddr = Pair::CLIENT_ADDR;
+    /// The address of the server's non-firewalled interface.
+    ///
+    /// IPv6 address `::2:1`. This is a normal unicast address.
+    /// - `::2:1` is for the first server address.
+    /// - `::2:0/112` is the subnet used for all server addresses.
+    pub(super) const SERVER_DIRECT_ADDR: SocketAddr = Pair::SERVER_ADDR;
+    /// The address of the client's firewalled interface.
+    ///
+    /// IPv6 address `::1:2`. This is a normal IPv6 unicast address.
+    /// - `::1:2` is for the second client address.
+    /// - `::1:0/112` is the subnet used for all client addresses.
+    pub(super) const CLIENT_FW_ADDR: SocketAddr =
         SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 1, 2)), 1);
-    pub(super) const SERVER_NAT: SocketAddr =
+    /// The address of the server's firewalled interface.
+    ///
+    /// IPv6 address `::2:2`. This is a normal IPv6 unicast address.
+    /// - `::2:1` is for the second server address.
+    /// - `::2:0/112` is the subnet used for all server addresses.
+    pub(super) const SERVER_FW_ADDR: SocketAddr =
         SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 2, 2)), 1);
 
     pub(super) fn new() -> Self {
@@ -1473,7 +1506,7 @@ impl EndpointIndepedentNatRoutingTable {
     }
 }
 
-impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
+impl PairRoutingTable for SimpleFirewallRoutingTable {
     /// Routes a datagram from client to server.
     ///
     /// Returns the address the server will observe as the sender of the datagram. Or `None`
@@ -1485,10 +1518,10 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
     fn route_client_to_server(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
         // Find the address this datagram SHOULD have been sent on to be able to reach the
         // destination.
-        let link_src = if transmit.destination == Self::SERVER_DIRECT {
-            Self::CLIENT_DIRECT
-        } else if transmit.destination == Self::SERVER_NAT {
-            Self::CLIENT_NAT
+        let link_src = if transmit.destination == Self::SERVER_DIRECT_ADDR {
+            Self::CLIENT_DIRECT_ADDR
+        } else if transmit.destination == Self::SERVER_FW_ADDR {
+            Self::CLIENT_FW_ADDR
         } else {
             debug!(
                 ?transmit.src_ip,
@@ -1509,12 +1542,12 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
         }
 
         // Open the local firewall for outgoing packet.
-        if link_src == Self::CLIENT_NAT && !self.client_firewall_open {
+        if link_src == Self::CLIENT_FW_ADDR && !self.client_firewall_open {
             info!("client firewall opened");
             self.client_firewall_open = true;
         }
 
-        if transmit.destination == Self::SERVER_NAT && !self.server_firewall_open {
+        if transmit.destination == Self::SERVER_FW_ADDR && !self.server_firewall_open {
             debug!(
                 ?transmit.src_ip,
                 ?transmit.destination,
@@ -1538,10 +1571,10 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
     fn route_server_to_client(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
         // Find the address this datagram SHOULD have been sent on to be able to reach the
         // destination.
-        let link_src = if transmit.destination == Self::CLIENT_DIRECT {
-            Self::SERVER_DIRECT
-        } else if transmit.destination == Self::CLIENT_NAT {
-            Self::SERVER_NAT
+        let link_src = if transmit.destination == Self::CLIENT_DIRECT_ADDR {
+            Self::SERVER_DIRECT_ADDR
+        } else if transmit.destination == Self::CLIENT_FW_ADDR {
+            Self::SERVER_FW_ADDR
         } else {
             debug!(
                 ?transmit.src_ip,
@@ -1562,12 +1595,12 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
         }
 
         // Open the local firewall for outgoing packet.
-        if link_src == Self::SERVER_NAT && !self.server_firewall_open {
+        if link_src == Self::SERVER_FW_ADDR && !self.server_firewall_open {
             info!("server firewall opened");
             self.server_firewall_open = true;
         }
 
-        if transmit.destination == Self::CLIENT_NAT && !self.client_firewall_open {
+        if transmit.destination == Self::CLIENT_FW_ADDR && !self.client_firewall_open {
             debug!(
                 ?transmit.src_ip,
                 ?transmit.destination,
