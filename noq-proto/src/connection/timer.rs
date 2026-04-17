@@ -419,6 +419,31 @@ impl TimerTable {
 
         values
     }
+
+    #[cfg(test)]
+    pub(crate) fn timers_before(&self, now: Instant) -> Vec<Timer> {
+        let mut values = Vec::new();
+
+        for timer in ConnTimer::VALUES {
+            if let Some(time) = self.generic[timer as usize]
+                && time <= now
+            {
+                values.push(Timer::Conn(timer));
+            }
+        }
+
+        for timer in PathTimer::VALUES {
+            for (path_id, timers) in self.path_timers.iter() {
+                if let Some(time) = timers.timers[timer as usize]
+                    && time <= now
+                {
+                    values.push(Timer::PerPath(*path_id, timer));
+                }
+            }
+        }
+
+        values
+    }
 }
 
 #[cfg(test)]

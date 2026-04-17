@@ -1,4 +1,7 @@
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4};
+use std::{
+    fmt::Debug,
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4},
+};
 
 use bytes::Bytes;
 use test_strategy::Arbitrary;
@@ -11,6 +14,10 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, Arbitrary)]
 pub(super) enum TestOp {
+    /// Finish the started connection attempt by accepting it on the server side.
+    FinishConnect,
+    /// Drive both sides until the connection is idle.
+    DriveBothToIdle,
     /// Drive the endpoint on the given `side`, processing all pending I/O.
     Drive { side: Side },
     /// Advance the simulated time forward, unless both endpoints are idle.
@@ -58,6 +65,15 @@ pub(super) enum TestOp {
     },
     /// Perform a stream-level operation on the connection belonging to `side`.
     StreamOp { side: Side, stream_op: StreamOp },
+    /// Send a datagram.
+    SendDatagram {
+        side: Side,
+        #[strategy(0..2000usize)]
+        size: usize,
+        drop: bool,
+    },
+    /// Read all datagrams on given `side`.
+    ReadDatagrams { side: Side },
     /// Close the connection belonging to `side`.
     CloseConn {
         side: Side,
@@ -94,39 +110,94 @@ pub(super) enum StreamOp {
     Stop(#[strategy(0..3usize)] usize, u32),
 }
 
+/// The type of connection establishment to generate.
+#[derive(Debug, Clone, Copy, Arbitrary)]
+pub(super) enum Establishment {
+    /// Fully establish the connection before test operations.
+    Full,
+    /// Start running test operations before the handshake is finished.
+    BeforeHandshake,
+}
+
 pub(super) struct State {
     send_streams: Vec<StreamId>,
     recv_streams: Vec<StreamId>,
-    handle: ConnectionHandle,
+    handle: Option<ConnectionHandle>,
     side: Side,
 }
 
+/// Possible reasons a [`TestOp`] might not apply cleanly.
+#[derive(Debug)]
+pub(super) enum Error {
+    /// Running the operation has no effect.
+    ///
+    /// E.g. the operation requires some stream to be active or some path to be opened,
+    /// which isn't opened at this point in time, and thus the operation is skipped.
+    NoEffect,
+    /// Running the operation returned an error.
+    ///
+    /// E.g. we attempted to run multipath operations before we negotiated the multipath extension.
+    ApiError(Box<dyn Debug + 'static>),
+}
+
+impl Error {
+    fn api(api_error: impl Debug + 'static) -> Self {
+        Self::ApiError(Box::new(api_error))
+    }
+}
+
 impl TestOp {
-    fn run(self, pair: &mut Pair, client: &mut State, server: &mut State) -> Option<()> {
+    fn run(self, pair: &mut Pair, client: &mut State, server: &mut State) -> Result<(), Error> {
         let now = pair.time;
         match self {
+            Self::FinishConnect => {
+                let accept = pair
+                    .server
+                    .accepted
+                    .take()
+                    .ok_or(Error::NoEffect)?
+                    .map_err(Error::api)?;
+                server.handle = Some(accept);
+            }
+            Self::DriveBothToIdle => {
+                if pair.drive_bounded(100) {
+                    error!("DriveBothToIdle exceeded 100 steps");
+                }
+            }
             Self::Drive { side: Side::Client } => pair.drive_client(),
             Self::Drive { side: Side::Server } => pair.drive_server(),
             Self::AdvanceTime => {
+                let before = pair.time;
                 // If we advance during idle, we just immediately hit the idle timeout
                 if !pair.client.is_idle() || !pair.server.is_idle() {
                     pair.advance_time();
                 }
+                if before == pair.time {
+                    return Err(Error::NoEffect);
+                }
             }
             Self::DropInbound { side: Side::Client } => {
-                debug!(len = pair.client.inbound.len(), "dropping inbound");
+                let len = pair.client.inbound.len();
+                debug!(len, "dropping inbound");
                 pair.client.inbound.clear();
+                if len == 0 {
+                    return Err(Error::NoEffect);
+                }
             }
             Self::DropInbound { side: Side::Server } => {
-                debug!(len = pair.server.inbound.len(), "dropping inbound");
+                let len = pair.server.inbound.len();
+                debug!(len, "dropping inbound");
                 pair.server.inbound.clear();
+                if len == 0 {
+                    return Err(Error::NoEffect);
+                }
             }
             Self::ReorderInbound { side: Side::Client } => {
-                let item = pair.client.inbound.pop_front()?;
+                let item = pair.client.inbound.pop_front().ok_or(Error::NoEffect)?;
                 pair.client.inbound.push_back(item);
             }
             Self::ReorderInbound { side: Side::Server } => {
-                let item = pair.server.inbound.pop_front()?;
+                let item = pair.server.inbound.pop_front().ok_or(Error::NoEffect)?;
                 pair.server.inbound.push_back(item);
             }
             Self::ForceKeyUpdate { side: Side::Client } => client.conn(pair)?.force_key_update(),
@@ -135,14 +206,14 @@ impl TestOp {
                 side: Side::Client,
                 addr_idx,
             } => {
-                let routes = pair.routes.as_mut()?;
+                let routes = pair.routes.as_mut().ok_or(Error::NoEffect)?;
                 routes.sim_client_migration(addr_idx, inc_last_addr_octet);
             }
             Self::PassiveMigration {
                 side: Side::Server,
                 addr_idx,
             } => {
-                let routes = pair.routes.as_mut()?;
+                let routes = pair.routes.as_mut().ok_or(Error::NoEffect)?;
                 routes.sim_server_migration(addr_idx, inc_last_addr_octet);
             }
             Self::OpenPath {
@@ -150,10 +221,10 @@ impl TestOp {
                 status,
                 addr_idx,
             } => {
-                let routes = pair.routes.as_ref()?;
+                let routes = pair.routes.as_ref().ok_or(Error::NoEffect)?;
                 let remote = match side {
-                    Side::Client => routes.server_addr(addr_idx)?,
-                    Side::Server => routes.client_addr(addr_idx)?,
+                    Side::Client => routes.server_addr(addr_idx).ok_or(Error::NoEffect)?,
+                    Side::Server => routes.client_addr(addr_idx).ok_or(Error::NoEffect)?,
                 };
                 let state = match side {
                     Side::Client => client,
@@ -165,8 +236,7 @@ impl TestOp {
                     local_ip: None,
                 };
                 conn.open_path(network_path, status, now)
-                    .inspect_err(|err| error!(?err, "OpenPath failed"))
-                    .ok();
+                    .map_err(Error::api)?;
             }
             Self::ClosePath {
                 side,
@@ -180,8 +250,7 @@ impl TestOp {
                 let conn = state.conn(pair)?;
                 let path_id = get_path_id(conn, path_idx)?;
                 conn.close_path(now, path_id, error_code.into())
-                    .inspect_err(|err| error!(?err, "ClosePath failed"))
-                    .ok();
+                    .map_err(Error::api)?;
             }
             Self::PathSetStatus {
                 side,
@@ -194,16 +263,35 @@ impl TestOp {
                 };
                 let conn = state.conn(pair)?;
                 let path_id = get_path_id(conn, path_idx)?;
-                conn.set_path_status(path_id, status)
-                    .inspect_err(|err| error!(?err, "PathSetStatus failed"))
-                    .ok();
+                conn.set_path_status(path_id, status).map_err(Error::api)?;
             }
             Self::StreamOp { side, stream_op } => {
                 let state = match side {
                     Side::Client => client,
                     Side::Server => server,
                 };
-                stream_op.run(pair, state);
+                stream_op.run(pair, state)?;
+            }
+            Self::SendDatagram { side, size, drop } => {
+                let state = match side {
+                    Side::Client => client,
+                    Side::Server => server,
+                };
+                let data = vec![42u8; size];
+                state
+                    .conn(pair)?
+                    .datagrams()
+                    .send(data.into(), drop)
+                    .map_err(Error::api)?;
+            }
+            Self::ReadDatagrams { side } => {
+                let state = match side {
+                    Side::Client => client,
+                    Side::Server => server,
+                };
+                while let Some(data) = state.conn(pair)?.datagrams().recv() {
+                    trace!(len = data.len(), "ReadDatagrams read a datagram");
+                }
             }
             Self::CloseConn { side, error_code } => {
                 let state = match side {
@@ -214,10 +302,10 @@ impl TestOp {
                 conn.close(now, error_code.into(), Bytes::new());
             }
             Self::AddHpAddr { side, addr_idx } => {
-                let routes = pair.routes.as_ref()?;
+                let routes = pair.routes.as_ref().ok_or(Error::NoEffect)?;
                 let address = match side {
-                    Side::Client => routes.client_addr(addr_idx)?,
-                    Side::Server => routes.server_addr(addr_idx)?,
+                    Side::Client => routes.client_addr(addr_idx).ok_or(Error::NoEffect)?,
+                    Side::Server => routes.server_addr(addr_idx).ok_or(Error::NoEffect)?,
                 };
                 let state = match side {
                     Side::Client => client,
@@ -225,8 +313,7 @@ impl TestOp {
                 };
                 let conn = state.conn(pair)?;
                 conn.add_nat_traversal_address(address)
-                    .inspect_err(|err| error!(?err, "AddHpAddr failed"))
-                    .ok();
+                    .map_err(Error::api)?;
             }
             Self::InitiateHpRound { side } => {
                 let state = match side {
@@ -234,60 +321,67 @@ impl TestOp {
                     Side::Server => server,
                 };
                 let conn = state.conn(pair)?;
-                let addrs = conn
-                    .initiate_nat_traversal_round(now)
-                    .inspect_err(|err| error!(?err, "InitiateHpRound failed"))
-                    .ok()?;
+                let addrs = conn.initiate_nat_traversal_round(now).map_err(Error::api)?;
                 trace!(?addrs, "initiating NAT Traversal");
             }
         }
-        Some(())
+        Ok(())
     }
 }
 
 impl StreamOp {
-    fn run(self, pair: &mut Pair, state: &mut State) -> Option<()> {
+    fn run(self, pair: &mut Pair, state: &mut State) -> Result<(), Error> {
         let conn = state.conn(pair)?;
         // We generally ignore application-level errors. It's legal to call these APIs, so we do. We don't expect them to work all the time.
         match self {
             Self::Open(kind) => state.send_streams.extend(conn.streams().open(kind)),
             Self::Send { stream, num_bytes } => {
-                let stream_id = state.send_streams.get(stream)?;
+                let stream_id = state.send_streams.get(stream).ok_or(Error::NoEffect)?;
                 let data = vec![0; num_bytes];
-                let bytes = conn.send_stream(*stream_id).write(&data).ok()?;
+                let bytes = conn
+                    .send_stream(*stream_id)
+                    .write(&data)
+                    .map_err(Error::api)?;
                 trace!(attempted_write = %num_bytes, actually_written = %bytes, "random interaction: Wrote stream bytes");
             }
             Self::Finish(stream) => {
-                let stream_id = state.send_streams.get(stream)?;
-                conn.send_stream(*stream_id).finish().ok();
+                let stream_id = state.send_streams.get(stream).ok_or(Error::NoEffect)?;
+                conn.send_stream(*stream_id).finish().map_err(Error::api)?;
             }
             Self::Reset(stream, code) => {
-                let stream_id = state.send_streams.get(stream)?;
-                conn.send_stream(*stream_id).reset(code.into()).ok();
+                let stream_id = state.send_streams.get(stream).ok_or(Error::NoEffect)?;
+                conn.send_stream(*stream_id)
+                    .reset(code.into())
+                    .map_err(Error::api)?;
             }
             Self::Accept(kind) => state.recv_streams.extend(conn.streams().accept(kind)),
             Self::Receive(stream, ordered) => {
-                let stream_id = state.recv_streams.get(stream)?;
+                let stream_id = state.recv_streams.get(stream).ok_or(Error::NoEffect)?;
                 let mut recv_stream = conn.recv_stream(*stream_id);
-                let mut chunks = recv_stream.read(ordered).ok()?;
-                let chunk = chunks.next(usize::MAX).ok()??;
+                let mut chunks = recv_stream.read(ordered).map_err(Error::api)?;
+                let chunk = chunks
+                    .next(usize::MAX)
+                    .map_err(Error::api)?
+                    .ok_or(Error::NoEffect)?;
                 trace!(chunk_len = %chunk.bytes.len(), offset = %chunk.offset, "read from stream");
             }
             Self::Stop(stream, code) => {
-                let stream_id = state.recv_streams.get(stream)?;
-                conn.recv_stream(*stream_id).stop(code.into()).ok();
+                let stream_id = state.recv_streams.get(stream).ok_or(Error::NoEffect)?;
+                conn.recv_stream(*stream_id)
+                    .stop(code.into())
+                    .map_err(Error::api)?;
             }
         };
-        Some(())
+        Ok(())
     }
 }
 
 impl State {
-    fn new(side: Side, handle: ConnectionHandle) -> Self {
+    fn new(side: Side) -> Self {
         Self {
             send_streams: Vec::new(),
             recv_streams: Vec::new(),
-            handle,
+            handle: None,
             side,
         }
     }
@@ -299,16 +393,20 @@ impl State {
         }
     }
 
-    fn conn<'a>(&self, pair: &'a mut Pair) -> Option<&'a mut Connection> {
-        self.endpoint(pair).connections.get_mut(&self.handle)
+    fn conn<'a>(&self, pair: &'a mut Pair) -> Result<&'a mut Connection, Error> {
+        self.endpoint(pair)
+            .connections
+            .get_mut(&self.handle.ok_or(Error::NoEffect)?)
+            .ok_or(Error::NoEffect)
     }
 }
 
-fn get_path_id(conn: &mut Connection, idx: usize) -> Option<PathId> {
+fn get_path_id(conn: &mut Connection, idx: usize) -> Result<PathId, Error> {
     let paths = conn.paths();
     paths
         .get(idx.clamp(0, paths.len().saturating_sub(1)))
         .copied()
+        .ok_or(Error::NoEffect)
 }
 
 fn inc_last_addr_octet(addr: SocketAddr) -> SocketAddr {
@@ -332,16 +430,39 @@ pub(super) fn run_random_interaction(
     pair: &mut Pair,
     interactions: Vec<TestOp>,
     client_config: ClientConfig,
-) -> (ConnectionHandle, ConnectionHandle) {
-    let (client_ch, server_ch) = pair.connect_with(client_config);
-    pair.drive(); // finish establishing the connection;
-    info!("INTERACTION SETUP FINISHED");
-    let mut client = State::new(Side::Client, client_ch);
-    let mut server = State::new(Side::Server, server_ch);
+    establishment: Establishment,
+) -> (ConnectionHandle, Option<ConnectionHandle>) {
+    let mut client = State::new(Side::Client);
+    let mut server = State::new(Side::Server);
+
+    let client_handle = pair.begin_connect(client_config);
+    client.handle = Some(client_handle);
+
+    if matches!(establishment, Establishment::Full) {
+        pair.drive();
+        TestOp::FinishConnect
+            .run(pair, &mut client, &mut server)
+            .expect("server experienced error connecting");
+        pair.drive();
+    }
+
+    info!(?establishment, "INTERACTION SETUP COMPLETE");
 
     for interaction in interactions {
         info!(?interaction, "INTERACTION STEP");
-        interaction.run(pair, &mut client, &mut server);
+        match interaction.run(pair, &mut client, &mut server) {
+            Ok(()) => {}
+            Err(Error::NoEffect) => {
+                info!(
+                    ?interaction,
+                    "interaction step skipped due to invalid state"
+                );
+            }
+            Err(Error::ApiError(err)) => {
+                error!(?interaction, ?err, "interaction step produced an API error");
+            }
+        }
     }
-    (client.handle, server.handle)
+
+    (client_handle, server.handle)
 }
