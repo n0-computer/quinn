@@ -839,7 +839,7 @@ async fn multiple_conns_with_zero_length_cids() {
     let mut factory = EndpointFactory::new();
     factory
         .endpoint_config
-        .cid_generator(|| Box::new(RandomConnectionIdGenerator::new(0)));
+        .cid_generator(Arc::new(|| Box::new(RandomConnectionIdGenerator::new(0))));
     let server = factory.endpoint("server");
     let server_addr = server.local_addr().unwrap();
 
