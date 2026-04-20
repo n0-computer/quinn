@@ -5047,8 +5047,9 @@ impl Connection {
                     use crate::cid_queue::InsertError;
                     match remote_cids.insert(frame) {
                         Ok(None) if self.path(path_id).is_none() => {
-                            // TODO(flub): will we still need to continue such a round?
-                            // if this gives us CIDs to open a new path and a nat traversal attempt
+                            // TODO(flub): Once the client does off-path NAT probes as well
+                            //    we should remove this.
+                            // If this gives us CIDs to open a new path and a nat traversal attempt
                             // is underway we could try to probe a pending remote
                             self.continue_nat_traversal_round(now);
                         }
@@ -5288,7 +5289,9 @@ impl Connection {
                     if path_id > self.remote_max_path_id {
                         self.remote_max_path_id = path_id;
                         self.issue_first_path_cids(now);
-                        // TODO(flub): will we still need to continue these?
+                        // TODO(flub): Once the client sends off-path NAT probes this is no
+                        //    longer needed. But new paths that need to be opened may need
+                        //    to be notified.
                         while let Some(true) = self.continue_nat_traversal_round(now) {}
                     }
                 }
