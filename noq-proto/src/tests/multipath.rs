@@ -10,7 +10,7 @@ use testresult::TestResult;
 use tracing::info;
 
 use crate::tests::RoutingTable;
-use crate::tests::util::{CLIENT_PORTS, ConnPair, SERVER_PORTS};
+use crate::tests::util::ConnPair;
 use crate::{
     ClientConfig, ConnectionId, ConnectionIdGenerator, Endpoint, EndpointConfig, FourTuple,
     LOCAL_CID_COUNT, NetworkChangeHint, PathId, PathStatus, RandomConnectionIdGenerator,
@@ -18,10 +18,11 @@ use crate::{
 };
 use crate::{
     ClosePathError, Dir, Event, PathAbandonReason, PathEvent, StreamEvent, TransportErrorCode,
+    n0_nat_traversal,
 };
 
 use super::util::{min_opt, subscribe};
-use super::{EndpointIndepedentNatRoutingTable, Pair, client_config, server_config};
+use super::{Pair, SimpleFirewallRoutingTable, client_config, server_config};
 
 const MAX_PATHS: u32 = 3;
 
@@ -476,12 +477,11 @@ fn open_path_validation_fails_server_side() -> TestResult {
     let mut pair = multipath_pair();
 
     let different_addr = FourTuple {
-        remote: SocketAddr::new(
-            [9, 8, 7, 6].into(),
-            SERVER_PORTS.lock()?.next().ok_or("no port")?,
-        ),
+        remote: SocketAddr::new([9, 8, 7, 6].into(), 5),
         local_ip: None,
     };
+    assert_ne!(different_addr.remote, Pair::SERVER_ADDR);
+    assert_ne!(different_addr.remote, Pair::CLIENT_ADDR);
     let path_id = pair.open_path(Client, different_addr, PathStatus::Available)?;
 
     // block the server from receiving anything
@@ -504,10 +504,9 @@ fn open_path_validation_fails_client_side() -> TestResult {
     let mut pair = multipath_pair();
 
     // make sure the new path cannot be validated using the existing path
-    pair.client.addr = SocketAddr::new(
-        [9, 8, 7, 6].into(),
-        CLIENT_PORTS.lock()?.next().ok_or("no port")?,
-    );
+    pair.client.addr = SocketAddr::new([9, 8, 7, 6].into(), 5);
+    assert_ne!(pair.client.addr, Pair::SERVER_ADDR);
+    assert_ne!(pair.client.addr, Pair::CLIENT_ADDR);
 
     let addr = pair.server.addr;
     let network_path = FourTuple {
@@ -1630,25 +1629,37 @@ fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
 }
 
 /// Tests NAT traversal manages to open a 2nd path.
-///
-/// There is no NAT involved, all paths are open already.
 #[test]
 fn test_simple_nat_traveral_opens_path() -> TestResult {
     let _guard = subscribe();
     let mut pair = multipath_pair_with_nat_traversal(true);
 
     info!("setting routes, adding addrs");
-    pair.routes = Some(Box::new(EndpointIndepedentNatRoutingTable::new()));
-    pair.add_nat_traversal_address(Server, EndpointIndepedentNatRoutingTable::SERVER_NAT)?;
-    pair.add_nat_traversal_address(Client, EndpointIndepedentNatRoutingTable::CLIENT_NAT)?;
+    pair.routes = Some(Box::new(SimpleFirewallRoutingTable::new()));
+    pair.add_nat_traversal_address(Server, SimpleFirewallRoutingTable::SERVER_FW_ADDR)?;
+    pair.add_nat_traversal_address(Client, SimpleFirewallRoutingTable::CLIENT_FW_ADDR)?;
     pair.drive();
+
+    let event = pair.poll(Client).expect("should have event");
+    assert!(matches!(
+        event,
+        Event::NatTraversal(n0_nat_traversal::Event::AddressAdded(_))
+    ));
 
     info!("init NAT traversal");
     pair.initiate_nat_traversal_round(Client)?;
 
+    // Ensure we have no more events queued
+    assert!(pair.poll(Client).is_none());
+    assert!(pair.poll(Server).is_none());
+
     pair.drive();
 
-    // TODO
+    let event = pair.poll(Client).expect("should have event");
+    assert!(matches!(event, Event::Path(PathEvent::Opened { .. })));
+
+    let event = pair.poll(Server).expect("should have event");
+    assert!(matches!(event, Event::Path(PathEvent::Opened { .. })));
 
     Ok(())
 }

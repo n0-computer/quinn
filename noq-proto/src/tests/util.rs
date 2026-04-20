@@ -5,7 +5,6 @@ use std::{
     mem,
     net::{Ipv6Addr, SocketAddr},
     num::{NonZeroU32, NonZeroUsize},
-    ops::RangeFrom,
     str,
     sync::{Arc, LazyLock, Mutex},
 };
@@ -48,8 +47,18 @@ pub(super) struct Pair {
 }
 
 impl Pair {
+    /// The default client address of the pair.
+    ///
+    /// IPv6 address `::1:1`. This is a normal unicast address.
+    /// - `::1:1` is for the first client address.
+    /// - `::1:0/112` is the subnet used for all client addresses.
     pub(super) const CLIENT_ADDR: SocketAddr =
         SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 1, 1)), 1);
+    /// The default server address of the pair.
+    ///
+    /// IPv6 address `::2:1`. This is a normal unicast address.
+    /// - `::2:1` is for the first server address.
+    /// - `::2:0/112` is the subnet used for all server addresses.
     pub(super) const SERVER_ADDR: SocketAddr =
         SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 2, 1)), 1);
 
@@ -363,6 +372,26 @@ impl Pair {
             remote: self.client.addr,
             local_ip: Some(self.server.addr.ip()),
         }
+    }
+
+    /// Helper to get access to the test-specific routing table.
+    pub(super) fn downcast_routes_ref<T: PairRoutingTable>(&self) -> Option<&T> {
+        let routes: &dyn std::any::Any = self.routes.as_ref()?.as_ref();
+        Some(
+            routes
+                .downcast_ref::<T>()
+                .expect("downcast type does not match"),
+        )
+    }
+
+    /// Helper to get mutable access to the test-specific routing table.
+    pub(super) fn downcast_routes_mut<T: PairRoutingTable>(&mut self) -> Option<&mut T> {
+        let routes: &mut dyn std::any::Any = self.routes.as_mut()?.as_mut();
+        Some(
+            routes
+                .downcast_mut::<T>()
+                .expect("downcast type does not match"),
+        )
     }
 }
 
@@ -1237,10 +1266,6 @@ fn set_congestion_experienced(
     })
 }
 
-pub(crate) static SERVER_PORTS: LazyLock<Mutex<RangeFrom<u16>>> =
-    LazyLock::new(|| Mutex::new(4433..));
-pub(crate) static CLIENT_PORTS: LazyLock<Mutex<RangeFrom<u16>>> =
-    LazyLock::new(|| Mutex::new(44433..));
 pub(crate) static CERTIFIED_KEY: LazyLock<rcgen::CertifiedKey<rcgen::KeyPair>> =
     LazyLock::new(|| rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap());
 
@@ -1337,32 +1362,6 @@ impl RoutingTable {
         }
     }
 
-    /// Returns the client address a server would see on an incoming packet if
-    /// sent to given server address.
-    ///
-    /// Returns none if the packet would not find a route and get lost.
-    fn resolve_client_to_server(&self, server_addr: SocketAddr) -> Option<SocketAddr> {
-        let (_, client_addr_idx) = self
-            .server_routes
-            .iter()
-            .find(|(addr, _)| *addr == server_addr)?;
-        let (client_addr, _) = self.client_routes.get(*client_addr_idx)?;
-        Some(*client_addr)
-    }
-
-    /// Returns the server address a client would see on an incoming packet if
-    /// sent to given client address.
-    ///
-    /// Returns none if the packet would not find a route and get lost.
-    fn resolve_server_to_client(&self, client_addr: SocketAddr) -> Option<SocketAddr> {
-        let (_, server_addr_idx) = self
-            .client_routes
-            .iter()
-            .find(|(addr, _)| *addr == client_addr)?;
-        let (server_addr, _) = self.server_routes.get(*server_addr_idx)?;
-        Some(*server_addr)
-    }
-
     /// Adds a new route from an existing server address (identified by index) to a new client address.
     pub(super) fn add_client_route(&mut self, client_addr: SocketAddr, server_addr_idx: usize) {
         assert!(server_addr_idx < self.server_routes.len());
@@ -1408,15 +1407,28 @@ impl RoutingTable {
 
 impl PairRoutingTable for RoutingTable {
     fn route_client_to_server(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
-        self.resolve_client_to_server(transmit.destination)
+        let (_, client_addr_idx) = self
+            .server_routes
+            .iter()
+            .find(|(addr, _)| *addr == transmit.destination)?;
+        let (client_addr, _) = self.client_routes.get(*client_addr_idx)?;
+        Some(*client_addr)
     }
 
     fn route_server_to_client(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
-        self.resolve_server_to_client(transmit.destination)
+        let (_, server_addr_idx) = self
+            .client_routes
+            .iter()
+            .find(|(addr, _)| *addr == transmit.destination)?;
+        let (server_addr, _) = self.server_routes.get(*server_addr_idx)?;
+        Some(*server_addr)
     }
 }
 
-/// A routing table that simulates an Endpoint Independent NAT for both endpoints.
+/// A routing table with one open and one firewalled interface.
+///
+/// This essentially behaves like a Destination Endpoint Independent NAT with address and
+/// port filtering. But without having to simulate the public side of the network.
 ///
 /// This is pretty simplistic, but tests the basics.
 ///
@@ -1432,45 +1444,53 @@ impl PairRoutingTable for RoutingTable {
 /// an outgoing transmit has an `src_ip` of an interface that is not linked to the interface
 /// of the destination IP then a transmit is dropped.
 #[derive(Debug)]
-pub(super) struct EndpointIndepedentNatRoutingTable {
-    client_direct: SocketAddr,
-    server_direct: SocketAddr,
-    client_nat: SocketAddr,
-    server_nat: SocketAddr,
+pub(super) struct SimpleFirewallRoutingTable {
     /// Whether the client has sent a packet from `client_nat` to `server_nat`.
     ///
     /// If so packets from `server_nat` to `client_nat` will be allowed. If not they will be
     /// dropped.
-    client_nat_open: bool,
+    client_firewall_open: bool,
     /// Whether the server has sent a packet from `server_nat` to `client_nat`.
-    server_nat_open: bool,
+    server_firewall_open: bool,
 }
 
-impl EndpointIndepedentNatRoutingTable {
-    // pub(super) const CLIENT_DIRECT: SocketAddr =
-    //     SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 1, 1)), 1);
-    // pub(super) const SERVER_DIRECT: SocketAddr =
-    //     SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 2, 1)), 1);
-    pub(super) const CLIENT_DIRECT: SocketAddr = Pair::CLIENT_ADDR;
-    pub(super) const SERVER_DIRECT: SocketAddr = Pair::SERVER_ADDR;
-    pub(super) const CLIENT_NAT: SocketAddr =
+impl SimpleFirewallRoutingTable {
+    /// The address of the client's non-firewalled interface.
+    ///
+    /// IPv6 address `::1:1`. This is a normal unicast address.
+    /// - `::1:1` is for the first client address.
+    /// - `::1:0/112` is the subnet used for all client addresses.
+    pub(super) const CLIENT_DIRECT_ADDR: SocketAddr = Pair::CLIENT_ADDR;
+    /// The address of the server's non-firewalled interface.
+    ///
+    /// IPv6 address `::2:1`. This is a normal unicast address.
+    /// - `::2:1` is for the first server address.
+    /// - `::2:0/112` is the subnet used for all server addresses.
+    pub(super) const SERVER_DIRECT_ADDR: SocketAddr = Pair::SERVER_ADDR;
+    /// The address of the client's firewalled interface.
+    ///
+    /// IPv6 address `::1:2`. This is a normal IPv6 unicast address.
+    /// - `::1:2` is for the second client address.
+    /// - `::1:0/112` is the subnet used for all client addresses.
+    pub(super) const CLIENT_FW_ADDR: SocketAddr =
         SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 1, 2)), 1);
-    pub(super) const SERVER_NAT: SocketAddr =
+    /// The address of the server's firewalled interface.
+    ///
+    /// IPv6 address `::2:2`. This is a normal IPv6 unicast address.
+    /// - `::2:1` is for the second server address.
+    /// - `::2:0/112` is the subnet used for all server addresses.
+    pub(super) const SERVER_FW_ADDR: SocketAddr =
         SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 2, 2)), 1);
 
     pub(super) fn new() -> Self {
         Self {
-            client_direct: Self::CLIENT_DIRECT,
-            server_direct: Self::SERVER_DIRECT,
-            client_nat: Self::CLIENT_NAT,
-            server_nat: Self::SERVER_NAT,
-            client_nat_open: false,
-            server_nat_open: false,
+            client_firewall_open: false,
+            server_firewall_open: false,
         }
     }
 }
 
-impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
+impl PairRoutingTable for SimpleFirewallRoutingTable {
     /// Routes a datagram from client to server.
     ///
     /// Returns the address the server will observe as the sender of the datagram. Or `None`
@@ -1482,32 +1502,46 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
     fn route_client_to_server(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
         // Find the address this datagram SHOULD have been sent on to be able to reach the
         // destination.
-        let link_src = if transmit.destination == self.server_direct {
-            self.client_direct
-        } else if transmit.destination == self.server_nat && self.server_nat_open {
-            self.client_nat
-        } else if transmit.destination == self.server_nat {
-            debug!(?transmit.destination, "NAT blocked");
-            if !self.client_nat_open {
-                info!("client NAT opened");
-                self.client_nat_open = true;
-            }
-            return None;
+        let link_src = if transmit.destination == Self::SERVER_DIRECT_ADDR {
+            Self::CLIENT_DIRECT_ADDR
+        } else if transmit.destination == Self::SERVER_FW_ADDR {
+            Self::CLIENT_FW_ADDR
         } else {
-            // There is no possible link to this destination.
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: unknown destination (network unreachable)",
+            );
             return None;
         };
 
-        // Check if the datagram IS sent from that addr.
-        if transmit.src_ip.unwrap_or_else(|| link_src.ip()) == link_src.ip() {
-            if link_src == self.client_nat {
-                info!("client NAT opened");
-                self.client_nat_open = true
-            }
-            Some(link_src)
-        } else {
-            None
+        // If the datagram is NOT sent from this source then it can't be sent.
+        if transmit.src_ip.unwrap_or_else(|| link_src.ip()) != link_src.ip() {
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: sent from wrong source (network unreachable)",
+            );
+            return None;
         }
+
+        // Open the local firewall for outgoing packet.
+        if link_src == Self::CLIENT_FW_ADDR && !self.client_firewall_open {
+            info!("client firewall opened");
+            self.client_firewall_open = true;
+        }
+
+        if transmit.destination == Self::SERVER_FW_ADDR && !self.server_firewall_open {
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: blocked by server firewall",
+            );
+            return None;
+        }
+
+        // Allow the datagram to be delivered.
+        Some(link_src)
     }
 
     /// Routes a datagram from server to client.
@@ -1521,31 +1555,45 @@ impl PairRoutingTable for EndpointIndepedentNatRoutingTable {
     fn route_server_to_client(&mut self, transmit: &Transmit) -> Option<SocketAddr> {
         // Find the address this datagram SHOULD have been sent on to be able to reach the
         // destination.
-        let link_src = if transmit.destination == self.client_direct {
-            self.server_direct
-        } else if transmit.destination == self.client_nat && self.client_nat_open {
-            self.server_nat
-        } else if transmit.destination == self.server_nat {
-            debug!(?transmit.destination, "NAT blocked");
-            if !self.server_nat_open {
-                info!("server NAT opened");
-                self.server_nat_open = true;
-            }
-            return None;
+        let link_src = if transmit.destination == Self::CLIENT_DIRECT_ADDR {
+            Self::SERVER_DIRECT_ADDR
+        } else if transmit.destination == Self::CLIENT_FW_ADDR {
+            Self::SERVER_FW_ADDR
         } else {
-            // There is no possible link to this destination.
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: unknown destination (network unreachable)",
+            );
             return None;
         };
 
-        // Check if the datagram IS sent from that addr.
-        if transmit.src_ip.unwrap_or_else(|| link_src.ip()) == link_src.ip() {
-            if link_src == self.server_nat {
-                info!("server NAT opened");
-                self.server_nat_open = true;
-            }
-            Some(link_src)
-        } else {
-            None
+        // If the datagram is NOT sent from this source then it can't be sent.
+        if transmit.src_ip.unwrap_or_else(|| link_src.ip()) != link_src.ip() {
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: sent from wrong source (network unreachable)",
+            );
+            return None;
         }
+
+        // Open the local firewall for outgoing packet.
+        if link_src == Self::SERVER_FW_ADDR && !self.server_firewall_open {
+            info!("server firewall opened");
+            self.server_firewall_open = true;
+        }
+
+        if transmit.destination == Self::CLIENT_FW_ADDR && !self.client_firewall_open {
+            debug!(
+                ?transmit.src_ip,
+                ?transmit.destination,
+                "transmit dropped: blocked by client firewall",
+            );
+            return None;
+        }
+
+        // Allow the datagram to be delivered.
+        Some(link_src)
     }
 }
