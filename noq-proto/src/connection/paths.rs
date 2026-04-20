@@ -618,18 +618,22 @@ impl PathData {
         event
     }
 
-    /// Return how long we need to wait before sending `bytes_to_send`
-    ///
-    /// See [`Pacer::delay`].
-    pub(super) fn pacing_delay(&mut self, bytes_to_send: u64, now: Instant) -> Option<Duration> {
-        let smoothed_rtt = self.rtt.get();
-        self.pacing.delay(
-            smoothed_rtt,
-            bytes_to_send,
+    /// Updates the pacer, potentially giving it more tokens for transmission again.
+    pub(super) fn update_pacer(&mut self, now: Instant) {
+        self.pacing.update(
+            self.rtt.get(),
             self.current_mtu(),
             self.congestion.window(),
             now,
-        )
+        );
+    }
+
+    /// Return how long we need to wait before sending `bytes_to_send`
+    ///
+    /// See [`Pacer::delay`].
+    pub(super) fn pacing_delay(&self, bytes_to_send: u64) -> Option<Duration> {
+        self.pacing
+            .delay(self.rtt.get(), bytes_to_send, self.congestion.window())
     }
 
     /// Updates the last observed address report received on this path.
