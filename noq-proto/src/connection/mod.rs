@@ -2299,8 +2299,14 @@ impl Connection {
     /// no-op and therefore are safe.
     pub fn handle_timeout(&mut self, now: Instant) {
         while let Some((timer, _time)) = self.timers.expire_before(now, &self.qlog) {
-            // TODO(@divma): remove `at` when the unicorn is born
-            trace!(?timer, at=?now, "timeout");
+            let span = match timer {
+                Timer::Conn(timer) => trace_span!("timeout", scope = "conn", ?timer),
+                Timer::PerPath(path_id, timer) => {
+                    trace_span!("timer_fired", scope="path", %path_id, ?timer)
+                }
+            };
+            let _guard = span.enter();
+            trace!("timeout");
             match timer {
                 Timer::Conn(timer) => match timer {
                     ConnTimer::Close => {
@@ -2313,7 +2319,6 @@ impl Connection {
                         self.kill(ConnectionError::TimedOut);
                     }
                     ConnTimer::KeepAlive => {
-                        trace!("sending keep-alive");
                         self.ping();
                     }
                     ConnTimer::KeyDiscard => {
@@ -2382,8 +2387,6 @@ impl Connection {
                     }
                 },
                 Timer::PerPath(path_id, timer) => {
-                    let span = trace_span!("per-path timer fired", %path_id, ?timer);
-                    let _guard = span.enter();
                     match timer {
                         PathTimer::PathIdle => {
                             if let Err(err) =
@@ -2394,7 +2397,6 @@ impl Connection {
                         }
 
                         PathTimer::PathKeepAlive => {
-                            trace!("sending keep-alive on path");
                             self.ping_path(path_id).ok();
                         }
                         PathTimer::LossDetection => {
@@ -2444,9 +2446,8 @@ impl Connection {
                                 warn!(?err, "failed closing path");
                             }
                         }
-                        PathTimer::Pacing => trace!("pacing timer expired"),
+                        PathTimer::Pacing => (),
                         PathTimer::MaxAckDelay => {
-                            trace!("max ack delay reached");
                             // This timer is only armed in the Data space
                             self.spaces[SpaceId::Data]
                                 .for_path(path_id)
