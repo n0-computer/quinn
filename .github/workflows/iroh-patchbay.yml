@@ -1,0 +1,94 @@
+name: iroh-patchbay
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: iroh-patchbay-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_BACKTRACE: 1
+  SCCACHE_CACHE_SIZE: "10G"
+  IROH_FORCE_STAGING_RELAYS: "1"
+  NEXTEST_VERSION: "0.9.80"
+
+jobs:
+  iroh_patchbay:
+    name: iroh patchbay
+    timeout-minutes: 30
+    runs-on: [self-hosted, linux, X64]
+    env:
+      RUSTC_WRAPPER: "sccache"
+    steps:
+      - name: Enable unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        continue-on-error: true
+
+      - name: Checkout noq
+        uses: actions/checkout@v6
+        with:
+          path: noq
+
+      - name: Checkout iroh
+        uses: actions/checkout@v6
+        with:
+          repository: n0-computer/iroh
+          ref: main
+          path: iroh
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install cargo-make and cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@${{ env.NEXTEST_VERSION }},cargo-make
+
+      - name: Patch noq crates in iroh workspace
+        working-directory: iroh
+        run: |
+          cat >> Cargo.toml <<'EOF'
+
+          [patch.crates-io]
+          noq = { path = "../noq/noq" }
+          noq-proto = { path = "../noq/noq-proto" }
+          noq-udp = { path = "../noq/noq-udp" }
+          EOF
+
+      - name: Build patchbay tests
+        working-directory: iroh
+        run: cargo make patchbay --no-run
+
+      - name: Run patchbay tests
+        working-directory: iroh
+        run: |
+          set -o pipefail
+          cargo make patchbay 2>&1 | tee "$RUNNER_TEMP/logs.txt"
+        env:
+          PATCHBAY_LOG: ${{ runner.debug && 'trace' || 'debug' }}
+          RUST_LOG: ${{ runner.debug && 'trace' || 'debug' }}
+
+      - name: Run ignored patchbay tests
+        working-directory: iroh
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo make patchbay --run-ignored only 2>&1 | tee "$RUNNER_TEMP/logs-ignored.txt"
+        env:
+          PATCHBAY_LOG: ${{ runner.debug && 'trace' || 'debug' }}
+          RUST_LOG: ${{ runner.debug && 'trace' || 'debug' }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: iroh-patchbay-testdir-${{ github.sha }}
+          path: |
+            iroh/target/testdir-*/
+            ${{ runner.temp }}/logs.txt
+            ${{ runner.temp }}/logs-ignored.txt
+          retention-days: 7
+          if-no-files-found: ignore
