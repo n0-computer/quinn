@@ -149,7 +149,10 @@ impl IncomingToken {
                 issued,
             } => {
                 if address != remote_address {
-                    return Err(InvalidRetryTokenError::AddressMismatch);
+                    return Err(InvalidRetryTokenError::AddressMismatch {
+                        token_addr: address,
+                        packet_addr: remote_address,
+                    });
                 }
                 if issued + server_config.retry_token_lifetime < server_config.time_source.now() {
                     return Err(InvalidRetryTokenError::Expired);
@@ -199,7 +202,12 @@ pub(crate) enum InvalidRetryTokenError {
     /// This can legitimately happen when a client races the handshake over multiple paths:
     /// the Retry token is bound to one path's remote address, and retried Initials arriving
     /// on other paths will hit this case.
-    AddressMismatch,
+    AddressMismatch {
+        /// Remote address the token was bound to when it was issued.
+        token_addr: SocketAddr,
+        /// Remote address of the Initial packet that presented the token.
+        packet_addr: SocketAddr,
+    },
     /// The token is past its retry token lifetime.
     Expired,
 }
