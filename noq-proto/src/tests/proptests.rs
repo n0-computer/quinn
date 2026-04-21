@@ -166,12 +166,12 @@ impl PairSetup {
                 let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
                 pair.client.addr = routes.client_addr(0).unwrap();
                 pair.server.addr = routes.server_addr(0).unwrap();
-                pair.routes = Some(routes);
+                pair.routes = Some(Box::new(routes));
             }
             RoutingSetup::Complex(routes) => {
                 pair.client.addr = routes.client_addr(0).unwrap();
                 pair.server.addr = routes.server_addr(0).unwrap();
-                pair.routes = Some(routes);
+                pair.routes = Some(Box::new(routes));
             }
         }
 

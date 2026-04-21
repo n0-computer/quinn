@@ -552,10 +552,9 @@ fn zero_rtt_happypath() {
         .close(pair.time, VarInt(0), [][..].into());
     pair.drive();
 
-    pair.client.addr = SocketAddr::new(
-        Ipv6Addr::LOCALHOST.into(),
-        CLIENT_PORTS.lock().unwrap().next().unwrap(),
-    );
+    pair.client.addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 1);
+    assert_ne!(pair.client.addr, Pair::CLIENT_ADDR);
+    assert_ne!(pair.client.addr, Pair::SERVER_ADDR);
     info!("resuming session");
     let client_ch = pair.begin_connect(config);
     assert!(pair.client_conn_mut(client_ch).has_0rtt());
@@ -733,10 +732,9 @@ fn test_zero_rtt_incoming_limit<F: FnOnce(&mut ServerConfig)>(configure_server: 
         .close(pair.time, VarInt(0), [][..].into());
     pair.drive();
 
-    pair.client.addr = SocketAddr::new(
-        Ipv6Addr::LOCALHOST.into(),
-        CLIENT_PORTS.lock().unwrap().next().unwrap(),
-    );
+    pair.client.addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 1);
+    assert_ne!(pair.client.addr, Pair::CLIENT_ADDR);
+    assert_ne!(pair.client.addr, Pair::SERVER_ADDR);
     info!("resuming session");
     pair.server.handle_incoming = Box::new(|_| IncomingConnectionBehavior::Wait);
     let client_ch = pair.begin_connect(config);
@@ -1342,10 +1340,9 @@ fn close_from_migrated_address() {
     pair.drive();
 
     // Change client address - server will see this as migration
-    pair.client.addr = SocketAddr::new(
-        Ipv4Addr::new(127, 0, 0, 1).into(),
-        CLIENT_PORTS.lock().unwrap().next().unwrap(),
-    );
+    pair.client.addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 1);
+    assert_ne!(pair.client.addr, Pair::CLIENT_ADDR);
+    assert_ne!(pair.client.addr, Pair::SERVER_ADDR);
 
     // Client closes connection from the NEW address.  The server will see the migration and
     // close the connection on the new address.
@@ -1397,10 +1394,9 @@ fn migration() {
 
     let client_stats_after_connect = pair.client_conn_mut(client_ch).stats();
 
-    pair.client.addr = SocketAddr::new(
-        Ipv4Addr::new(127, 0, 0, 1).into(),
-        CLIENT_PORTS.lock().unwrap().next().unwrap(),
-    );
+    pair.client.addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 1);
+    assert_ne!(pair.client.addr, Pair::CLIENT_ADDR);
+    assert_ne!(pair.client.addr, Pair::SERVER_ADDR);
     pair.client_conn_mut(client_ch).ping();
 
     // Assert that just receiving the ping message is accounted into the servers
@@ -2628,10 +2624,9 @@ fn migrate_detects_new_mtu_and_respects_original_peer_max_udp_payload_size() {
 
     // Migrate client to a different port (and simulate a higher path MTU)
     pair.mtu = 1500;
-    pair.client.addr = SocketAddr::new(
-        Ipv4Addr::new(127, 0, 0, 1).into(),
-        CLIENT_PORTS.lock().unwrap().next().unwrap(),
-    );
+    pair.client.addr = SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 1);
+    assert_ne!(pair.client.addr, Pair::CLIENT_ADDR);
+    assert_ne!(pair.client.addr, Pair::SERVER_ADDR);
     pair.client_conn_mut(client_ch).ping();
     pair.drive();
 
@@ -3718,10 +3713,9 @@ fn address_discovery_zero_rtt_accepted() {
         .close(pair.time, VarInt(0), [][..].into());
     pair.drive();
 
-    pair.client.addr = SocketAddr::new(
-        Ipv6Addr::LOCALHOST.into(),
-        CLIENT_PORTS.lock().unwrap().next().unwrap(),
-    );
+    pair.client.addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 1);
+    assert_ne!(pair.client.addr, Pair::CLIENT_ADDR);
+    assert_ne!(pair.client.addr, Pair::SERVER_ADDR);
     info!("resuming session");
     let client_ch = pair.begin_connect(alt_client_cfg);
     assert!(pair.client_conn_mut(client_ch).has_0rtt());
