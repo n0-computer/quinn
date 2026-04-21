@@ -508,7 +508,7 @@ impl Endpoint {
                 debug!(
                     %token_addr,
                     %packet_addr,
-                    local = %network_path.local_ip.map(|ip| ip.to_string()).unwrap_or_else(|| "?".into()),
+                    local_ip = ?network_path.local_ip,
                     "silently dropping retry token with mismatched address"
                 );
                 return None;
