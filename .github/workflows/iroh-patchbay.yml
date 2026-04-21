@@ -71,16 +71,6 @@ jobs:
           PATCHBAY_LOG: ${{ runner.debug && 'trace' || 'debug' }}
           RUST_LOG: ${{ runner.debug && 'trace' || 'debug' }}
 
-      - name: Run ignored patchbay tests
-        working-directory: iroh
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          cargo make patchbay --run-ignored only 2>&1 | tee "$RUNNER_TEMP/logs-ignored.txt"
-        env:
-          PATCHBAY_LOG: ${{ runner.debug && 'trace' || 'debug' }}
-          RUST_LOG: ${{ runner.debug && 'trace' || 'debug' }}
-
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
@@ -89,6 +79,5 @@ jobs:
           path: |
             iroh/target/testdir-*/
             ${{ runner.temp }}/logs.txt
-            ${{ runner.temp }}/logs-ignored.txt
           retention-days: 7
           if-no-files-found: ignore
