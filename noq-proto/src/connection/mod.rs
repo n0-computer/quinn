@@ -4838,21 +4838,19 @@ impl Connection {
                     }
                 }
                 Frame::PathResponse(response) => {
-                    let mut response_handled = false;
-
                     // First try to see if this is a NAT probe response.
-                    if let Ok(nat_state) = self.n0_nat_traversal.server_side_mut() {
-                        response_handled = nat_state.handle_path_response(network_path, response.0);
+                    if let Ok(nat_state) = self.n0_nat_traversal.server_side_mut()
+                        && nat_state.handle_path_response(network_path, response.0)
+                    {
                         trace!(
                             src = ?network_path,
                             challenge = response.0,
                             "Received valid NAT traversal probe response"
-                        )
+                        );
                         // Server-side: nothing else to do.
-                    }
+                    } else {
+                        // Try to see if this is a response to an on-path PATH_CHALLENGE.
 
-                    // Try to see if this is a response to an on-path PATH_CHALLENGE.
-                    if !response_handled {
                         let path = self
                             .paths
                             .get_mut(&path_id)
