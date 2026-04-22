@@ -381,6 +381,10 @@ jobs:
           fetch-depth: 0
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+      # Go is required for FIPS builds
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
 
       - name: Setup Environment (PR)
         if: ${{ github.event_name == 'pull_request' }}
