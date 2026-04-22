@@ -222,6 +222,9 @@ impl IndexMut<SpaceKind> for [PacketSpace; 3] {
 /// this space is currently using. The 4-tuple specific state, like congestion controller,
 /// pacing, ECN, MTU etc, is stored in [`PathData`].
 ///
+/// Note that the `Initial`, `Handshake` and `Data(PathId(0))` space all share the same
+/// [`PathData`].
+///
 /// You should access this via [`PacketSpace::for_path`].
 ///
 /// [`PathData`]: super::paths::PathData
