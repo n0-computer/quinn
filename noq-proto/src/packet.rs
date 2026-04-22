@@ -233,9 +233,15 @@ impl BufLen for Vec<u8> {
     }
 }
 
+/// A received packet with header protection removed.
+// TODO(flub): Would be grand to make this typesafe by adding a generic that indicates
+//    whether the payload is encrypted or decrypted.
 pub(crate) struct Packet {
+    /// The decoded header.
     pub(crate) header: Header,
+    /// The encoded header data, with header protection removed (i.e. decrypted).
     pub(crate) header_data: Bytes,
+    /// Packet payload, still encrypted when created, later decrypted in-place.
     pub(crate) payload: BytesMut,
 }
 
@@ -1018,7 +1024,9 @@ mod tests {
     #[test]
     fn header_encoding() {
         use crate::Side;
-        use crate::crypto::rustls::{configured_provider, initial_keys, initial_suite_from_provider};
+        use crate::crypto::rustls::{
+            configured_provider, initial_keys, initial_suite_from_provider,
+        };
         use rustls::quic::Version;
 
         let dcid = ConnectionId::new(&hex!("06b858ec6f80452b"));
