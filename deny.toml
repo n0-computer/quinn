@@ -13,7 +13,7 @@ allow = [
     "ISC",
     "MIT",
     "NCSA",
-    "OpenSSL",
+    "OpenSSL", # aws-lc-fips-sys
     "Unicode-3.0",
     "Zlib", # foldhash, dependency of fastbloom
 ]
@@ -28,9 +28,6 @@ skip = [
     # ring uses getrandom 0.2, newer crates use 0.3
     { crate = "getrandom", reason = "ring depends on 0.2, newer ecosystem uses 0.3" },
     { crate = "r-efi", reason = "proptest dev-dependency pulls in old getrandom" },
-    # jni and redox_users use thiserror 1.x
-    { crate = "thiserror", reason = "transitive deps use thiserror 1.x" },
-    { crate = "thiserror-impl", reason = "follows thiserror" },
     # follows getrandom versions
     { crate = "wasi", reason = "follows getrandom version split" },
     # various transitive deps require different windows-sys versions

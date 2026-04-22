@@ -80,7 +80,7 @@ fn non_zero_length_cids() {
     }
 
     let mut ep_config = EndpointConfig::default();
-    ep_config.cid_generator(|| Box::new(ZeroLenCidGenerator));
+    ep_config.cid_generator(Arc::new(|| Box::new(ZeroLenCidGenerator)));
     let client = Endpoint::new(Arc::new(ep_config), None, true);
 
     let mut pair = Pair::new_from_endpoint(client, server);

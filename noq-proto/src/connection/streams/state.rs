@@ -135,6 +135,8 @@ pub struct StreamsState {
 
     /// The shrink to be applied to local_max_data when receive_window is shrunk
     receive_window_shrink_debt: u64,
+    /// Whether the locally-initiated stream limit has been hit, per direction
+    pub(super) streams_blocked: [bool; 2],
 }
 
 impl StreamsState {
@@ -179,6 +181,7 @@ impl StreamsState {
             initial_max_stream_data_bidi_local: 0u32.into(),
             initial_max_stream_data_bidi_remote: 0u32.into(),
             receive_window_shrink_debt: 0,
+            streams_blocked: [false, false],
         };
 
         for dir in Dir::iter() {
@@ -491,6 +494,22 @@ impl StreamsState {
             let count = self.max_remote[dir as usize];
             builder.write_frame(frame::MaxStreams { dir, count }, stats);
         }
+
+        // STREAMS_BLOCKED
+        for dir in Dir::iter() {
+            if self.streams_blocked[dir as usize] {
+                pending.streams_blocked[dir as usize] = true;
+                self.streams_blocked[dir as usize] = false;
+            }
+
+            if !pending.streams_blocked[dir as usize] || builder.frame_space_remaining() <= 9 {
+                continue;
+            }
+
+            pending.streams_blocked[dir as usize] = false;
+            let limit = self.max[dir as usize];
+            builder.write_frame(frame::StreamsBlocked { dir, limit }, stats);
+        }
     }
 
     pub(in crate::connection) fn write_stream_frames<'a, 'b>(
@@ -655,6 +674,7 @@ impl StreamsState {
         let current = &mut self.max[dir as usize];
         if count > *current {
             *current = count;
+            self.streams_blocked[dir as usize] = false;
             self.events.push_back(StreamEvent::Available { dir });
         }
 

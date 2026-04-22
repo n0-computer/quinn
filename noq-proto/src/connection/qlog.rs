@@ -730,6 +730,17 @@ impl ToQlog for frame::MaxStreams {
 }
 
 #[cfg(feature = "qlog")]
+impl ToQlog for frame::StreamsBlocked {
+    fn to_qlog(&self) -> QuicFrame {
+        QuicFrame::StreamsBlocked {
+            stream_type: self.dir.into(),
+            limit: self.limit,
+            raw: None,
+        }
+    }
+}
+
+#[cfg(feature = "qlog")]
 impl ToQlog for frame::NewConnectionId {
     fn to_qlog(&self) -> QuicFrame {
         match self.path_id {

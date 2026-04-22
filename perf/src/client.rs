@@ -1,5 +1,5 @@
 #[cfg(feature = "json-output")]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::Arc,
@@ -166,15 +166,22 @@ pub async fn run(opt: Opt) -> Result<()> {
     let stats_fut = async {
         let interval_duration = Duration::from_secs(opt.interval);
 
+        #[cfg(feature = "json-output")]
+        let allow_table_output = opt.json.clone().is_none_or(|path| path != Path::new("-"));
+        #[cfg(not(feature = "json-output"))]
+        let allow_table_output = true;
+
         loop {
             let start = Instant::now();
             tokio::time::sleep(interval_duration).await;
             {
                 stats.on_interval(start, &stream_stats);
 
-                stats.print();
-                if opt.common.conn_stats {
-                    println!("{:?}\n", connection.stats());
+                if allow_table_output {
+                    stats.print();
+                    if opt.common.conn_stats {
+                        println!("{:?}\n", connection.stats());
+                    }
                 }
             }
         }
