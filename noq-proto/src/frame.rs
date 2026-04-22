@@ -216,6 +216,7 @@ pub(super) enum EncodableFrame<'a> {
     MaxData(MaxData),
     MaxStreamData(MaxStreamData),
     MaxStreams(MaxStreams),
+    StreamsBlocked(StreamsBlocked),
 }
 
 impl<'a> EncodableFrame<'a> {
@@ -249,7 +250,8 @@ impl<'a> EncodableFrame<'a> {
             | EncodableFrame::StreamMeta(_)
             | EncodableFrame::MaxData(_)
             | EncodableFrame::MaxStreamData(_)
-            | EncodableFrame::MaxStreams(_) => true,
+            | EncodableFrame::MaxStreams(_)
+            | EncodableFrame::StreamsBlocked(_) => true,
         }
     }
 }

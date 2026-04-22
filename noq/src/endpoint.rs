@@ -8,7 +8,10 @@ use std::{
     num::NonZeroUsize,
     pin::Pin,
     str,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
 };
 
@@ -105,23 +108,37 @@ impl Endpoint {
 
     /// Helper to construct an endpoint for use with both incoming and outgoing connections
     ///
-    /// Platform defaults for dual-stack sockets vary. For example, any socket bound to a wildcard
-    /// IPv6 address on Windows will not by default be able to communicate with IPv4
-    /// addresses. Portable applications should bind an address that matches the family they wish to
-    /// communicate within.
+    /// Note that `addr` is the *local* address to bind to, which should usually be a wildcard
+    /// address like `0.0.0.0:0` or `[::]:0`, which allow communication with any reachable IPv4 or
+    /// IPv6 address respectively from an OS-assigned port.
+    ///
+    /// If an IPv6 address is provided, attempts to make the socket dual-stack so as to allow
+    /// communication with both IPv4 and IPv6 clients. As such, calling `Endpoint::server` with
+    /// the address `[::]:0` is a reasonable default to maximize the ability to accept connections
+    /// from any address.
+    ///
+    /// Some environments may not allow creation of dual-stack sockets, in which case an IPv6
+    /// server will only be able to accept connections from IPv6 clients. An IPv4 server is never
+    /// dual-stack.
     #[cfg(all(
         not(wasm_browser),
         any(feature = "runtime-tokio", feature = "runtime-smol"),
         any(feature = "aws-lc-rs", feature = "ring"), // `EndpointConfig::default()` is only available with these
     ))]
     pub fn server(config: ServerConfig, addr: SocketAddr) -> io::Result<Self> {
-        let socket = std::net::UdpSocket::bind(addr)?;
+        let socket = Socket::new(Domain::for_address(addr), Type::DGRAM, Some(Protocol::UDP))?;
+        if addr.is_ipv6()
+            && let Err(e) = socket.set_only_v6(false)
+        {
+            tracing::debug!(%e, "unable to make socket dual-stack");
+        }
+        socket.bind(&addr.into())?;
         let runtime =
             default_runtime().ok_or_else(|| io::Error::other("no async runtime found"))?;
         Self::new_with_abstract_socket(
             EndpointConfig::default(),
             Some(config),
-            runtime.wrap_udp_socket(socket)?,
+            runtime.wrap_udp_socket(socket.into())?,
             runtime,
         )
     }
@@ -424,7 +441,8 @@ impl Future for EndpointDriver {
         // - all `Endpoint` structs are dropped and all connections are drained,
         // - or `Endpoint::close` has been called and all connections are drained.
         if endpoint.recv_state.connections.is_empty()
-            && (endpoint.ref_count == 0 || endpoint.recv_state.connections.close.is_some())
+            && (self.0.shared.ref_count.load(Ordering::Relaxed) == 0
+                || endpoint.recv_state.connections.close.is_some())
         {
             trace!("endpoint driver stopping");
             Poll::Ready(Ok(()))
@@ -524,8 +542,6 @@ pub(crate) struct State {
     driver: Option<Waker>,
     ipv6: bool,
     events: mpsc::UnboundedReceiver<(ConnectionHandle, EndpointEvent)>,
-    /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
-    ref_count: usize,
     driver_lost: bool,
     runtime: Arc<dyn Runtime>,
     stats: EndpointStats,
@@ -536,6 +552,8 @@ pub(crate) struct State {
 pub(crate) struct Shared {
     incoming: Notify,
     idle: Notify,
+    /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
+    ref_count: AtomicUsize,
 }
 
 impl State {
@@ -772,6 +790,7 @@ impl EndpointRef {
             shared: Shared {
                 incoming: Notify::new(),
                 idle: Notify::new(),
+                ref_count: AtomicUsize::new(0),
             },
             state: Mutex::new(State {
                 socket,
@@ -781,7 +800,6 @@ impl EndpointRef {
                 ipv6,
                 events,
                 driver: None,
-                ref_count: 0,
                 driver_lost: false,
                 recv_state,
                 runtime,
@@ -794,23 +812,22 @@ impl EndpointRef {
 
 impl Clone for EndpointRef {
     fn clone(&self) -> Self {
-        self.0.state.lock().unwrap().ref_count += 1;
+        self.0.shared.ref_count.fetch_add(1, Ordering::Relaxed);
         Self(self.0.clone())
     }
 }
 
 impl Drop for EndpointRef {
     fn drop(&mut self) {
+        if self.0.shared.ref_count.fetch_sub(1, Ordering::Relaxed) > 1 {
+            return;
+        }
+
         let endpoint = &mut *self.0.state.lock().unwrap();
-        if let Some(x) = endpoint.ref_count.checked_sub(1) {
-            endpoint.ref_count = x;
-            if x == 0 {
-                // If the driver is about to be on its own, ensure it can shut down if the last
-                // connection is gone.
-                if let Some(task) = endpoint.driver.take() {
-                    task.wake();
-                }
-            }
+        // If the driver is about to be on its own, ensure it can shut down if the last
+        // connection is gone.
+        if let Some(task) = endpoint.driver.take() {
+            task.wake();
         }
     }
 }
