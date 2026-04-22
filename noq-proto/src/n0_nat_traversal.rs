@@ -344,8 +344,8 @@ pub(crate) struct ServerState {
     sent_challenges: FxHashMap<u64, IpPort>,
     /// Queued probes to be sent in the next [`poll_transmit`] call.
     ///
-    /// At the beginning of a round and at every retry this is populated with the
-    /// [`Self::active_probes`]. As [`poll_transmit`] sends probes they are removed.
+    /// At the beginning of a round this is populated from REACH_OUT frames and at every
+    /// retry this is populated from [`Self::remotes`].
     ///
     /// [`poll_transmit`]: crate::connection::Connection::poll_transmit
     pending_probes: FxHashSet<IpPort>,
