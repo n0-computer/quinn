@@ -88,8 +88,8 @@ impl State {
 
     pub(crate) fn is_negotiated(&self) -> bool {
         match self {
-            State::NotNegotiated => false,
-            State::ClientSide(_) | State::ServerSide(_) => true,
+            Self::NotNegotiated => false,
+            Self::ClientSide(_) | Self::ServerSide(_) => true,
         }
     }
 

@@ -2233,11 +2233,9 @@ impl Connection {
     /// Returns true if a packet coming in for this `path_id` over given `network_path`
     /// should be discarded.
     fn early_discard_packet(&mut self, network_path: FourTuple, path_id: PathId) -> bool {
-        if self.is_handshaking() {
-            if path_id != PathId::ZERO {
-                debug!(%network_path, %path_id, "discarding multipath packet during handshake");
-                return true;
-            }
+        if self.is_handshaking() && path_id != PathId::ZERO {
+            debug!(%network_path, %path_id, "discarding multipath packet during handshake");
+            return true;
         }
 
         // TODO(flub): In RFC9000 the server is allowed to send off-path probing packets
