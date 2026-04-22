@@ -34,7 +34,10 @@ fn multipath_pair() -> ConnPair {
 fn multipath_pair_with_nat_traversal(nat_traversal: bool) -> ConnPair {
     let mut cfg = TransportConfig::default();
     cfg.max_concurrent_multipath_paths(MAX_PATHS);
-    cfg.mtu_discovery_config(None);
+
+    // Use this to not get distracting MTU discovery probes in the logs.
+    // cfg.mtu_discovery_config(None);
+
     // Assume a low-latency connection so pacing doesn't interfere with the test
     cfg.initial_rtt(Duration::from_millis(10));
     if nat_traversal {
