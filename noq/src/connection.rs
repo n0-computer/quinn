@@ -6,7 +6,10 @@ use std::{
     net::{IpAddr, SocketAddr},
     num::NonZeroUsize,
     pin::Pin,
-    sync::{Arc, Weak},
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicUsize, Ordering},
+    },
     task::{Context, Poll, Waker, ready},
 };
 
@@ -1237,7 +1240,7 @@ pub(crate) struct ConnectionRef(Arc<Arc<ConnectionInner>>);
 impl ConnectionRef {
     #[allow(clippy::redundant_allocation)]
     fn from_arc(inner: Arc<Arc<ConnectionInner>>) -> Self {
-        inner.lock_without_waking("from_arc").ref_count += 1;
+        inner.shared.ref_count.fetch_add(1, Ordering::Relaxed);
         Self(inner)
     }
 
@@ -1258,16 +1261,18 @@ impl Clone for ConnectionRef {
 
 impl Drop for ConnectionRef {
     fn drop(&mut self) {
+        if self.shared.ref_count.fetch_sub(1, Ordering::Relaxed) > 1 {
+            return;
+        }
+
         let conn = &mut *self.lock_without_waking("drop");
-        if let Some(x) = conn.ref_count.checked_sub(1) {
-            conn.ref_count = x;
-            if x == 0 && !conn.inner.is_closed() {
-                // If the driver is alive, it's just it and us, so we'd better shut it down. If it's
-                // not, we can't do any harm. If there were any streams being opened, then either
-                // the connection will be closed for an unrelated reason or a fresh reference will
-                // be constructed for the newly opened stream.
-                conn.implicit_close(&self.shared);
-            }
+
+        if !conn.inner.is_closed() {
+            // If the driver is alive, it's just it and us, so we'd better shut it down. If it's
+            // not, we can't do any harm. If there were any streams being opened, then either
+            // the connection will be closed for an unrelated reason or a fresh reference will
+            // be constructed for the newly opened stream.
+            conn.implicit_close(&self.shared);
         }
     }
 }
@@ -1372,6 +1377,8 @@ pub(crate) struct Shared {
     datagram_received: Notify,
     datagrams_unblocked: Notify,
     closed: Notify,
+    /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
+    ref_count: AtomicUsize,
 }
 
 pub(crate) struct State {
@@ -1405,8 +1412,6 @@ pub(crate) struct State {
     /// When the last reference to a path is dropped via [`Self::decrement_path_refs`] its value is cleared.
     pub(crate) final_path_stats: FxHashMap<PathId, PathStats>,
     pub(crate) path_events: tokio::sync::broadcast::Sender<PathEvent>,
-    /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
-    ref_count: usize,
     sender: Pin<Box<dyn UdpSender>>,
     pub(crate) runtime: Arc<dyn Runtime>,
     send_buffer: Vec<u8>,
@@ -1448,7 +1453,6 @@ impl State {
             stopped: FxHashMap::default(),
             open_path: FxHashMap::default(),
             error: None,
-            ref_count: 0,
             sender,
             runtime,
             send_buffer: Vec::new(),
