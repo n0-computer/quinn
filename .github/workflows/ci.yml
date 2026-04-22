@@ -369,3 +369,33 @@ jobs:
           key: pip-codespell-2.4.1
       - run: pip install --user codespell[toml]==2.4.1
       - run: codespell --ignore-words-list=ans,atmost,crate,ect,inout,keep-alives,ser,te,worl --skip=CHANGELOG.md,*.lock
+
+  check_semver:
+    runs-on: [self-hosted, linux, X64]
+    env:
+      RUSTC_WRAPPER: "sccache"
+      SCCACHE_GHA_ENABLED: "on"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Setup Environment (PR)
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          echo "HEAD_COMMIT_SHA=$(git rev-parse origin/${{ github.base_ref }})" >> ${GITHUB_ENV}
+      - name: Setup Environment (Push)
+        if: ${{ github.event_name == 'push' || github.event_name == 'merge_group' }}
+        shell: bash
+        run: |
+          echo "HEAD_COMMIT_SHA=$(git rev-parse origin/main)" >> ${GITHUB_ENV}
+      - name: Check semver
+        # uses: obi1kenobi/cargo-semver-checks-action@v2
+        uses: n0-computer/cargo-semver-checks-action@feat-baseline
+        with:
+          package: noq, noq-proto, noq-udp
+          baseline-rev: ${{ env.HEAD_COMMIT_SHA }}
+          use-cache: false
