@@ -466,13 +466,14 @@ impl ServerState {
             let remote = (src.remote().ip(), src.remote().port());
             if *entry.get() == remote {
                 entry.remove();
-                self.remotes
-                    .entry(remote)
-                    .insert_entry(ProbeState::Succeeded);
+                self.remotes.insert(remote, ProbeState::Succeeded);
                 return true;
             } else {
-                debug!(?challenge, ?src.remote,
-                    "PATH_RESPONSE matched a NAT traversal probe but mismatching addr")
+                debug!(
+                    ?challenge,
+                    ?src.remote,
+                    "PATH_RESPONSE matched a NAT traversal probe but mismatching addr",
+                )
             }
         }
         false
