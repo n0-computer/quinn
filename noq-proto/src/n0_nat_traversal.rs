@@ -501,14 +501,6 @@ impl State {
         }
     }
 
-    pub(crate) fn server_side(&self) -> Result<&ServerState, Error> {
-        match self {
-            State::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            State::ClientSide(_) => Err(Error::WrongConnectionSide),
-            State::ServerSide(state) => Ok(state),
-        }
-    }
-
     pub(crate) fn client_side_mut(&mut self) -> Result<&mut ClientState, Error> {
         match self {
             Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),

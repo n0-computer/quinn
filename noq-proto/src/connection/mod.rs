@@ -6741,7 +6741,6 @@ impl Connection {
     /// - Pending PATH_RESPONSE frames.
     /// - Pending data to send in STREAM frames.
     /// - Pending DATAGRAM frames to send.
-    /// - Pending NAT traversal probes.
     ///
     /// See also [`PacketSpace::can_send`] which keeps track of all other frame types that
     /// may need to be sent.
@@ -6750,15 +6749,8 @@ impl Connection {
             path.data.pending_on_path_challenge || !path.data.path_responses.is_empty()
         });
 
-        let nat_probes = self
-            .n0_nat_traversal
-            .server_side()
-            .map(|state| state.next_probe_addr().is_some())
-            .unwrap_or(false);
-
         // Stream control frames are checked in PacketSpace::can_send, only check data here.
         let other = self.streams.can_send_stream_data()
-            || nat_probes
             || self
                 .datagrams
                 .outgoing
