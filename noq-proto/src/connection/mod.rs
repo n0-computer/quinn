@@ -2280,7 +2280,7 @@ impl Connection {
 
     /// Whether a remote is allowed to migrate.
     ///
-    /// QUIC relies on stable endpoints during the hanshake. So other than the server's
+    /// QUIC relies on stable endpoints during the handshake. So other than the server's
     /// preferred_address transport parameter no side may migrate before the handshake is
     /// completed.
     ///
