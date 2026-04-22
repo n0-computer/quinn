@@ -80,11 +80,11 @@
 <a href=#80 id=80 data-nosnippet>80</a>    /// information in local connection IDs, e.g. to support stateless packet-level load balancers.
 <a href=#81 id=81 data-nosnippet>81</a>    ///
 <a href=#82 id=82 data-nosnippet>82</a>    /// Defaults to [`HashedConnectionIdGenerator`].
-<a href=#83 id=83 data-nosnippet>83</a>    </span><span class="kw">pub fn </span>cid_generator&lt;F: Fn() -&gt; Box&lt;<span class="kw">dyn </span>ConnectionIdGenerator&gt; + Send + Sync + <span class="lifetime">'static</span>&gt;(
+<a href=#83 id=83 data-nosnippet>83</a>    </span><span class="kw">pub fn </span>cid_generator(
 <a href=#84 id=84 data-nosnippet>84</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#85 id=85 data-nosnippet>85</a>        factory: F,
+<a href=#85 id=85 data-nosnippet>85</a>        factory: Arc&lt;<span class="kw">dyn </span>Fn() -&gt; Box&lt;<span class="kw">dyn </span>ConnectionIdGenerator&gt; + Send + Sync&gt;,
 <a href=#86 id=86 data-nosnippet>86</a>    ) -&gt; <span class="kw-2">&amp;mut </span><span class="self">Self </span>{
-<a href=#87 id=87 data-nosnippet>87</a>        <span class="self">self</span>.connection_id_generator_factory = Arc::new(factory);
+<a href=#87 id=87 data-nosnippet>87</a>        <span class="self">self</span>.connection_id_generator_factory = factory;
 <a href=#88 id=88 data-nosnippet>88</a>        <span class="self">self
 <a href=#89 id=89 data-nosnippet>89</a>    </span>}
 <a href=#90 id=90 data-nosnippet>90</a>
