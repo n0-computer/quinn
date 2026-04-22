@@ -2446,7 +2446,7 @@ impl Connection {
                                 warn!(?err, "failed closing path");
                             }
                         }
-                        PathTimer::Pacing => (),
+                        PathTimer::Pacing => {}
                         PathTimer::MaxAckDelay => {
                             // This timer is only armed in the Data space
                             self.spaces[SpaceId::Data]
@@ -4840,7 +4840,7 @@ impl Connection {
                 Frame::PathResponse(response) => {
                     let mut response_handled = false;
 
-                    // First try to see if this is NAT probe response.
+                    // First try to see if this is a NAT probe response.
                     if let Ok(nat_state) = self.n0_nat_traversal.server_side_mut() {
                         response_handled = nat_state.handle_path_response(network_path, response.0);
                         trace!(
