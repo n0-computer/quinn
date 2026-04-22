@@ -5513,10 +5513,14 @@ impl Connection {
             path_data.network_path.local_ip = Some(new_local_ip)
         }
 
-        // If this was a non-probing packet on a new network path, migrate.
-        if !is_probing_packet
+        // If the peer migrated to a new address, trigger migration. For Multipath any
+        // packet triggers migration. For RFC9000 or QNT (+ Multipath) only non-probing
+        // packets trigger migration.
+        let migrate_on_any_packet =
+            self.is_multipath_negotiated() && !self.n0_nat_traversal.is_negotiated();
+        if (migrate_on_any_packet || !is_probing_packet)
             && is_largest_received_pn
-            && network_path != self.path_data(path_id).network_path
+            && network_path.remote != self.path_data(path_id).network_path.remote
             && self.remote_may_migrate()
         {
             self.migrate(path_id, now, network_path, migration_observed_addr);
@@ -5708,7 +5712,9 @@ impl Connection {
             };
 
             if open_first && let Err(e) = self.open_path(network_path, status, now) {
-                debug!(%e,"Failed to open new path for network change");
+                if self.side().is_client() {
+                    debug!(%e,"Failed to open new path for network change");
+                }
                 // if this fails, let the path try to recover itself
                 recoverable_paths.push((path_id, remote));
                 continue;

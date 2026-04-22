@@ -1000,6 +1000,10 @@ fn network_change_server_two_paths_selective_hint() -> TestResult {
         }
     }
 
+    // Signal network change without actually changing the server's local address. This
+    // means the client will not see an actual network change and keep accepting the packets
+    // from the server. If the server's address would change it would discard the server's
+    // packets since the server may not migrate.
     pair.handle_network_change(Server, Some(&SelectiveHint(second_path)));
 
     pair.drive();
@@ -1056,6 +1060,10 @@ fn network_change_server_single_path_non_recoverable_falls_back() -> TestResult 
         }
     }
 
+    // Signal network change without actually changing the server's local address. This
+    // means the client will not see an actual network change and keep accepting the packets
+    // from the server. If the server's address would change it would discard the server's
+    // packets since the server may not migrate.
     pair.handle_network_change(Server, Some(&NonRecoverableHint));
     pair.drive();
 
@@ -1086,6 +1094,10 @@ fn network_change_server_no_hint_recovers() -> TestResult {
         Some(Event::Path(PathEvent::Opened { id })) if id == second_path
     );
 
+    // Signal network change without actually changing the server's local address. This
+    // means the client will not see an actual network change and keep accepting the packets
+    // from the server. If the server's address would change it would discard the server's
+    // packets since the server may not migrate.
     pair.handle_network_change(Server, None);
     pair.drive();
 
