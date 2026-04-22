@@ -227,6 +227,8 @@ pub struct PathStats {
     pub cwnd: u64,
     /// Congestion events on the connection.
     pub congestion_events: u64,
+    /// Spurious congestion events on the connection.
+    pub spurious_congestion_events: u64,
     /// The number of packets lost on this path.
     pub lost_packets: u64,
     /// The number of bytes lost on this path.
@@ -280,6 +282,7 @@ impl std::ops::Add<PathStats> for ConnectionStats {
             frame_rx,
             cwnd: _,
             congestion_events: _,
+            spurious_congestion_events: _,
             lost_packets,
             lost_bytes,
             sent_plpmtud_probes: _,
@@ -310,6 +313,7 @@ impl std::ops::AddAssign<PathStats> for ConnectionStats {
             frame_rx: path_frame_rx,
             cwnd: _,
             congestion_events: _,
+            spurious_congestion_events: _,
             lost_packets: path_lost_packets,
             lost_bytes: path_lost_bytes,
             sent_plpmtud_probes: _,

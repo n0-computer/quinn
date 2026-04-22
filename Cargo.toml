@@ -44,7 +44,7 @@ rustc-hash = "2"
 rustls = { version = "0.23.33", default-features = false, features = ["std"] }
 rustls-pemfile = "2"
 rustls-pki-types = "1.7"
-rustls-platform-verifier = "0.6"
+rustls-platform-verifier = "0.7"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 slab = "0.4.9"
