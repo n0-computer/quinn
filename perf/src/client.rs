@@ -1,8 +1,7 @@
 #[cfg(feature = "json-output")]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
