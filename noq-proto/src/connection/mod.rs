@@ -4854,18 +4854,15 @@ impl Connection {
                         .path_mut(path_id)
                         .expect("payload is processed only after the path becomes known");
                     path.path_responses.push(number, challenge.0, network_path);
-                    // At this point, update_network_path_or_discard was already called, so
-                    // we don't need to be lenient about `local_ip` possibly mis-matching.
-                    if network_path == path.network_path {
-                        // PATH_CHALLENGE on active path, possible off-path packet forwarding
-                        // attack. Send a non-probing packet to recover the active path.
-                        // TODO(flub): No longer true! We now path_challege also to validate
-                        //    the path if the path is new, without an RFC9000-style
-                        //    migration involved. This means we add in an extra
-                        //    IMMEDIATE_ACK on some challenges. It isn't really wrong to do
-                        //    so, but it still is something untidy. We should instead
-                        //    suppress this when we know the remote is still validating the
-                        //    path.
+                    // If we were passively migrated (e.g. NAT rebinding), our local_ip will
+                    // not match. Once we processed a non-probing packet the local_ip will
+                    // finally be updated.
+                    if network_path.remote == path.network_path.remote {
+                        // PATH_CHALLENGE on active path, possible off-path packet
+                        // forwarding attack. Send a non-probing packet to recover the
+                        // active path.  This could also be an other off-path probe though,
+                        // like NAT probes. In that case the on-path non-probing path is
+                        // redundant but does little harm.
                         match self.peer_supports_ack_frequency() {
                             true => self.immediate_ack(path_id),
                             false => {
@@ -5542,7 +5539,12 @@ impl Connection {
         network_path: FourTuple,
         observed_addr: Option<ObservedAddr>,
     ) {
-        trace!(%network_path, %path_id, "migration initiated");
+        trace!(
+            new_4tuple=%network_path,
+            prev_4tuple = %self.path_data(path_id).network_path,
+            %path_id,
+            "migration initiated",
+        );
         self.path_generation_counter = self.path_generation_counter.wrapping_add(1);
         // TODO(@divma): conditions for path migration in multipath are very specific, check them
         // again to prevent path migrations that should actually create a new path
