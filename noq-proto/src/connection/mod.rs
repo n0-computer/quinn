@@ -5480,17 +5480,24 @@ impl Connection {
             self.connection_close_pending = true;
         }
 
-        // If we receive a non-probing packet on a new local IP that means we had a NAT
-        // rebinding-like migration. We update our local address but do not otherwise
-        // validate the new path, we only need to validate the path if the peer migrates per
-        // RFC9000 §9: https://www.rfc-editor.org/rfc/rfc9000.html#section-9-4
+        // For Multipath any packet triggers migration. For RFC9000 or QNT (+ Multipath)
+        // only non-probing packets trigger migration.
+        let migrate_on_any_packet =
+            self.is_multipath_negotiated() && !self.n0_nat_traversal.is_negotiated();
+
+        // Only migrate if this is the largest packet number seen.
         let is_largest_received_pn = Some(number)
             == self.spaces[SpaceId::Data]
                 .for_path(path_id)
                 .largest_received_packet_number;
+
+        // If we receive a non-probing packet on a new local IP that means we had a NAT
+        // rebinding-like migration. We update our local address but do not otherwise
+        // validate the new path, we only need to validate the path if the peer migrates per
+        // RFC9000 §9: https://www.rfc-editor.org/rfc/rfc9000.html#section-9-4
         let local_ip_may_migrate = (self.side.is_client() || self.n0_nat_traversal.is_negotiated())
             && self.is_handshake_confirmed();
-        if !is_probing_packet
+        if (migrate_on_any_packet || !is_probing_packet)
             && is_largest_received_pn
             && local_ip_may_migrate
             && let Some(new_local_ip) = network_path.local_ip
@@ -5511,11 +5518,7 @@ impl Connection {
             path_data.network_path.local_ip = Some(new_local_ip)
         }
 
-        // If the peer migrated to a new address, trigger migration. For Multipath any
-        // packet triggers migration. For RFC9000 or QNT (+ Multipath) only non-probing
-        // packets trigger migration.
-        let migrate_on_any_packet =
-            self.is_multipath_negotiated() && !self.n0_nat_traversal.is_negotiated();
+        // If the peer migrated to a new address, trigger migration.
         if (migrate_on_any_packet || !is_probing_packet)
             && is_largest_received_pn
             && network_path.remote != self.path_data(path_id).network_path.remote
