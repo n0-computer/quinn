@@ -2309,7 +2309,7 @@ impl Connection {
     ///
     /// Incoming packets show us the local IP address we received a packet on, which could
     /// be different from what we thought due to e.g. NAT rebinding or moving from mobile
-    /// data to WiFi weithout being notified of the network change.
+    /// data to WiFi without being notified of the network change.
     ///
     /// This is only allowed to happen after the handshake is confirmed and when we are the
     /// client. Unless QNT is negotiated in which case the server is also allowed to
