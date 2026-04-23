@@ -2908,7 +2908,7 @@ impl Connection {
                 // Notify ack frequency that a packet was acked, because it might contain an ACK_FREQUENCY frame
                 self.ack_frequency.on_acked(path, packet);
 
-                self.on_packet_acked(now, path, info);
+                self.on_packet_acked(now, path, packet, info);
             }
         }
 
@@ -2965,8 +2965,18 @@ impl Connection {
                 // of newly acked packets that remains well-defined in the presence of arbitrary packet
                 // reordering.
                 if new_largest {
-                    let sent = self.spaces[space].for_path(path).largest_acked_packet_sent;
-                    self.process_ecn(now, space, path, newly_acked.len() as u64, ecn, sent);
+                    let pn_space = self.spaces[space].for_path(path);
+                    let sent = pn_space.largest_acked_packet_sent;
+                    let largest_sent = pn_space.largest_acked_packet.unwrap();
+                    self.process_ecn(
+                        now,
+                        space,
+                        path,
+                        newly_acked.len() as u64,
+                        ecn,
+                        sent,
+                        largest_sent,
+                    );
                 }
             } else {
                 // We always start out sending ECN, so any ack that doesn't acknowledge it disables it.
@@ -3024,6 +3034,7 @@ impl Connection {
         newly_acked: u64,
         ecn: frame::EcnCounts,
         largest_sent_time: Instant,
+        largest_sent: u64,
     ) {
         match self.spaces[space]
             .for_path(path)
@@ -3046,6 +3057,7 @@ impl Connection {
                     false,
                     true,
                     0,
+                    largest_sent,
                 );
             }
         }
@@ -3053,7 +3065,7 @@ impl Connection {
 
     // Not timing-aware, so it's safe to call this for inferred acks, such as arise from
     // high-latency handshakes
-    fn on_packet_acked(&mut self, now: Instant, path_id: PathId, info: SentPacket) {
+    fn on_packet_acked(&mut self, now: Instant, path_id: PathId, packet: u64, info: SentPacket) {
         let path = self.path_data_mut(path_id);
         let app_limited = path.app_limited;
         path.remove_in_flight(&info);
@@ -3062,8 +3074,14 @@ impl Connection {
             // generation of the path. Otherwise we might be feeding ACKs from the previous
             // 4-tuple into our congestion controller.
             let rtt = path.rtt;
-            path.congestion
-                .on_ack(now, info.time_sent, info.size.into(), app_limited, &rtt);
+            path.congestion.on_ack(
+                now,
+                info.time_sent,
+                info.size.into(),
+                packet,
+                app_limited,
+                &rtt,
+            );
         }
 
         // Update state for confirmed delivery of frames
@@ -3367,9 +3385,9 @@ impl Connection {
                     self.streams.retransmit(frame);
                 }
                 self.spaces[pn_space].pending |= info.retransmits;
-                self.path_data_mut(path_id)
-                    .mtud
-                    .on_non_probe_lost(packet, info.size);
+                let path = self.path_data_mut(path_id);
+                path.mtud.on_non_probe_lost(packet, info.size);
+                path.congestion.on_packet_lost(info.size, packet, now);
 
                 self.spaces[pn_space].for_path(path_id).lost_packets.insert(
                     packet,
@@ -3404,6 +3422,7 @@ impl Connection {
                     in_persistent_congestion,
                     false,
                     size_of_lost_packets,
+                    largest_lost,
                 );
             }
         }
@@ -4463,7 +4482,7 @@ impl Connection {
 
                 let space = &mut self.spaces[SpaceId::Initial];
                 if let Some(info) = space.for_path(PathId::ZERO).take(0) {
-                    self.on_packet_acked(now, PathId::ZERO, info);
+                    self.on_packet_acked(now, PathId::ZERO, 0, info);
                 };
 
                 self.discard_space(now, SpaceKind::Initial); // Make sure we clean up after
