@@ -1201,3 +1201,65 @@ fn regression_qnt_revalidating_path_forever() {
         pair.server_conn_mut(server_ch)
     )));
 }
+
+#[test]
+fn regression_challenge_resend_loop() {
+    let prefix = "regression_challenge_resend_loop";
+    let setup = PairSetup {
+        seed: Seed::Zeroes,
+        extensions: Extensions::MultipathOnly,
+        routing_setup: RoutingSetup::Complex(RoutingTable::from_routes(
+            vec![("[::ffff:1.1.1.0]:44433".parse().unwrap(), 0)],
+            vec![
+                ("[::ffff:2.2.2.0]:4433".parse().unwrap(), 0),
+                ("[::ffff:2.2.2.1]:4433".parse().unwrap(), 0),
+            ],
+        )),
+    };
+    let interactions = vec![
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::Drive { side: Side::Client },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 1,
+        },
+        TestOp::DropInbound { side: Side::Client },
+        TestOp::Drive { side: Side::Client },
+        TestOp::AdvanceTime,
+        TestOp::Drive { side: Side::Server },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 1,
+        },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 0,
+        },
+        TestOp::Drive { side: Side::Client },
+        TestOp::OpenPath {
+            side: Side::Client,
+            status: PathStatus::Available,
+            addr_idx: 1,
+        },
+        TestOp::AdvanceTime,
+    ];
+
+    let _guard = subscribe();
+    let (mut pair, client_config) = setup.run(prefix);
+    let (client_ch, server_ch) = run_random_interaction(&mut pair, interactions, client_config);
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
