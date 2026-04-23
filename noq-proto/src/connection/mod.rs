@@ -2284,7 +2284,7 @@ impl Connection {
     /// preferred_address transport parameter no side may migrate before the handshake is
     /// completed.
     ///
-    /// In RFC900 only the client may migrate. If QNT is negotiated the server may migrate
+    /// In RFC9000 only the client may migrate. If QNT is negotiated the server may migrate
     /// as well.
     ///
     /// Additionally for iroh we allow the server to migrate once during the handshake as
@@ -5545,7 +5545,7 @@ impl Connection {
         observed_addr: Option<ObservedAddr>,
     ) {
         trace!(
-            new_4tuple=%network_path,
+            new_4tuple = %network_path,
             prev_4tuple = %self.path_data(path_id).network_path,
             %path_id,
             "migration initiated",
@@ -5714,7 +5714,7 @@ impl Connection {
 
             if open_first && let Err(e) = self.open_path(network_path, status, now) {
                 if self.side().is_client() {
-                    debug!(%e,"Failed to open new path for network change");
+                    debug!(%e, "Failed to open new path for network change");
                 }
                 // if this fails, let the path try to recover itself
                 recoverable_paths.push((path_id, remote));
