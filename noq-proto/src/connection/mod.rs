@@ -4876,7 +4876,7 @@ impl Connection {
                         // active path. See
                         // https://www.rfc-editor.org/rfc/rfc9000.html#section-9.3.3-3. In
                         // rare cases NAT probes might also appear on-path and would also
-                        // get a non-probing packet as repsonse. There is little harm in
+                        // get a non-probing packet as response. There is little harm in
                         // this.
                         match self.peer_supports_ack_frequency() {
                             true => self.immediate_ack(path_id),
