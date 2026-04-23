@@ -2164,7 +2164,7 @@ impl Connection {
                 let span = trace_span!("pkt", %path_id);
                 let _guard = span.enter();
 
-                if self.update_network_path_or_discard(network_path, path_id) {
+                if self.early_discard_packet(network_path, path_id) {
                     // A return value of true indicates we should discard this packet.
                     return;
                 }
@@ -2225,13 +2225,27 @@ impl Connection {
         }
     }
 
-    /// Updates the network path for `path_id`.
+    /// Returns whether a packet can be discarded early.
     ///
-    /// Returns true if a packet coming in for this `path_id` over given `network_path` should be discarded.
-    /// Returns false if the path was updated and the packet doesn't need to be discarded.
-    fn update_network_path_or_discard(&mut self, network_path: FourTuple, path_id: PathId) -> bool {
-        let remote_may_migrate = self.side.remote_may_migrate(&self.state);
-        let local_ip_may_migrate = self.side.is_client();
+    /// Packets sent on the wrong network path can be entirely ignored, saving further
+    /// processing.
+    ///
+    /// Returns true if a packet coming in for this `path_id` over given `network_path`
+    /// should be discarded.
+    fn early_discard_packet(&mut self, network_path: FourTuple, path_id: PathId) -> bool {
+        if self.is_handshaking() && path_id != PathId::ZERO {
+            debug!(%network_path, %path_id, "discarding multipath packet during handshake");
+            return true;
+        }
+
+        // TODO(flub): In RFC9000 the server is allowed to send off-path probing packets
+        //    once the client has been probing such a 4-tuple. These probes are currently
+        //    not yet recognised and discarded here.
+        //    See https://github.com/n0-computer/noq/issues/607.
+        let remote_may_migrate = self.remote_may_migrate();
+
+        let local_ip_may_migrate = self.local_ip_may_migrate();
+
         // If this packet could initiate a migration and we're a client or a server that
         // forbids migration, drop the datagram. This could be relaxed to heuristically
         // permit NAT-rebinding-like migration.
@@ -2259,35 +2273,54 @@ impl Connection {
                 );
                 return true;
             }
-            // If the datagram indicates that we've changed our local IP, we update it.
-            // This is alluded to in Section 5.2 of the Multipath RFC draft 18:
-            // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#name-using-multiple-paths-on-the
-            // > Client receives the packet, recognizes a path migration, updates the source address of path 2 to 192.0.2.1.
-            if let Some(local_ip) = network_path.local_ip {
-                if known_path
-                    .network_path
-                    .local_ip
-                    .is_some_and(|ip| ip != local_ip)
-                {
-                    debug!(
-                        %path_id,
-                        %network_path,
-                        %known_path.network_path,
-                        "path's local address seemingly migrated"
-                    );
-                }
-                // We update the address without path validation on the client side.
-                // https://www.ietf.org/archive/id/draft-ietf-quic-multipath-18.html#section-5.1
-                // > Servers observing a 4-tuple change will perform path validation (see Section 9 of [QUIC-TRANSPORT]).
-                // This sounds like it's *only* the server endpoints that do this.
-                // TODO(matheus23): We should still consider doing a proper migration on the client side in the future.
-                // For now, this preserves the behavior of this code pre 4-tuple tracking.
-                known_path.network_path.local_ip = Some(local_ip);
-            }
         }
         false
     }
 
+    /// Whether a remote is allowed to migrate.
+    ///
+    /// QUIC relies on stable endpoints during the handshake. So other than the server's
+    /// preferred_address transport parameter no side may migrate before the handshake is
+    /// completed.
+    ///
+    /// In RFC9000 only the client may migrate. If QNT is negotiated the server may migrate
+    /// as well.
+    ///
+    /// Additionally for iroh we allow the server to migrate once during the handshake as
+    /// long as the client has not received an authenticated Handshake packet. This allows
+    /// us to duplicate client Initial packets to multiple destinations. See
+    /// [`state::Handshake::allow_server_migration`].
+    fn remote_may_migrate(&self) -> bool {
+        match &self.side {
+            ConnectionSide::Server { server_config } => {
+                server_config.migration && self.is_handshake_confirmed()
+            }
+            ConnectionSide::Client { .. } => {
+                if let Some(hs) = self.state.as_handshake() {
+                    hs.allow_server_migration
+                } else {
+                    self.n0_nat_traversal.is_negotiated() && self.is_handshake_confirmed()
+                }
+            }
+        }
+    }
+
+    /// Whether our local IP address is allowed to change with new incoming packets.
+    ///
+    /// Incoming packets show us the local IP address we received a packet on, which could
+    /// be different from what we thought due to e.g. NAT rebinding or moving from mobile
+    /// data to WiFi without being notified of the network change.
+    ///
+    /// This is only allowed to happen after the handshake is confirmed and when we are the
+    /// client. Unless QNT is negotiated in which case the server is also allowed to
+    /// migrate.
+    ///
+    /// Be aware that probing packets, which do not exist in Multipath without QNT, are
+    /// exempt from this.
+    fn local_ip_may_migrate(&self) -> bool {
+        (self.side.is_client() || self.n0_nat_traversal.is_negotiated())
+            && self.is_handshake_confirmed()
+    }
     /// Process timer expirations
     ///
     /// Executes protocol logic, potentially preparing signals (including application `Event`s,
@@ -4051,6 +4084,11 @@ impl Connection {
         }
     }
 
+    /// Decrypts the packet and processes the payload.
+    ///
+    /// Processes the entire packet, starting with removing header protection, then handling
+    /// a stateless reset if needed, and decrypting and processing the frames in the payload
+    /// if not a stateless reset.
     fn handle_decode(
         &mut self,
         now: Instant,
@@ -4076,6 +4114,12 @@ impl Connection {
         }
     }
 
+    /// Handles a packet with header protection removed.
+    ///
+    /// The packet body is still encrypted at this point.
+    ///
+    /// If the datagram was a stateless reset we may have failed to remove header protection
+    /// and thus `packet` may be `None`.
     fn handle_packet(
         &mut self,
         now: Instant,
@@ -4098,31 +4142,10 @@ impl Connection {
             );
         }
 
-        if self.is_handshaking() {
-            if path_id != PathId::ZERO {
-                debug!(%network_path, %path_id, "discarding multipath packet during handshake");
-                return;
-            }
-            if network_path != self.path_data_mut(path_id).network_path {
-                if let Some(hs) = self.state.as_handshake() {
-                    if hs.allow_server_migration {
-                        trace!(%network_path, prev = %self.path_data(path_id).network_path, "server migrated to new remote");
-                        self.path_data_mut(path_id).network_path = network_path;
-                        self.qlog.emit_tuple_assigned(path_id, network_path, now);
-                    } else {
-                        debug!("discarding packet with unexpected remote during handshake");
-                        return;
-                    }
-                } else {
-                    debug!("discarding packet with unexpected remote during handshake");
-                    return;
-                }
-            }
-        }
-
         let was_closed = self.state.is_closed();
         let was_drained = self.state.is_drained();
 
+        // Now decrypt the packet payload in-place.
         let decrypted = match packet {
             None => Err(None),
             Some(mut packet) => self
@@ -4152,12 +4175,33 @@ impl Connection {
                 }
             }
             Ok((packet, number)) => {
+                // We received an authenticated packet and decrypted it.
                 qlog.header(&packet.header, number, path_id);
                 let span = match number {
                     Some(pn) => trace_span!("recv", space = ?packet.header.space(), pn),
                     None => trace_span!("recv", space = ?packet.header.space()),
                 };
                 let _guard = span.enter();
+
+                // Now the packet is authenticated we do the migration during the
+                // handshake. See Handshake::allow_server_migration for details.
+                if self.is_handshaking() && network_path != self.path_data_mut(path_id).network_path
+                {
+                    if let Some(hs) = self.state.as_handshake()
+                        && hs.allow_server_migration
+                    {
+                        trace!(
+                            %network_path,
+                            prev = %self.path_data(path_id).network_path,
+                            "server migrated to new remote",
+                        );
+                        self.path_data_mut(path_id).network_path = network_path;
+                        self.qlog.emit_tuple_assigned(path_id, network_path, now);
+                    } else {
+                        debug!("discarding packet with unexpected remote during handshake");
+                        return;
+                    }
+                }
 
                 let dedup = self.spaces[packet.header.space()]
                     .path_space_mut(path_id)
@@ -4714,7 +4758,7 @@ impl Connection {
         Ok(())
     }
 
-    /// Processes the packet payload, always in the data space.
+    /// Processes the decrypted packet payload, always in the data space.
     fn process_payload(
         &mut self,
         now: Instant,
@@ -4823,18 +4867,17 @@ impl Connection {
                         .path_mut(path_id)
                         .expect("payload is processed only after the path becomes known");
                     path.path_responses.push(number, challenge.0, network_path);
-                    // At this point, update_network_path_or_discard was already called, so
-                    // we don't need to be lenient about `local_ip` possibly mis-matching.
-                    if network_path == path.network_path {
-                        // PATH_CHALLENGE on active path, possible off-path packet forwarding
-                        // attack. Send a non-probing packet to recover the active path.
-                        // TODO(flub): No longer true! We now path_challege also to validate
-                        //    the path if the path is new, without an RFC9000-style
-                        //    migration involved. This means we add in an extra
-                        //    IMMEDIATE_ACK on some challenges. It isn't really wrong to do
-                        //    so, but it still is something untidy. We should instead
-                        //    suppress this when we know the remote is still validating the
-                        //    path.
+                    // If we were passively migrated (e.g. NAT rebinding), our local_ip will
+                    // not match. Once we processed a non-probing packet the local_ip will
+                    // finally be updated.
+                    if network_path.remote == path.network_path.remote {
+                        // PATH_CHALLENGE on active path, possible off-path packet
+                        // forwarding attack. Send a non-probing packet to recover the
+                        // active path. See
+                        // https://www.rfc-editor.org/rfc/rfc9000.html#section-9.3.3-3. In
+                        // rare cases NAT probes might also appear on-path and would also
+                        // get a non-probing packet as response. There is little harm in
+                        // this.
                         match self.peer_supports_ack_frequency() {
                             true => self.immediate_ack(path_id),
                             false => {
@@ -5454,20 +5497,48 @@ impl Connection {
             self.connection_close_pending = true;
         }
 
-        if Some(number)
+        // For Multipath any packet triggers migration. For RFC9000 or QNT (+ Multipath)
+        // only non-probing packets trigger migration.
+        let migrate_on_any_packet =
+            self.is_multipath_negotiated() && !self.n0_nat_traversal.is_negotiated();
+
+        // Only migrate if this is the largest packet number seen.
+        let is_largest_received_pn = Some(number)
             == self.spaces[SpaceId::Data]
                 .for_path(path_id)
-                .largest_received_packet_number
-            && !is_probing_packet
-            && network_path != self.path_data(path_id).network_path
+                .largest_received_packet_number;
+
+        // If we receive a non-probing packet on a new local IP that means we had a NAT
+        // rebinding-like migration. We update our local address but do not otherwise
+        // validate the new path, we only need to validate the path if the peer migrates per
+        // RFC9000 §9: https://www.rfc-editor.org/rfc/rfc9000.html#section-9-4
+        if (migrate_on_any_packet || !is_probing_packet)
+            && is_largest_received_pn
+            && self.local_ip_may_migrate()
+            && let Some(new_local_ip) = network_path.local_ip
         {
-            let ConnectionSide::Server { ref server_config } = self.side else {
-                panic!("packets from unknown remote should be dropped by clients");
-            };
-            debug_assert!(
-                server_config.migration,
-                "migration-initiating packets should have been dropped immediately"
-            );
+            let path_data = self.path_data_mut(path_id);
+            if path_data
+                .network_path
+                .local_ip
+                .is_some_and(|ip| ip != new_local_ip)
+            {
+                debug!(
+                    %path_id,
+                    new_4tuple = %network_path,
+                    prev_4tuple = %path_data.network_path,
+                    "local address passive migration"
+                );
+            }
+            path_data.network_path.local_ip = Some(new_local_ip)
+        }
+
+        // If the peer migrated to a new address, trigger migration.
+        if (migrate_on_any_packet || !is_probing_packet)
+            && is_largest_received_pn
+            && network_path.remote != self.path_data(path_id).network_path.remote
+            && self.remote_may_migrate()
+        {
             self.migrate(path_id, now, network_path, migration_observed_addr);
             // Break linkability, if possible
             self.update_remote_cid(path_id);
@@ -5477,6 +5548,10 @@ impl Connection {
         Ok(())
     }
 
+    /// Migrates the 4-tuple of the path.
+    ///
+    /// This creates a new [`PathData`] for the migrated path and stores the previous
+    /// [`PathData`] in [`PathState::prev`].
     fn migrate(
         &mut self,
         path_id: PathId,
@@ -5484,7 +5559,12 @@ impl Connection {
         network_path: FourTuple,
         observed_addr: Option<ObservedAddr>,
     ) {
-        trace!(%network_path, %path_id, "migration initiated");
+        trace!(
+            new_4tuple = %network_path,
+            prev_4tuple = %self.path_data(path_id).network_path,
+            %path_id,
+            "migration initiated",
+        );
         self.path_generation_counter = self.path_generation_counter.wrapping_add(1);
         // TODO(@divma): conditions for path migration in multipath are very specific, check them
         // again to prevent path migrations that should actually create a new path
@@ -5648,7 +5728,9 @@ impl Connection {
             };
 
             if open_first && let Err(e) = self.open_path(network_path, status, now) {
-                debug!(%e,"Failed to open new path for network change");
+                if self.side().is_client() {
+                    debug!(%e, "Failed to open new path for network change");
+                }
                 // if this fails, let the path try to recover itself
                 recoverable_paths.push((path_id, remote));
                 continue;
@@ -7252,19 +7334,6 @@ enum ConnectionSide {
 }
 
 impl ConnectionSide {
-    fn remote_may_migrate(&self, state: &State) -> bool {
-        match self {
-            Self::Server { server_config } => server_config.migration,
-            Self::Client { .. } => {
-                if let Some(hs) = state.as_handshake() {
-                    hs.allow_server_migration
-                } else {
-                    false
-                }
-            }
-        }
-    }
-
     fn is_client(&self) -> bool {
         self.side().is_client()
     }

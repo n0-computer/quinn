@@ -34,6 +34,10 @@ fn multipath_pair() -> ConnPair {
 fn multipath_pair_with_nat_traversal(nat_traversal: bool) -> ConnPair {
     let mut cfg = TransportConfig::default();
     cfg.max_concurrent_multipath_paths(MAX_PATHS);
+
+    // Use this to not get distracting MTU discovery probes in the logs.
+    // cfg.mtu_discovery_config(None);
+
     // Assume a low-latency connection so pacing doesn't interfere with the test
     cfg.initial_rtt(Duration::from_millis(10));
     if nat_traversal {
@@ -999,6 +1003,10 @@ fn network_change_server_two_paths_selective_hint() -> TestResult {
         }
     }
 
+    // Signal network change without actually changing the server's local address. This
+    // means the client will not see an actual network change and keep accepting the packets
+    // from the server. If the server's address would change it would discard the server's
+    // packets since the server may not migrate.
     pair.handle_network_change(Server, Some(&SelectiveHint(second_path)));
 
     pair.drive();
@@ -1055,6 +1063,10 @@ fn network_change_server_single_path_non_recoverable_falls_back() -> TestResult 
         }
     }
 
+    // Signal network change without actually changing the server's local address. This
+    // means the client will not see an actual network change and keep accepting the packets
+    // from the server. If the server's address would change it would discard the server's
+    // packets since the server may not migrate.
     pair.handle_network_change(Server, Some(&NonRecoverableHint));
     pair.drive();
 
@@ -1085,6 +1097,10 @@ fn network_change_server_no_hint_recovers() -> TestResult {
         Some(Event::Path(PathEvent::Opened { id })) if id == second_path
     );
 
+    // Signal network change without actually changing the server's local address. This
+    // means the client will not see an actual network change and keep accepting the packets
+    // from the server. If the server's address would change it would discard the server's
+    // packets since the server may not migrate.
     pair.handle_network_change(Server, None);
     pair.drive();
 

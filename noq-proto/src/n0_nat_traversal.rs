@@ -72,6 +72,113 @@ pub(crate) enum State {
     ServerSide(ServerState),
 }
 
+impl State {
+    pub(crate) fn new(max_remote_addresses: u8, max_local_addresses: u8, side: Side) -> Self {
+        match side {
+            Side::Client => Self::ClientSide(ClientState::new(
+                max_remote_addresses.into(),
+                max_local_addresses.into(),
+            )),
+            Side::Server => Self::ServerSide(ServerState::new(
+                max_remote_addresses.into(),
+                max_local_addresses.into(),
+            )),
+        }
+    }
+
+    pub(crate) fn is_negotiated(&self) -> bool {
+        match self {
+            Self::NotNegotiated => false,
+            Self::ClientSide(_) | Self::ServerSide(_) => true,
+        }
+    }
+
+    pub(crate) fn client_side(&self) -> Result<&ClientState, Error> {
+        match self {
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(client_side) => Ok(client_side),
+            Self::ServerSide(_) => Err(Error::WrongConnectionSide),
+        }
+    }
+
+    pub(crate) fn client_side_mut(&mut self) -> Result<&mut ClientState, Error> {
+        match self {
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(client_side) => Ok(client_side),
+            Self::ServerSide(_) => Err(Error::WrongConnectionSide),
+        }
+    }
+
+    pub(crate) fn server_side_mut(&mut self) -> Result<&mut ServerState, Error> {
+        match self {
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(_) => Err(Error::WrongConnectionSide),
+            Self::ServerSide(server_side) => Ok(server_side),
+        }
+    }
+
+    /// Adds a local address to use for nat traversal.
+    ///
+    /// When this endpoint is the server within the connection, these addresses will be sent to the
+    /// client in add address frames. For clients, these addresses will be sent in reach out frames
+    /// when nat traversal attempts are initiated.
+    ///
+    /// If a frame should be sent, it is returned.
+    pub(crate) fn add_local_address(
+        &mut self,
+        address: SocketAddr,
+    ) -> Result<Option<AddAddress>, Error> {
+        let ip_port = IpPort::from((address.ip(), address.port()));
+        match self {
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(client_state) => {
+                client_state.add_local_address(ip_port)?;
+                Ok(None)
+            }
+            Self::ServerSide(server_state) => server_state.add_local_address(ip_port),
+        }
+    }
+
+    /// Removes a local address from the advertised set for nat traversal.
+    ///
+    /// When this endpoint is the server, removed addresses must be reported with remove address
+    /// frames. Clients will simply stop reporting these addresses in reach out frames.
+    ///
+    /// If a frame should be sent, it is returned.
+    pub(crate) fn remove_local_address(
+        &mut self,
+        address: SocketAddr,
+    ) -> Result<Option<RemoveAddress>, Error> {
+        let address = IpPort::from((address.ip(), address.port()));
+        match self {
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(client_state) => {
+                client_state.remove_local_address(&address);
+                Ok(None)
+            }
+            Self::ServerSide(server_state) => Ok(server_state.remove_local_address(&address)),
+        }
+    }
+
+    pub(crate) fn get_local_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, Error> {
+        match self {
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(client_state) => Ok(client_state
+                .local_addresses
+                .iter()
+                .copied()
+                .map(Into::into)
+                .collect()),
+            Self::ServerSide(server_state) => Ok(server_state
+                .local_addresses
+                .keys()
+                .copied()
+                .map(Into::into)
+                .collect()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct ClientState {
     /// Max number of remote addresses we allow
@@ -477,106 +584,6 @@ impl ServerState {
             }
         }
         false
-    }
-}
-
-impl State {
-    pub(crate) fn new(max_remote_addresses: u8, max_local_addresses: u8, side: Side) -> Self {
-        match side {
-            Side::Client => Self::ClientSide(ClientState::new(
-                max_remote_addresses.into(),
-                max_local_addresses.into(),
-            )),
-            Side::Server => Self::ServerSide(ServerState::new(
-                max_remote_addresses.into(),
-                max_local_addresses.into(),
-            )),
-        }
-    }
-
-    pub(crate) fn client_side(&self) -> Result<&ClientState, Error> {
-        match self {
-            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            Self::ClientSide(client_side) => Ok(client_side),
-            Self::ServerSide(_) => Err(Error::WrongConnectionSide),
-        }
-    }
-
-    pub(crate) fn client_side_mut(&mut self) -> Result<&mut ClientState, Error> {
-        match self {
-            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            Self::ClientSide(client_side) => Ok(client_side),
-            Self::ServerSide(_) => Err(Error::WrongConnectionSide),
-        }
-    }
-
-    pub(crate) fn server_side_mut(&mut self) -> Result<&mut ServerState, Error> {
-        match self {
-            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            Self::ClientSide(_) => Err(Error::WrongConnectionSide),
-            Self::ServerSide(server_side) => Ok(server_side),
-        }
-    }
-
-    /// Adds a local address to use for nat traversal.
-    ///
-    /// When this endpoint is the server within the connection, these addresses will be sent to the
-    /// client in add address frames. For clients, these addresses will be sent in reach out frames
-    /// when nat traversal attempts are initiated.
-    ///
-    /// If a frame should be sent, it is returned.
-    pub(crate) fn add_local_address(
-        &mut self,
-        address: SocketAddr,
-    ) -> Result<Option<AddAddress>, Error> {
-        let ip_port = IpPort::from((address.ip(), address.port()));
-        match self {
-            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            Self::ClientSide(client_state) => {
-                client_state.add_local_address(ip_port)?;
-                Ok(None)
-            }
-            Self::ServerSide(server_state) => server_state.add_local_address(ip_port),
-        }
-    }
-
-    /// Removes a local address from the advertised set for nat traversal.
-    ///
-    /// When this endpoint is the server, removed addresses must be reported with remove address
-    /// frames. Clients will simply stop reporting these addresses in reach out frames.
-    ///
-    /// If a frame should be sent, it is returned.
-    pub(crate) fn remove_local_address(
-        &mut self,
-        address: SocketAddr,
-    ) -> Result<Option<RemoveAddress>, Error> {
-        let address = IpPort::from((address.ip(), address.port()));
-        match self {
-            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            Self::ClientSide(client_state) => {
-                client_state.remove_local_address(&address);
-                Ok(None)
-            }
-            Self::ServerSide(server_state) => Ok(server_state.remove_local_address(&address)),
-        }
-    }
-
-    pub(crate) fn get_local_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, Error> {
-        match self {
-            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
-            Self::ClientSide(client_state) => Ok(client_state
-                .local_addresses
-                .iter()
-                .copied()
-                .map(Into::into)
-                .collect()),
-            Self::ServerSide(server_state) => Ok(server_state
-                .local_addresses
-                .keys()
-                .copied()
-                .map(Into::into)
-                .collect()),
-        }
     }
 }
 

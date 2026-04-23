@@ -233,9 +233,15 @@ impl BufLen for Vec<u8> {
     }
 }
 
+/// A received packet with header protection removed.
+// TODO(flub): Would be grand to make this typesafe by adding a generic that indicates
+//    whether the payload is encrypted or decrypted.
 pub(crate) struct Packet {
+    /// The decoded header.
     pub(crate) header: Header,
+    /// The encoded header data, with header protection removed (i.e. decrypted).
     pub(crate) header_data: Bytes,
+    /// Packet payload, still encrypted when created, later decrypted in-place.
     pub(crate) payload: BytesMut,
 }
 
