@@ -4858,9 +4858,11 @@ impl Connection {
                     if network_path.remote == path.network_path.remote {
                         // PATH_CHALLENGE on active path, possible off-path packet
                         // forwarding attack. Send a non-probing packet to recover the
-                        // active path.  This could also be an other off-path probe though,
-                        // like NAT probes. In that case the on-path non-probing path is
-                        // redundant but does little harm.
+                        // active path. See
+                        // https://www.rfc-editor.org/rfc/rfc9000.html#section-9.3.3-3. In
+                        // rare cases NAT probes might also appear on-path and would also
+                        // get a non-probing packet as repsonse. There is little harm in
+                        // this.
                         match self.peer_supports_ack_frequency() {
                             true => self.immediate_ack(path_id),
                             false => {
