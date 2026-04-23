@@ -2244,8 +2244,7 @@ impl Connection {
         //    See https://github.com/n0-computer/noq/issues/607.
         let remote_may_migrate = self.remote_may_migrate();
 
-        let local_ip_may_migrate = (self.side.is_client() || self.n0_nat_traversal.is_negotiated())
-            && self.is_handshake_confirmed();
+        let local_ip_may_migrate = self.local_ip_may_migrate();
 
         // If this packet could initiate a migration and we're a client or a server that
         // forbids migration, drop the datagram. This could be relaxed to heuristically
@@ -2306,6 +2305,22 @@ impl Connection {
         }
     }
 
+    /// Whether our local IP address is allowed to change with new incoming packets.
+    ///
+    /// Incoming packets show us the local IP address we received a packet on, which could
+    /// be different from what we thought due to e.g. NAT rebinding or moving from mobile
+    /// data to WiFi weithout being notified of the network change.
+    ///
+    /// This is only allowed to happen after the handshake is confirmed and when we are the
+    /// client. Unless QNT is negotiated in which case the server is also allowed to
+    /// migrate.
+    ///
+    /// Be aware that probing packets, which do not exist in Multipath without QNT, are
+    /// exempt from this.
+    fn local_ip_may_migrate(&self) -> bool {
+        (self.side.is_client() || self.n0_nat_traversal.is_negotiated())
+            && self.is_handshake_confirmed()
+    }
     /// Process timer expirations
     ///
     /// Executes protocol logic, potentially preparing signals (including application `Event`s,
@@ -5497,11 +5512,9 @@ impl Connection {
         // rebinding-like migration. We update our local address but do not otherwise
         // validate the new path, we only need to validate the path if the peer migrates per
         // RFC9000 §9: https://www.rfc-editor.org/rfc/rfc9000.html#section-9-4
-        let local_ip_may_migrate = (self.side.is_client() || self.n0_nat_traversal.is_negotiated())
-            && self.is_handshake_confirmed();
         if (migrate_on_any_packet || !is_probing_packet)
             && is_largest_received_pn
-            && local_ip_may_migrate
+            && self.local_ip_may_migrate()
             && let Some(new_local_ip) = network_path.local_ip
         {
             let path_data = self.path_data_mut(path_id);
