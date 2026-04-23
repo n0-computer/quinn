@@ -778,6 +778,14 @@ impl Connection {
         }
     }
 
+    /// Gets the [`PathData`] for a known [`PathId`].
+    ///
+    /// Will panic if the path_id does not reference any known path.
+    #[track_caller]
+    fn path_data_mut(&mut self, path_id: PathId) -> &mut PathData {
+        &mut self.paths.get_mut(&path_id).expect("known path").data
+    }
+
     /// Gets a reference to the [`PathData`] for a [`PathId`]
     fn path(&self, path_id: PathId) -> Option<&PathData> {
         self.paths.get(&path_id).map(|path_state| &path_state.data)
@@ -904,14 +912,6 @@ impl Connection {
             .get_mut(&path_id)
             .ok_or(ClosedPath { _private: () })?;
         Ok(std::mem::replace(&mut path.data.keep_alive, interval))
-    }
-
-    /// Gets the [`PathData`] for a known [`PathId`].
-    ///
-    /// Will panic if the path_id does not reference any known path.
-    #[track_caller]
-    fn path_data_mut(&mut self, path_id: PathId) -> &mut PathData {
-        &mut self.paths.get_mut(&path_id).expect("known path").data
     }
 
     /// Find an open, validated path that's on the same network path as the given network path.
@@ -2038,9 +2038,6 @@ impl Connection {
     }
 
     /// Send a nat traversal challenge (off-path) on this path if possible.
-    ///
-    /// This will ensure the path still has a remaining CID to use if the active one should be
-    /// retired.
     fn send_nat_traversal_path_challenge(
         &mut self,
         now: Instant,
@@ -2082,32 +2079,11 @@ impl Connection {
         builder.write_frame_with_log_msg(frame, stats, Some("(nat-traversal)"));
         // Off-path: not tracked in congestion control. The packet is sent to a
         // different destination than path_id's network path.
-        builder.pad_to(MIN_INITIAL_SIZE);
         builder.finish(self, now);
 
         // Mark as sent after packet build succeeds.
         if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
-            server_state.mark_probe_sent((remote.ip(), remote.port()));
-        }
-
-        let path = &mut self.paths.get_mut(&path_id).expect("checked").data;
-        let network_path = FourTuple {
-            remote,
-            local_ip: None,
-        };
-
-        path.record_path_challenge_sent(now, token, network_path);
-
-        // Set retry timer for NAT traversal probes that got no PATH_RESPONSE.
-        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
-            && server_state.has_pending_retries()
-        {
-            let initial_pto = RttEstimator::new(self.config.initial_rtt).pto_base();
-            self.timers.set(
-                Timer::Conn(ConnTimer::NatTraversalProbeRetry),
-                now + initial_pto,
-                self.qlog.with_time(now),
-            );
+            server_state.mark_probe_sent((remote.ip(), remote.port()), token);
         }
 
         let size = buf.len();
@@ -2323,8 +2299,14 @@ impl Connection {
     /// no-op and therefore are safe.
     pub fn handle_timeout(&mut self, now: Instant) {
         while let Some((timer, _time)) = self.timers.expire_before(now, &self.qlog) {
-            // TODO(@divma): remove `at` when the unicorn is born
-            trace!(?timer, at=?now, "timeout");
+            let span = match timer {
+                Timer::Conn(timer) => trace_span!("timeout", scope = "conn", ?timer),
+                Timer::PerPath(path_id, timer) => {
+                    trace_span!("timer_fired", scope="path", %path_id, ?timer)
+                }
+            };
+            let _guard = span.enter();
+            trace!("timeout");
             match timer {
                 Timer::Conn(timer) => match timer {
                     ConnTimer::Close => {
@@ -2337,7 +2319,6 @@ impl Connection {
                         self.kill(ConnectionError::TimedOut);
                     }
                     ConnTimer::KeepAlive => {
-                        trace!("sending keep-alive");
                         self.ping();
                     }
                     ConnTimer::KeyDiscard => {
@@ -2394,13 +2375,18 @@ impl Connection {
                         if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
                             && server_state.queue_retries()
                         {
+                            let delay =
+                                RttEstimator::new(self.config.initial_rtt).pto_base() * 2 / 3;
+                            self.timers.set(
+                                Timer::Conn(ConnTimer::NatTraversalProbeRetry),
+                                now + delay,
+                                self.qlog.with_time(now),
+                            );
                             trace!("off-path probe retry timer fired, re-queued probes");
                         }
                     }
                 },
                 Timer::PerPath(path_id, timer) => {
-                    let span = trace_span!("per-path timer fired", %path_id, ?timer);
-                    let _guard = span.enter();
                     match timer {
                         PathTimer::PathIdle => {
                             if let Err(err) =
@@ -2411,7 +2397,6 @@ impl Connection {
                         }
 
                         PathTimer::PathKeepAlive => {
-                            trace!("sending keep-alive on path");
                             self.ping_path(path_id).ok();
                         }
                         PathTimer::LossDetection => {
@@ -2461,9 +2446,8 @@ impl Connection {
                                 warn!(?err, "failed closing path");
                             }
                         }
-                        PathTimer::Pacing => trace!("pacing timer expired"),
+                        PathTimer::Pacing => {}
                         PathTimer::MaxAckDelay => {
-                            trace!("max ack delay reached");
                             // This timer is only armed in the Data space
                             self.spaces[SpaceId::Data]
                                 .for_path(path_id)
@@ -4860,62 +4844,85 @@ impl Connection {
                     }
                 }
                 Frame::PathResponse(response) => {
-                    let path = self
-                        .paths
-                        .get_mut(&path_id)
-                        .expect("payload is processed only after the path becomes known");
-
-                    use PathTimer::*;
-                    use paths::OnPathResponseReceived::*;
-                    match path
-                        .data
-                        .on_path_response_received(now, response.0, network_path)
+                    // First try to see if this is a NAT probe response.
+                    if let Ok(nat_state) = self.n0_nat_traversal.server_side_mut()
+                        && nat_state.handle_path_response(network_path, response.0)
                     {
-                        OnPath { was_open } => {
-                            let qlog = self.qlog.with_time(now);
+                        trace!(
+                            src = ?network_path,
+                            challenge = response.0,
+                            "Received valid NAT traversal probe response"
+                        );
+                        // Server-side: nothing else to do.
+                    } else {
+                        // Try to see if this is a response to an on-path PATH_CHALLENGE.
 
-                            self.timers
-                                .stop(Timer::PerPath(path_id, PathValidationFailed), qlog.clone());
-                            self.timers
-                                .stop(Timer::PerPath(path_id, AbandonFromValidation), qlog.clone());
+                        let path = self
+                            .paths
+                            .get_mut(&path_id)
+                            .expect("payload is processed only after the path becomes known");
 
-                            let next_challenge = path
-                                .data
-                                .earliest_on_path_expiring_challenge()
-                                .map(|time| time + self.ack_frequency.max_ack_delay_for_pto());
-                            self.timers.set_or_stop(
-                                Timer::PerPath(path_id, PathChallengeLost),
-                                next_challenge,
-                                qlog,
-                            );
+                        use PathTimer::*;
+                        use paths::OnPathResponseReceived::*;
+                        match path
+                            .data
+                            .on_path_response_received(now, response.0, network_path)
+                        {
+                            OnPath { was_open } => {
+                                let qlog = self.qlog.with_time(now);
 
-                            if !was_open {
-                                if is_multipath_negotiated {
-                                    self.events
-                                        .push_back(Event::Path(PathEvent::Opened { id: path_id }));
+                                self.timers.stop(
+                                    Timer::PerPath(path_id, PathValidationFailed),
+                                    qlog.clone(),
+                                );
+                                self.timers.stop(
+                                    Timer::PerPath(path_id, AbandonFromValidation),
+                                    qlog.clone(),
+                                );
+
+                                let next_challenge = path
+                                    .data
+                                    .earliest_on_path_expiring_challenge()
+                                    .map(|time| time + self.ack_frequency.max_ack_delay_for_pto());
+                                self.timers.set_or_stop(
+                                    Timer::PerPath(path_id, PathChallengeLost),
+                                    next_challenge,
+                                    qlog,
+                                );
+
+                                if !was_open {
+                                    if is_multipath_negotiated {
+                                        self.events.push_back(Event::Path(PathEvent::Opened {
+                                            id: path_id,
+                                        }));
+                                    }
+                                    if let Some(observed) =
+                                        path.data.last_observed_addr_report.as_ref()
+                                    {
+                                        self.events.push_back(Event::Path(
+                                            PathEvent::ObservedAddr {
+                                                id: path_id,
+                                                addr: observed.socket_addr(),
+                                            },
+                                        ));
+                                    }
                                 }
-                                if let Some(observed) = path.data.last_observed_addr_report.as_ref()
-                                {
-                                    self.events.push_back(Event::Path(PathEvent::ObservedAddr {
-                                        id: path_id,
-                                        addr: observed.socket_addr(),
-                                    }));
+                                if let Some((_, ref mut prev)) = path.prev {
+                                    // If an on-path response was received while there is a
+                                    // previous path from a migration, then the new path is
+                                    // validated and we can stop sending challenges that try to
+                                    // re-validate the previous path.
+                                    prev.reset_on_path_challenges();
                                 }
                             }
-                            if let Some((_, ref mut prev)) = path.prev {
-                                prev.reset_on_path_challenges();
+                            Ignored {
+                                sent_on,
+                                current_path,
+                            } => {
+                                debug!(%sent_on, %current_path, %response, "ignoring valid PATH_RESPONSE")
                             }
+                            Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                         }
-                        OffPath => {
-                            debug!(%response, "Valid response to off-path PATH_CHALLENGE");
-                        }
-                        Ignored {
-                            sent_on,
-                            current_path,
-                        } => {
-                            debug!(%sent_on, %current_path, %response, "ignoring valid PATH_RESPONSE")
-                        }
-                        Unknown => debug!(%response, "ignoring invalid PATH_RESPONSE"),
                     }
                 }
                 Frame::MaxData(frame::MaxData(bytes)) => {
@@ -5044,7 +5051,9 @@ impl Connection {
                     use crate::cid_queue::InsertError;
                     match remote_cids.insert(frame) {
                         Ok(None) if self.path(path_id).is_none() => {
-                            // if this gives us CIDs to open a new path and a nat traversal attempt
+                            // TODO(flub): Once the client does off-path NAT probes as well
+                            //    we should remove this.
+                            // If this gives us CIDs to open a new path and a nat traversal attempt
                             // is underway we could try to probe a pending remote
                             self.continue_nat_traversal_round(now);
                         }
@@ -5284,6 +5293,9 @@ impl Connection {
                     if path_id > self.remote_max_path_id {
                         self.remote_max_path_id = path_id;
                         self.issue_first_path_cids(now);
+                        // TODO(flub): Once the client sends off-path NAT probes this is no
+                        //    longer needed. But new paths that need to be opened may need
+                        //    to be notified.
                         while let Some(true) = self.continue_nat_traversal_round(now) {}
                     }
                 }
@@ -5399,39 +5411,14 @@ impl Connection {
                         )));
                     }
 
-                    // Only clean up if handle_reach_out actually advanced the round
-                    // (it may silently ignore frames for old rounds or unsupported IP families).
-                    let round_advanced = server_state.current_round() > round_before;
-                    if round_advanced {
-                        self.timers.stop(
+                    if server_state.current_round() > round_before {
+                        // A new round was started, reset the NAT probe retry timer.
+                        let delay = RttEstimator::new(self.config.initial_rtt).pto_base() * 2 / 3;
+                        self.timers.set(
                             Timer::Conn(ConnTimer::NatTraversalProbeRetry),
+                            now + delay,
                             self.qlog.with_time(now),
                         );
-
-                        let path = &mut self.paths.get_mut(&path_id).expect("known path").data;
-                        if path.has_off_path_challenges() {
-                            trace!(
-                                "clearing stale off-path challenges for new NAT traversal round"
-                            );
-                            path.clear_off_path_challenges();
-
-                            if let Some(remote_cids) = self.remote_cids.get_mut(&path_id)
-                                && let Some((reset_token, retired)) = remote_cids.next()
-                            {
-                                self.spaces[SpaceId::Data]
-                                    .pending
-                                    .retire_cids
-                                    .extend(retired.map(|seq| (path_id, seq)));
-                                let remote = self
-                                    .paths
-                                    .get(&path_id)
-                                    .expect("known path")
-                                    .data
-                                    .network_path
-                                    .remote;
-                                self.set_reset_token(path_id, remote, reset_token);
-                            }
-                        }
                     }
                 }
             }
@@ -7017,13 +7004,15 @@ impl Connection {
 
     /// Initiates a new nat traversal round
     ///
-    /// A nat traversal round involves advertising the client's local addresses in `REACH_OUT`
-    /// frames, and initiating probing of the known remote addresses. When a new round is
-    /// initiated, the previous one is cancelled, and paths that have not been opened are closed.
+    /// A nat traversal round involves advertising the client's local addresses in
+    /// `REACH_OUT` frames, and initiating probing of the known remote addresses. When a new
+    /// round is initiated, the previous one is cancelled.
     ///
-    /// Returns the server addresses that are now being probed.
-    /// If addresses fail due to spurious errors, these might succeed later and not be returned in
-    /// this set.
+    /// For all probes that succeed, if any, a new path will be opened on the successful
+    /// 4-tuple.
+    ///
+    /// Returns the server addresses that are now being probed. If addresses fail due to
+    /// spurious errors, these might succeed later and not be returned in this set.
     pub fn initiate_nat_traversal_round(
         &mut self,
         now: Instant,
