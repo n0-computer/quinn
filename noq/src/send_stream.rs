@@ -7,7 +7,7 @@ use std::{
 
 use bytes::Bytes;
 use pin_project_lite::pin_project;
-use proto::{ClosedStream, ConnectionError, FinishError, StreamId, Written};
+use proto::{ClosedStream, ConnectionError, FinishError, StreamId};
 use thiserror::Error;
 use tokio::sync::futures::OwnedNotified;
 
@@ -79,59 +79,53 @@ impl SendStream {
         Ok(())
     }
 
-    /// Write a slice of [`Bytes`] into this stream, returning how much was written
+    /// Write [`Bytes`] from a slice of buffers into this stream, returning how many bytes were
+    /// written
     ///
-    /// Bytes to try to write are provided to this method as an array of cheaply cloneable chunks.
-    /// Unless this method errors, it waits until some amount of those bytes can be written into
-    /// this stream, and then writes as much as it can without waiting again. Due to congestion and
-    /// flow control, this may be less than the total number of bytes.
+    /// Unless this method errors, it waits until some bytes can be written into this stream, and
+    /// then writes as much as it can without waiting again. Due to congestion and flow control,
+    /// this may be less than the total number of bytes.
     ///
-    /// On success, this method both mutates `bufs` and yields an informative [`Written`] struct
-    /// indicating how much was written:
-    ///
-    /// - [`Bytes`] chunks that were fully written are mutated to be [empty](Bytes::is_empty).
-    /// - If a [`Bytes`] chunk was partially written, it is [split to](Bytes::split_to) contain
-    ///   only the suffix of bytes that were not written.
-    /// - The yielded [`Written`] struct indicates how many chunks were fully written as well as
-    ///   how many bytes were written.
+    /// On success, `bufs` is advanced past fully written chunks (and partially written chunks are
+    /// split), and the number of bytes written is returned.
     ///
     /// # Cancel safety
     ///
     /// This method is cancellation safe. If this does not resolve, no bytes were written.
-    pub async fn write_chunks(&mut self, bufs: &mut [Bytes]) -> Result<Written, WriteError> {
+    pub async fn write_bytes_many(&mut self, bufs: &mut &mut [Bytes]) -> Result<usize, WriteError> {
         poll_fn(|cx| self.execute_poll(cx, |s| s.write_chunks(bufs))).await
     }
 
     /// Write a single [`Bytes`] into this stream in its entirety
     ///
-    /// Bytes to write are provided to this method as an single cheaply cloneable chunk. This
-    /// method repeatedly calls [`write_chunks`](Self::write_chunks) until all bytes are written,
-    /// or an error occurs.
+    /// This method repeatedly calls [`write_bytes_many`](Self::write_bytes_many) until all bytes
+    /// are written, or an error occurs.
     ///
     /// # Cancel safety
     ///
     /// This method is *not* cancellation safe. Even if this does not resolve, some bytes may have
     /// been written when previously polled.
-    pub async fn write_chunk(&mut self, buf: Bytes) -> Result<(), WriteError> {
-        self.write_all_chunks(&mut [buf]).await?;
+    pub async fn write_bytes(&mut self, buf: Bytes) -> Result<(), WriteError> {
+        let mut bufs = &mut [buf][..];
+        while !bufs.is_empty() {
+            self.write_bytes_many(&mut bufs).await?;
+        }
         Ok(())
     }
 
     /// Write a slice of [`Bytes`] into this stream in its entirety
     ///
-    /// Bytes to write are provided to this method as an array of cheaply cloneable chunks. This
-    /// method repeatedly calls [`write_chunks`](Self::write_chunks) until all bytes are written,
-    /// or an error occurs. This method mutates `bufs` by mutating all chunks to be
-    /// [empty](Bytes::is_empty).
+    /// This method repeatedly calls [`write_bytes_many`](Self::write_bytes_many) until all bytes
+    /// are written, or an error occurs.
     ///
     /// # Cancel safety
     ///
     /// This method is *not* cancellation safe. Even if this does not resolve, some bytes may have
     /// been written when previously polled.
-    pub async fn write_all_chunks(&mut self, mut bufs: &mut [Bytes]) -> Result<(), WriteError> {
+    pub async fn write_bytes_all(&mut self, bufs: &mut [Bytes]) -> Result<(), WriteError> {
+        let mut bufs = &mut bufs[..];
         while !bufs.is_empty() {
-            let written = self.write_chunks(bufs).await?;
-            bufs = &mut bufs[written.chunks..];
+            self.write_bytes_many(&mut bufs).await?;
         }
         Ok(())
     }
