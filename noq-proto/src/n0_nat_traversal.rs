@@ -197,10 +197,16 @@ impl State {
 
     /// Marks a remote as successful if the response matches a sent probe.
     ///
-    /// Returns `true` if it was a response to one of the NAT traversal probes.
-    pub(crate) fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> bool {
+    /// Returns the open network path if it was a response to one of the NAT traversal
+    /// probes. Note that the NAT probes are not padded to 1200 bytes so only the address is
+    /// validated, but not the entire path.
+    pub(crate) fn handle_path_response(
+        &mut self,
+        src: FourTuple,
+        challenge: u64,
+    ) -> Option<FourTuple> {
         match self {
-            Self::NotNegotiated => false,
+            Self::NotNegotiated => None,
             Self::ClientSide(state) => state.handle_path_response(src, challenge),
             Self::ServerSide(state) => state.handle_path_response(src, challenge),
         }
@@ -439,7 +445,7 @@ impl ClientState {
     /// Marks a remote as successful if the response matches a sent probe.
     ///
     /// Returns `true` if it was a response to one of the NAT traversal probes.
-    fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> bool {
+    fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> Option<FourTuple> {
         if let Entry::Occupied(entry) = self.sent_challenges.entry(challenge) {
             let remote = (src.remote().ip(), src.remote().port());
             if *entry.get() == remote {
@@ -458,7 +464,7 @@ impl ClientState {
                 {
                     self.remote_addresses
                         .insert(seq, (remote, ProbeState::Succeeded));
-                    return true;
+                    return Some(src);
                 } else {
                     debug!("inconsistent remote addrs and seq");
                 }
@@ -470,7 +476,7 @@ impl ClientState {
                 )
             }
         }
-        false
+        None
     }
 }
 
@@ -654,13 +660,13 @@ impl ServerState {
     /// Marks a remote as successful if the response matches a sent probe.
     ///
     /// Returns `true` if it was a response to one of the NAT traversal probes.
-    fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> bool {
+    fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> Option<FourTuple> {
         if let Entry::Occupied(entry) = self.sent_challenges.entry(challenge) {
             let remote = (src.remote().ip(), src.remote().port());
             if *entry.get() == remote {
                 entry.remove();
                 self.remotes.insert(remote, ProbeState::Succeeded);
-                return true;
+                return Some(src);
             } else {
                 debug!(
                     ?challenge,
@@ -669,7 +675,7 @@ impl ServerState {
                 )
             }
         }
-        false
+        None
     }
 }
 

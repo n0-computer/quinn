@@ -1672,10 +1672,10 @@ fn test_simple_nat_traveral_opens_path() -> TestResult {
     pair.drive();
 
     let event = pair.poll(Client).expect("should have event");
-    assert!(matches!(event, Event::Path(PathEvent::Opened { .. })));
+    assert_matches!(event, Event::Path(PathEvent::Opened { .. }));
 
     let event = pair.poll(Server).expect("should have event");
-    assert!(matches!(event, Event::Path(PathEvent::Opened { .. })));
+    assert_matches!(event, Event::Path(PathEvent::Opened { .. }));
 
     Ok(())
 }

@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, VecDeque, btree_map},
     convert::TryFrom,
     fmt, io, mem,
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     num::{NonZeroU32, NonZeroUsize},
     sync::Arc,
 };
@@ -4914,15 +4914,49 @@ impl Connection {
                 }
                 Frame::PathResponse(response) => {
                     // First try to see if this is a NAT probe response.
-                    if self
+                    if let Some(network_path) = self
                         .n0_nat_traversal
                         .handle_path_response(network_path, response.0)
                     {
                         trace!(
-                            src = ?network_path,
+                            ?network_path,
                             challenge = response.0,
                             "Received valid NAT traversal probe response"
                         );
+                        if self.side.is_client() {
+                            match self.open_path_ensure(network_path, PathStatus::Backup, now) {
+                                Ok((path_id, already_existed)) => {
+                                    debug!(
+                                        %path_id,
+                                        ?network_path,
+                                        new_path=!already_existed,
+                                        "Opened NAT traversal path",
+                                    );
+                                }
+                                Err(err) => match err {
+                                    PathError::MultipathNotNegotiated
+                                    | PathError::ServerSideNotAllowed
+                                    | PathError::ValidationFailed
+                                    | PathError::InvalidRemoteAddress(_) => {
+                                        error!(
+                                            ?err,
+                                            ?network_path,
+                                            "Failed to open path after NAT traversal"
+                                        );
+                                    }
+                                    PathError::MaxPathIdReached
+                                    | PathError::RemoteCidsExhausted => {
+                                        // This is a temporary failure, enqueue this.
+                                        debug!(
+                                            ?err,
+                                            ?network_path,
+                                            "Blocked opening NAT traversal path"
+                                        );
+                                        // TODO(flub): do this.
+                                    }
+                                },
+                            }
+                        }
                         // Server-side: nothing else to do.
                     } else {
                         // Try to see if this is a response to an on-path PATH_CHALLENGE.
@@ -7033,62 +7067,6 @@ impl Connection {
             .n0_nat_traversal
             .client_side()?
             .get_remote_nat_traversal_addresses())
-    }
-
-    /// Attempts to open a path for nat traversal.
-    ///
-    /// On success returns the [`PathId`] and remote address of the path.
-    fn open_nat_traversal_path(
-        &mut self,
-        now: Instant,
-        ip_port: (IpAddr, u16),
-    ) -> Result<Option<(PathId, SocketAddr)>, PathError> {
-        let remote = ip_port.into();
-        // TODO(matheus23): Probe the correct 4-tuple, instead of only a remote address?
-        // By specifying None for `local_ip`, we do two things: 1. open_path_ensure won't
-        // generate two paths to the same remote and 2. we let the OS choose which
-        // interface to use for sending on that path.
-        let network_path = FourTuple {
-            remote,
-            local_ip: None,
-        };
-        match self.open_path_ensure(network_path, PathStatus::Backup, now) {
-            Ok((path_id, path_was_known)) => {
-                if path_was_known {
-                    trace!(%path_id, %remote, "nat traversal: path existed for remote, revalidating");
-                    if let Some(path) = self.paths.get_mut(&path_id) {
-                        use paths::OpenStatus::*;
-
-                        path.data.pending_on_path_challenge = true;
-                        path.data.open_status = match path.data.open_status {
-                            // If we just opened the path and have never sent a `PATH_CHALLENGE` yet,
-                            // then we need to keep it at pending, to ensure that
-                            // 1. The PathOpenFailed timer for stopping the PathChallengeLost retries will be set.
-                            // 2. When validation eventually succeeds, then we inform the application layer about this path opening.
-                            Pending => Pending,
-                            // If we had already sent a path challenge in the past, but it hasn't been validated yet (and also not
-                            // failed via the PathOpenFailed timer yet), then we need to go back to pending, to ensure we properly
-                            // re-arm the `PathOpenFailed` timer again.
-                            Sent => Pending,
-                            // If we're already revalidating this path, but haven't sent a `PATH_CHALLENGE` yet, then we just keep
-                            // that state.
-                            Revalidating => Revalidating,
-                            // If we've informed the application layer about the path opening in the past, but we now re-send
-                            // PATH_CHALLENGEs for validation, then using this we ensure:
-                            // 1. The PathOpenFailed timer for stopping the PathChallengeLost retries will be set.
-                            // 2. When validation eventually succeeds, we *don't* inform the application layer about the path
-                            //    opening again.
-                            Informed => Revalidating,
-                        }
-                    }
-                }
-                Ok(Some((path_id, remote)))
-            }
-            Err(e) => {
-                debug!(%remote, %e, "nat traversal: failed to probe remote");
-                Err(e)
-            }
-        }
     }
 
     /// Initiates a new nat traversal round
