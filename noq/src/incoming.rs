@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use proto::{ConnectionError, ConnectionId, ServerConfig};
+use proto::{ConnectionError, ConnectionId, DecryptedInitial, ServerConfig};
 use thiserror::Error;
 
 use crate::{
@@ -103,7 +103,7 @@ impl Incoming {
     ///
     /// This clones and decrypts the packet payload (~1200 bytes).
     /// Can be used to extract information from the TLS ClientHello without completing the handshake.
-    pub fn decrypt(&self) -> Option<proto::DecryptedInitial> {
+    pub fn decrypt(&self) -> Option<DecryptedInitial> {
         self.0.as_ref()?.inner.decrypt()
     }
 }
