@@ -90,7 +90,7 @@
 <a href=#90 id=90 data-nosnippet>90</a>        is_persistent_congestion: bool,
 <a href=#91 id=91 data-nosnippet>91</a>        _is_ecn: bool,
 <a href=#92 id=92 data-nosnippet>92</a>        _lost_bytes: u64,
-<a href=#93 id=93 data-nosnippet>93</a>        _largest_lost: u64,
+<a href=#93 id=93 data-nosnippet>93</a>        _largest_lost_pn: u64,
 <a href=#94 id=94 data-nosnippet>94</a>    ) {
 <a href=#95 id=95 data-nosnippet>95</a>        <span class="kw">if </span>sent &lt;= <span class="self">self</span>.recovery_start_time {
 <a href=#96 id=96 data-nosnippet>96</a>            <span class="kw">return</span>;

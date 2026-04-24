@@ -235,8 +235,8 @@
 <a href=#235 id=235 data-nosnippet>235</a>    /// packet number stored here is sometimes skipped by [`PacketNumberFilter`] logic.
 <a href=#236 id=236 data-nosnippet>236</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) next_packet_number: u64,
 <a href=#237 id=237 data-nosnippet>237</a>    <span class="doccomment">/// The largest packet number the remote peer acknowledged in an ACK frame.
-<a href=#238 id=238 data-nosnippet>238</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) largest_acked_packet: <span class="prelude-ty">Option</span>&lt;u64&gt;,
-<a href=#239 id=239 data-nosnippet>239</a>    <span class="kw">pub</span>(<span class="kw">super</span>) largest_acked_packet_sent: Instant,
+<a href=#238 id=238 data-nosnippet>238</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) largest_acked_packet_pn: <span class="prelude-ty">Option</span>&lt;u64&gt;,
+<a href=#239 id=239 data-nosnippet>239</a>    <span class="kw">pub</span>(<span class="kw">super</span>) largest_acked_packet_send_time: Instant,
 <a href=#240 id=240 data-nosnippet>240</a>    <span class="doccomment">/// The highest-numbered ACK-eliciting packet we've sent
 <a href=#241 id=241 data-nosnippet>241</a>    </span><span class="kw">pub</span>(<span class="kw">super</span>) largest_ack_eliciting_sent: u64,
 <a href=#242 id=242 data-nosnippet>242</a>    <span class="doccomment">/// Number of packets in `sent_packets` with numbers above `largest_ack_eliciting_sent`
@@ -292,8 +292,8 @@
 <a href=#292 id=292 data-nosnippet>292</a>        <span class="self">Self </span>{
 <a href=#293 id=293 data-nosnippet>293</a>            largest_received_packet_number: <span class="prelude-val">None</span>,
 <a href=#294 id=294 data-nosnippet>294</a>            next_packet_number: <span class="number">0</span>,
-<a href=#295 id=295 data-nosnippet>295</a>            largest_acked_packet: <span class="prelude-val">None</span>,
-<a href=#296 id=296 data-nosnippet>296</a>            largest_acked_packet_sent: now,
+<a href=#295 id=295 data-nosnippet>295</a>            largest_acked_packet_pn: <span class="prelude-val">None</span>,
+<a href=#296 id=296 data-nosnippet>296</a>            largest_acked_packet_send_time: now,
 <a href=#297 id=297 data-nosnippet>297</a>            largest_ack_eliciting_sent: <span class="number">0</span>,
 <a href=#298 id=298 data-nosnippet>298</a>            unacked_non_ack_eliciting_tail: <span class="number">0</span>,
 <a href=#299 id=299 data-nosnippet>299</a>            sent_packets: SortedIndexBuffer::new(),
@@ -320,8 +320,8 @@
 <a href=#320 id=320 data-nosnippet>320</a>        <span class="self">Self </span>{
 <a href=#321 id=321 data-nosnippet>321</a>            largest_received_packet_number: <span class="prelude-val">None</span>,
 <a href=#322 id=322 data-nosnippet>322</a>            next_packet_number: <span class="number">0</span>,
-<a href=#323 id=323 data-nosnippet>323</a>            largest_acked_packet: <span class="prelude-val">None</span>,
-<a href=#324 id=324 data-nosnippet>324</a>            largest_acked_packet_sent: now,
+<a href=#323 id=323 data-nosnippet>323</a>            largest_acked_packet_pn: <span class="prelude-val">None</span>,
+<a href=#324 id=324 data-nosnippet>324</a>            largest_acked_packet_send_time: now,
 <a href=#325 id=325 data-nosnippet>325</a>            largest_ack_eliciting_sent: <span class="number">0</span>,
 <a href=#326 id=326 data-nosnippet>326</a>            unacked_non_ack_eliciting_tail: <span class="number">0</span>,
 <a href=#327 id=327 data-nosnippet>327</a>            sent_packets: SortedIndexBuffer::new(),

@@ -97,7 +97,7 @@
 <a href=#97 id=97 data-nosnippet>97</a>
 <a href=#98 id=98 data-nosnippet>98</a>        <span class="kw">let </span>number = PacketNumber::new(
 <a href=#99 id=99 data-nosnippet>99</a>            packet_number,
-<a href=#100 id=100 data-nosnippet>100</a>            space.for_path(path_id).largest_acked_packet.unwrap_or(<span class="number">0</span>),
+<a href=#100 id=100 data-nosnippet>100</a>            space.for_path(path_id).largest_acked_packet_pn.unwrap_or(<span class="number">0</span>),
 <a href=#101 id=101 data-nosnippet>101</a>        );
 <a href=#102 id=102 data-nosnippet>102</a>        <span class="kw">let </span>header = <span class="kw">match </span>level {
 <a href=#103 id=103 data-nosnippet>103</a>            EncryptionLevel::OneRtt =&gt; Header::Short {

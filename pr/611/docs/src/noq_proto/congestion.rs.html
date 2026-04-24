@@ -17,11 +17,11 @@
 <a href=#17 id=17 data-nosnippet>17</a></span><span class="kw">pub trait </span>Controller: Send + Sync + std::fmt::Debug {
 <a href=#18 id=18 data-nosnippet>18</a>    <span class="doccomment">/// One or more packets were just sent
 <a href=#19 id=19 data-nosnippet>19</a>    </span><span class="attr">#[allow(unused_variables)]
-<a href=#20 id=20 data-nosnippet>20</a>    </span><span class="kw">fn </span>on_sent(<span class="kw-2">&amp;mut </span><span class="self">self</span>, now: Instant, bytes: u64, last_packet_number: u64) {}
+<a href=#20 id=20 data-nosnippet>20</a>    </span><span class="kw">fn </span>on_sent(<span class="kw-2">&amp;mut </span><span class="self">self</span>, now: Instant, bytes: u64, largest_pn: u64) {}
 <a href=#21 id=21 data-nosnippet>21</a>
 <a href=#22 id=22 data-nosnippet>22</a>    <span class="doccomment">/// One packet was just sent
 <a href=#23 id=23 data-nosnippet>23</a>    </span><span class="attr">#[allow(unused_variables)]
-<a href=#24 id=24 data-nosnippet>24</a>    </span><span class="kw">fn </span>on_packet_sent(<span class="kw-2">&amp;mut </span><span class="self">self</span>, now: Instant, bytes: u16, packet_number: u64) {}
+<a href=#24 id=24 data-nosnippet>24</a>    </span><span class="kw">fn </span>on_packet_sent(<span class="kw-2">&amp;mut </span><span class="self">self</span>, now: Instant, bytes: u16, pn: u64) {}
 <a href=#25 id=25 data-nosnippet>25</a>
 <a href=#26 id=26 data-nosnippet>26</a>    <span class="doccomment">/// Packet deliveries were confirmed
 <a href=#27 id=27 data-nosnippet>27</a>    ///
@@ -56,7 +56,7 @@
 <a href=#56 id=56 data-nosnippet>56</a>    /// congestion threshold period ending when the most recent packet in this batch was sent were
 <a href=#57 id=57 data-nosnippet>57</a>    /// lost.
 <a href=#58 id=58 data-nosnippet>58</a>    /// `lost_bytes` indicates how many bytes were lost. This value will be 0 for ECN triggers.
-<a href=#59 id=59 data-nosnippet>59</a>    /// `largest_lost` indicates the packet number of the packet with the highest packet number
+<a href=#59 id=59 data-nosnippet>59</a>    /// `largest_lost_pn` indicates the packet number of the packet with the highest packet number
 <a href=#60 id=60 data-nosnippet>60</a>    /// in the congestion event.
 <a href=#61 id=61 data-nosnippet>61</a>    </span><span class="kw">fn </span>on_congestion_event(
 <a href=#62 id=62 data-nosnippet>62</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
@@ -65,12 +65,12 @@
 <a href=#65 id=65 data-nosnippet>65</a>        is_persistent_congestion: bool,
 <a href=#66 id=66 data-nosnippet>66</a>        is_ecn: bool,
 <a href=#67 id=67 data-nosnippet>67</a>        lost_bytes: u64,
-<a href=#68 id=68 data-nosnippet>68</a>        largest_lost: u64,
+<a href=#68 id=68 data-nosnippet>68</a>        largest_lost_pn: u64,
 <a href=#69 id=69 data-nosnippet>69</a>    );
 <a href=#70 id=70 data-nosnippet>70</a>
 <a href=#71 id=71 data-nosnippet>71</a>    <span class="doccomment">/// One packet was just lost
 <a href=#72 id=72 data-nosnippet>72</a>    </span><span class="attr">#[allow(unused_variables)]
-<a href=#73 id=73 data-nosnippet>73</a>    </span><span class="kw">fn </span>on_packet_lost(<span class="kw-2">&amp;mut </span><span class="self">self</span>, lost_bytes: u16, packet_number: u64, now: Instant) {}
+<a href=#73 id=73 data-nosnippet>73</a>    </span><span class="kw">fn </span>on_packet_lost(<span class="kw-2">&amp;mut </span><span class="self">self</span>, lost_bytes: u16, pn: u64, now: Instant) {}
 <a href=#74 id=74 data-nosnippet>74</a>
 <a href=#75 id=75 data-nosnippet>75</a>    <span class="doccomment">/// Packets were incorrectly deemed lost
 <a href=#76 id=76 data-nosnippet>76</a>    ///
