@@ -17,11 +17,11 @@ pub use new_reno::{NewReno, NewRenoConfig};
 pub trait Controller: Send + Sync + std::fmt::Debug {
     /// One or more packets were just sent
     #[allow(unused_variables)]
-    fn on_sent(&mut self, now: Instant, bytes: u64, last_packet_number: u64) {}
+    fn on_sent(&mut self, now: Instant, bytes: u64, largest_pn: u64) {}
 
     /// One packet was just sent
     #[allow(unused_variables)]
-    fn on_packet_sent(&mut self, now: Instant, bytes: u16, packet_number: u64) {}
+    fn on_packet_sent(&mut self, now: Instant, bytes: u16, pn: u64) {}
 
     /// Packet deliveries were confirmed
     ///
@@ -56,7 +56,7 @@ pub trait Controller: Send + Sync + std::fmt::Debug {
     /// congestion threshold period ending when the most recent packet in this batch was sent were
     /// lost.
     /// `lost_bytes` indicates how many bytes were lost. This value will be 0 for ECN triggers.
-    /// `largest_lost` indicates the packet number of the packet with the highest packet number
+    /// `largest_lost_pn` indicates the packet number of the packet with the highest packet number
     /// in the congestion event.
     fn on_congestion_event(
         &mut self,
@@ -65,12 +65,12 @@ pub trait Controller: Send + Sync + std::fmt::Debug {
         is_persistent_congestion: bool,
         is_ecn: bool,
         lost_bytes: u64,
-        largest_lost: u64,
+        largest_lost_pn: u64,
     );
 
     /// One packet was just lost
     #[allow(unused_variables)]
-    fn on_packet_lost(&mut self, lost_bytes: u16, packet_number: u64, now: Instant) {}
+    fn on_packet_lost(&mut self, lost_bytes: u16, pn: u64, now: Instant) {}
 
     /// Packets were incorrectly deemed lost
     ///

@@ -182,7 +182,7 @@ impl Controller for Cubic {
         is_persistent_congestion: bool,
         is_ecn: bool,
         _lost_bytes: u64,
-        _largest_lost: u64,
+        _largest_lost_pn: u64,
     ) {
         if self
             .state

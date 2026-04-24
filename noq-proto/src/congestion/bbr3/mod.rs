@@ -1422,7 +1422,7 @@ impl Bbr3 {
     }
 }
 impl Controller for Bbr3 {
-    fn on_packet_sent(&mut self, now: Instant, bytes: u16, packet_number: u64) {
+    fn on_packet_sent(&mut self, now: Instant, bytes: u16, pn: u64) {
         if self.inflight == 0 {
             self.first_send_time = Some(now);
             self.delivered_time = Some(now);
@@ -1436,7 +1436,7 @@ impl Controller for Bbr3 {
             send_time: now,
             is_app_limited: self.app_limited != 0,
             tx_in_flight: self.inflight,
-            packet_number,
+            packet_number: pn,
             size: bytes,
             lost: self.lost,
             acknowledged: false,
@@ -1451,7 +1451,7 @@ impl Controller for Bbr3 {
         now: Instant,
         sent: Instant,
         bytes: u64,
-        packet_number: u64,
+        pn: u64,
         _app_limited: bool,
         rtt: &RttEstimator,
     ) {
@@ -1461,10 +1461,8 @@ impl Controller for Bbr3 {
             self.delivered += bytes;
             self.delivered_time = Some(now);
         }
-        let p_index_result = self
-            .packets
-            .binary_search_by_key(&(packet_number), |p| p.packet_number);
-        let is_newest_packet = self.is_newest_packet(sent, packet_number);
+        let p_index_result = self.packets.binary_search_by_key(&pn, |p| p.packet_number);
+        let is_newest_packet = self.is_newest_packet(sent, pn);
         if let Ok(p_index) = p_index_result
             && let Some(p) = self.packets.get_mut(p_index)
         {
@@ -1479,7 +1477,7 @@ impl Controller for Bbr3 {
                     rate_sample.tx_in_flight = p.tx_in_flight;
                     rate_sample.send_elapsed = p.send_time - p.first_send_time;
                     rate_sample.ack_elapsed = self.delivered_time.unwrap_or(now) - p.delivered_time;
-                    rate_sample.last_end_seq = packet_number;
+                    rate_sample.last_end_seq = pn;
                     self.first_send_time = Some(p.send_time);
                     rate_sample.last_packet = *p;
                     self.rs = Some(rate_sample);
@@ -1501,7 +1499,7 @@ impl Controller for Bbr3 {
                     newly_acked: bytes,
                     newly_lost: 0,
                     lost: 0,
-                    last_end_seq: packet_number,
+                    last_end_seq: pn,
                     last_packet: *p,
                 };
                 self.rs = Some(rate_sample);
@@ -1568,14 +1566,14 @@ impl Controller for Bbr3 {
         is_persistent_congestion: bool,
         is_ecn: bool,
         lost_bytes: u64,
-        largest_lost: u64,
+        largest_lost_pn: u64,
     ) {
         // only process ecn here, regular packet loss is detected per packet in on_packet_lost.
         if is_ecn {
             self.lost += lost_bytes;
             let p_index_result = self
                 .packets
-                .binary_search_by_key(&(largest_lost), |p| p.packet_number);
+                .binary_search_by_key(&largest_lost_pn, |p| p.packet_number);
             if let Ok(p_index) = p_index_result {
                 self.process_lost_packet(lost_bytes, p_index, now);
             }
@@ -1585,12 +1583,10 @@ impl Controller for Bbr3 {
         }
     }
 
-    fn on_packet_lost(&mut self, lost_bytes: u16, packet_number: u64, now: Instant) {
+    fn on_packet_lost(&mut self, lost_bytes: u16, pn: u64, now: Instant) {
         let lost_bytes_64 = lost_bytes as u64;
         self.lost += lost_bytes_64;
-        let p_index_result = self
-            .packets
-            .binary_search_by_key(&(packet_number), |p| p.packet_number);
+        let p_index_result = self.packets.binary_search_by_key(&pn, |p| p.packet_number);
         if let Ok(p_index) = p_index_result {
             self.process_lost_packet(lost_bytes_64, p_index, now);
         }
@@ -1659,6 +1655,7 @@ impl Controller for Bbr3 {
 }
 
 /// Configuration for the `Bbr3` congestion controller
+///
 /// Different pacing_gains can be set to modify the multiplier used to
 /// increase the sending rates.
 /// Different cwnd_gains can be set to modify the multiplier used to increase

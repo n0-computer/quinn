@@ -2967,7 +2967,9 @@ impl Connection {
                 if new_largest {
                     let pn_space = self.spaces[space].for_path(path);
                     let sent = pn_space.largest_acked_packet_sent;
-                    let largest_sent = pn_space.largest_acked_packet.unwrap();
+                    let largest_sent_pn = pn_space.largest_acked_packet.expect(
+                        "new_largest implies largest_acked_packet was just set by this ack",
+                    );
                     self.process_ecn(
                         now,
                         space,
@@ -2975,7 +2977,7 @@ impl Connection {
                         newly_acked.len() as u64,
                         ecn,
                         sent,
-                        largest_sent,
+                        largest_sent_pn,
                     );
                 }
             } else {
@@ -3031,14 +3033,14 @@ impl Connection {
         now: Instant,
         space: SpaceId,
         path: PathId,
-        newly_acked: u64,
+        newly_acked_pn: u64,
         ecn: frame::EcnCounts,
         largest_sent_time: Instant,
-        largest_sent: u64,
+        largest_sent_pn: u64,
     ) {
         match self.spaces[space]
             .for_path(path)
-            .detect_ecn(newly_acked, ecn)
+            .detect_ecn(newly_acked_pn, ecn)
         {
             Err(e) => {
                 debug!("halting ECN due to verification failure: {}", e);
@@ -3057,7 +3059,7 @@ impl Connection {
                     false,
                     true,
                     0,
-                    largest_sent,
+                    largest_sent_pn,
                 );
             }
         }
@@ -3065,7 +3067,7 @@ impl Connection {
 
     // Not timing-aware, so it's safe to call this for inferred acks, such as arise from
     // high-latency handshakes
-    fn on_packet_acked(&mut self, now: Instant, path_id: PathId, packet: u64, info: SentPacket) {
+    fn on_packet_acked(&mut self, now: Instant, path_id: PathId, pn: u64, info: SentPacket) {
         let path = self.path_data_mut(path_id);
         let app_limited = path.app_limited;
         path.remove_in_flight(&info);
@@ -3074,14 +3076,8 @@ impl Connection {
             // generation of the path. Otherwise we might be feeding ACKs from the previous
             // 4-tuple into our congestion controller.
             let rtt = path.rtt;
-            path.congestion.on_ack(
-                now,
-                info.time_sent,
-                info.size.into(),
-                packet,
-                app_limited,
-                &rtt,
-            );
+            path.congestion
+                .on_ack(now, info.time_sent, info.size.into(), pn, app_limited, &rtt);
         }
 
         // Update state for confirmed delivery of frames
