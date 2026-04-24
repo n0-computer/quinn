@@ -235,8 +235,8 @@ pub(super) struct PacketNumberSpace {
     /// packet number stored here is sometimes skipped by [`PacketNumberFilter`] logic.
     pub(super) next_packet_number: u64,
     /// The largest packet number the remote peer acknowledged in an ACK frame.
-    pub(super) largest_acked_packet: Option<u64>,
-    pub(super) largest_acked_packet_sent: Instant,
+    pub(super) largest_acked_packet_pn: Option<u64>,
+    pub(super) largest_acked_packet_send_time: Instant,
     /// The highest-numbered ACK-eliciting packet we've sent
     pub(super) largest_ack_eliciting_sent: u64,
     /// Number of packets in `sent_packets` with numbers above `largest_ack_eliciting_sent`
@@ -292,8 +292,8 @@ impl PacketNumberSpace {
         Self {
             largest_received_packet_number: None,
             next_packet_number: 0,
-            largest_acked_packet: None,
-            largest_acked_packet_sent: now,
+            largest_acked_packet_pn: None,
+            largest_acked_packet_send_time: now,
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
             sent_packets: SortedIndexBuffer::new(),
@@ -320,8 +320,8 @@ impl PacketNumberSpace {
         Self {
             largest_received_packet_number: None,
             next_packet_number: 0,
-            largest_acked_packet: None,
-            largest_acked_packet_sent: now,
+            largest_acked_packet_pn: None,
+            largest_acked_packet_send_time: now,
             largest_ack_eliciting_sent: 0,
             unacked_non_ack_eliciting_tail: 0,
             sent_packets: SortedIndexBuffer::new(),

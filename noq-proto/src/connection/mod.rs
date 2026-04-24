@@ -2843,13 +2843,16 @@ impl Connection {
         }
         let new_largest = {
             let space = &mut self.spaces[space].for_path(path);
-            if space.largest_acked_packet.is_none_or(|pn| ack.largest > pn) {
-                space.largest_acked_packet = Some(ack.largest);
+            if space
+                .largest_acked_packet_pn
+                .is_none_or(|pn| ack.largest > pn)
+            {
+                space.largest_acked_packet_pn = Some(ack.largest);
                 if let Some(info) = space.sent_packets.get(ack.largest) {
                     // This should always succeed, but a misbehaving peer might ACK a packet we
                     // haven't sent. At worst, that will result in us spuriously reducing the
                     // congestion window.
-                    space.largest_acked_packet_sent = info.time_sent;
+                    space.largest_acked_packet_send_time = info.time_sent;
                 }
                 true
             } else {
@@ -2912,7 +2915,7 @@ impl Connection {
             }
         }
 
-        let largest_ackd = self.spaces[space].for_path(path).largest_acked_packet;
+        let largest_ackd = self.spaces[space].for_path(path).largest_acked_packet_pn;
         let path_data = self.path_data_mut(path);
         let app_limited = path_data.app_limited;
         let in_flight = path_data.in_flight.bytes;
@@ -2931,7 +2934,9 @@ impl Connection {
                 )
             };
             let rtt = now.saturating_duration_since(
-                self.spaces[space].for_path(path).largest_acked_packet_sent,
+                self.spaces[space]
+                    .for_path(path)
+                    .largest_acked_packet_send_time,
             );
 
             let next_pn = self.spaces[space].for_path(path).next_packet_number;
@@ -2966,9 +2971,9 @@ impl Connection {
                 // reordering.
                 if new_largest {
                     let pn_space = self.spaces[space].for_path(path);
-                    let sent = pn_space.largest_acked_packet_sent;
-                    let largest_sent_pn = pn_space.largest_acked_packet.expect(
-                        "new_largest implies largest_acked_packet was just set by this ack",
+                    let sent = pn_space.largest_acked_packet_send_time;
+                    let largest_sent_pn = pn_space.largest_acked_packet_pn.expect(
+                        "new_largest implies largest_acked_packet_pn was just set by this ack",
                     );
                     self.process_ecn(
                         now,
@@ -3203,9 +3208,9 @@ impl Connection {
             .max(TIMER_GRANULARITY);
         let first_packet_after_rtt_sample = path.first_packet_after_rtt_sample;
 
-        let largest_acked_packet = self.spaces[pn_space]
+        let largest_acked_packet_pn = self.spaces[pn_space]
             .for_path(path_id)
-            .largest_acked_packet
+            .largest_acked_packet_pn
             .expect("detect_lost_packets only to be called if path received at least one ACK");
         let packet_threshold = self.config.packet_threshold as u64;
 
@@ -3219,7 +3224,7 @@ impl Connection {
         let mut prev_packet = None;
         let space = self.spaces[pn_space].for_path(path_id);
 
-        for (packet, info) in space.sent_packets.iter_range(0..largest_acked_packet) {
+        for (packet, info) in space.sent_packets.iter_range(0..largest_acked_packet_pn) {
             if prev_packet != Some(packet.wrapping_sub(1)) {
                 // An intervening packet was acknowledged
                 persistent_congestion_start = None;
@@ -3229,7 +3234,7 @@ impl Connection {
             // However, we avoid subtraction as it can panic and there's no
             // saturating equivalent of this subtraction operation with a Duration.
             let packet_too_old = now.saturating_duration_since(info.time_sent) >= loss_delay;
-            if packet_too_old || largest_acked_packet >= packet + packet_threshold {
+            if packet_too_old || largest_acked_packet_pn >= packet + packet_threshold {
                 // The packet should be declared lost.
                 if Some(packet) == in_flight_mtu_probe {
                     // Lost MTU probes are not included in `lost_packets`, because they
@@ -3570,11 +3575,11 @@ impl Connection {
         // handshake keys.
         self.spaces[SpaceId::Handshake]
             .path_space(PathId::ZERO)
-            .and_then(|pns| pns.largest_acked_packet)
+            .and_then(|pns| pns.largest_acked_packet_pn)
             .is_some()
             || self.spaces[SpaceId::Data]
                 .path_space(PathId::ZERO)
-                .and_then(|pns| pns.largest_acked_packet)
+                .and_then(|pns| pns.largest_acked_packet_pn)
                 .is_some()
             || (self.crypto_state.has_keys(EncryptionLevel::OneRtt)
                 && !self.crypto_state.has_keys(EncryptionLevel::Handshake))
@@ -6902,7 +6907,7 @@ impl Connection {
             pn,
             self.spaces[SpaceId::Data]
                 .for_path(path)
-                .largest_acked_packet
+                .largest_acked_packet_pn
                 .unwrap_or(0),
         )
         .len();
