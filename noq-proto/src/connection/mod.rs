@@ -81,7 +81,7 @@ use paths::{PathData, PathState};
 pub(crate) mod qlog;
 pub(crate) mod send_buffer;
 
-mod spaces;
+pub(crate) mod spaces;
 #[cfg(fuzzing)]
 pub use spaces::Retransmits;
 #[cfg(not(fuzzing))]
@@ -5112,13 +5112,6 @@ impl Connection {
 
                     use crate::cid_queue::InsertError;
                     match remote_cids.insert(frame) {
-                        Ok(None) if self.path(path_id).is_none() => {
-                            // TODO(flub): Once the client does off-path NAT probes as well
-                            //    we should remove this.
-                            // If this gives us CIDs to open a new path and a nat traversal attempt
-                            // is underway we could try to probe a pending remote
-                            self.continue_nat_traversal_round(now);
-                        }
                         Ok(None) => {}
                         Ok(Some((retired, reset_token))) => {
                             let pending_retired =
@@ -5355,10 +5348,6 @@ impl Connection {
                     if path_id > self.remote_max_path_id {
                         self.remote_max_path_id = path_id;
                         self.issue_first_path_cids(now);
-                        // TODO(flub): Once the client sends off-path NAT probes this is no
-                        //    longer needed. But new paths that need to be opened may need
-                        //    to be notified.
-                        while let Some(true) = self.continue_nat_traversal_round(now) {}
                     }
                 }
                 Frame::PathsBlocked(frame::PathsBlocked(max_path_id)) => {
@@ -6112,23 +6101,14 @@ impl Connection {
         }
 
         // REACH_OUT
-        if !scheduling_info.is_abandoned
+        while !scheduling_info.is_abandoned
             && scheduling_info.may_send_data
-            && let Some((round, addresses)) = space.pending.reach_out.as_mut()
+            && let Some(reach_out) = space
+                .pending
+                .reach_out
+                .pop_if(|frame| builder.frame_space_remaining() >= frame.size())
         {
-            while let Some(local_addr) = addresses.iter().next().copied() {
-                let local_addr = addresses.take(&local_addr).expect("found from iter");
-                let reach_out = frame::ReachOut::new(*round, local_addr);
-                if builder.frame_space_remaining() > reach_out.size() {
-                    builder.write_frame(reach_out, stats);
-                } else {
-                    addresses.insert(local_addr);
-                    break;
-                }
-            }
-            if addresses.is_empty() {
-                space.pending.reach_out = None;
-            }
+            builder.write_frame(reach_out, stats);
         }
 
         // PATH_ABANDON
@@ -7124,98 +7104,23 @@ impl Connection {
 
         let ipv6 = self.is_ipv6();
         let client_state = self.n0_nat_traversal.client_side_mut()?;
-        let n0_nat_traversal::NatTraversalRound {
-            new_round,
-            reach_out_at,
-            addresses_to_probe,
-            prev_round_path_ids,
-        } = client_state.initiate_nat_traversal_round(ipv6)?;
-
-        trace!(%new_round, reach_out=reach_out_at.len(), to_probe=addresses_to_probe.len(),
-            "initiating nat traversal round");
-
-        self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
-
-        for path_id in prev_round_path_ids {
-            let Some(path) = self.path(path_id) else {
-                continue;
-            };
-            let ip = path.network_path.remote.ip();
-            let port = path.network_path.remote.port();
-
-            // We only close paths that aren't validated (thus are working) that we opened
-            // in a previous round.
-            // And we only close paths that we don't want to probe anyways.
-            if !addresses_to_probe
-                .iter()
-                .any(|(_, probe)| *probe == (ip, port))
-                && !path.validated
-                && !self.abandoned_paths.contains(&path_id)
-            {
-                trace!(%path_id, "closing path from previous round");
-                let _ =
-                    self.close_path_inner(now, path_id, PathAbandonReason::NatTraversalRoundEnded);
-            }
+        let (mut reach_out_frames, probed_addrs) =
+            client_state.initiate_nat_traversal_round(ipv6)?;
+        if !probed_addrs.is_empty() {
+            let delay = RttEstimator::new(self.config.initial_rtt).pto_base() * 2 / 3;
+            self.timers.set(
+                Timer::Conn(ConnTimer::NatTraversalProbeRetry),
+                now + delay,
+                self.qlog.with_time(now),
+            );
         }
 
-        let mut err = None;
+        self.spaces[SpaceId::Data]
+            .pending
+            .reach_out
+            .append(&mut reach_out_frames);
 
-        let mut path_ids = Vec::with_capacity(addresses_to_probe.len());
-        let mut probed_addresses = Vec::with_capacity(addresses_to_probe.len());
-
-        for (id, address) in addresses_to_probe {
-            match self.open_nat_traversal_path(now, address) {
-                Ok(None) => {}
-                Ok(Some((path_id, remote))) => {
-                    path_ids.push(path_id);
-                    probed_addresses.push(remote);
-                }
-                Err(e) => {
-                    self.n0_nat_traversal
-                        .client_side_mut()
-                        .expect("validated")
-                        .report_in_continuation(id, e);
-                    err.get_or_insert(e);
-                }
-            }
-        }
-
-        if let Some(err) = err {
-            // We failed to probe any addresses, bail out
-            if probed_addresses.is_empty() {
-                return Err(n0_nat_traversal::Error::Multipath(err));
-            }
-        }
-
-        self.n0_nat_traversal
-            .client_side_mut()
-            .expect("connection side validated")
-            .set_round_path_ids(path_ids);
-
-        Ok(probed_addresses)
-    }
-
-    /// Attempts to continue a nat traversal round by trying to open paths for pending client probes.
-    ///
-    /// If there was nothing to do, it returns `None`. Otherwise it returns whether the path was
-    /// successfully open.
-    fn continue_nat_traversal_round(&mut self, now: Instant) -> Option<bool> {
-        let ipv6 = self.is_ipv6();
-        let client_state = self.n0_nat_traversal.client_side_mut().ok()?;
-        let (id, address) = client_state.continue_nat_traversal_round(ipv6)?;
-        let open_result = self.open_nat_traversal_path(now, address);
-        let client_state = self.n0_nat_traversal.client_side_mut().expect("validated");
-        match open_result {
-            Ok(None) => Some(true),
-            Ok(Some((path_id, _remote))) => {
-                client_state.add_round_path_id(path_id);
-                Some(true)
-            }
-            Err(e) => {
-                client_state.report_in_continuation(id, e);
-                Some(false)
-            }
-        }
+        Ok(probed_addrs)
     }
 
     /// Whether the handshake is considered **confirmed**.
@@ -7655,25 +7560,7 @@ impl SentFrames {
             Close(_) => { /* non retransmittable, but after this we don't really care */ }
             PathResponse(_) => self.non_retransmits = true,
             HandshakeDone(_) => self.retransmits_mut().handshake_done = true,
-            ReachOut(frame::ReachOut { round, ip, port }) => {
-                let (recorded_round, reach_outs) = self
-                    .retransmits_mut()
-                    .reach_out
-                    .get_or_insert_with(|| (round, FxHashSet::default()));
-                // Only record reach outs for the current round or a newer than the recorded one.
-                if *recorded_round == round {
-                    // Same round, simply append.
-                    reach_outs.insert((ip, port));
-                } else if *recorded_round < round {
-                    // New round.
-                    *recorded_round = round;
-                    reach_outs.drain();
-                    reach_outs.insert((ip, port));
-                } else {
-                    // ignore old reach out that was sent
-                }
-            }
-
+            ReachOut(frame) => self.retransmits_mut().reach_out.push(frame),
             ObservedAddr(_) => self.retransmits_mut().observed_addr = true,
             Ping(_) => self.non_retransmits = true,
             ImmediateAck(_) => self.non_retransmits = true,
