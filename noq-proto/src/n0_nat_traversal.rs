@@ -162,6 +162,26 @@ impl State {
                 .collect()),
         }
     }
+
+    /// Returns the next ready probe's address.
+    ///
+    /// If this is actually sent you must call [`Self::mark_probe_sent`].
+    pub(crate) fn next_probe_addr(&self) -> Option<SocketAddr> {
+        match self {
+            Self::NotNegotiated => None,
+            Self::ClientSide(state) => state.next_probe_addr(),
+            Self::ServerSide(state) => state.next_probe_addr(),
+        }
+    }
+
+    /// Marks a probe as sent to the address with the challenge.
+    pub(crate) fn mark_probe_sent(&mut self, remote: IpPort, challenge: u64) {
+        match self {
+            Self::NotNegotiated => (),
+            Self::ClientSide(state) => state.mark_probe_sent(remote, challenge),
+            Self::ServerSide(state) => state.mark_probe_sent(remote, challenge),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -196,7 +216,7 @@ pub(crate) struct ClientState {
     /// Queued probes to be sent in the next [`poll_transmit`] call.
     ///
     /// [`poll_transmit`]: crate::connection::Connection::poll_transmit
-    pending_probes: Vec<IpPort>,
+    pending_probes: FxHashSet<IpPort>,
 }
 
 impl ClientState {
@@ -264,7 +284,7 @@ impl ClientState {
             .values_mut()
             .for_each(|((ip, port), state)| {
                 if let Some(ip) = map_to_local_socket_family(*ip, ipv6) {
-                    self.pending_probes.push((ip, *port));
+                    self.pending_probes.insert((ip, *port));
                     *state = ProbeState::Active(MAX_NAT_PROBE_ATTEMPTS - 1);
                 } else {
                     trace!(?ip, "not using IPv6 NAT candidate for IPv4 socket");
@@ -308,11 +328,24 @@ impl ClientState {
             .for_each(|(addr, state)| match state {
                 ProbeState::Active(remaining) if *remaining > 0 => {
                     *remaining -= 1;
-                    self.pending_probes.push(*addr);
+                    self.pending_probes.insert(*addr);
                 }
                 ProbeState::Active(_) | ProbeState::Succeeded => {}
             });
         !self.pending_probes.is_empty()
+    }
+
+    /// Returns the next ready probe's address.
+    ///
+    /// If this is actually sent you must call [`Self::mark_probe_sent`].
+    fn next_probe_addr(&self) -> Option<SocketAddr> {
+        self.pending_probes.iter().next().map(|addr| (*addr).into())
+    }
+
+    /// Marks a probe as sent to the address with the challenge.
+    fn mark_probe_sent(&mut self, remote: IpPort, challenge: u64) {
+        self.pending_probes.remove(&remote);
+        self.sent_challenges.insert(challenge, remote);
     }
 
     /// Adds an address to the remote set
@@ -548,12 +581,12 @@ impl ServerState {
     /// Returns the next ready probe's address.
     ///
     /// If this is actually sent you must call [`Self::mark_probe_sent`].
-    pub(crate) fn next_probe_addr(&self) -> Option<SocketAddr> {
+    fn next_probe_addr(&self) -> Option<SocketAddr> {
         self.pending_probes.iter().next().map(|addr| (*addr).into())
     }
 
     /// Marks a probe as sent to the address with the challenge.
-    pub(crate) fn mark_probe_sent(&mut self, remote: IpPort, challenge: u64) {
+    fn mark_probe_sent(&mut self, remote: IpPort, challenge: u64) {
         self.pending_probes.remove(&remote);
         self.sent_challenges.insert(challenge, remote);
     }

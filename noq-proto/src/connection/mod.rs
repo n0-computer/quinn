@@ -1987,6 +1987,12 @@ impl Connection {
             .udp_tx
             .on_sent(1, buf.len());
 
+        trace!(
+            dst = ?network_path.remote,
+            src = ?network_path.local_ip,
+            len = buf.len(),
+            "sending prev_path off-path challenge",
+        );
         Some(Transmit {
             destination: network_path.remote,
             size: buf.len(),
@@ -2026,8 +2032,14 @@ impl Connection {
         builder.finish(self, now);
 
         let size = buf.len();
-
         self.path_stats.for_path(path_id).udp_tx.on_sent(1, size);
+
+        trace!(
+            dst = ?network_path.remote,
+            src = ?network_path.local_ip,
+            len = buf.len(),
+            "sending off-path PATH_RESPONSE",
+        );
         Some(Transmit {
             destination: network_path.remote,
             size,
@@ -2044,11 +2056,7 @@ impl Connection {
         buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
-        let remote = self
-            .n0_nat_traversal
-            .server_side_mut()
-            .ok()?
-            .next_probe_addr()?;
+        let remote = self.n0_nat_traversal.next_probe_addr()?;
 
         if !self.paths.get(&path_id)?.data.validated {
             // Path is not usable for probing
@@ -2082,14 +2090,13 @@ impl Connection {
         builder.finish(self, now);
 
         // Mark as sent after packet build succeeds.
-        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
-            server_state.mark_probe_sent((remote.ip(), remote.port()), token);
-        }
+        self.n0_nat_traversal
+            .mark_probe_sent((remote.ip(), remote.port()), token);
 
         let size = buf.len();
-
         self.path_stats.for_path(path_id).udp_tx.on_sent(1, size);
 
+        trace!(dst = ?remote, len = buf.len(), "sending off-path NAT probe");
         Some(Transmit {
             destination: remote,
             size,
