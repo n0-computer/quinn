@@ -601,12 +601,15 @@ impl PathData {
     /// See [`Pacer::delay`].
     pub(super) fn pacing_delay(&mut self, bytes_to_send: u64, now: Instant) -> Option<Duration> {
         let smoothed_rtt = self.rtt.get();
+        let metrics = self.congestion.metrics();
         self.pacing.delay(
             smoothed_rtt,
             bytes_to_send,
             self.current_mtu(),
-            self.congestion.window(),
+            metrics.congestion_window,
             now,
+            metrics.send_quantum,
+            metrics.pacing_rate,
         )
     }
 
