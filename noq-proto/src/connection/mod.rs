@@ -4914,8 +4914,9 @@ impl Connection {
                 }
                 Frame::PathResponse(response) => {
                     // First try to see if this is a NAT probe response.
-                    if let Ok(nat_state) = self.n0_nat_traversal.server_side_mut()
-                        && nat_state.handle_path_response(network_path, response.0)
+                    if self
+                        .n0_nat_traversal
+                        .handle_path_response(network_path, response.0)
                     {
                         trace!(
                             src = ?network_path,

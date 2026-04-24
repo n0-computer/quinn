@@ -189,9 +189,20 @@ impl State {
     /// `NatTraversalProbeRetry` timer needs to be reset.
     pub(crate) fn queue_retries(&mut self) -> bool {
         match self {
-            State::NotNegotiated => false,
-            State::ClientSide(state) => state.queue_retries(),
-            State::ServerSide(state) => state.queue_retries(),
+            Self::NotNegotiated => false,
+            Self::ClientSide(state) => state.queue_retries(),
+            Self::ServerSide(state) => state.queue_retries(),
+        }
+    }
+
+    /// Marks a remote as successful if the response matches a sent probe.
+    ///
+    /// Returns `true` if it was a response to one of the NAT traversal probes.
+    pub(crate) fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> bool {
+        match self {
+            Self::NotNegotiated => false,
+            Self::ClientSide(state) => state.handle_path_response(src, challenge),
+            Self::ServerSide(state) => state.handle_path_response(src, challenge),
         }
     }
 }
@@ -424,6 +435,43 @@ impl ClientState {
             .map(|(address, _)| (*address).into())
             .collect()
     }
+
+    /// Marks a remote as successful if the response matches a sent probe.
+    ///
+    /// Returns `true` if it was a response to one of the NAT traversal probes.
+    fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> bool {
+        if let Entry::Occupied(entry) = self.sent_challenges.entry(challenge) {
+            let remote = (src.remote().ip(), src.remote().port());
+            if *entry.get() == remote {
+                entry.remove();
+
+                // TODO: linear search is sad.
+                if let Some(seq) = self
+                    .remote_addresses
+                    .iter()
+                    .filter_map(
+                        |(seq, (addr, _))| {
+                            if *addr == remote { Some(*seq) } else { None }
+                        },
+                    )
+                    .next()
+                {
+                    self.remote_addresses
+                        .insert(seq, (remote, ProbeState::Succeeded));
+                    return true;
+                } else {
+                    debug!("inconsistent remote addrs and seq");
+                }
+            } else {
+                debug!(
+                    ?challenge,
+                    ?src.remote,
+                    "PATH_RESPONSE matched a NAT traversal probe but mismatching addr",
+                )
+            }
+        }
+        false
+    }
 }
 
 /// Maximum number of times we send a NAT probe to the same remote address in a round.
@@ -606,7 +654,7 @@ impl ServerState {
     /// Marks a remote as successful if the response matches a sent probe.
     ///
     /// Returns `true` if it was a response to one of the NAT traversal probes.
-    pub(crate) fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> bool {
+    fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> bool {
         if let Entry::Occupied(entry) = self.sent_challenges.entry(challenge) {
             let remote = (src.remote().ip(), src.remote().port());
             if *entry.get() == remote {
