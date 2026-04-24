@@ -2841,7 +2841,8 @@ impl Connection {
         if ack.largest >= self.spaces[space].for_path(path).next_packet_number {
             return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
         }
-        let new_largest = {
+        // `Some(pn)` if this ACK raised `largest_acked_packet_pn`.
+        let new_largest_pn = {
             let space = &mut self.spaces[space].for_path(path);
             if space
                 .largest_acked_packet_pn
@@ -2854,9 +2855,9 @@ impl Connection {
                     // congestion window.
                     space.largest_acked_packet_send_time = info.time_sent;
                 }
-                true
+                Some(ack.largest)
             } else {
-                false
+                None
             }
         };
 
@@ -2924,7 +2925,7 @@ impl Connection {
             .congestion
             .on_end_acks(now, in_flight, app_limited, largest_ackd);
 
-        if new_largest && ack_eliciting_acked {
+        if new_largest_pn.is_some() && ack_eliciting_acked {
             let ack_delay = if space != SpaceId::Data {
                 Duration::from_micros(0)
             } else {
@@ -2969,12 +2970,10 @@ impl Connection {
                 // order, allowing us to compute an increase in ECN counts to compare against the number
                 // of newly acked packets that remains well-defined in the presence of arbitrary packet
                 // reordering.
-                if new_largest {
-                    let pn_space = self.spaces[space].for_path(path);
-                    let sent = pn_space.largest_acked_packet_send_time;
-                    let largest_sent_pn = pn_space.largest_acked_packet_pn.expect(
-                        "new_largest implies largest_acked_packet_pn was just set by this ack",
-                    );
+                if let Some(largest_sent_pn) = new_largest_pn {
+                    let sent = self.spaces[space]
+                        .for_path(path)
+                        .largest_acked_packet_send_time;
                     self.process_ecn(
                         now,
                         space,
