@@ -2412,9 +2412,7 @@ impl Connection {
                         }
                     }
                     ConnTimer::NatTraversalProbeRetry => {
-                        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
-                            && server_state.queue_retries()
-                        {
+                        if self.n0_nat_traversal.queue_retries() {
                             let delay =
                                 RttEstimator::new(self.config.initial_rtt).pto_base() * 2 / 3;
                             self.timers.set(
@@ -2422,7 +2420,9 @@ impl Connection {
                                 now + delay,
                                 self.qlog.with_time(now),
                             );
-                            trace!("off-path probe retry timer fired, re-queued probes");
+                            trace!("re-queued NAT probes");
+                        } else {
+                            trace!("no more NAT probes remaining");
                         }
                     }
                 },

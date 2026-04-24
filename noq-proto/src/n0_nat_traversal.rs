@@ -182,6 +182,18 @@ impl State {
             Self::ServerSide(state) => state.mark_probe_sent(remote, challenge),
         }
     }
+
+    /// Re-queues probes that have not yet succeeded or reached 0 remaining retries.
+    ///
+    /// Returns whether any probes are now queued to send. In this case the
+    /// `NatTraversalProbeRetry` timer needs to be reset.
+    pub(crate) fn queue_retries(&mut self) -> bool {
+        match self {
+            State::NotNegotiated => false,
+            State::ClientSide(state) => state.queue_retries(),
+            State::ServerSide(state) => state.queue_retries(),
+        }
+    }
 }
 
 #[derive(Debug)]
