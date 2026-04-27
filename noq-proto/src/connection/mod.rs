@@ -5354,8 +5354,8 @@ impl Connection {
                     if path_id > self.remote_max_path_id {
                         self.remote_max_path_id = path_id;
                         self.issue_first_path_cids(now);
+                        self.open_nat_traversed_paths(now);
                     }
-                    self.open_nat_traversed_paths(now);
                 }
                 Frame::PathsBlocked(frame::PathsBlocked(max_path_id)) => {
                     // Receipt of a value of Maximum Path Identifier or Path Identifier that is higher than the local maximum value MUST
