@@ -6071,16 +6071,6 @@ impl Connection {
                         self.qlog.with_time(now),
                     );
                 }
-                // The path open status was informed before, we just want to revalidate again.
-                // For that, we want to make sure we set the PathOpenFailed timer again.
-                paths::OpenStatus::Revalidating => {
-                    path.open_status = paths::OpenStatus::Informed;
-                    self.timers.set(
-                        Timer::PerPath(path_id, PathTimer::AbandonFromValidation),
-                        now + 3 * pto,
-                        self.qlog.with_time(now),
-                    );
-                }
             }
 
             self.timers.set(
