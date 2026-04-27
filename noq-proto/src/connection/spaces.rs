@@ -2,7 +2,6 @@ use std::{
     cmp,
     collections::{BTreeMap, BTreeSet, VecDeque},
     mem,
-    net::IpAddr,
     ops::{Bound, Index, IndexMut},
 };
 
@@ -558,7 +557,7 @@ pub struct Retransmits {
     /// Address IDs to remove in `REMOVE_ADDRESS` frames
     pub(super) remove_address: BTreeSet<RemoveAddress>,
     /// Round and local addresses to advertise in `REACH_OUT` frames
-    pub(super) reach_out: Option<(VarInt, FxHashSet<(IpAddr, u16)>)>,
+    pub(super) reach_out: PendingReachOutFrames,
 }
 
 impl Retransmits {
@@ -608,7 +607,7 @@ impl Retransmits {
             && path_cids_blocked.is_empty()
             && add_address.is_empty()
             && remove_address.is_empty()
-            && reach_out.is_none()
+            && reach_out.is_empty()
     }
 }
 
@@ -635,7 +634,7 @@ impl ::std::ops::BitOrAssign for Retransmits {
             mut path_cids_blocked,
             add_address,
             remove_address,
-            reach_out,
+            mut reach_out,
         } = rhs;
 
         // We reduce in-stream head-of-line blocking by queueing retransmits before other data for
@@ -664,22 +663,7 @@ impl ::std::ops::BitOrAssign for Retransmits {
         self.path_cids_blocked.append(&mut path_cids_blocked);
         self.add_address.extend(add_address.iter().copied());
         self.remove_address.extend(remove_address.iter().copied());
-        if let Some((rhs_round, rhs_addrs)) = reach_out {
-            match self.reach_out.as_mut() {
-                // Use RHS if there is no recorded round.
-                None => self.reach_out = Some((rhs_round, rhs_addrs)),
-                // Use RHS if newer.
-                Some((lhs_round, _lhs_addrs)) if rhs_round > *lhs_round => {
-                    self.reach_out = Some((rhs_round, rhs_addrs));
-                }
-                // If both rounds are the same, merge them.
-                Some((lhs_round, lhs_addrs)) if rhs_round == *lhs_round => {
-                    lhs_addrs.extend(rhs_addrs);
-                }
-                // LHS round is newer, ignore RHS
-                Some(_) => {}
-            }
-        }
+        self.reach_out.append(&mut reach_out);
     }
 }
 
@@ -749,6 +733,71 @@ impl PendingNewCids {
         F: FnMut(&IssuedCid) -> bool,
     {
         self.cids.retain(f);
+    }
+}
+
+/// Logically a Vec of REACH_OUT frames queued for transmit.
+///
+/// This keeps track of the highest round ID and automatically drops frames with a lower
+/// round ID.
+///
+/// The API is directly modelled on [`Vec`].
+#[derive(Debug, Default, Clone)]
+pub(crate) struct PendingReachOutFrames {
+    /// The round ID of the REACH_OUT frames currently pending.
+    round: VarInt,
+    /// The REACH_OUT frames, always all having the same round ID.
+    frames: Vec<frame::ReachOut>,
+}
+
+impl PendingReachOutFrames {
+    pub(crate) fn len(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+
+    pub(crate) fn push(&mut self, frame: frame::ReachOut) {
+        if frame.round < self.round {
+            return;
+        } else if frame.round > self.round {
+            self.frames.clear();
+        }
+        self.frames.push(frame);
+    }
+
+    pub(crate) fn append(&mut self, other: &mut Self) {
+        if other.round < self.round {
+            other.frames.clear();
+            return;
+        } else if other.round > self.round {
+            self.frames.clear();
+        }
+        self.frames.append(&mut other.frames);
+    }
+
+    pub(crate) fn pop_if(
+        &mut self,
+        predicate: impl FnOnce(&mut frame::ReachOut) -> bool,
+    ) -> Option<frame::ReachOut> {
+        self.frames.pop_if(predicate)
+    }
+}
+
+impl FromIterator<frame::ReachOut> for PendingReachOutFrames {
+    fn from_iter<T: IntoIterator<Item = frame::ReachOut>>(iter: T) -> Self {
+        let iter = iter.into_iter();
+        let size_hint = iter.size_hint();
+        let mut this = Self {
+            round: Default::default(),
+            frames: Vec::with_capacity(size_hint.1.unwrap_or(size_hint.0)),
+        };
+        for frame in iter {
+            this.push(frame);
+        }
+        this
     }
 }
 

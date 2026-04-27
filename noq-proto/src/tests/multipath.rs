@@ -1657,25 +1657,25 @@ fn test_simple_nat_traveral_opens_path() -> TestResult {
     pair.drive();
 
     let event = pair.poll(Client).expect("should have event");
-    assert!(matches!(
+    assert_matches!(
         event,
         Event::NatTraversal(n0_nat_traversal::Event::AddressAdded(_))
-    ));
+    );
 
     info!("init NAT traversal");
     pair.initiate_nat_traversal_round(Client)?;
 
     // Ensure we have no more events queued
-    assert!(pair.poll(Client).is_none());
-    assert!(pair.poll(Server).is_none());
+    assert_matches!(pair.poll(Client), None);
+    assert_matches!(pair.poll(Server), None);
 
     pair.drive();
 
     let event = pair.poll(Client).expect("should have event");
-    assert!(matches!(event, Event::Path(PathEvent::Opened { .. })));
+    assert_matches!(event, Event::Path(PathEvent::Opened { .. }));
 
     let event = pair.poll(Server).expect("should have event");
-    assert!(matches!(event, Event::Path(PathEvent::Opened { .. })));
+    assert_matches!(event, Event::Path(PathEvent::Opened { .. }));
 
     Ok(())
 }
