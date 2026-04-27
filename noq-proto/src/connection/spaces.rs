@@ -763,6 +763,7 @@ impl PendingReachOutFrames {
         if frame.round < self.round {
             return;
         } else if frame.round > self.round {
+            self.round = frame.round;
             self.frames.clear();
         }
         self.frames.push(frame);
@@ -773,6 +774,7 @@ impl PendingReachOutFrames {
             other.frames.clear();
             return;
         } else if other.round > self.round {
+            self.round = other.round;
             self.frames.clear();
         }
         self.frames.append(&mut other.frames);
