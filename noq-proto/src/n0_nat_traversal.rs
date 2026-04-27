@@ -448,7 +448,8 @@ impl ClientState {
 
     /// Marks a remote as successful if the response matches a sent probe.
     ///
-    /// Returns `true` if it was a response to one of the NAT traversal probes.
+    /// Returns `true` if it was a response to one of the NAT traversal probes. In that case
+    /// [`Self::pop_pending_path_open`] should be called to open the next path.
     fn handle_path_response(&mut self, network_path: FourTuple, challenge: u64) -> bool {
         if let Entry::Occupied(entry) = self.sent_challenges.entry(challenge) {
             let remote = (network_path.remote().ip(), network_path.remote().port());
