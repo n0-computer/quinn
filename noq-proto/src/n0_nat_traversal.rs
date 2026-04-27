@@ -113,14 +113,13 @@ impl State {
         &mut self,
         address: SocketAddr,
     ) -> Result<Option<AddAddress>, Error> {
-        let ip_port = IpPort::from((address.ip(), address.port()));
         match self {
             Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
             Self::ClientSide(client_state) => {
-                client_state.add_local_address(ip_port)?;
+                client_state.add_local_address(address)?;
                 Ok(None)
             }
-            Self::ServerSide(server_state) => server_state.add_local_address(ip_port),
+            Self::ServerSide(server_state) => server_state.add_local_address(address),
         }
     }
 
@@ -224,12 +223,17 @@ pub(crate) struct ClientState {
     /// These are addresses on which the server is potentially reachable, to use for NAT
     /// traversal attempts.
     ///
-    /// They are indexed by their ADD_ADDRESS sequence id.
+    /// They are indexed by their ADD_ADDRESS sequence id and stored in **canonical
+    /// form**. Not in the socket-native form as usual. This because we need to store them
+    /// so we have the correct sequence IDs.
     remote_addresses: FxHashMap<VarInt, (IpPort, ProbeState)>,
     /// Candidate addresses for the local endpoint.
     ///
     /// These are addresses on which we are potentially reachable, to use for NAT traversal
     /// attempts.
+    ///
+    /// They are stored in **canonical form**, not in socket-native form as usual. We may
+    /// nave a reflexive address that is IPv6 even if our local socket can only handle IPv4.
     local_addresses: FxHashSet<IpPort>,
     /// Current nat traversal round.
     round: VarInt,
@@ -265,7 +269,8 @@ impl ClientState {
         }
     }
 
-    fn add_local_address(&mut self, address: IpPort) -> Result<(), Error> {
+    fn add_local_address(&mut self, address: SocketAddr) -> Result<(), Error> {
+        let address = (address.ip().to_canonical(), address.port());
         if self.local_addresses.len() < self.max_local_addresses {
             self.local_addresses.insert(address);
             Ok(())
@@ -279,7 +284,8 @@ impl ClientState {
     }
 
     fn remove_local_address(&mut self, address: &IpPort) {
-        self.local_addresses.remove(address);
+        let address = (address.0.to_canonical(), address.1);
+        self.local_addresses.remove(&address);
     }
 
     /// Initiates a new nat traversal round.
@@ -398,7 +404,7 @@ impl ClientState {
         add_addr: AddAddress,
     ) -> Result<Option<SocketAddr>, Error> {
         let AddAddress { seq_no, ip, port } = add_addr;
-        let address = (ip, port);
+        let address = (ip.to_canonical(), port);
         let allow_new = self.remote_addresses.len() < self.max_remote_addresses;
         match self.remote_addresses.entry(seq_no) {
             Entry::Occupied(mut occupied_entry) => {
@@ -427,7 +433,7 @@ impl ClientState {
     ) -> Option<SocketAddr> {
         self.remote_addresses
             .remove(&remove_addr.seq_no)
-            .map(|(address, _report_in_continuation)| address.into())
+            .map(|(address, _)| address.into())
     }
 
     /// Checks that a received remote address is valid.
@@ -547,6 +553,9 @@ pub(crate) struct ServerState {
     max_local_addresses: usize,
     /// Candidate addresses the server reports as potentially reachable, to use for nat
     /// traversal attempts.
+    ///
+    /// They are stored in **canonical form**, not in socket-native form as usual. We may
+    /// nave a reflexive address that is IPv6 even if our local socket can only handle IPv4.
     local_addresses: FxHashMap<IpPort, VarInt>,
     /// The next id to use for local addresses sent to the client.
     next_local_addr_id: VarInt,
@@ -558,6 +567,8 @@ pub(crate) struct ServerState {
     /// The remote addresses participating in this round.
     ///
     /// The set is cleared when a new round starts.
+    ///
+    /// These are stored in the usual local-socket native form.
     remotes: FxHashMap<IpPort, ProbeState>,
     /// The data of PATH_CHALLENGE frames sent in probes.
     ///
@@ -587,7 +598,8 @@ impl ServerState {
         }
     }
 
-    fn add_local_address(&mut self, address: IpPort) -> Result<Option<AddAddress>, Error> {
+    fn add_local_address(&mut self, address: SocketAddr) -> Result<Option<AddAddress>, Error> {
+        let address = (address.ip().to_canonical(), address.port());
         let allow_new = self.local_addresses.len() < self.max_local_addresses;
         match self.local_addresses.entry(address) {
             Entry::Occupied(_) => Ok(None),
