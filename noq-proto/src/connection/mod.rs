@@ -4914,50 +4914,11 @@ impl Connection {
                 }
                 Frame::PathResponse(response) => {
                     // First try to see if this is a NAT probe response.
-                    if let Some(network_path) = self
+                    if self
                         .n0_nat_traversal
                         .handle_path_response(network_path, response.0)
                     {
-                        trace!(
-                            ?network_path,
-                            challenge = response.0,
-                            "Received valid NAT traversal probe response"
-                        );
-                        if self.side.is_client() {
-                            match self.open_path_ensure(network_path, PathStatus::Backup, now) {
-                                Ok((path_id, already_existed)) => {
-                                    debug!(
-                                        %path_id,
-                                        ?network_path,
-                                        new_path=!already_existed,
-                                        "Opened NAT traversal path",
-                                    );
-                                }
-                                Err(err) => match err {
-                                    PathError::MultipathNotNegotiated
-                                    | PathError::ServerSideNotAllowed
-                                    | PathError::ValidationFailed
-                                    | PathError::InvalidRemoteAddress(_) => {
-                                        error!(
-                                            ?err,
-                                            ?network_path,
-                                            "Failed to open path after NAT traversal"
-                                        );
-                                    }
-                                    PathError::MaxPathIdReached
-                                    | PathError::RemoteCidsExhausted => {
-                                        // This is a temporary failure, enqueue this.
-                                        debug!(
-                                            ?err,
-                                            ?network_path,
-                                            "Blocked opening NAT traversal path"
-                                        );
-                                        // TODO(flub): do this.
-                                    }
-                                },
-                            }
-                        }
-                        // Server-side: nothing else to do.
+                        self.open_nat_traversed_paths(now);
                     } else {
                         // Try to see if this is a response to an on-path PATH_CHALLENGE.
 
@@ -5154,7 +5115,9 @@ impl Connection {
 
                     use crate::cid_queue::InsertError;
                     match remote_cids.insert(frame) {
-                        Ok(None) => {}
+                        Ok(None) => {
+                            self.open_nat_traversed_paths(now);
+                        }
                         Ok(Some((retired, reset_token))) => {
                             let pending_retired =
                                 &mut self.spaces[SpaceId::Data].pending.retire_cids;
@@ -5173,6 +5136,7 @@ impl Connection {
                             }
                             pending_retired.extend(retired.map(|seq| (path_id, seq)));
                             self.set_reset_token(path_id, network_path.remote, reset_token);
+                            self.open_nat_traversed_paths(now);
                         }
                         Err(InsertError::ExceedsLimit) => {
                             return Err(TransportError::CONNECTION_ID_LIMIT_ERROR(""));
@@ -5391,6 +5355,7 @@ impl Connection {
                         self.remote_max_path_id = path_id;
                         self.issue_first_path_cids(now);
                     }
+                    self.open_nat_traversed_paths(now);
                 }
                 Frame::PathsBlocked(frame::PathsBlocked(max_path_id)) => {
                     // Receipt of a value of Maximum Path Identifier or Path Identifier that is higher than the local maximum value MUST
@@ -5596,6 +5561,53 @@ impl Connection {
         }
 
         Ok(())
+    }
+
+    /// Opens any paths that have been successfully NAT traversed.
+    fn open_nat_traversed_paths(&mut self, now: Instant) {
+        while let Some(network_path) = self
+            .n0_nat_traversal
+            .client_side_mut()
+            .map(|s| s.pop_pending_path_open())
+            .ok()
+            .flatten()
+        {
+            match self.open_path_ensure(network_path, PathStatus::Backup, now) {
+                Ok((path_id, already_existed)) => {
+                    debug!(
+                        %path_id,
+                        ?network_path,
+                        new_path = !already_existed,
+                        "Opened NAT traversal path",
+                    );
+                }
+                Err(err) => match err {
+                    PathError::MultipathNotNegotiated
+                    | PathError::ServerSideNotAllowed
+                    | PathError::ValidationFailed
+                    | PathError::InvalidRemoteAddress(_) => {
+                        error!(
+                            ?err,
+                            ?network_path,
+                            "Failed to open path for successful NAT traversal"
+                        );
+                    }
+                    PathError::MaxPathIdReached | PathError::RemoteCidsExhausted => {
+                        // Temporary error, put back.
+                        self.n0_nat_traversal
+                            .client_side_mut()
+                            .map(|s| s.push_pending_path_open(network_path))
+                            .ok();
+                        debug!(
+                            ?err,
+                            ?network_path,
+                            "Blocked opening NAT traversal path, enqueued"
+                        );
+                        return;
+                    }
+                },
+            }
+        }
     }
 
     /// Migrates the 4-tuple of the path.
