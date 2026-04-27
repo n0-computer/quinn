@@ -289,7 +289,7 @@ impl ClientState {
     /// round is initiated, the previous one is cancelled.
     ///
     /// `ipv6` indicates if the connection runs on a socket that supports IPv6. If so, then
-    /// all addresses returned in [`NatTraversalRound`] will be IPv6 addresses (and
+    /// all addresses returned [`PendingReachOutFrames`] will be IPv6 addresses (and
     /// IPv4-mapped IPv6 addresses if necessary). Otherwise they're all IPv4 addresses.  See
     /// also [`map_to_local_socket_family`].
     ///
