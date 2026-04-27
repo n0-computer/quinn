@@ -768,7 +768,7 @@ impl PendingReachOutFrames {
         self.frames.push(frame);
     }
 
-    pub(crate) fn append(&mut self, other: &mut PendingReachOutFrames) {
+    pub(crate) fn append(&mut self, other: &mut Self) {
         if other.round < self.round {
             other.frames.clear();
             return;
