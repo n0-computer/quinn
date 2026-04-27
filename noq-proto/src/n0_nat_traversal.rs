@@ -310,6 +310,7 @@ impl ClientState {
         }
 
         self.round = self.round.saturating_add(1u8);
+        self.sent_challenges.clear();
         self.pending_probes.clear();
 
         // Enqueue the NAT probes to known remote addresses.
@@ -456,6 +457,8 @@ impl ClientState {
             if *entry.get() == remote {
                 entry.remove();
 
+                // self.remote_addresses is stored in canonical form.
+                let remote = (remote.0.to_canonical(), remote.1);
                 // TODO: linear search is sad.
                 if let Some(seq) = self
                     .remote_addresses
