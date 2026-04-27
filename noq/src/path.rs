@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, ready};
@@ -273,6 +273,15 @@ impl Path {
     pub fn remote_address(&self) -> Result<SocketAddr, ClosedPath> {
         let state = self.conn.lock_without_waking("per_path_remote_address");
         Ok(state.inner.network_path(self.id)?.remote())
+    }
+
+    /// The local IP used for this path, if known.
+    ///
+    /// Returns `Ok(None)` for clients or when the platform does not expose this information; see
+    /// [`noq_udp::RecvMeta::dst_ip`](udp::RecvMeta::dst_ip) for supported platforms.
+    pub fn local_ip(&self) -> Result<Option<IpAddr>, ClosedPath> {
+        let state = self.conn.lock_without_waking("per_path_local_ip");
+        Ok(state.inner.network_path(self.id)?.local_ip())
     }
 
     /// Ping the remote endpoint over this path.
