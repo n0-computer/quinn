@@ -5569,8 +5569,7 @@ impl Connection {
             .n0_nat_traversal
             .client_side_mut()
             .map(|s| s.pop_pending_path_open())
-            .ok()
-            .flatten()
+            .unwrap_or_default()
         {
             match self.open_path_ensure(network_path, PathStatus::Backup, now) {
                 Ok((path_id, already_existed)) => {
