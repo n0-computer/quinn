@@ -186,13 +186,13 @@ impl Connecting {
     ///
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn local_ip(&self) -> Option<IpAddr> {
-        let conn = self.conn.as_ref().unwrap();
+        let conn = self.conn.as_ref().expect("used after yielding Ready");
         let inner = conn.lock_without_waking("local_ip");
 
         inner
             .inner
             .network_path(PathId::ZERO)
-            .expect("path exists when connecting")
+            .expect("PathId::ZERO is the only path during the handshake")
             .local_ip()
     }
 
@@ -201,12 +201,11 @@ impl Connecting {
     /// Will panic if called after `poll` has returned `Ready`.
     pub fn remote_address(&self) -> SocketAddr {
         let conn_ref: &ConnectionRef = self.conn.as_ref().expect("used after yielding Ready");
-        // TODO: another unwrap
         conn_ref
             .lock_without_waking("remote_address")
             .inner
             .network_path(PathId::ZERO)
-            .expect("path exists when connecting")
+            .expect("PathId::ZERO is the only path during the handshake")
             .remote()
     }
 }
@@ -742,51 +741,6 @@ impl Connection {
     /// The side of the connection (client or server)
     pub fn side(&self) -> Side {
         self.0.lock_without_waking("side").inner.side()
-    }
-
-    /// The peer's UDP address
-    ///
-    /// If [`ServerConfig::migration`] is `true`, clients may change addresses at will,
-    /// e.g. when switching to a cellular internet connection.
-    ///
-    /// If [`multipath`] is enabled this will return the address of *any*
-    /// path, and may not be consistent. Prefer [`Path::remote_address`] instead.
-    ///
-    /// [`ServerConfig::migration`]: crate::ServerConfig::migration
-    /// [`multipath`]: crate::TransportConfig::max_concurrent_multipath_paths
-    pub fn remote_address(&self) -> SocketAddr {
-        // TODO: an unwrap again
-        let state = self.0.lock_without_waking("remote_address");
-        state
-            .inner
-            .paths()
-            .iter()
-            .filter_map(|id| state.inner.network_path(*id).ok())
-            .next()
-            .unwrap()
-            .remote()
-    }
-
-    /// The local IP address which was used when the peer established
-    /// the connection
-    ///
-    /// This can be different from the address the endpoint is bound to, in case
-    /// the endpoint is bound to a wildcard address like `0.0.0.0` or `::`.
-    ///
-    /// This will return `None` for clients, or when the platform does not expose this
-    /// information. See [`noq_udp::RecvMeta::dst_ip`](udp::RecvMeta::dst_ip) for a list of
-    /// supported platforms when using [`noq_udp`](udp) for I/O, which is the default.
-    pub fn local_ip(&self) -> Option<IpAddr> {
-        // TODO: an unwrap again
-        let state = self.0.lock_without_waking("remote_address");
-        state
-            .inner
-            .paths()
-            .iter()
-            .filter_map(|id| state.inner.network_path(*id).ok())
-            .next()
-            .unwrap()
-            .local_ip()
     }
 
     /// Current best estimate of this connection's latency (round-trip-time)

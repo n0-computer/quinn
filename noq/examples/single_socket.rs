@@ -50,7 +50,11 @@ fn run_server(
         let connection = endpoint.accept().await.unwrap().await.unwrap();
         println!(
             "[server] incoming connection: addr={}",
-            connection.remote_address()
+            connection
+                .path(noq::PathId::ZERO)
+                .expect("path open after connect")
+                .remote_address()
+                .expect("path is alive")
         );
     });
 
@@ -61,5 +65,12 @@ fn run_server(
 async fn run_client(endpoint: &Endpoint, server_addr: SocketAddr) {
     let connect = endpoint.connect(server_addr, "localhost").unwrap();
     let connection = connect.await.unwrap();
-    println!("[client] connected: addr={}", connection.remote_address());
+    println!(
+        "[client] connected: addr={}",
+        connection
+            .path(noq::PathId::ZERO)
+            .expect("path open after connect")
+            .remote_address()
+            .expect("path is alive")
+    );
 }

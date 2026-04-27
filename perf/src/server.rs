@@ -101,7 +101,14 @@ pub async fn run(opt: Opt) -> Result<()> {
 async fn handle(handshake: noq::Incoming, opt: Arc<Opt>) -> Result<()> {
     let connection = handshake.await.context("handshake failed")?;
 
-    debug!("{} connected", connection.remote_address());
+    debug!(
+        "{} connected",
+        connection
+            .path(noq::PathId::ZERO)
+            .expect("path open after connect")
+            .remote_address()
+            .expect("path is alive")
+    );
     tokio::try_join!(
         drive_uni(connection.clone()),
         drive_bi(connection.clone()),
