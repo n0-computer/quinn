@@ -5568,8 +5568,8 @@
 <a href=#5568 id=5568 data-nosnippet>5568</a>        <span class="kw">while let </span><span class="prelude-val">Some</span>(network_path) = <span class="self">self
 <a href=#5569 id=5569 data-nosnippet>5569</a>            </span>.n0_nat_traversal
 <a href=#5570 id=5570 data-nosnippet>5570</a>            .client_side_mut()
-<a href=#5571 id=5571 data-nosnippet>5571</a>            .map(|s| s.pop_pending_path_open())
-<a href=#5572 id=5572 data-nosnippet>5572</a>            .unwrap_or_default()
+<a href=#5571 id=5571 data-nosnippet>5571</a>            .ok()
+<a href=#5572 id=5572 data-nosnippet>5572</a>            .and_then(|s| s.pop_pending_path_open())
 <a href=#5573 id=5573 data-nosnippet>5573</a>        {
 <a href=#5574 id=5574 data-nosnippet>5574</a>            <span class="kw">match </span><span class="self">self</span>.open_path_ensure(network_path, PathStatus::Backup, now) {
 <a href=#5575 id=5575 data-nosnippet>5575</a>                <span class="prelude-val">Ok</span>((path_id, already_existed)) =&gt; {
