@@ -5568,8 +5568,8 @@ impl Connection {
         while let Some(network_path) = self
             .n0_nat_traversal
             .client_side_mut()
-            .map(|s| s.pop_pending_path_open())
-            .unwrap_or_default()
+            .ok()
+            .and_then(|s| s.pop_pending_path_open())
         {
             match self.open_path_ensure(network_path, PathStatus::Backup, now) {
                 Ok((path_id, already_existed)) => {
