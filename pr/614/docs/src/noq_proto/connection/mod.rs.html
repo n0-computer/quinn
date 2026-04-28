@@ -2412,7 +2412,7 @@
 <a href=#2412 id=2412 data-nosnippet>2412</a>                        }
 <a href=#2413 id=2413 data-nosnippet>2413</a>                    }
 <a href=#2414 id=2414 data-nosnippet>2414</a>                    ConnTimer::NatTraversalProbeRetry =&gt; {
-<a href=#2415 id=2415 data-nosnippet>2415</a>                        <span class="kw">if </span><span class="self">self</span>.n0_nat_traversal.queue_retries() {
+<a href=#2415 id=2415 data-nosnippet>2415</a>                        <span class="kw">if </span><span class="self">self</span>.n0_nat_traversal.queue_retries(<span class="self">self</span>.is_ipv6()) {
 <a href=#2416 id=2416 data-nosnippet>2416</a>                            <span class="kw">let </span>delay =
 <a href=#2417 id=2417 data-nosnippet>2417</a>                                RttEstimator::new(<span class="self">self</span>.config.initial_rtt).pto_base() * <span class="number">2 </span>/ <span class="number">3</span>;
 <a href=#2418 id=2418 data-nosnippet>2418</a>                            <span class="self">self</span>.timers.set(
