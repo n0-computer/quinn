@@ -2412,7 +2412,7 @@ impl Connection {
                         }
                     }
                     ConnTimer::NatTraversalProbeRetry => {
-                        if self.n0_nat_traversal.queue_retries() {
+                        if self.n0_nat_traversal.queue_retries(self.is_ipv6()) {
                             let delay =
                                 RttEstimator::new(self.config.initial_rtt).pto_base() * 2 / 3;
                             self.timers.set(

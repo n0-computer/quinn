@@ -186,10 +186,10 @@ impl State {
     ///
     /// Returns whether any probes are now queued to send. In this case the
     /// `NatTraversalProbeRetry` timer needs to be reset.
-    pub(crate) fn queue_retries(&mut self) -> bool {
+    pub(crate) fn queue_retries(&mut self, ipv6: bool) -> bool {
         match self {
             Self::NotNegotiated => false,
-            Self::ClientSide(state) => state.queue_retries(),
+            Self::ClientSide(state) => state.queue_retries(ipv6),
             Self::ServerSide(state) => state.queue_retries(),
         }
     }
@@ -241,10 +241,15 @@ pub(crate) struct ClientState {
     ///
     /// These are cleared when a new round starts, so any late-arriving PATH_RESPONSEs will
     /// have no effect.
+    ///
+    /// They are stored in the usual socket-native form.
     sent_challenges: FxHashMap<u64, IpPort>,
     /// Queued probes to be sent in the next [`poll_transmit`] call.
     ///
     /// [`poll_transmit`]: crate::connection::Connection::poll_transmit
+    ///
+    /// They are stored in the usual socket-native form. Probes to address families not
+    /// addressable by the family are never inserted.
     pending_probes: FxHashSet<IpPort>,
     /// Network paths that were successfully probed but not yet opened.
     ///
@@ -362,13 +367,20 @@ impl ClientState {
     ///
     /// Returns whether any probes are now queued to send. In this case the
     /// `NatTraversalProbeRetry` timer needs to be reset.
-    pub(crate) fn queue_retries(&mut self) -> bool {
+    ///
+    /// `ipv6` as for [`Self::initiate_nat_traversal_round`].
+    pub(crate) fn queue_retries(&mut self, ipv6: bool) -> bool {
         self.remote_addresses
             .values_mut()
             .for_each(|(addr, state)| match state {
                 ProbeState::Active(remaining) if *remaining > 0 => {
                     *remaining -= 1;
-                    self.pending_probes.insert(*addr);
+                    if let Some(ip) = map_to_local_socket_family(addr.0, ipv6) {
+                        self.pending_probes.insert((ip, addr.1));
+                    } else {
+                        trace!(?addr, "skipping IPv6 NAT candidate for IPv4 socket");
+                        *remaining = 0;
+                    }
                 }
                 ProbeState::Active(_) | ProbeState::Succeeded => {}
             });
@@ -478,7 +490,8 @@ impl ClientState {
                 {
                     trace!(
                         ?network_path,
-                        challenge, "Received valid NAT traversal probe response"
+                        challenge = %display(format_args!("0x{challenge:x}")),
+                        "Received valid NAT traversal probe response",
                     );
                     self.remote_addresses
                         .insert(seq, (remote, ProbeState::Succeeded));
@@ -489,9 +502,10 @@ impl ClientState {
                 }
             } else {
                 debug!(
-                    ?challenge,
                     ?network_path.remote,
-                    "PATH_RESPONSE matched a NAT traversal probe but mismatching addr",
+                    expected_remote = ?entry.get(),
+                    challenge = %display(format_args!("0x{challenge:x}")),
+                    "PATH_RESPONSE matched a NAT traversal probe but mismatching addr XXXX",
                 )
             }
         }
