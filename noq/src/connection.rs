@@ -560,7 +560,7 @@ impl Connection {
 
     /// Wait for the connection to be closed without keeping a strong reference to the connection
     ///
-    /// Returns a future that resolves, once the connection is closed, to [`Closed`]
+    /// Returns a future that resolves, once the connection is closed, to a [`Closed`] struct
     /// describing the close reason and final connection and per-path statistics.
     ///
     /// Calling [`Self::closed`] keeps the connection alive until it is either closed locally via [`Connection::close`]
