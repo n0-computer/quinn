@@ -1367,7 +1367,11 @@ impl Connection {
         if last_packet_number.is_some() || congestion_blocked {
             self.qlog.emit_recovery_metrics(
                 path_id,
-                &mut self.paths.get_mut(&path_id).unwrap().data,
+                &mut self
+                    .paths
+                    .get_mut(&path_id)
+                    .expect("path_id was iterated from self.paths above")
+                    .data,
                 now,
             );
         }
@@ -2443,7 +2447,11 @@ impl Connection {
                             self.on_loss_detection_timeout(now, path_id);
                             self.qlog.emit_recovery_metrics(
                                 path_id,
-                                &mut self.paths.get_mut(&path_id).unwrap().data,
+                                &mut self
+                                    .paths
+                                    .get_mut(&path_id)
+                                    .expect("loss-detection timer fires only on live paths")
+                                    .data,
                                 now,
                             );
                         }
@@ -3886,7 +3894,11 @@ impl Connection {
 
         self.qlog.emit_recovery_metrics(
             path_id,
-            &mut self.paths.get_mut(&path_id).unwrap().data,
+            &mut self
+                .paths
+                .get_mut(&path_id)
+                .expect("path_id was supplied by the caller for an active path")
+                .data,
             now,
         );
 
@@ -4066,7 +4078,10 @@ impl Connection {
         pns.loss_time = None;
         pns.loss_probes = 0;
         let sent_packets = mem::take(&mut pns.sent_packets);
-        let path = self.paths.get_mut(&PathId::ZERO).unwrap();
+        let path = self
+            .paths
+            .get_mut(&PathId::ZERO)
+            .expect("PathId::ZERO is alive while Initial/Handshake spaces exist");
         for (_, packet) in sent_packets.into_iter() {
             path.data.remove_in_flight(&packet);
         }
