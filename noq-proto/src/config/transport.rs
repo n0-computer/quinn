@@ -17,7 +17,7 @@ use crate::{QlogFactory, QlogFileFactory};
 /// When multipath is required and has not been explicitly enabled, this value will be used for
 /// [`TransportConfig::max_concurrent_multipath_paths`].
 const DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED_: NonZeroU32 = {
-    match NonZeroU32::new(12) {
+    match NonZeroU32::new(8) {
         Some(v) => v,
         None => panic!("to enable multipath this must be positive, which clearly it is"),
     }
