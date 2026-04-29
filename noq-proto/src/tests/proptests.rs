@@ -24,7 +24,7 @@ use crate::{
 
 // These TransportConfig constants are designed to match iroh for now.
 const MAX_MULTIPATH_PATHS: u32 = 8;
-const MAX_QNT_ADDRS: u8 = 12;
+const MAX_QNT_ADDRS: u8 = 32;
 const PATH_MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(15);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 
