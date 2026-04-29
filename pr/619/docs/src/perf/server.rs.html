@@ -101,102 +101,109 @@
 <a href=#101 id=101 data-nosnippet>101</a><span class="kw">async fn </span>handle(handshake: noq::Incoming, opt: Arc&lt;Opt&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
 <a href=#102 id=102 data-nosnippet>102</a>    <span class="kw">let </span>connection = handshake.<span class="kw">await</span>.context(<span class="string">"handshake failed"</span>)<span class="question-mark">?</span>;
 <a href=#103 id=103 data-nosnippet>103</a>
-<a href=#104 id=104 data-nosnippet>104</a>    <span class="macro">debug!</span>(<span class="string">"{} connected"</span>, connection.remote_address());
-<a href=#105 id=105 data-nosnippet>105</a>    <span class="macro">tokio::try_join!</span>(
-<a href=#106 id=106 data-nosnippet>106</a>        drive_uni(connection.clone()),
-<a href=#107 id=107 data-nosnippet>107</a>        drive_bi(connection.clone()),
-<a href=#108 id=108 data-nosnippet>108</a>        conn_stats(connection, opt)
-<a href=#109 id=109 data-nosnippet>109</a>    )<span class="question-mark">?</span>;
-<a href=#110 id=110 data-nosnippet>110</a>    <span class="prelude-val">Ok</span>(())
-<a href=#111 id=111 data-nosnippet>111</a>}
-<a href=#112 id=112 data-nosnippet>112</a>
-<a href=#113 id=113 data-nosnippet>113</a><span class="kw">async fn </span>conn_stats(connection: noq::Connection, opt: Arc&lt;Opt&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
-<a href=#114 id=114 data-nosnippet>114</a>    <span class="kw">if </span>opt.common.conn_stats {
-<a href=#115 id=115 data-nosnippet>115</a>        <span class="kw">loop </span>{
-<a href=#116 id=116 data-nosnippet>116</a>            tokio::time::sleep(Duration::from_secs(<span class="number">2</span>)).<span class="kw">await</span>;
-<a href=#117 id=117 data-nosnippet>117</a>            <span class="macro">println!</span>(<span class="string">"{:?}\n"</span>, connection.stats());
-<a href=#118 id=118 data-nosnippet>118</a>        }
-<a href=#119 id=119 data-nosnippet>119</a>    }
-<a href=#120 id=120 data-nosnippet>120</a>
-<a href=#121 id=121 data-nosnippet>121</a>    <span class="prelude-val">Ok</span>(())
-<a href=#122 id=122 data-nosnippet>122</a>}
-<a href=#123 id=123 data-nosnippet>123</a>
-<a href=#124 id=124 data-nosnippet>124</a><span class="kw">async fn </span>drive_uni(connection: noq::Connection) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
-<a href=#125 id=125 data-nosnippet>125</a>    <span class="kw">while let </span><span class="prelude-val">Ok</span>(stream) = connection.accept_uni().<span class="kw">await </span>{
-<a href=#126 id=126 data-nosnippet>126</a>        <span class="kw">let </span>connection = connection.clone();
-<a href=#127 id=127 data-nosnippet>127</a>        tokio::spawn(<span class="kw">async move </span>{
-<a href=#128 id=128 data-nosnippet>128</a>            <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = handle_uni(connection, stream).<span class="kw">await </span>{
-<a href=#129 id=129 data-nosnippet>129</a>                <span class="macro">error!</span>(<span class="string">"request failed: {:#}"</span>, e);
-<a href=#130 id=130 data-nosnippet>130</a>            }
-<a href=#131 id=131 data-nosnippet>131</a>        });
-<a href=#132 id=132 data-nosnippet>132</a>    }
-<a href=#133 id=133 data-nosnippet>133</a>    <span class="prelude-val">Ok</span>(())
-<a href=#134 id=134 data-nosnippet>134</a>}
-<a href=#135 id=135 data-nosnippet>135</a>
-<a href=#136 id=136 data-nosnippet>136</a><span class="kw">async fn </span>handle_uni(connection: noq::Connection, stream: noq::RecvStream) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
-<a href=#137 id=137 data-nosnippet>137</a>    <span class="kw">let </span>bytes = read_req(stream).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#138 id=138 data-nosnippet>138</a>    <span class="kw">let </span>response = connection.open_uni().<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#139 id=139 data-nosnippet>139</a>    respond(bytes, response).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#104 id=104 data-nosnippet>104</a>    <span class="macro">debug!</span>(
+<a href=#105 id=105 data-nosnippet>105</a>        <span class="string">"{} connected"</span>,
+<a href=#106 id=106 data-nosnippet>106</a>        connection
+<a href=#107 id=107 data-nosnippet>107</a>            .path(noq::PathId::ZERO)
+<a href=#108 id=108 data-nosnippet>108</a>            .expect(<span class="string">"path open after connect"</span>)
+<a href=#109 id=109 data-nosnippet>109</a>            .remote_address()
+<a href=#110 id=110 data-nosnippet>110</a>            .expect(<span class="string">"path is alive"</span>)
+<a href=#111 id=111 data-nosnippet>111</a>    );
+<a href=#112 id=112 data-nosnippet>112</a>    <span class="macro">tokio::try_join!</span>(
+<a href=#113 id=113 data-nosnippet>113</a>        drive_uni(connection.clone()),
+<a href=#114 id=114 data-nosnippet>114</a>        drive_bi(connection.clone()),
+<a href=#115 id=115 data-nosnippet>115</a>        conn_stats(connection, opt)
+<a href=#116 id=116 data-nosnippet>116</a>    )<span class="question-mark">?</span>;
+<a href=#117 id=117 data-nosnippet>117</a>    <span class="prelude-val">Ok</span>(())
+<a href=#118 id=118 data-nosnippet>118</a>}
+<a href=#119 id=119 data-nosnippet>119</a>
+<a href=#120 id=120 data-nosnippet>120</a><span class="kw">async fn </span>conn_stats(connection: noq::Connection, opt: Arc&lt;Opt&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
+<a href=#121 id=121 data-nosnippet>121</a>    <span class="kw">if </span>opt.common.conn_stats {
+<a href=#122 id=122 data-nosnippet>122</a>        <span class="kw">loop </span>{
+<a href=#123 id=123 data-nosnippet>123</a>            tokio::time::sleep(Duration::from_secs(<span class="number">2</span>)).<span class="kw">await</span>;
+<a href=#124 id=124 data-nosnippet>124</a>            <span class="macro">println!</span>(<span class="string">"{:?}\n"</span>, connection.stats());
+<a href=#125 id=125 data-nosnippet>125</a>        }
+<a href=#126 id=126 data-nosnippet>126</a>    }
+<a href=#127 id=127 data-nosnippet>127</a>
+<a href=#128 id=128 data-nosnippet>128</a>    <span class="prelude-val">Ok</span>(())
+<a href=#129 id=129 data-nosnippet>129</a>}
+<a href=#130 id=130 data-nosnippet>130</a>
+<a href=#131 id=131 data-nosnippet>131</a><span class="kw">async fn </span>drive_uni(connection: noq::Connection) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
+<a href=#132 id=132 data-nosnippet>132</a>    <span class="kw">while let </span><span class="prelude-val">Ok</span>(stream) = connection.accept_uni().<span class="kw">await </span>{
+<a href=#133 id=133 data-nosnippet>133</a>        <span class="kw">let </span>connection = connection.clone();
+<a href=#134 id=134 data-nosnippet>134</a>        tokio::spawn(<span class="kw">async move </span>{
+<a href=#135 id=135 data-nosnippet>135</a>            <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = handle_uni(connection, stream).<span class="kw">await </span>{
+<a href=#136 id=136 data-nosnippet>136</a>                <span class="macro">error!</span>(<span class="string">"request failed: {:#}"</span>, e);
+<a href=#137 id=137 data-nosnippet>137</a>            }
+<a href=#138 id=138 data-nosnippet>138</a>        });
+<a href=#139 id=139 data-nosnippet>139</a>    }
 <a href=#140 id=140 data-nosnippet>140</a>    <span class="prelude-val">Ok</span>(())
 <a href=#141 id=141 data-nosnippet>141</a>}
 <a href=#142 id=142 data-nosnippet>142</a>
-<a href=#143 id=143 data-nosnippet>143</a><span class="kw">async fn </span>drive_bi(connection: noq::Connection) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
-<a href=#144 id=144 data-nosnippet>144</a>    <span class="kw">while let </span><span class="prelude-val">Ok</span>((send, recv)) = connection.accept_bi().<span class="kw">await </span>{
-<a href=#145 id=145 data-nosnippet>145</a>        tokio::spawn(<span class="kw">async move </span>{
-<a href=#146 id=146 data-nosnippet>146</a>            <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = handle_bi(send, recv).<span class="kw">await </span>{
-<a href=#147 id=147 data-nosnippet>147</a>                <span class="macro">error!</span>(<span class="string">"request failed: {:#}"</span>, e);
-<a href=#148 id=148 data-nosnippet>148</a>            }
-<a href=#149 id=149 data-nosnippet>149</a>        });
-<a href=#150 id=150 data-nosnippet>150</a>    }
-<a href=#151 id=151 data-nosnippet>151</a>    <span class="prelude-val">Ok</span>(())
-<a href=#152 id=152 data-nosnippet>152</a>}
-<a href=#153 id=153 data-nosnippet>153</a>
-<a href=#154 id=154 data-nosnippet>154</a><span class="kw">async fn </span>handle_bi(send: noq::SendStream, recv: noq::RecvStream) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
-<a href=#155 id=155 data-nosnippet>155</a>    <span class="kw">let </span>bytes = read_req(recv).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#156 id=156 data-nosnippet>156</a>    respond(bytes, send).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#157 id=157 data-nosnippet>157</a>    <span class="prelude-val">Ok</span>(())
-<a href=#158 id=158 data-nosnippet>158</a>}
-<a href=#159 id=159 data-nosnippet>159</a>
-<a href=#160 id=160 data-nosnippet>160</a><span class="kw">async fn </span>read_req(<span class="kw-2">mut </span>stream: noq::RecvStream) -&gt; <span class="prelude-ty">Result</span>&lt;u64&gt; {
-<a href=#161 id=161 data-nosnippet>161</a>    <span class="kw">let </span><span class="kw-2">mut </span>buf = [<span class="number">0</span>; <span class="number">8</span>];
-<a href=#162 id=162 data-nosnippet>162</a>    stream
-<a href=#163 id=163 data-nosnippet>163</a>        .read_exact(<span class="kw-2">&amp;mut </span>buf)
-<a href=#164 id=164 data-nosnippet>164</a>        .<span class="kw">await
-<a href=#165 id=165 data-nosnippet>165</a>        </span>.context(<span class="string">"reading request"</span>)<span class="question-mark">?</span>;
-<a href=#166 id=166 data-nosnippet>166</a>    <span class="kw">let </span>n = u64::from_be_bytes(buf);
-<a href=#167 id=167 data-nosnippet>167</a>    <span class="macro">debug!</span>(<span class="string">"got req for {} bytes on {}"</span>, n, stream.id());
-<a href=#168 id=168 data-nosnippet>168</a>    drain_stream(stream).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#169 id=169 data-nosnippet>169</a>    <span class="prelude-val">Ok</span>(n)
-<a href=#170 id=170 data-nosnippet>170</a>}
-<a href=#171 id=171 data-nosnippet>171</a>
-<a href=#172 id=172 data-nosnippet>172</a><span class="kw">async fn </span>drain_stream(<span class="kw-2">mut </span>stream: noq::RecvStream) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
-<a href=#173 id=173 data-nosnippet>173</a>    <span class="attr">#[rustfmt::skip]
-<a href=#174 id=174 data-nosnippet>174</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>bufs = [
-<a href=#175 id=175 data-nosnippet>175</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
-<a href=#176 id=176 data-nosnippet>176</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
-<a href=#177 id=177 data-nosnippet>177</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
-<a href=#178 id=178 data-nosnippet>178</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
-<a href=#179 id=179 data-nosnippet>179</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
-<a href=#180 id=180 data-nosnippet>180</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
-<a href=#181 id=181 data-nosnippet>181</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
+<a href=#143 id=143 data-nosnippet>143</a><span class="kw">async fn </span>handle_uni(connection: noq::Connection, stream: noq::RecvStream) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
+<a href=#144 id=144 data-nosnippet>144</a>    <span class="kw">let </span>bytes = read_req(stream).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#145 id=145 data-nosnippet>145</a>    <span class="kw">let </span>response = connection.open_uni().<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#146 id=146 data-nosnippet>146</a>    respond(bytes, response).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#147 id=147 data-nosnippet>147</a>    <span class="prelude-val">Ok</span>(())
+<a href=#148 id=148 data-nosnippet>148</a>}
+<a href=#149 id=149 data-nosnippet>149</a>
+<a href=#150 id=150 data-nosnippet>150</a><span class="kw">async fn </span>drive_bi(connection: noq::Connection) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
+<a href=#151 id=151 data-nosnippet>151</a>    <span class="kw">while let </span><span class="prelude-val">Ok</span>((send, recv)) = connection.accept_bi().<span class="kw">await </span>{
+<a href=#152 id=152 data-nosnippet>152</a>        tokio::spawn(<span class="kw">async move </span>{
+<a href=#153 id=153 data-nosnippet>153</a>            <span class="kw">if let </span><span class="prelude-val">Err</span>(e) = handle_bi(send, recv).<span class="kw">await </span>{
+<a href=#154 id=154 data-nosnippet>154</a>                <span class="macro">error!</span>(<span class="string">"request failed: {:#}"</span>, e);
+<a href=#155 id=155 data-nosnippet>155</a>            }
+<a href=#156 id=156 data-nosnippet>156</a>        });
+<a href=#157 id=157 data-nosnippet>157</a>    }
+<a href=#158 id=158 data-nosnippet>158</a>    <span class="prelude-val">Ok</span>(())
+<a href=#159 id=159 data-nosnippet>159</a>}
+<a href=#160 id=160 data-nosnippet>160</a>
+<a href=#161 id=161 data-nosnippet>161</a><span class="kw">async fn </span>handle_bi(send: noq::SendStream, recv: noq::RecvStream) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
+<a href=#162 id=162 data-nosnippet>162</a>    <span class="kw">let </span>bytes = read_req(recv).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#163 id=163 data-nosnippet>163</a>    respond(bytes, send).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#164 id=164 data-nosnippet>164</a>    <span class="prelude-val">Ok</span>(())
+<a href=#165 id=165 data-nosnippet>165</a>}
+<a href=#166 id=166 data-nosnippet>166</a>
+<a href=#167 id=167 data-nosnippet>167</a><span class="kw">async fn </span>read_req(<span class="kw-2">mut </span>stream: noq::RecvStream) -&gt; <span class="prelude-ty">Result</span>&lt;u64&gt; {
+<a href=#168 id=168 data-nosnippet>168</a>    <span class="kw">let </span><span class="kw-2">mut </span>buf = [<span class="number">0</span>; <span class="number">8</span>];
+<a href=#169 id=169 data-nosnippet>169</a>    stream
+<a href=#170 id=170 data-nosnippet>170</a>        .read_exact(<span class="kw-2">&amp;mut </span>buf)
+<a href=#171 id=171 data-nosnippet>171</a>        .<span class="kw">await
+<a href=#172 id=172 data-nosnippet>172</a>        </span>.context(<span class="string">"reading request"</span>)<span class="question-mark">?</span>;
+<a href=#173 id=173 data-nosnippet>173</a>    <span class="kw">let </span>n = u64::from_be_bytes(buf);
+<a href=#174 id=174 data-nosnippet>174</a>    <span class="macro">debug!</span>(<span class="string">"got req for {} bytes on {}"</span>, n, stream.id());
+<a href=#175 id=175 data-nosnippet>175</a>    drain_stream(stream).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#176 id=176 data-nosnippet>176</a>    <span class="prelude-val">Ok</span>(n)
+<a href=#177 id=177 data-nosnippet>177</a>}
+<a href=#178 id=178 data-nosnippet>178</a>
+<a href=#179 id=179 data-nosnippet>179</a><span class="kw">async fn </span>drain_stream(<span class="kw-2">mut </span>stream: noq::RecvStream) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
+<a href=#180 id=180 data-nosnippet>180</a>    <span class="attr">#[rustfmt::skip]
+<a href=#181 id=181 data-nosnippet>181</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>bufs = [
 <a href=#182 id=182 data-nosnippet>182</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
-<a href=#183 id=183 data-nosnippet>183</a>    ];
-<a href=#184 id=184 data-nosnippet>184</a>    <span class="kw">while </span>stream.read_chunks(<span class="kw-2">&amp;mut </span>bufs[..]).<span class="kw">await</span><span class="question-mark">?</span>.is_some() {}
-<a href=#185 id=185 data-nosnippet>185</a>    <span class="macro">debug!</span>(<span class="string">"finished reading {}"</span>, stream.id());
-<a href=#186 id=186 data-nosnippet>186</a>    <span class="prelude-val">Ok</span>(())
-<a href=#187 id=187 data-nosnippet>187</a>}
-<a href=#188 id=188 data-nosnippet>188</a>
-<a href=#189 id=189 data-nosnippet>189</a><span class="kw">async fn </span>respond(<span class="kw-2">mut </span>bytes: u64, <span class="kw-2">mut </span>stream: noq::SendStream) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
-<a href=#190 id=190 data-nosnippet>190</a>    <span class="kw">static </span>DATA: [u8; <span class="number">1024 </span>* <span class="number">1024</span>] = [<span class="number">42</span>; <span class="number">1024 </span>* <span class="number">1024</span>];
-<a href=#191 id=191 data-nosnippet>191</a>
-<a href=#192 id=192 data-nosnippet>192</a>    <span class="kw">while </span>bytes &gt; <span class="number">0 </span>{
-<a href=#193 id=193 data-nosnippet>193</a>        <span class="kw">let </span>chunk_len = bytes.min(DATA.len() <span class="kw">as </span>u64);
-<a href=#194 id=194 data-nosnippet>194</a>        stream
-<a href=#195 id=195 data-nosnippet>195</a>            .write_chunk(Bytes::from_static(<span class="kw-2">&amp;</span>DATA[..chunk_len <span class="kw">as </span>usize]))
-<a href=#196 id=196 data-nosnippet>196</a>            .<span class="kw">await
-<a href=#197 id=197 data-nosnippet>197</a>            </span>.context(<span class="string">"sending response"</span>)<span class="question-mark">?</span>;
-<a href=#198 id=198 data-nosnippet>198</a>        bytes -= chunk_len;
-<a href=#199 id=199 data-nosnippet>199</a>    }
-<a href=#200 id=200 data-nosnippet>200</a>    <span class="macro">debug!</span>(<span class="string">"finished responding on {}"</span>, stream.id());
-<a href=#201 id=201 data-nosnippet>201</a>    <span class="prelude-val">Ok</span>(())
-<a href=#202 id=202 data-nosnippet>202</a>}</code></pre></div></section></main></body></html>
+<a href=#183 id=183 data-nosnippet>183</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
+<a href=#184 id=184 data-nosnippet>184</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
+<a href=#185 id=185 data-nosnippet>185</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
+<a href=#186 id=186 data-nosnippet>186</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
+<a href=#187 id=187 data-nosnippet>187</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
+<a href=#188 id=188 data-nosnippet>188</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
+<a href=#189 id=189 data-nosnippet>189</a>        Bytes::new(), Bytes::new(), Bytes::new(), Bytes::new(),
+<a href=#190 id=190 data-nosnippet>190</a>    ];
+<a href=#191 id=191 data-nosnippet>191</a>    <span class="kw">while </span>stream.read_chunks(<span class="kw-2">&amp;mut </span>bufs[..]).<span class="kw">await</span><span class="question-mark">?</span>.is_some() {}
+<a href=#192 id=192 data-nosnippet>192</a>    <span class="macro">debug!</span>(<span class="string">"finished reading {}"</span>, stream.id());
+<a href=#193 id=193 data-nosnippet>193</a>    <span class="prelude-val">Ok</span>(())
+<a href=#194 id=194 data-nosnippet>194</a>}
+<a href=#195 id=195 data-nosnippet>195</a>
+<a href=#196 id=196 data-nosnippet>196</a><span class="kw">async fn </span>respond(<span class="kw-2">mut </span>bytes: u64, <span class="kw-2">mut </span>stream: noq::SendStream) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
+<a href=#197 id=197 data-nosnippet>197</a>    <span class="kw">static </span>DATA: [u8; <span class="number">1024 </span>* <span class="number">1024</span>] = [<span class="number">42</span>; <span class="number">1024 </span>* <span class="number">1024</span>];
+<a href=#198 id=198 data-nosnippet>198</a>
+<a href=#199 id=199 data-nosnippet>199</a>    <span class="kw">while </span>bytes &gt; <span class="number">0 </span>{
+<a href=#200 id=200 data-nosnippet>200</a>        <span class="kw">let </span>chunk_len = bytes.min(DATA.len() <span class="kw">as </span>u64);
+<a href=#201 id=201 data-nosnippet>201</a>        stream
+<a href=#202 id=202 data-nosnippet>202</a>            .write_chunk(Bytes::from_static(<span class="kw-2">&amp;</span>DATA[..chunk_len <span class="kw">as </span>usize]))
+<a href=#203 id=203 data-nosnippet>203</a>            .<span class="kw">await
+<a href=#204 id=204 data-nosnippet>204</a>            </span>.context(<span class="string">"sending response"</span>)<span class="question-mark">?</span>;
+<a href=#205 id=205 data-nosnippet>205</a>        bytes -= chunk_len;
+<a href=#206 id=206 data-nosnippet>206</a>    }
+<a href=#207 id=207 data-nosnippet>207</a>    <span class="macro">debug!</span>(<span class="string">"finished responding on {}"</span>, stream.id());
+<a href=#208 id=208 data-nosnippet>208</a>    <span class="prelude-val">Ok</span>(())
+<a href=#209 id=209 data-nosnippet>209</a>}</code></pre></div></section></main></body></html>
