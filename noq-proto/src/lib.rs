@@ -56,8 +56,6 @@ use test_strategy::Arbitrary;
 pub use rustls;
 
 mod config;
-#[cfg(doc)]
-pub use config::DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED;
 pub use config::{
     AckFrequencyConfig, ClientConfig, ConfigError, EndpointConfig, IdleTimeout, MtuDiscoveryConfig,
     ServerConfig, StdSystemTime, TimeSource, TransportConfig, ValidationTokenConfig,

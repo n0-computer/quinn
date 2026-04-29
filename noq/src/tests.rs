@@ -1468,7 +1468,7 @@ async fn nat_traversal_wakes_connection_driver() -> TestResult {
 
     let mut transport_config = TransportConfig::default();
     transport_config.max_concurrent_multipath_paths(3);
-    transport_config.set_max_remote_nat_traversal_addresses(10);
+    transport_config.max_remote_nat_traversal_addresses(10);
     let server = factory.endpoint_with_config("server", transport_config.clone());
     let server_addr = server.local_addr().unwrap();
 
