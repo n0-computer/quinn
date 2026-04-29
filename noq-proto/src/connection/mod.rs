@@ -2026,7 +2026,7 @@ impl Connection {
 
         // If we are a client doing NAT traversal, always include a PATH_CHALLENGE with any
         // off-path PATH_RESPONSE. No need to schedule any retries for this, if NAT
-        // traversal is taking place then this remote is already is being probed with
+        // traversal is taking place then this remote already is being probed with
         // retries, this only speeds up a successful traversal.
         if self
             .find_validated_path_on_network_path(network_path)
