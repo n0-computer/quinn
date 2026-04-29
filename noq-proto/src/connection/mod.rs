@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, VecDeque, btree_map},
     convert::TryFrom,
     fmt, io, mem,
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     num::{NonZeroU32, NonZeroUsize},
     sync::Arc,
 };
@@ -81,7 +81,7 @@ use paths::{PathData, PathState};
 pub(crate) mod qlog;
 pub(crate) mod send_buffer;
 
-mod spaces;
+pub(crate) mod spaces;
 #[cfg(fuzzing)]
 pub use spaces::Retransmits;
 #[cfg(not(fuzzing))]
@@ -1991,6 +1991,12 @@ impl Connection {
             .udp_tx
             .on_sent(1, buf.len());
 
+        trace!(
+            dst = ?network_path.remote,
+            src = ?network_path.local_ip,
+            len = buf.len(),
+            "sending prev_path off-path challenge",
+        );
         Some(Transmit {
             destination: network_path.remote,
             size: buf.len(),
@@ -2030,8 +2036,14 @@ impl Connection {
         builder.finish(self, now);
 
         let size = buf.len();
-
         self.path_stats.for_path(path_id).udp_tx.on_sent(1, size);
+
+        trace!(
+            dst = ?network_path.remote,
+            src = ?network_path.local_ip,
+            len = buf.len(),
+            "sending off-path PATH_RESPONSE",
+        );
         Some(Transmit {
             destination: network_path.remote,
             size,
@@ -2048,11 +2060,7 @@ impl Connection {
         buf: &mut Vec<u8>,
         path_id: PathId,
     ) -> Option<Transmit> {
-        let remote = self
-            .n0_nat_traversal
-            .server_side_mut()
-            .ok()?
-            .next_probe_addr()?;
+        let remote = self.n0_nat_traversal.next_probe_addr()?;
 
         if !self.paths.get(&path_id)?.data.validated {
             // Path is not usable for probing
@@ -2086,14 +2094,13 @@ impl Connection {
         builder.finish(self, now);
 
         // Mark as sent after packet build succeeds.
-        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut() {
-            server_state.mark_probe_sent((remote.ip(), remote.port()), token);
-        }
+        self.n0_nat_traversal
+            .mark_probe_sent((remote.ip(), remote.port()), token);
 
         let size = buf.len();
-
         self.path_stats.for_path(path_id).udp_tx.on_sent(1, size);
 
+        trace!(dst = ?remote, len = buf.len(), "sending off-path NAT probe");
         Some(Transmit {
             destination: remote,
             size,
@@ -2409,9 +2416,7 @@ impl Connection {
                         }
                     }
                     ConnTimer::NatTraversalProbeRetry => {
-                        if let Ok(server_state) = self.n0_nat_traversal.server_side_mut()
-                            && server_state.queue_retries()
-                        {
+                        if self.n0_nat_traversal.queue_retries(self.is_ipv6()) {
                             let delay =
                                 RttEstimator::new(self.config.initial_rtt).pto_base() * 2 / 3;
                             self.timers.set(
@@ -2419,7 +2424,9 @@ impl Connection {
                                 now + delay,
                                 self.qlog.with_time(now),
                             );
-                            trace!("off-path probe retry timer fired, re-queued probes");
+                            trace!("re-queued NAT probes");
+                        } else {
+                            trace!("no more NAT probes remaining");
                         }
                     }
                 },
@@ -4922,15 +4929,11 @@ impl Connection {
                 }
                 Frame::PathResponse(response) => {
                     // First try to see if this is a NAT probe response.
-                    if let Ok(nat_state) = self.n0_nat_traversal.server_side_mut()
-                        && nat_state.handle_path_response(network_path, response.0)
+                    if self
+                        .n0_nat_traversal
+                        .handle_path_response(network_path, response.0)
                     {
-                        trace!(
-                            src = ?network_path,
-                            challenge = response.0,
-                            "Received valid NAT traversal probe response"
-                        );
-                        // Server-side: nothing else to do.
+                        self.open_nat_traversed_paths(now);
                     } else {
                         // Try to see if this is a response to an on-path PATH_CHALLENGE.
 
@@ -5127,14 +5130,9 @@ impl Connection {
 
                     use crate::cid_queue::InsertError;
                     match remote_cids.insert(frame) {
-                        Ok(None) if self.path(path_id).is_none() => {
-                            // TODO(flub): Once the client does off-path NAT probes as well
-                            //    we should remove this.
-                            // If this gives us CIDs to open a new path and a nat traversal attempt
-                            // is underway we could try to probe a pending remote
-                            self.continue_nat_traversal_round(now);
+                        Ok(None) => {
+                            self.open_nat_traversed_paths(now);
                         }
-                        Ok(None) => {}
                         Ok(Some((retired, reset_token))) => {
                             let pending_retired =
                                 &mut self.spaces[SpaceId::Data].pending.retire_cids;
@@ -5153,6 +5151,7 @@ impl Connection {
                             }
                             pending_retired.extend(retired.map(|seq| (path_id, seq)));
                             self.set_reset_token(path_id, network_path.remote, reset_token);
+                            self.open_nat_traversed_paths(now);
                         }
                         Err(InsertError::ExceedsLimit) => {
                             return Err(TransportError::CONNECTION_ID_LIMIT_ERROR(""));
@@ -5370,10 +5369,7 @@ impl Connection {
                     if path_id > self.remote_max_path_id {
                         self.remote_max_path_id = path_id;
                         self.issue_first_path_cids(now);
-                        // TODO(flub): Once the client sends off-path NAT probes this is no
-                        //    longer needed. But new paths that need to be opened may need
-                        //    to be notified.
-                        while let Some(true) = self.continue_nat_traversal_round(now) {}
+                        self.open_nat_traversed_paths(now);
                     }
                 }
                 Frame::PathsBlocked(frame::PathsBlocked(max_path_id)) => {
@@ -5580,6 +5576,52 @@ impl Connection {
         }
 
         Ok(())
+    }
+
+    /// Opens any paths that have been successfully NAT traversed.
+    fn open_nat_traversed_paths(&mut self, now: Instant) {
+        while let Some(network_path) = self
+            .n0_nat_traversal
+            .client_side_mut()
+            .ok()
+            .and_then(|s| s.pop_pending_path_open())
+        {
+            match self.open_path_ensure(network_path, PathStatus::Backup, now) {
+                Ok((path_id, already_existed)) => {
+                    debug!(
+                        %path_id,
+                        ?network_path,
+                        new_path = !already_existed,
+                        "Opened NAT traversal path",
+                    );
+                }
+                Err(err) => match err {
+                    PathError::MultipathNotNegotiated
+                    | PathError::ServerSideNotAllowed
+                    | PathError::ValidationFailed
+                    | PathError::InvalidRemoteAddress(_) => {
+                        error!(
+                            ?err,
+                            ?network_path,
+                            "Failed to open path for successful NAT traversal"
+                        );
+                    }
+                    PathError::MaxPathIdReached | PathError::RemoteCidsExhausted => {
+                        // Temporary error, put back.
+                        self.n0_nat_traversal
+                            .client_side_mut()
+                            .map(|s| s.push_pending_path_open(network_path))
+                            .ok();
+                        debug!(
+                            ?err,
+                            ?network_path,
+                            "Blocked opening NAT traversal path, enqueued"
+                        );
+                        return;
+                    }
+                },
+            }
+        }
     }
 
     /// Migrates the 4-tuple of the path.
@@ -6044,16 +6086,6 @@ impl Connection {
                         self.qlog.with_time(now),
                     );
                 }
-                // The path open status was informed before, we just want to revalidate again.
-                // For that, we want to make sure we set the PathOpenFailed timer again.
-                paths::OpenStatus::Revalidating => {
-                    path.open_status = paths::OpenStatus::Informed;
-                    self.timers.set(
-                        Timer::PerPath(path_id, PathTimer::AbandonFromValidation),
-                        now + 3 * pto,
-                        self.qlog.with_time(now),
-                    );
-                }
             }
 
             self.timers.set(
@@ -6127,23 +6159,14 @@ impl Connection {
         }
 
         // REACH_OUT
-        if !scheduling_info.is_abandoned
+        while !scheduling_info.is_abandoned
             && scheduling_info.may_send_data
-            && let Some((round, addresses)) = space.pending.reach_out.as_mut()
+            && let Some(reach_out) = space
+                .pending
+                .reach_out
+                .pop_if(|frame| builder.frame_space_remaining() >= frame.size())
         {
-            while let Some(local_addr) = addresses.iter().next().copied() {
-                let local_addr = addresses.take(&local_addr).expect("found from iter");
-                let reach_out = frame::ReachOut::new(*round, local_addr);
-                if builder.frame_space_remaining() > reach_out.size() {
-                    builder.write_frame(reach_out, stats);
-                } else {
-                    addresses.insert(local_addr);
-                    break;
-                }
-            }
-            if addresses.is_empty() {
-                space.pending.reach_out = None;
-            }
+            builder.write_frame(reach_out, stats);
         }
 
         // PATH_ABANDON
@@ -7062,62 +7085,6 @@ impl Connection {
             .get_remote_nat_traversal_addresses())
     }
 
-    /// Attempts to open a path for nat traversal.
-    ///
-    /// On success returns the [`PathId`] and remote address of the path.
-    fn open_nat_traversal_path(
-        &mut self,
-        now: Instant,
-        ip_port: (IpAddr, u16),
-    ) -> Result<Option<(PathId, SocketAddr)>, PathError> {
-        let remote = ip_port.into();
-        // TODO(matheus23): Probe the correct 4-tuple, instead of only a remote address?
-        // By specifying None for `local_ip`, we do two things: 1. open_path_ensure won't
-        // generate two paths to the same remote and 2. we let the OS choose which
-        // interface to use for sending on that path.
-        let network_path = FourTuple {
-            remote,
-            local_ip: None,
-        };
-        match self.open_path_ensure(network_path, PathStatus::Backup, now) {
-            Ok((path_id, path_was_known)) => {
-                if path_was_known {
-                    trace!(%path_id, %remote, "nat traversal: path existed for remote, revalidating");
-                    if let Some(path) = self.paths.get_mut(&path_id) {
-                        use paths::OpenStatus::*;
-
-                        path.data.pending_on_path_challenge = true;
-                        path.data.open_status = match path.data.open_status {
-                            // If we just opened the path and have never sent a `PATH_CHALLENGE` yet,
-                            // then we need to keep it at pending, to ensure that
-                            // 1. The PathOpenFailed timer for stopping the PathChallengeLost retries will be set.
-                            // 2. When validation eventually succeeds, then we inform the application layer about this path opening.
-                            Pending => Pending,
-                            // If we had already sent a path challenge in the past, but it hasn't been validated yet (and also not
-                            // failed via the PathOpenFailed timer yet), then we need to go back to pending, to ensure we properly
-                            // re-arm the `PathOpenFailed` timer again.
-                            Sent => Pending,
-                            // If we're already revalidating this path, but haven't sent a `PATH_CHALLENGE` yet, then we just keep
-                            // that state.
-                            Revalidating => Revalidating,
-                            // If we've informed the application layer about the path opening in the past, but we now re-send
-                            // PATH_CHALLENGEs for validation, then using this we ensure:
-                            // 1. The PathOpenFailed timer for stopping the PathChallengeLost retries will be set.
-                            // 2. When validation eventually succeeds, we *don't* inform the application layer about the path
-                            //    opening again.
-                            Informed => Revalidating,
-                        }
-                    }
-                }
-                Ok(Some((path_id, remote)))
-            }
-            Err(e) => {
-                debug!(%remote, %e, "nat traversal: failed to probe remote");
-                Err(e)
-            }
-        }
-    }
-
     /// Initiates a new nat traversal round
     ///
     /// A nat traversal round involves advertising the client's local addresses in
@@ -7139,98 +7106,23 @@ impl Connection {
 
         let ipv6 = self.is_ipv6();
         let client_state = self.n0_nat_traversal.client_side_mut()?;
-        let n0_nat_traversal::NatTraversalRound {
-            new_round,
-            reach_out_at,
-            addresses_to_probe,
-            prev_round_path_ids,
-        } = client_state.initiate_nat_traversal_round(ipv6)?;
-
-        trace!(%new_round, reach_out=reach_out_at.len(), to_probe=addresses_to_probe.len(),
-            "initiating nat traversal round");
-
-        self.spaces[SpaceId::Data].pending.reach_out = Some((new_round, reach_out_at));
-
-        for path_id in prev_round_path_ids {
-            let Some(path) = self.path(path_id) else {
-                continue;
-            };
-            let ip = path.network_path.remote.ip();
-            let port = path.network_path.remote.port();
-
-            // We only close paths that aren't validated (thus are working) that we opened
-            // in a previous round.
-            // And we only close paths that we don't want to probe anyways.
-            if !addresses_to_probe
-                .iter()
-                .any(|(_, probe)| *probe == (ip, port))
-                && !path.validated
-                && !self.abandoned_paths.contains(&path_id)
-            {
-                trace!(%path_id, "closing path from previous round");
-                let _ =
-                    self.close_path_inner(now, path_id, PathAbandonReason::NatTraversalRoundEnded);
-            }
+        let (mut reach_out_frames, probed_addrs) =
+            client_state.initiate_nat_traversal_round(ipv6)?;
+        if !probed_addrs.is_empty() {
+            let delay = RttEstimator::new(self.config.initial_rtt).pto_base() * 2 / 3;
+            self.timers.set(
+                Timer::Conn(ConnTimer::NatTraversalProbeRetry),
+                now + delay,
+                self.qlog.with_time(now),
+            );
         }
 
-        let mut err = None;
+        self.spaces[SpaceId::Data]
+            .pending
+            .reach_out
+            .append(&mut reach_out_frames);
 
-        let mut path_ids = Vec::with_capacity(addresses_to_probe.len());
-        let mut probed_addresses = Vec::with_capacity(addresses_to_probe.len());
-
-        for (id, address) in addresses_to_probe {
-            match self.open_nat_traversal_path(now, address) {
-                Ok(None) => {}
-                Ok(Some((path_id, remote))) => {
-                    path_ids.push(path_id);
-                    probed_addresses.push(remote);
-                }
-                Err(e) => {
-                    self.n0_nat_traversal
-                        .client_side_mut()
-                        .expect("validated")
-                        .report_in_continuation(id, e);
-                    err.get_or_insert(e);
-                }
-            }
-        }
-
-        if let Some(err) = err {
-            // We failed to probe any addresses, bail out
-            if probed_addresses.is_empty() {
-                return Err(n0_nat_traversal::Error::Multipath(err));
-            }
-        }
-
-        self.n0_nat_traversal
-            .client_side_mut()
-            .expect("connection side validated")
-            .set_round_path_ids(path_ids);
-
-        Ok(probed_addresses)
-    }
-
-    /// Attempts to continue a nat traversal round by trying to open paths for pending client probes.
-    ///
-    /// If there was nothing to do, it returns `None`. Otherwise it returns whether the path was
-    /// successfully open.
-    fn continue_nat_traversal_round(&mut self, now: Instant) -> Option<bool> {
-        let ipv6 = self.is_ipv6();
-        let client_state = self.n0_nat_traversal.client_side_mut().ok()?;
-        let (id, address) = client_state.continue_nat_traversal_round(ipv6)?;
-        let open_result = self.open_nat_traversal_path(now, address);
-        let client_state = self.n0_nat_traversal.client_side_mut().expect("validated");
-        match open_result {
-            Ok(None) => Some(true),
-            Ok(Some((path_id, _remote))) => {
-                client_state.add_round_path_id(path_id);
-                Some(true)
-            }
-            Err(e) => {
-                client_state.report_in_continuation(id, e);
-                Some(false)
-            }
-        }
+        Ok(probed_addrs)
     }
 
     /// Whether the handshake is considered **confirmed**.
@@ -7670,25 +7562,7 @@ impl SentFrames {
             Close(_) => { /* non retransmittable, but after this we don't really care */ }
             PathResponse(_) => self.non_retransmits = true,
             HandshakeDone(_) => self.retransmits_mut().handshake_done = true,
-            ReachOut(frame::ReachOut { round, ip, port }) => {
-                let (recorded_round, reach_outs) = self
-                    .retransmits_mut()
-                    .reach_out
-                    .get_or_insert_with(|| (round, FxHashSet::default()));
-                // Only record reach outs for the current round or a newer than the recorded one.
-                if *recorded_round == round {
-                    // Same round, simply append.
-                    reach_outs.insert((ip, port));
-                } else if *recorded_round < round {
-                    // New round.
-                    *recorded_round = round;
-                    reach_outs.drain();
-                    reach_outs.insert((ip, port));
-                } else {
-                    // ignore old reach out that was sent
-                }
-            }
-
+            ReachOut(frame) => self.retransmits_mut().reach_out.push(frame),
             ObservedAddr(_) => self.retransmits_mut().observed_addr = true,
             Ping(_) => self.non_retransmits = true,
             ImmediateAck(_) => self.non_retransmits = true,
