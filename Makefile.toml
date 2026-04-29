@@ -4,6 +4,10 @@
 skip_core_tasks = true
 default_to_workspace = false
 
+[env]
+RUSTFLAGS = "-Dwarnings"
+RUSTDOCFLAGS = "-Dwarnings"
+
 [tasks.default]
 alias = "dev-flow"
 
