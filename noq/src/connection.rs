@@ -1233,6 +1233,14 @@ impl Drop for ConnectionRef {
             // be constructed for the newly opened stream.
             conn.implicit_close(&self.shared);
         }
+
+        // We also flush any pending packets, e.g. the CONNECTION_CLOSE, if we're able to do so
+        // synchronously. This is best-effort; we won't wait for them to be acked, but we have a
+        // decent chance of notifying the peer in the case that we're currently shutting down
+        // ungracefully.
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(waker);
+        let _ = conn.drive_transmit(&mut cx);
     }
 }
 
