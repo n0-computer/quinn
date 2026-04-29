@@ -56,11 +56,10 @@ use test_strategy::Arbitrary;
 pub use rustls;
 
 mod config;
-#[cfg(doc)]
-pub use config::DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED;
 pub use config::{
-    AckFrequencyConfig, ClientConfig, ConfigError, EndpointConfig, IdleTimeout, MtuDiscoveryConfig,
-    ServerConfig, StdSystemTime, TimeSource, TransportConfig, ValidationTokenConfig,
+    AckFrequencyConfig, ClientConfig, ConfigError, DEFAULT_MAX_CONCURRENT_MULTIPATH_PATHS,
+    EndpointConfig, IdleTimeout, MtuDiscoveryConfig, ServerConfig, StdSystemTime, TimeSource,
+    TransportConfig, ValidationTokenConfig,
 };
 #[cfg(feature = "qlog")]
 pub use config::{QlogConfig, QlogFactory, QlogFileFactory};

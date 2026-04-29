@@ -140,7 +140,7 @@ impl PairSetup {
 
         if self.extensions.is_qnt_enabled() {
             // enable QNT:
-            transport.set_max_remote_nat_traversal_addresses(MAX_QNT_ADDRS);
+            transport.max_remote_nat_traversal_addresses(MAX_QNT_ADDRS);
         }
 
         // Initialize the server config

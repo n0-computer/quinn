@@ -41,7 +41,7 @@ fn multipath_pair_with_nat_traversal(nat_traversal: bool) -> ConnPair {
     // Assume a low-latency connection so pacing doesn't interfere with the test
     cfg.initial_rtt(Duration::from_millis(10));
     if nat_traversal {
-        cfg.set_max_remote_nat_traversal_addresses(8);
+        cfg.max_remote_nat_traversal_addresses(8);
     }
     #[cfg(feature = "qlog")]
     cfg.qlog_from_env("multipath_test");

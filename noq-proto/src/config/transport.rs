@@ -16,19 +16,7 @@ use crate::{QlogFactory, QlogFileFactory};
 
 /// When multipath is required and has not been explicitly enabled, this value will be used for
 /// [`TransportConfig::max_concurrent_multipath_paths`].
-const DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED_: NonZeroU32 = {
-    match NonZeroU32::new(8) {
-        Some(v) => v,
-        None => panic!("to enable multipath this must be positive, which clearly it is"),
-    }
-};
-
-/// When multipath is required and has not been explicitly enabled, this value will be used for
-///
-/// [`TransportConfig::max_concurrent_multipath_paths`].
-#[cfg(doc)]
-pub const DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED: NonZeroU32 =
-    DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED_;
+pub const DEFAULT_MAX_CONCURRENT_MULTIPATH_PATHS: u32 = 8;
 
 /// Parameters governing the core QUIC state machine
 ///
@@ -464,14 +452,12 @@ impl TransportConfig {
     /// <https://www.ietf.org/archive/id/draft-seemann-quic-nat-traversal-02.html>
     ///
     /// This implementation expects the multipath extension to be enabled as well. if not yet
-    /// enabled via [`Self::max_concurrent_multipath_paths`], a default value of
-    /// [`DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED`] will be used.
-    pub fn set_max_remote_nat_traversal_addresses(&mut self, max_addresses: u8) -> &mut Self {
+    /// enabled via [`Self::max_concurrent_multipath_paths`], then that setting is set to
+    /// [`DEFAULT_MAX_CONCURRENT_MULTIPATH_PATHS`].
+    pub fn max_remote_nat_traversal_addresses(&mut self, max_addresses: u8) -> &mut Self {
         self.max_remote_nat_traversal_addresses = NonZeroU8::new(max_addresses);
         if max_addresses != 0 && self.max_concurrent_multipath_paths.is_none() {
-            self.max_concurrent_multipath_paths(
-                DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED_.get(),
-            );
+            self.max_concurrent_multipath_paths(DEFAULT_MAX_CONCURRENT_MULTIPATH_PATHS);
         }
         self
     }

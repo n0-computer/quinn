@@ -31,10 +31,10 @@ mod transport;
 
 #[cfg(feature = "qlog")]
 pub use qlog::{QlogConfig, QlogFactory, QlogFileFactory};
-pub use transport::{AckFrequencyConfig, IdleTimeout, MtuDiscoveryConfig, TransportConfig};
-
-#[cfg(doc)]
-pub use transport::DEFAULT_CONCURRENT_MULTIPATH_PATHS_WHEN_ENABLED;
+pub use transport::{
+    AckFrequencyConfig, DEFAULT_MAX_CONCURRENT_MULTIPATH_PATHS, IdleTimeout, MtuDiscoveryConfig,
+    TransportConfig,
+};
 
 /// Global configuration for the endpoint, affecting all connections
 ///
