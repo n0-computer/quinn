@@ -2101,7 +2101,7 @@ impl Connection {
 
         trace!(dst = ?remote, len = buf.len(), "sending off-path NAT probe");
         Some(Transmit {
-            destination: remote.to_addr(),
+            destination: remote.into(),
             size,
             ecn: None,
             segment_size: None,
