@@ -188,12 +188,7 @@ impl Connecting {
     pub fn local_ip(&self) -> Option<IpAddr> {
         let conn = self.conn.as_ref().expect("used after yielding Ready");
         let inner = conn.lock_without_waking("local_ip");
-
-        inner
-            .inner
-            .network_path(PathId::ZERO)
-            .expect("PathId::ZERO is the only path during the handshake")
-            .local_ip()
+        inner.inner.initial_network_path().local_ip()
     }
 
     /// The peer's UDP addresses
@@ -204,8 +199,7 @@ impl Connecting {
         conn_ref
             .lock_without_waking("remote_address")
             .inner
-            .network_path(PathId::ZERO)
-            .expect("PathId::ZERO is the only path during the handshake")
+            .initial_network_path()
             .remote()
     }
 }

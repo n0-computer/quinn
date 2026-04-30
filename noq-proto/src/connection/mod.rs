@@ -819,6 +819,24 @@ impl Connection {
             .ok_or(ClosedPath { _private: () })
     }
 
+    /// Returns the network path of the initial path (`PathId::ZERO`).
+    ///
+    /// This always succeeds while the handshake is in progress: `PathId::ZERO` is
+    /// created at connection setup, multipath is not negotiated until the handshake
+    /// completes, and nothing in the handshake teardown path removes it. The only
+    /// way for it to disappear is an explicit post-handshake call to
+    /// `discard_path(PathId::ZERO)` (see the `debug_assert` in `discard_path`).
+    ///
+    /// Use this from contexts that have a `Connection` but not a specific `PathId` —
+    /// notably `Connecting`-stage accessors that observe the handshake's 4-tuple.
+    /// After the handshake completes and especially in multipath connections, prefer
+    /// [`Self::network_path`] with an explicit path id.
+    pub fn initial_network_path(&self) -> FourTuple {
+        self.path(PathId::ZERO)
+            .expect("PathId::ZERO is present until explicitly discarded post-handshake")
+            .network_path
+    }
+
     /// Sets the [`PathStatus`] for a known [`PathId`]
     ///
     /// Returns the previous path status on success.
@@ -3301,6 +3319,12 @@ impl Connection {
 
     /// Drops the path state, declaring any remaining in-flight packets as lost
     fn discard_path(&mut self, path_id: PathId, now: Instant) {
+        // `Connection::initial_network_path` and similar callers rely on `PathId::ZERO`
+        // being present until at least the handshake has completed.
+        assert!(
+            path_id != PathId::ZERO || !self.state.is_handshake(),
+            "PathId::ZERO must not be discarded during handshake"
+        );
         trace!(%path_id, "dropping path state");
         let path = self.path_data(path_id);
         let in_flight_mtu_probe = path.mtud.in_flight_mtu_probe();
