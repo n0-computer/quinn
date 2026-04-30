@@ -2094,15 +2094,14 @@ impl Connection {
         builder.finish(self, now);
 
         // Mark as sent after packet build succeeds.
-        self.n0_nat_traversal
-            .mark_probe_sent((remote.ip(), remote.port()), token);
+        self.n0_nat_traversal.mark_probe_sent(remote, token);
 
         let size = buf.len();
         self.path_stats.for_path(path_id).udp_tx.on_sent(1, size);
 
         trace!(dst = ?remote, len = buf.len(), "sending off-path NAT probe");
         Some(Transmit {
-            destination: remote,
+            destination: remote.to_addr(),
             size,
             ecn: None,
             segment_size: None,

@@ -2,6 +2,7 @@
 
 use std::{
     collections::hash_map::Entry,
+    fmt::Display,
     net::{IpAddr, SocketAddr},
 };
 
@@ -15,6 +16,105 @@ use crate::{
 };
 
 type IpPort = (IpAddr, u16);
+
+/// An IP & port in canonical form.
+///
+/// Avoids using ipv6-mapped ipv4 addresses.
+/// This is the primary type used to send ip addresses around remotely
+/// and the primary type used to canonicalize received addresses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct CanonicalIpPort {
+    canonical_ip: IpAddr,
+    port: u16,
+}
+
+impl CanonicalIpPort {
+    pub(crate) fn ip(&self) -> IpAddr {
+        self.canonical_ip
+    }
+
+    pub(crate) fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub(crate) fn to_local_socket_family(&self, ipv6: bool) -> Option<SocketIpPort> {
+        SocketIpPort::new(self.canonical_ip, self.port, ipv6)
+    }
+
+    pub(crate) fn to_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.canonical_ip, self.port)
+    }
+}
+
+impl Display for CanonicalIpPort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_addr().fmt(f)
+    }
+}
+
+impl From<SocketAddr> for CanonicalIpPort {
+    fn from(addr: SocketAddr) -> Self {
+        Self {
+            canonical_ip: addr.ip().to_canonical(),
+            port: addr.port(),
+        }
+    }
+}
+
+impl From<IpPort> for CanonicalIpPort {
+    fn from((ip, port): IpPort) -> Self {
+        Self {
+            canonical_ip: ip.to_canonical(),
+            port,
+        }
+    }
+}
+
+impl From<SocketIpPort> for CanonicalIpPort {
+    fn from(addr: SocketIpPort) -> Self {
+        Self::from((addr.ip(), addr.port()))
+    }
+}
+
+/// An IP & port in socket-canonical form.
+///
+/// In noq, whenever the local socket supports ipv6, all addresses used with
+/// the socket are ipv6-mapped ipv4 or ipv6 addresses.
+///
+/// When the local socket only supports ipv4, then this will only ever be ipv4
+/// addresses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct SocketIpPort {
+    ip: IpAddr,
+    port: u16,
+}
+
+impl SocketIpPort {
+    pub(crate) fn ip(&self) -> IpAddr {
+        self.ip
+    }
+
+    pub(crate) fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub(crate) fn new(ip: IpAddr, port: u16, ipv6: bool) -> Option<Self> {
+        Some(Self {
+            ip: map_to_local_socket_family(ip, ipv6)?,
+            port,
+        })
+    }
+
+    pub(crate) fn to_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.ip, self.port)
+    }
+}
+
+impl Display for SocketIpPort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_addr().fmt(f)
+    }
+}
 
 /// Errors that the nat traversal state might encounter.
 #[derive(Debug, thiserror::Error)]
@@ -150,14 +250,12 @@ impl State {
             Self::ClientSide(client_state) => Ok(client_state
                 .local_addresses
                 .iter()
-                .copied()
-                .map(Into::into)
+                .map(CanonicalIpPort::to_addr)
                 .collect()),
             Self::ServerSide(server_state) => Ok(server_state
                 .local_addresses
                 .keys()
-                .copied()
-                .map(Into::into)
+                .map(CanonicalIpPort::to_addr)
                 .collect()),
         }
     }
@@ -165,7 +263,7 @@ impl State {
     /// Returns the next ready probe's address.
     ///
     /// If this is actually sent you must call [`Self::mark_probe_sent`].
-    pub(crate) fn next_probe_addr(&self) -> Option<SocketAddr> {
+    pub(crate) fn next_probe_addr(&self) -> Option<SocketIpPort> {
         match self {
             Self::NotNegotiated => None,
             Self::ClientSide(state) => state.next_probe_addr(),
@@ -174,7 +272,7 @@ impl State {
     }
 
     /// Marks a probe as sent to the address with the challenge.
-    pub(crate) fn mark_probe_sent(&mut self, remote: IpPort, challenge: u64) {
+    pub(crate) fn mark_probe_sent(&mut self, remote: SocketIpPort, challenge: u64) {
         match self {
             Self::NotNegotiated => (),
             Self::ClientSide(state) => state.mark_probe_sent(remote, challenge),
@@ -226,7 +324,7 @@ pub(crate) struct ClientState {
     /// They are indexed by their ADD_ADDRESS sequence id and stored in **canonical
     /// form**. Not in the socket-native form as usual. This because we need to store them
     /// so we have the correct sequence IDs.
-    remote_addresses: FxHashMap<VarInt, (IpPort, ProbeState)>,
+    remote_addresses: FxHashMap<VarInt, (CanonicalIpPort, ProbeState)>,
     /// Candidate addresses for the local endpoint.
     ///
     /// These are addresses on which we are potentially reachable, to use for NAT traversal
@@ -234,7 +332,7 @@ pub(crate) struct ClientState {
     ///
     /// They are stored in **canonical form**, not in socket-native form as usual. We may
     /// nave a reflexive address that is IPv6 even if our local socket can only handle IPv4.
-    local_addresses: FxHashSet<IpPort>,
+    local_addresses: FxHashSet<CanonicalIpPort>,
     /// Current nat traversal round.
     round: VarInt,
     /// The data of PATH_CHALLENGE frames sent in probes.
@@ -243,14 +341,14 @@ pub(crate) struct ClientState {
     /// have no effect.
     ///
     /// They are stored in the usual socket-native form.
-    sent_challenges: FxHashMap<u64, IpPort>,
+    sent_challenges: FxHashMap<u64, SocketIpPort>,
     /// Queued probes to be sent in the next [`poll_transmit`] call.
     ///
     /// [`poll_transmit`]: crate::connection::Connection::poll_transmit
     ///
     /// They are stored in the usual socket-native form. Probes to address families not
     /// addressable by the family are never inserted.
-    pending_probes: FxHashSet<IpPort>,
+    pending_probes: FxHashSet<SocketIpPort>,
     /// Network paths that were successfully probed but not yet opened.
     ///
     /// When we do not have enough CIDs or free path IDs we might not have been able to open
@@ -275,7 +373,7 @@ impl ClientState {
     }
 
     fn add_local_address(&mut self, address: SocketAddr) -> Result<(), Error> {
-        let address = (address.ip().to_canonical(), address.port());
+        let address = CanonicalIpPort::from(address);
         if self.local_addresses.len() < self.max_local_addresses {
             self.local_addresses.insert(address);
             Ok(())
@@ -289,7 +387,7 @@ impl ClientState {
     }
 
     fn remove_local_address(&mut self, address: &IpPort) {
-        let address = (address.0.to_canonical(), address.1);
+        let address = CanonicalIpPort::from(*address);
         self.local_addresses.remove(&address);
     }
 
@@ -327,30 +425,29 @@ impl ClientState {
         // Enqueue the NAT probes to known remote addresses.
         self.remote_addresses
             .values_mut()
-            .for_each(|((ip, port), state)| {
-                if let Some(ip) = map_to_local_socket_family(*ip, ipv6) {
-                    self.pending_probes.insert((ip, *port));
+            .for_each(|(ip_port, state)| {
+                if let Some(ip_port) = ip_port.to_local_socket_family(ipv6) {
+                    self.pending_probes.insert(ip_port);
                     *state = ProbeState::Active(MAX_NAT_PROBE_ATTEMPTS - 1);
                 } else {
-                    trace!(?ip, "not using IPv6 NAT candidate for IPv4 socket");
+                    trace!(%ip_port, "not using IPv6 NAT candidate for IPv4 socket");
                     *state = ProbeState::Active(0);
                 }
             });
         let probed_addrs: Vec<SocketAddr> = self
             .pending_probes
             .iter()
-            .copied()
-            .map(Into::into)
+            .map(SocketIpPort::to_addr)
             .collect();
 
         // Build the REACH_OUT frames.
         let reach_out_frames: PendingReachOutFrames = self
             .local_addresses
             .iter()
-            .map(|&(ip, port)| ReachOut {
+            .map(|ip_port| ReachOut {
                 round: self.round,
-                ip,
-                port,
+                ip: ip_port.ip(),
+                port: ip_port.port(),
             })
             .collect();
 
@@ -372,13 +469,13 @@ impl ClientState {
     pub(crate) fn queue_retries(&mut self, ipv6: bool) -> bool {
         self.remote_addresses
             .values_mut()
-            .for_each(|(addr, state)| match state {
+            .for_each(|(ip_port, state)| match state {
                 ProbeState::Active(remaining) if *remaining > 0 => {
                     *remaining -= 1;
-                    if let Some(ip) = map_to_local_socket_family(addr.0, ipv6) {
-                        self.pending_probes.insert((ip, addr.1));
+                    if let Some(ip_port) = ip_port.to_local_socket_family(ipv6) {
+                        self.pending_probes.insert(ip_port);
                     } else {
-                        trace!(?addr, "skipping IPv6 NAT candidate for IPv4 socket");
+                        trace!(%ip_port, "skipping IPv6 NAT candidate for IPv4 socket");
                         *remaining = 0;
                     }
                 }
@@ -390,17 +487,17 @@ impl ClientState {
     /// Returns the next ready probe's address.
     ///
     /// If this is actually sent you must call [`Self::mark_probe_sent`].
-    fn next_probe_addr(&self) -> Option<SocketAddr> {
-        self.pending_probes.iter().next().map(|addr| (*addr).into())
+    fn next_probe_addr(&self) -> Option<SocketIpPort> {
+        self.pending_probes.iter().next().cloned()
     }
 
     /// Marks a probe as sent to the address with the challenge.
-    fn mark_probe_sent(&mut self, remote: IpPort, challenge: u64) {
+    fn mark_probe_sent(&mut self, remote: SocketIpPort, challenge: u64) {
         self.pending_probes.remove(&remote);
         self.sent_challenges.insert(challenge, remote);
     }
 
-    /// Adds an address to the remote set
+    /// Adds an address to the remote set.
     ///
     /// On success returns the address if it was new to the set. It will error when the set
     /// has no capacity for the address.
@@ -416,7 +513,7 @@ impl ClientState {
         add_addr: AddAddress,
     ) -> Result<Option<SocketAddr>, Error> {
         let AddAddress { seq_no, ip, port } = add_addr;
-        let address = (ip.to_canonical(), port);
+        let address = CanonicalIpPort::from((ip, port));
         let allow_new = self.remote_addresses.len() < self.max_remote_addresses;
         match self.remote_addresses.entry(seq_no) {
             Entry::Occupied(mut occupied_entry) => {
@@ -426,11 +523,11 @@ impl ClientState {
                 }
                 // The value might be different. This should not happen, but we assume that the new
                 // address is more recent than the previous, and thus worth updating
-                Ok(is_update.then_some(address.into()))
+                Ok(is_update.then_some(address.to_addr()))
             }
             Entry::Vacant(vacant_entry) if allow_new => {
                 vacant_entry.insert((address, ProbeState::Active(MAX_NAT_PROBE_ATTEMPTS)));
-                Ok(Some(address.into()))
+                Ok(Some(address.to_addr()))
             }
             _ => Err(Error::TooManyAddresses),
         }
@@ -445,7 +542,7 @@ impl ClientState {
     ) -> Option<SocketAddr> {
         self.remote_addresses
             .remove(&remove_addr.seq_no)
-            .map(|(address, _)| address.into())
+            .map(|(address, _)| address.to_addr())
     }
 
     /// Checks that a received remote address is valid.
@@ -454,14 +551,14 @@ impl ClientState {
     pub(crate) fn check_remote_address(&self, add_addr: &AddAddress) -> bool {
         match self.remote_addresses.get(&add_addr.seq_no) {
             None => true,
-            Some((existing, _)) => existing == &add_addr.ip_port(),
+            Some((existing, _)) => *existing == CanonicalIpPort::from(add_addr.ip_port()),
         }
     }
 
     pub(crate) fn get_remote_nat_traversal_addresses(&self) -> Vec<SocketAddr> {
         self.remote_addresses
             .values()
-            .map(|(address, _)| (*address).into())
+            .map(|(address, _)| (*address).to_addr())
             .collect()
     }
 
@@ -471,12 +568,16 @@ impl ClientState {
     /// [`Self::pop_pending_path_open`] should be called to open the next path.
     fn handle_path_response(&mut self, network_path: FourTuple, challenge: u64) -> bool {
         if let Entry::Occupied(entry) = self.sent_challenges.entry(challenge) {
-            let remote = (network_path.remote().ip(), network_path.remote().port());
+            let remote = SocketIpPort {
+                // TODO(matheus23): Look at this again
+                ip: network_path.remote().ip(),
+                port: network_path.remote().port(),
+            };
             if *entry.get() == remote {
                 entry.remove();
 
                 // self.remote_addresses is stored in canonical form.
-                let remote = (remote.0.to_canonical(), remote.1);
+                let remote = CanonicalIpPort::from(remote);
                 // TODO: linear search is sad.
                 if let Some(seq) = self
                     .remote_addresses
@@ -505,7 +606,7 @@ impl ClientState {
                     ?network_path.remote,
                     expected_remote = ?entry.get(),
                     challenge = %display(format_args!("0x{challenge:x}")),
-                    "PATH_RESPONSE matched a NAT traversal probe but mismatching addr XXXX",
+                    "PATH_RESPONSE matched a NAT traversal probe but mismatching addr",
                 )
             }
         }
@@ -570,7 +671,7 @@ pub(crate) struct ServerState {
     ///
     /// They are stored in **canonical form**, not in socket-native form as usual. We may
     /// nave a reflexive address that is IPv6 even if our local socket can only handle IPv4.
-    local_addresses: FxHashMap<IpPort, VarInt>,
+    local_addresses: FxHashMap<CanonicalIpPort, VarInt>,
     /// The next id to use for local addresses sent to the client.
     next_local_addr_id: VarInt,
     /// Current nat traversal round
@@ -583,19 +684,19 @@ pub(crate) struct ServerState {
     /// The set is cleared when a new round starts.
     ///
     /// These are stored in the usual local-socket native form.
-    remotes: FxHashMap<IpPort, ProbeState>,
+    remotes: FxHashMap<SocketIpPort, ProbeState>,
     /// The data of PATH_CHALLENGE frames sent in probes.
     ///
     /// These are cleared when a new round starts, so any late-arriving PATH_RESPONSEs will
     /// have no effect.
-    sent_challenges: FxHashMap<u64, IpPort>,
+    sent_challenges: FxHashMap<u64, SocketIpPort>,
     /// Queued probes to be sent in the next [`poll_transmit`] call.
     ///
     /// At the beginning of a round this is populated from REACH_OUT frames and at every
     /// retry this is populated from [`Self::remotes`].
     ///
     /// [`poll_transmit`]: crate::connection::Connection::poll_transmit
-    pending_probes: FxHashSet<IpPort>,
+    pending_probes: FxHashSet<SocketIpPort>,
 }
 
 impl ServerState {
@@ -613,7 +714,7 @@ impl ServerState {
     }
 
     fn add_local_address(&mut self, address: SocketAddr) -> Result<Option<AddAddress>, Error> {
-        let address = (address.ip().to_canonical(), address.port());
+        let address = CanonicalIpPort::from(address);
         let allow_new = self.local_addresses.len() < self.max_local_addresses;
         match self.local_addresses.entry(address) {
             Entry::Occupied(_) => Ok(None),
@@ -621,14 +722,17 @@ impl ServerState {
                 let id = self.next_local_addr_id;
                 self.next_local_addr_id = self.next_local_addr_id.saturating_add(1u8);
                 vacant_entry.insert(id);
-                Ok(Some(AddAddress::new(address, id)))
+                Ok(Some(AddAddress::new((address.ip(), address.port()), id)))
             }
             _ => Err(Error::TooManyAddresses),
         }
     }
 
     fn remove_local_address(&mut self, address: &IpPort) -> Option<RemoveAddress> {
-        self.local_addresses.remove(address).map(RemoveAddress::new)
+        let address = CanonicalIpPort::from(*address);
+        self.local_addresses
+            .remove(&address)
+            .map(RemoveAddress::new)
     }
 
     /// Returns the current NAT traversal round number.
@@ -653,7 +757,7 @@ impl ServerState {
             trace!(current_round=%self.round, "ignoring REACH_OUT for previous round");
             return Ok(());
         }
-        let Some(ip) = map_to_local_socket_family(ip, ipv6) else {
+        let Some(address) = SocketIpPort::new(ip, port, ipv6) else {
             trace!("Ignoring IPv6 REACH_OUT frame due to not supporting IPv6 locally");
             return Ok(());
         };
@@ -663,16 +767,16 @@ impl ServerState {
             self.remotes.clear();
             self.sent_challenges.clear();
             self.pending_probes.clear();
-        } else if self.remotes.contains_key(&(ip, port)) {
+        } else if self.remotes.contains_key(&address) {
             // Retransmitted frame.
             return Ok(());
         } else if self.remotes.len() >= self.max_remote_addresses {
             return Err(Error::TooManyAddresses);
         }
         self.remotes
-            .entry((ip, port))
+            .entry(address)
             .or_insert(ProbeState::Active(MAX_NAT_PROBE_ATTEMPTS - 1));
-        self.pending_probes.insert((ip, port));
+        self.pending_probes.insert(address);
         Ok(())
     }
 
@@ -696,12 +800,12 @@ impl ServerState {
     /// Returns the next ready probe's address.
     ///
     /// If this is actually sent you must call [`Self::mark_probe_sent`].
-    fn next_probe_addr(&self) -> Option<SocketAddr> {
-        self.pending_probes.iter().next().map(|addr| (*addr).into())
+    fn next_probe_addr(&self) -> Option<SocketIpPort> {
+        self.pending_probes.iter().next().cloned()
     }
 
     /// Marks a probe as sent to the address with the challenge.
-    fn mark_probe_sent(&mut self, remote: IpPort, challenge: u64) {
+    fn mark_probe_sent(&mut self, remote: SocketIpPort, challenge: u64) {
         self.pending_probes.remove(&remote);
         self.sent_challenges.insert(challenge, remote);
     }
@@ -711,7 +815,11 @@ impl ServerState {
     /// Returns `true` if it was a response to one of the NAT traversal probes.
     fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> bool {
         if let Entry::Occupied(entry) = self.sent_challenges.entry(challenge) {
-            let remote = (src.remote().ip(), src.remote().port());
+            let remote = SocketIpPort {
+                // TODO(matheus23): Look at this again
+                ip: src.remote().ip(),
+                port: src.remote().port(),
+            };
             if *entry.get() == remote {
                 entry.remove();
                 self.remotes.insert(remote, ProbeState::Succeeded);
@@ -782,7 +890,7 @@ mod tests {
         let mut send_probe = |state: &mut ServerState| {
             let remote = state.next_probe_addr().unwrap();
             challenge += 1;
-            state.mark_probe_sent((remote.ip(), remote.port()), challenge);
+            state.mark_probe_sent(remote, challenge);
         };
 
         send_probe(&mut state);
