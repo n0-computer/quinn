@@ -56,7 +56,7 @@
 <a href=#56 id=56 data-nosnippet>56</a>    /// If ipv6 is not supported, then this returns `None` for ipv6 addresses.
 <a href=#57 id=57 data-nosnippet>57</a>    ///
 <a href=#58 id=58 data-nosnippet>58</a>    /// See also [`map_to_local_socket_family`].
-<a href=#59 id=59 data-nosnippet>59</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>to_local_socket_family(<span class="kw-2">&amp;</span><span class="self">self</span>, ipv6: bool) -&gt; <span class="prelude-ty">Option</span>&lt;IpPort&gt; {
+<a href=#59 id=59 data-nosnippet>59</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>as_local_socket_family(<span class="kw-2">&amp;</span><span class="self">self</span>, ipv6: bool) -&gt; <span class="prelude-ty">Option</span>&lt;IpPort&gt; {
 <a href=#60 id=60 data-nosnippet>60</a>        <span class="prelude-val">Some</span>((
 <a href=#61 id=61 data-nosnippet>61</a>            map_to_local_socket_family(<span class="self">self</span>.canonical_ip, ipv6)<span class="question-mark">?</span>,
 <a href=#62 id=62 data-nosnippet>62</a>            <span class="self">self</span>.port,
@@ -403,7 +403,7 @@
 <a href=#403 id=403 data-nosnippet>403</a>        </span><span class="self">self</span>.remote_addresses
 <a href=#404 id=404 data-nosnippet>404</a>            .values_mut()
 <a href=#405 id=405 data-nosnippet>405</a>            .for_each(|(ip_port, state)| {
-<a href=#406 id=406 data-nosnippet>406</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(ip_port) = ip_port.to_local_socket_family(ipv6) {
+<a href=#406 id=406 data-nosnippet>406</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(ip_port) = ip_port.as_local_socket_family(ipv6) {
 <a href=#407 id=407 data-nosnippet>407</a>                    <span class="self">self</span>.pending_probes.insert(ip_port);
 <a href=#408 id=408 data-nosnippet>408</a>                    <span class="kw-2">*</span>state = ProbeState::Active(MAX_NAT_PROBE_ATTEMPTS - <span class="number">1</span>);
 <a href=#409 id=409 data-nosnippet>409</a>                } <span class="kw">else </span>{
@@ -450,7 +450,7 @@
 <a href=#450 id=450 data-nosnippet>450</a>            .for_each(|(ip_port, state)| <span class="kw">match </span>state {
 <a href=#451 id=451 data-nosnippet>451</a>                ProbeState::Active(remaining) <span class="kw">if </span><span class="kw-2">*</span>remaining &gt; <span class="number">0 </span>=&gt; {
 <a href=#452 id=452 data-nosnippet>452</a>                    <span class="kw-2">*</span>remaining -= <span class="number">1</span>;
-<a href=#453 id=453 data-nosnippet>453</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(ip_port) = ip_port.to_local_socket_family(ipv6) {
+<a href=#453 id=453 data-nosnippet>453</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(ip_port) = ip_port.as_local_socket_family(ipv6) {
 <a href=#454 id=454 data-nosnippet>454</a>                        <span class="self">self</span>.pending_probes.insert(ip_port);
 <a href=#455 id=455 data-nosnippet>455</a>                    } <span class="kw">else </span>{
 <a href=#456 id=456 data-nosnippet>456</a>                        <span class="macro">trace!</span>(%ip_port, <span class="string">"skipping IPv6 NAT candidate for IPv4 socket"</span>);
