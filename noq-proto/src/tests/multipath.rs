@@ -1708,7 +1708,7 @@ fn test_simple_nat_traversal_challenge_with_response() -> TestResult {
     // Client sends probe (blocked) + REACH_OUT, server send probe. Both firewalls open.
     pair.step();
 
-    // Client receives probe, includes it's own challenge with the response.
+    // Client receives probe, includes its own challenge with the response.
     let stats0 = pair.stats(Client);
     pair.step();
     let stats1 = pair.stats(Client);
