@@ -56,7 +56,7 @@ impl CanonicalIpPort {
     /// If ipv6 is not supported, then this returns `None` for ipv6 addresses.
     ///
     /// See also [`map_to_local_socket_family`].
-    pub(crate) fn to_local_socket_family(&self, ipv6: bool) -> Option<IpPort> {
+    pub(crate) fn as_local_socket_family(&self, ipv6: bool) -> Option<IpPort> {
         Some((
             map_to_local_socket_family(self.canonical_ip, ipv6)?,
             self.port,
@@ -403,7 +403,7 @@ impl ClientState {
         self.remote_addresses
             .values_mut()
             .for_each(|(ip_port, state)| {
-                if let Some(ip_port) = ip_port.to_local_socket_family(ipv6) {
+                if let Some(ip_port) = ip_port.as_local_socket_family(ipv6) {
                     self.pending_probes.insert(ip_port);
                     *state = ProbeState::Active(MAX_NAT_PROBE_ATTEMPTS - 1);
                 } else {
@@ -450,7 +450,7 @@ impl ClientState {
             .for_each(|(ip_port, state)| match state {
                 ProbeState::Active(remaining) if *remaining > 0 => {
                     *remaining -= 1;
-                    if let Some(ip_port) = ip_port.to_local_socket_family(ipv6) {
+                    if let Some(ip_port) = ip_port.as_local_socket_family(ipv6) {
                         self.pending_probes.insert(ip_port);
                     } else {
                         trace!(%ip_port, "skipping IPv6 NAT candidate for IPv4 socket");
