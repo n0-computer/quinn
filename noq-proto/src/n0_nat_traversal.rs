@@ -3,6 +3,7 @@
 use std::{
     collections::hash_map::Entry,
     net::{IpAddr, SocketAddr},
+    time::Duration,
 };
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -15,6 +16,21 @@ use crate::{
 };
 
 type IpPort = (IpAddr, u16);
+
+/// Maximum number of times we send a NAT probe to the same remote address in a round.
+///
+/// This is a trade-off between several factors:
+/// - Probe packets could be lost. This allows recovery.
+/// - We may need two probes to reach the NAT firewall to get through.
+/// - We may be sending probes to innocent bystanders on the internet.
+/// - A round never "finishes": probing of remotes only stops when:
+///   1. A new round is started.
+///   2. A probe was successful.
+///   3. This number of attempts is exhausted.
+///
+/// See [`State::retry_delay`] for the capped exponential backoff used. With this we send
+/// probes for up to 4s by default.
+pub(crate) const MAX_NAT_PROBE_ATTEMPTS: u8 = 9;
 
 /// Errors that the nat traversal state might encounter.
 #[derive(Debug, thiserror::Error)]
@@ -184,27 +200,71 @@ impl State {
 
     /// Re-queues probes that have not yet succeeded or reached 0 remaining retries.
     ///
-    /// Returns whether any probes are now queued to send. In this case the
-    /// `NatTraversalProbeRetry` timer needs to be reset.
-    pub(crate) fn queue_retries(&mut self, ipv6: bool) -> bool {
+    /// After calling [`Self::retry_delay`] must be checked.
+    pub(crate) fn queue_retries(&mut self, ipv6: bool) {
         match self {
-            Self::NotNegotiated => false,
+            Self::NotNegotiated => (),
             Self::ClientSide(state) => state.queue_retries(ipv6),
             Self::ServerSide(state) => state.queue_retries(),
-        }
+        };
     }
 
     /// Marks a remote as successful if the response matches a sent probe.
     ///
-    /// Returns the open network path if it was a response to one of the NAT traversal
-    /// probes. Note that the NAT probes are not padded to 1200 bytes so only the address is
-    /// validated, but not the entire path.
+    /// Returns true if it was a response to one of the NAT traversal probes and a path
+    /// needs to be opened. Note that the NAT probes are not padded to 1200 bytes so only
+    /// the address is validated, but not the entire path.
     pub(crate) fn handle_path_response(&mut self, src: FourTuple, challenge: u64) -> bool {
         match self {
             Self::NotNegotiated => false,
             Self::ClientSide(state) => state.handle_path_response(src, challenge),
             Self::ServerSide(state) => state.handle_path_response(src, challenge),
         }
+    }
+
+    /// Returns the delay to arm the `NatTraversalProbeRetry` timer.
+    ///
+    /// `initial_rtt` must be [`TransportConfig::initial_rtt`] so retries are scaled to this
+    /// value.
+    ///
+    /// [`TransportConfig::initial_rtt`]: crate::TransportConfig::initial_rtt
+    pub(crate) fn retry_delay(&self, initial_rtt: Duration) -> Option<Duration> {
+        match self {
+            Self::NotNegotiated => return None,
+            Self::ClientSide(state) => {
+                if !state
+                    .remote_addresses
+                    .values()
+                    .any(|(_, probes)| probes.remaining() > 0)
+                {
+                    return None;
+                }
+            }
+            Self::ServerSide(state) => {
+                if !state.remotes.values().any(|probes| probes.remaining() > 0) {
+                    return None;
+                }
+            }
+        }
+
+        let attempt = match self {
+            Self::NotNegotiated => return None,
+            Self::ClientSide(state) => state.attempt,
+            Self::ServerSide(state) => state.attempt,
+        };
+
+        // Retries follow at an exponential backoff, capped at max 2s interval. The base
+        // delay is initial_rtt/10, which for the default value means 33.3ms. Just under
+        // 10_000 km at the speed of light.
+        const MAX_BACKOFF_EXPONENT: u8 = 8;
+        const MAX_INTERVAL: Duration = Duration::from_secs(2);
+        let base = initial_rtt / 10;
+        let attempt = attempt.min(MAX_BACKOFF_EXPONENT) as u32;
+        let interval = match attempt {
+            0 => base * 2u32.pow(attempt),
+            _ => base * 2u32.pow(attempt) - base * 2u32.pow(attempt - 1),
+        };
+        Some(interval.min(MAX_INTERVAL))
     }
 }
 
@@ -237,6 +297,11 @@ pub(crate) struct ClientState {
     local_addresses: FxHashSet<IpPort>,
     /// Current nat traversal round.
     round: VarInt,
+    /// The probing attempt in the round.
+    ///
+    /// Probes are sent to all remotes at the same time in a round, at intervals from
+    /// [`State::retry_delay`]. This is the number of times probes have been sent.
+    attempt: u8,
     /// The data of PATH_CHALLENGE frames sent in probes.
     ///
     /// These are cleared when a new round starts, so any late-arriving PATH_RESPONSEs will
@@ -268,6 +333,7 @@ impl ClientState {
             remote_addresses: Default::default(),
             local_addresses: Default::default(),
             round: Default::default(),
+            attempt: 0,
             sent_challenges: Default::default(),
             pending_probes: Default::default(),
             paths_to_be_opened: Default::default(),
@@ -321,6 +387,7 @@ impl ClientState {
         }
 
         self.round = self.round.saturating_add(1u8);
+        self.attempt = 0;
         self.sent_challenges.clear();
         self.pending_probes.clear();
 
@@ -369,7 +436,8 @@ impl ClientState {
     /// `NatTraversalProbeRetry` timer needs to be reset.
     ///
     /// `ipv6` as for [`Self::initiate_nat_traversal_round`].
-    pub(crate) fn queue_retries(&mut self, ipv6: bool) -> bool {
+    pub(crate) fn queue_retries(&mut self, ipv6: bool) {
+        self.attempt += 1;
         self.remote_addresses
             .values_mut()
             .for_each(|(addr, state)| match state {
@@ -384,7 +452,6 @@ impl ClientState {
                 }
                 ProbeState::Active(_) | ProbeState::Succeeded => {}
             });
-        !self.pending_probes.is_empty()
     }
 
     /// Returns the next ready probe's address.
@@ -523,27 +590,6 @@ impl ClientState {
     }
 }
 
-/// Maximum number of times we send a NAT probe to the same remote address in a round.
-///
-/// This is a trade-off between several factors:
-/// - Probe packets could be lost. This allows recovery.
-/// - We may need two probes to reach the NAT firewall to get through.
-/// - We may be sending probes to innocent bystanders on the internet.
-/// - A round never "finishes": probing of remotes only stops when:
-///   1. A new round is started.
-///   2. A probe was successful.
-///   3. This number of attempts is exhausted.
-///
-/// Currently probes are retried after 2/3rd of the configured initial RTT. At a
-/// fixed interval, so without exponential backoff. For the default initial RTT of 333ms
-/// this is 222ms. So 10 attempts covers 2220ms.
-// TODO(flub): I would like to improve this sometime so that we cover about 2s but with only
-//    about 5-6 probes. The three initial probes should be faster, later probes should start
-//    to slow down. Unfortunately we only have one timer for the entire round currently, we
-//    would need to have a timer per remote. Because REACH_OUT frames can appear in the
-//    middle of a round.
-pub(crate) const MAX_NAT_PROBE_ATTEMPTS: u8 = 10;
-
 /// State of an off-path NAT traversal probe to a remote address.
 #[derive(Debug)]
 enum ProbeState {
@@ -553,6 +599,16 @@ enum ProbeState {
     Active(u8),
     /// We received a probe response for this remote.
     Succeeded,
+}
+
+impl ProbeState {
+    /// Returns the remaining number of probes to try for this remote.
+    fn remaining(&self) -> u8 {
+        match self {
+            Self::Active(remaining) => *remaining,
+            Self::Succeeded => 0,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -578,6 +634,11 @@ pub(crate) struct ServerState {
     /// Servers keep track of the client's most recent round and cancel probing related to previous
     /// rounds.
     round: VarInt,
+    /// The probing attempt in the round.
+    ///
+    /// Probes are sent to all remotes at the same time in a round, at intervals from
+    /// [`State::retry_delay`]. This is the number of times probes have been sent.
+    attempt: u8,
     /// The remote addresses participating in this round.
     ///
     /// The set is cleared when a new round starts.
@@ -606,6 +667,7 @@ impl ServerState {
             local_addresses: Default::default(),
             next_local_addr_id: Default::default(),
             round: Default::default(),
+            attempt: 0,
             remotes: Default::default(),
             sent_challenges: Default::default(),
             pending_probes: Default::default(),
@@ -660,6 +722,7 @@ impl ServerState {
 
         if round > self.round {
             self.round = round;
+            self.attempt = 0;
             self.remotes.clear();
             self.sent_challenges.clear();
             self.pending_probes.clear();
@@ -680,7 +743,8 @@ impl ServerState {
     ///
     /// Returns whether any probes are now queued to send. In this case the
     /// `NatTraversalProbeRetry` timer needs to be reset.
-    pub(crate) fn queue_retries(&mut self) -> bool {
+    pub(crate) fn queue_retries(&mut self) {
+        self.attempt += 1;
         self.remotes
             .iter_mut()
             .for_each(|(remote, state)| match state {
@@ -690,7 +754,6 @@ impl ServerState {
                 }
                 ProbeState::Active(_) | ProbeState::Succeeded => (),
             });
-        !self.pending_probes.is_empty()
     }
 
     /// Returns the next ready probe's address.
@@ -746,6 +809,8 @@ pub(crate) fn map_to_local_socket_family(address: IpAddr, ipv6: bool) -> Option<
 
 #[cfg(test)]
 mod tests {
+    use testresult::TestResult;
+
     use super::*;
 
     #[test]
@@ -792,24 +857,24 @@ mod tests {
         assert!(state.next_probe_addr().is_none());
 
         // After queuing retries, probes become available again
-        assert!(state.queue_retries());
+        state.queue_retries();
         send_probe(&mut state);
         send_probe(&mut state);
 
         // After 2 attempts each, retries still available (max is 10)
-        assert!(state.queue_retries());
+        state.queue_retries();
         send_probe(&mut state);
         send_probe(&mut state);
 
         // Exhaust remaining attempts
         for _ in 3..MAX_NAT_PROBE_ATTEMPTS {
-            assert!(state.queue_retries());
+            state.queue_retries();
             send_probe(&mut state);
             send_probe(&mut state);
         }
 
         // After max attempts, probes are removed
-        assert!(!state.queue_retries());
+        state.queue_retries();
         assert!(state.next_probe_addr().is_none());
     }
 
@@ -835,5 +900,94 @@ mod tests {
             map_to_local_socket_family("::ffff:1.1.1.1".parse().unwrap(), false),
             Some("1.1.1.1".parse().unwrap())
         )
+    }
+
+    #[test]
+    fn test_retry_delay_server_ipv6() -> TestResult {
+        let initial_rtt = Duration::from_millis(333);
+        let ipv6 = true;
+        let remote = SocketAddr::from(("::2".parse::<IpAddr>()?, 2));
+        let remote_ipp = (remote.ip(), remote.port());
+
+        let mut nat = State::new(8, 8, Side::Server);
+
+        nat.server_side_mut()?.handle_reach_out(
+            ReachOut {
+                round: 1u8.into(),
+                ip: remote.ip(),
+                port: remote.port(),
+            },
+            ipv6,
+        )?;
+
+        let challenges = [1u64, 2, 3, 4, 5, 6, 7];
+        let delays = [
+            33_300u64, 66_600, 133_200, 266_400, 532_800, 1_065_600, 2_000_000,
+        ];
+        for (challenge, delay) in challenges.into_iter().zip(delays) {
+            nat.queue_retries(ipv6);
+            assert_eq!(nat.next_probe_addr(), Some(remote));
+            nat.mark_probe_sent(remote_ipp, challenge);
+            assert_eq!(
+                nat.retry_delay(initial_rtt),
+                Some(Duration::from_micros(delay)),
+                "challenge: {challenge}"
+            );
+        }
+
+        assert!(nat.handle_path_response(
+            FourTuple {
+                remote,
+                local_ip: Some("::3".parse::<IpAddr>()?),
+            },
+            challenges[6]
+        ));
+        assert_eq!(nat.retry_delay(initial_rtt), None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_retry_delay_client_ipv6() -> TestResult {
+        let initial_rtt = Duration::from_millis(333);
+        let ipv6 = true;
+        let remote = SocketAddr::from(("::2".parse::<IpAddr>()?, 2));
+        let remote_ipp = (remote.ip(), remote.port());
+        let local_addr = SocketAddr::from(("::3".parse::<IpAddr>()?, 3));
+
+        let mut nat = State::new(8, 8, Side::Client);
+        nat.add_local_address(local_addr)?;
+        nat.client_side_mut()?.add_remote_address(AddAddress {
+            seq_no: 1u8.into(),
+            ip: remote.ip(),
+            port: remote.port(),
+        })?;
+        nat.client_side_mut()?.initiate_nat_traversal_round(ipv6)?;
+
+        let challenges = [1u64, 2, 3, 4, 5, 6, 7];
+        let delays = [
+            33_300u64, 66_600, 133_200, 266_400, 532_800, 1_065_600, 2_000_000,
+        ];
+        for (challenge, delay) in challenges.into_iter().zip(delays) {
+            nat.queue_retries(ipv6);
+            assert_eq!(nat.next_probe_addr(), Some(remote));
+            nat.mark_probe_sent(remote_ipp, challenge);
+            assert_eq!(
+                nat.retry_delay(initial_rtt),
+                Some(Duration::from_micros(delay)),
+                "challenge: {challenge}"
+            );
+        }
+
+        assert!(nat.handle_path_response(
+            FourTuple {
+                remote,
+                local_ip: Some(local_addr.ip()),
+            },
+            challenges[6]
+        ));
+        assert_eq!(nat.retry_delay(initial_rtt), None);
+
+        Ok(())
     }
 }

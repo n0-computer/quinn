@@ -2416,9 +2416,10 @@ impl Connection {
                         }
                     }
                     ConnTimer::NatTraversalProbeRetry => {
-                        if self.n0_nat_traversal.queue_retries(self.is_ipv6()) {
-                            let delay =
-                                RttEstimator::new(self.config.initial_rtt).pto_base() * 2 / 3;
+                        self.n0_nat_traversal.queue_retries(self.is_ipv6());
+                        if let Some(delay) =
+                            self.n0_nat_traversal.retry_delay(self.config.initial_rtt)
+                        {
                             self.timers.set(
                                 Timer::Conn(ConnTimer::NatTraversalProbeRetry),
                                 now + delay,
@@ -5486,12 +5487,15 @@ impl Connection {
 
                     if server_state.current_round() > round_before {
                         // A new round was started, reset the NAT probe retry timer.
-                        let delay = RttEstimator::new(self.config.initial_rtt).pto_base() * 2 / 3;
-                        self.timers.set(
-                            Timer::Conn(ConnTimer::NatTraversalProbeRetry),
-                            now + delay,
-                            self.qlog.with_time(now),
-                        );
+                        if let Some(delay) =
+                            self.n0_nat_traversal.retry_delay(self.config.initial_rtt)
+                        {
+                            self.timers.set(
+                                Timer::Conn(ConnTimer::NatTraversalProbeRetry),
+                                now + delay,
+                                self.qlog.with_time(now),
+                            );
+                        }
                     }
                 }
             }
@@ -7108,8 +7112,7 @@ impl Connection {
         let client_state = self.n0_nat_traversal.client_side_mut()?;
         let (mut reach_out_frames, probed_addrs) =
             client_state.initiate_nat_traversal_round(ipv6)?;
-        if !probed_addrs.is_empty() {
-            let delay = RttEstimator::new(self.config.initial_rtt).pto_base() * 2 / 3;
+        if let Some(delay) = self.n0_nat_traversal.retry_delay(self.config.initial_rtt) {
             self.timers.set(
                 Timer::Conn(ConnTimer::NatTraversalProbeRetry),
                 now + delay,
