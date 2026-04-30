@@ -46,6 +46,16 @@ impl CanonicalIpPort {
         self.port
     }
 
+    /// Converts this into a local-socket-family-mapped IP & port.
+    ///
+    /// Instead of using ipv4 and ipv6 addresses, this tries to match `ipv6`, which
+    /// should indicate whether the local socket supports ipv6 or not.
+    ///
+    /// If ipv6 is supported, all ipv4 addresses are mapped using ipv6-mapped ipv4
+    /// addresses.
+    /// If ipv6 is not supported, then this returns `None` for ipv6 addresses.
+    ///
+    /// See also [`map_to_local_socket_family`].
     pub(crate) fn to_local_socket_family(&self, ipv6: bool) -> Option<IpPort> {
         Some((
             map_to_local_socket_family(self.canonical_ip, ipv6)?,
@@ -53,6 +63,7 @@ impl CanonicalIpPort {
         ))
     }
 
+    /// Returns this address as-is with the canonical IP used in a `SocketAddr`.
     pub(crate) fn as_canonical_addr(&self) -> SocketAddr {
         SocketAddr::new(self.canonical_ip, self.port)
     }
@@ -403,7 +414,7 @@ impl ClientState {
         let probed_addrs: Vec<SocketAddr> = self
             .pending_probes
             .iter()
-            .cloned()
+            .copied()
             .map(Into::into)
             .collect();
 
@@ -455,7 +466,7 @@ impl ClientState {
     ///
     /// If this is actually sent you must call [`Self::mark_probe_sent`].
     fn next_probe_addr(&self) -> Option<IpPort> {
-        self.pending_probes.iter().next().cloned()
+        self.pending_probes.iter().next().copied()
     }
 
     /// Marks a probe as sent to the address with the challenge.
