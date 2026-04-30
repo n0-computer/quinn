@@ -4223,10 +4223,15 @@ impl Connection {
                 };
                 let _guard = span.enter();
 
+                // Update information on which interface is used to receive from given remote
+                let same_4tuple = self
+                    .path_data_mut(path_id)
+                    .network_path
+                    .update_local_if_same_remote(&network_path);
+
                 // Now the packet is authenticated we do the migration during the
                 // handshake. See Handshake::allow_server_migration for details.
-                if self.is_handshaking() && network_path != self.path_data_mut(path_id).network_path
-                {
+                if self.is_handshaking() && !same_4tuple {
                     if let Some(hs) = self.state.as_handshake()
                         && hs.allow_server_migration
                     {
