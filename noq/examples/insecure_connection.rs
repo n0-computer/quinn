@@ -32,7 +32,10 @@ async fn run_server(addr: SocketAddr) {
     let conn = incoming_conn.await.unwrap();
     println!(
         "[server] connection accepted: addr={}",
-        conn.remote_address()
+        conn.path(noq::PathId::ZERO)
+            .expect("path open after connect")
+            .remote_address()
+            .expect("path is alive")
     );
 }
 
@@ -52,7 +55,14 @@ async fn run_client(server_addr: SocketAddr) -> Result<(), Box<dyn Error + Send 
         .unwrap()
         .await
         .unwrap();
-    println!("[client] connected: addr={}", connection.remote_address());
+    println!(
+        "[client] connected: addr={}",
+        connection
+            .path(noq::PathId::ZERO)
+            .expect("path open after connect")
+            .remote_address()
+            .expect("path is alive")
+    );
     // Dropping handles allows the corresponding objects to automatically shut down
     drop(connection);
     // Make sure the server has a chance to clean up

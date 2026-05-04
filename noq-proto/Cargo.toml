@@ -64,6 +64,7 @@ identity-hash = { workspace = true }
 lru-slab = { workspace = true }
 qlog = { workspace = true, optional = true }
 rand = { workspace = true }
+rand_pcg = "0.10"
 ring = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 rustls = { workspace = true, optional = true }
@@ -86,7 +87,6 @@ web-time = { workspace = true }
 assert_matches = { workspace = true }
 hex-literal = { workspace = true  }
 proptest = { workspace = true }
-rand_pcg = "0.10"
 rcgen = { workspace = true }
 test-strategy = { workspace = true }
 testresult = "0.4.1"

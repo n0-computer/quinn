@@ -43,7 +43,10 @@ async fn check_post_quantum_key_exchange(min_mtu: u16) {
         let conn = incoming_conn.await.unwrap();
         info!(
             "[server] connection accepted: addr={}",
-            conn.remote_address()
+            conn.path(noq::PathId::ZERO)
+                .expect("path open after connect")
+                .remote_address()
+                .expect("path is alive")
         );
         assert_eq!(
             conn.handshake_data()
@@ -63,7 +66,14 @@ async fn check_post_quantum_key_exchange(min_mtu: u16) {
         .unwrap()
         .await
         .unwrap();
-    info!("[client] connected: addr={}", connection.remote_address());
+    info!(
+        "[client] connected: addr={}",
+        connection
+            .path(noq::PathId::ZERO)
+            .expect("path open after connect")
+            .remote_address()
+            .expect("path is alive")
+    );
 
     // Waiting for a stream will complete with an error when the server closes the connection
     let _ = connection.accept_uni().await;

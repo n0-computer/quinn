@@ -21,7 +21,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         let conn = incoming_conn.await.unwrap();
         println!(
             "[server] connection accepted: addr={}",
-            conn.remote_address()
+            conn.path(noq::PathId::ZERO)
+                .expect("path open after connect")
+                .remote_address()
+                .expect("path is alive")
         );
         // Dropping all handles associated with a connection implicitly closes it
     });
@@ -33,7 +36,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         .unwrap()
         .await
         .unwrap();
-    println!("[client] connected: addr={}", connection.remote_address());
+    println!(
+        "[client] connected: addr={}",
+        connection
+            .path(noq::PathId::ZERO)
+            .expect("path open after connect")
+            .remote_address()
+            .expect("path is alive")
+    );
 
     // Waiting for a stream will complete with an error when the server closes the connection
     let _ = connection.accept_uni().await;

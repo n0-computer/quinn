@@ -34,10 +34,14 @@ fn multipath_pair() -> ConnPair {
 fn multipath_pair_with_nat_traversal(nat_traversal: bool) -> ConnPair {
     let mut cfg = TransportConfig::default();
     cfg.max_concurrent_multipath_paths(MAX_PATHS);
+
+    // Use this to not get distracting MTU discovery probes in the logs.
+    // cfg.mtu_discovery_config(None);
+
     // Assume a low-latency connection so pacing doesn't interfere with the test
     cfg.initial_rtt(Duration::from_millis(10));
     if nat_traversal {
-        cfg.set_max_remote_nat_traversal_addresses(8);
+        cfg.max_remote_nat_traversal_addresses(8);
     }
     #[cfg(feature = "qlog")]
     cfg.qlog_from_env("multipath_test");
@@ -999,6 +1003,10 @@ fn network_change_server_two_paths_selective_hint() -> TestResult {
         }
     }
 
+    // Signal network change without actually changing the server's local address. This
+    // means the client will not see an actual network change and keep accepting the packets
+    // from the server. If the server's address would change it would discard the server's
+    // packets since the server may not migrate.
     pair.handle_network_change(Server, Some(&SelectiveHint(second_path)));
 
     pair.drive();
@@ -1055,6 +1063,10 @@ fn network_change_server_single_path_non_recoverable_falls_back() -> TestResult 
         }
     }
 
+    // Signal network change without actually changing the server's local address. This
+    // means the client will not see an actual network change and keep accepting the packets
+    // from the server. If the server's address would change it would discard the server's
+    // packets since the server may not migrate.
     pair.handle_network_change(Server, Some(&NonRecoverableHint));
     pair.drive();
 
@@ -1085,6 +1097,10 @@ fn network_change_server_no_hint_recovers() -> TestResult {
         Some(Event::Path(PathEvent::Opened { id })) if id == second_path
     );
 
+    // Signal network change without actually changing the server's local address. This
+    // means the client will not see an actual network change and keep accepting the packets
+    // from the server. If the server's address would change it would discard the server's
+    // packets since the server may not migrate.
     pair.handle_network_change(Server, None);
     pair.drive();
 
@@ -1641,25 +1657,25 @@ fn test_simple_nat_traveral_opens_path() -> TestResult {
     pair.drive();
 
     let event = pair.poll(Client).expect("should have event");
-    assert!(matches!(
+    assert_matches!(
         event,
         Event::NatTraversal(n0_nat_traversal::Event::AddressAdded(_))
-    ));
+    );
 
     info!("init NAT traversal");
     pair.initiate_nat_traversal_round(Client)?;
 
     // Ensure we have no more events queued
-    assert!(pair.poll(Client).is_none());
-    assert!(pair.poll(Server).is_none());
+    assert_matches!(pair.poll(Client), None);
+    assert_matches!(pair.poll(Server), None);
 
     pair.drive();
 
     let event = pair.poll(Client).expect("should have event");
-    assert!(matches!(event, Event::Path(PathEvent::Opened { .. })));
+    assert_matches!(event, Event::Path(PathEvent::Opened { .. }));
 
     let event = pair.poll(Server).expect("should have event");
-    assert!(matches!(event, Event::Path(PathEvent::Opened { .. })));
+    assert_matches!(event, Event::Path(PathEvent::Opened { .. }));
 
     Ok(())
 }
