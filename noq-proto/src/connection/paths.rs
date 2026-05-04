@@ -535,10 +535,7 @@ impl PathData {
 
                 let prev_status = std::mem::replace(&mut self.open_status, OpenStatus::Informed);
                 OnPathResponseReceived::OnPath {
-                    was_open: matches!(
-                        prev_status,
-                        OpenStatus::Informed | OpenStatus::Revalidating
-                    ),
+                    was_open: matches!(prev_status, OpenStatus::Informed),
                 }
             }
             // Response to an on-path PathChallenge that does not validate this path.
@@ -684,12 +681,6 @@ pub(super) enum OpenStatus {
     Sent,
     /// The application has been informed of this path.
     Informed,
-    /// The path was [`Self::Informed`] before, but we want to trigger path validation again.
-    ///
-    /// This is used to ensure we properly stop trying to re-send path challenges eventually, without
-    /// having to switch to [`Self::Pending`] when re-validating, as that would trigger another
-    /// application-level event about the path opening once validation succeeds.
-    Revalidating,
 }
 
 /// Congestion metrics as described in [`recovery_metrics_updated`].
@@ -862,8 +853,20 @@ pub(crate) struct PathResponses {
 
 impl PathResponses {
     pub(crate) fn push(&mut self, packet: u64, token: u64, network_path: FourTuple) {
-        /// Arbitrary permissive limit to prevent abuse
-        const MAX_PATH_RESPONSES: usize = 16;
+        /// An arbitrary permissive limit to prevent abuse.
+        ///
+        /// If we've negotiated the n0 NAT Traversal extension, and one user might have a lot
+        /// of addresses, e.g. because of having lots of interfaces (we've seen >25 interfaces
+        /// on Macs with docker and other things), then we need to be able to process at least
+        /// as many PATH_CHALLENGE frames as there are interfaces.
+        /// On top of that, there are retries, which make it possible that we need to process
+        /// even more.
+        ///
+        /// Considering that there can be up to 2 `PathData`s per active `PathId`, and
+        /// reasonable default values for maximum concurrent multipath paths are ~8 and each
+        /// `PathResponse` struct takes up 72 bytes at the moment this, means an attacker can
+        /// cause us to keep `32 * 2 * 8 * 72 = ~37KB` of data around.
+        const MAX_PATH_RESPONSES: usize = 32;
         let response = PathResponse {
             packet,
             token,

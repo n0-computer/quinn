@@ -175,7 +175,7 @@ async fn handle_connection(root: Arc<Path>, conn: noq::Incoming) -> Result<()> {
     let connection = conn.await?;
     let span = info_span!(
         "connection",
-        remote = %connection.remote_address(),
+        remote = ?connection.path(noq::PathId::ZERO).and_then(|p| p.remote_address().ok()),
         protocol = %connection
             .handshake_data()
             .unwrap()
