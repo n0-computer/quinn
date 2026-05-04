@@ -4241,10 +4241,31 @@ impl Connection {
                 };
                 let _guard = span.enter();
 
-                // Now the packet is authenticated we do the migration during the
-                // handshake. See Handshake::allow_server_migration for details.
-                if self.is_handshaking() && network_path != self.path_data_mut(path_id).network_path
+                // Now the packet is authenticated we can update the network path if needed.
+                // Be careful here to not yet rely on the path existing however, new paths
+                // are accepted and created later.
+                if let Some(known_network_path) = self
+                    .paths
+                    .get_mut(&path_id)
+                    .map(|path| &mut path.data.network_path)
+                    && known_network_path.remote == network_path.remote
+                    && known_network_path.local_ip.is_none()
+                    && network_path.local_ip.is_some()
                 {
+                    // Set the local IP if we did not yet have one. We do this for both the
+                    // server and the client since not all transports will report a local IP
+                    // at the very first incoming packet.
+                    trace!(?network_path.local_ip, "setting local IP from incoming packet");
+                    known_network_path.local_ip = network_path.local_ip;
+                }
+                if self.is_handshaking()
+                    && self
+                        .path(path_id)
+                        .map(|path_data| path_data.network_path != network_path)
+                        .unwrap_or(false)
+                {
+                    // Accept the server migration, see Handshake::allow_server_migration
+                    // for details.
                     if let Some(hs) = self.state.as_handshake()
                         && hs.allow_server_migration
                     {
@@ -4256,7 +4277,11 @@ impl Connection {
                         self.path_data_mut(path_id).network_path = network_path;
                         self.qlog.emit_tuple_assigned(path_id, network_path, now);
                     } else {
-                        debug!("discarding packet with unexpected remote during handshake");
+                        debug!(
+                            recv_path = %network_path,
+                            expected_path = %self.path_data_mut(path_id).network_path,
+                            "discarding packet with unexpected remote during handshake",
+                        );
                         return;
                     }
                 }
