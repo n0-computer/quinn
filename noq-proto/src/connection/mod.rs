@@ -6633,7 +6633,7 @@ impl Connection {
         }
         self.ack_frequency.peer_max_ack_delay = get_max_ack_delay(&params);
 
-        let mut multipath_enabled = None;
+        let mut multipath_enabled = false;
         if let (Some(local_max_path_id), Some(remote_max_path_id)) = (
             self.config.get_initial_max_path_id(),
             params.initial_max_path_id,
@@ -6643,7 +6643,7 @@ impl Connection {
             self.remote_max_path_id = remote_max_path_id;
             let initial_max_path_id = local_max_path_id.min(remote_max_path_id);
             debug!(%initial_max_path_id, "multipath negotiated");
-            multipath_enabled = Some(initial_max_path_id);
+            multipath_enabled = true;
         }
 
         if let Some((max_locally_allowed_remote_addresses, max_remotely_allowed_remote_addresses)) =
@@ -6651,9 +6651,7 @@ impl Connection {
                 .max_remote_nat_traversal_addresses
                 .zip(params.max_remote_nat_traversal_addresses)
         {
-            if let Some(max_initial_paths) =
-                multipath_enabled.map(|path_id| path_id.saturating_add(1u8))
-            {
+            if multipath_enabled {
                 let max_local_addresses = max_remotely_allowed_remote_addresses.get();
                 let max_remote_addresses = max_locally_allowed_remote_addresses.get();
                 self.n0_nat_traversal = n0_nat_traversal::State::new(
@@ -6665,28 +6663,6 @@ impl Connection {
                     %max_remote_addresses, %max_local_addresses,
                     "n0's nat traversal negotiated"
                 );
-
-                match self.side() {
-                    Side::Client => {
-                        if max_initial_paths.as_u32() < max_remote_addresses as u32 + 1 {
-                            // in this case the client might try to open `max_remote_addresses` new
-                            // paths, but the current multipath configuration will not allow it
-                            debug!(%max_initial_paths, %max_remote_addresses, "local client configuration might cause nat traversal issues")
-                        } else if max_local_addresses as u64
-                            > params.active_connection_id_limit.into_inner()
-                        {
-                            // the server allows us to send at most `params.active_connection_id_limit`
-                            // but they might need at least `max_local_addresses` to effectively send
-                            // `PATH_CHALLENGE` frames to each advertised local address
-                            debug!(%max_local_addresses, remote_cid_limit=%params.active_connection_id_limit.into_inner(), "remote server configuration might cause nat traversal issues")
-                        }
-                    }
-                    Side::Server => {
-                        if (max_initial_paths.as_u32() as u64) < crate::LOCAL_CID_COUNT {
-                            debug!(%max_initial_paths, local_cid_limit=%crate::LOCAL_CID_COUNT, "local server configuration might cause nat traversal issues")
-                        }
-                    }
-                }
             } else {
                 debug!("n0 nat traversal enabled for both endpoints, but multipath is missing")
             }
