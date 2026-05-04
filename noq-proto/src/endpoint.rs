@@ -660,7 +660,12 @@ impl Endpoint {
             incoming.rest,
         ) {
             Ok(()) => {
-                trace!(id = ch.0, icid = %dst_cid, "new connection");
+                trace!(
+                    id = ch.0,
+                    icid = %dst_cid,
+                    network_path = %incoming.network_path,
+                    "new connection",
+                );
 
                 for event in incoming_buffer.datagrams {
                     conn.handle_event(ConnectionEvent(ConnectionEventInner::Datagram(event)))

@@ -4256,7 +4256,11 @@ impl Connection {
                         self.path_data_mut(path_id).network_path = network_path;
                         self.qlog.emit_tuple_assigned(path_id, network_path, now);
                     } else {
-                        debug!("discarding packet with unexpected remote during handshake");
+                        debug!(
+                            recv_path = %network_path,
+                            expected_path = %self.path_data_mut(path_id).network_path,
+                            "discarding packet with unexpected remote during handshake",
+                        );
                         return;
                     }
                 }
