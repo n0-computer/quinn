@@ -198,7 +198,7 @@
 <a href=#198 id=198 data-nosnippet>198</a><span class="attr">#[derive(Clone, Copy, ValueEnum)]
 <a href=#199 id=199 data-nosnippet>199</a></span><span class="kw">pub enum </span>CongestionAlgorithm {
 <a href=#200 id=200 data-nosnippet>200</a>    Cubic,
-<a href=#201 id=201 data-nosnippet>201</a>    Bbr,
+<a href=#201 id=201 data-nosnippet>201</a>    Bbr3,
 <a href=#202 id=202 data-nosnippet>202</a>    NewReno,
 <a href=#203 id=203 data-nosnippet>203</a>}
 <a href=#204 id=204 data-nosnippet>204</a>
@@ -206,7 +206,7 @@
 <a href=#206 id=206 data-nosnippet>206</a>    <span class="kw">pub fn </span>build(<span class="self">self</span>) -&gt; Arc&lt;<span class="kw">dyn </span>ControllerFactory + Send + Sync + <span class="lifetime">'static</span>&gt; {
 <a href=#207 id=207 data-nosnippet>207</a>        <span class="kw">match </span><span class="self">self </span>{
 <a href=#208 id=208 data-nosnippet>208</a>            <span class="self">Self</span>::Cubic =&gt; Arc::new(congestion::CubicConfig::default()),
-<a href=#209 id=209 data-nosnippet>209</a>            <span class="self">Self</span>::Bbr =&gt; Arc::new(congestion::BbrConfig::default()),
+<a href=#209 id=209 data-nosnippet>209</a>            <span class="self">Self</span>::Bbr3 =&gt; Arc::new(congestion::Bbr3Config::default()),
 <a href=#210 id=210 data-nosnippet>210</a>            <span class="self">Self</span>::NewReno =&gt; Arc::new(congestion::NewRenoConfig::default()),
 <a href=#211 id=211 data-nosnippet>211</a>        }
 <a href=#212 id=212 data-nosnippet>212</a>    }
