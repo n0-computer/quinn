@@ -2370,511 +2370,498 @@
 <a href=#2370 id=2370 data-nosnippet>2370</a>    }
 <a href=#2371 id=2371 data-nosnippet>2371</a>}
 <a href=#2372 id=2372 data-nosnippet>2372</a>
-<a href=#2373 id=2373 data-nosnippet>2373</a><span class="doccomment">/// Conjunction of the information contained in the reach out frames
-<a href=#2374 id=2374 data-nosnippet>2374</a>/// ([`FrameType::ReachOutAtIpv4`], [`FrameType::ReachOutAtIpv6`])
-<a href=#2375 id=2375 data-nosnippet>2375</a></span><span class="attr">#[derive(Debug, PartialEq, Eq, Clone, derive_more::Display)]
-<a href=#2376 id=2376 data-nosnippet>2376</a>#[display(<span class="string">"REACH_OUT round: {round} local_addr: {}"</span>, <span class="self">self</span>.socket_addr())]
-<a href=#2377 id=2377 data-nosnippet>2377</a>#[cfg_attr(test, derive(Arbitrary))]
-<a href=#2378 id=2378 data-nosnippet>2378</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>ReachOut {
-<a href=#2379 id=2379 data-nosnippet>2379</a>    <span class="doccomment">/// The sequence number of the NAT Traversal attempts
-<a href=#2380 id=2380 data-nosnippet>2380</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) round: VarInt,
-<a href=#2381 id=2381 data-nosnippet>2381</a>    <span class="doccomment">/// Address to use
-<a href=#2382 id=2382 data-nosnippet>2382</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) ip: IpAddr,
-<a href=#2383 id=2383 data-nosnippet>2383</a>    <span class="doccomment">/// Port to use with this address
-<a href=#2384 id=2384 data-nosnippet>2384</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) port: u16,
-<a href=#2385 id=2385 data-nosnippet>2385</a>}
-<a href=#2386 id=2386 data-nosnippet>2386</a>
-<a href=#2387 id=2387 data-nosnippet>2387</a><span class="comment">// TODO(@divma): remove
-<a href=#2388 id=2388 data-nosnippet>2388</a></span><span class="attr">#[allow(dead_code)]
-<a href=#2389 id=2389 data-nosnippet>2389</a></span><span class="kw">impl </span>ReachOut {
-<a href=#2390 id=2390 data-nosnippet>2390</a>    <span class="doccomment">/// Smallest number of bytes this type of frame is guaranteed to fit within
-<a href=#2391 id=2391 data-nosnippet>2391</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const </span>SIZE_BOUND: usize = <span class="self">Self </span>{
-<a href=#2392 id=2392 data-nosnippet>2392</a>        round: VarInt::MAX,
-<a href=#2393 id=2393 data-nosnippet>2393</a>        ip: IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
-<a href=#2394 id=2394 data-nosnippet>2394</a>        port: u16::MAX,
-<a href=#2395 id=2395 data-nosnippet>2395</a>    }
-<a href=#2396 id=2396 data-nosnippet>2396</a>    .size();
+<a href=#2373 id=2373 data-nosnippet>2373</a><span class="doccomment">/// Conjunction of the information contained in the reach out frames.
+<a href=#2374 id=2374 data-nosnippet>2374</a>///
+<a href=#2375 id=2375 data-nosnippet>2375</a>/// ([`FrameType::ReachOutAtIpv4`], [`FrameType::ReachOutAtIpv6`])
+<a href=#2376 id=2376 data-nosnippet>2376</a></span><span class="attr">#[derive(Debug, PartialEq, Eq, Clone, derive_more::Display)]
+<a href=#2377 id=2377 data-nosnippet>2377</a>#[display(<span class="string">"REACH_OUT round: {round} local_addr: {}"</span>, <span class="self">self</span>.socket_addr())]
+<a href=#2378 id=2378 data-nosnippet>2378</a>#[cfg_attr(test, derive(Arbitrary))]
+<a href=#2379 id=2379 data-nosnippet>2379</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>ReachOut {
+<a href=#2380 id=2380 data-nosnippet>2380</a>    <span class="doccomment">/// The sequence number of the NAT Traversal attempts
+<a href=#2381 id=2381 data-nosnippet>2381</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) round: VarInt,
+<a href=#2382 id=2382 data-nosnippet>2382</a>    <span class="doccomment">/// Address to use
+<a href=#2383 id=2383 data-nosnippet>2383</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) ip: IpAddr,
+<a href=#2384 id=2384 data-nosnippet>2384</a>    <span class="doccomment">/// Port to use with this address
+<a href=#2385 id=2385 data-nosnippet>2385</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) port: u16,
+<a href=#2386 id=2386 data-nosnippet>2386</a>}
+<a href=#2387 id=2387 data-nosnippet>2387</a>
+<a href=#2388 id=2388 data-nosnippet>2388</a><span class="kw">impl </span>ReachOut {
+<a href=#2389 id=2389 data-nosnippet>2389</a>    <span class="doccomment">/// Get the [`FrameType`] for this frame
+<a href=#2390 id=2390 data-nosnippet>2390</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const fn </span>get_type(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; FrameType {
+<a href=#2391 id=2391 data-nosnippet>2391</a>        <span class="kw">if </span><span class="self">self</span>.ip.is_ipv6() {
+<a href=#2392 id=2392 data-nosnippet>2392</a>            FrameType::ReachOutAtIpv6
+<a href=#2393 id=2393 data-nosnippet>2393</a>        } <span class="kw">else </span>{
+<a href=#2394 id=2394 data-nosnippet>2394</a>            FrameType::ReachOutAtIpv4
+<a href=#2395 id=2395 data-nosnippet>2395</a>        }
+<a href=#2396 id=2396 data-nosnippet>2396</a>    }
 <a href=#2397 id=2397 data-nosnippet>2397</a>
-<a href=#2398 id=2398 data-nosnippet>2398</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const fn </span>new(round: VarInt, (ip, port): (IpAddr, u16)) -&gt; <span class="self">Self </span>{
-<a href=#2399 id=2399 data-nosnippet>2399</a>        <span class="self">Self </span>{ round, ip, port }
-<a href=#2400 id=2400 data-nosnippet>2400</a>    }
-<a href=#2401 id=2401 data-nosnippet>2401</a>
-<a href=#2402 id=2402 data-nosnippet>2402</a>    <span class="doccomment">/// Get the [`FrameType`] for this frame
-<a href=#2403 id=2403 data-nosnippet>2403</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const fn </span>get_type(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; FrameType {
-<a href=#2404 id=2404 data-nosnippet>2404</a>        <span class="kw">if </span><span class="self">self</span>.ip.is_ipv6() {
-<a href=#2405 id=2405 data-nosnippet>2405</a>            FrameType::ReachOutAtIpv6
-<a href=#2406 id=2406 data-nosnippet>2406</a>        } <span class="kw">else </span>{
-<a href=#2407 id=2407 data-nosnippet>2407</a>            FrameType::ReachOutAtIpv4
-<a href=#2408 id=2408 data-nosnippet>2408</a>        }
-<a href=#2409 id=2409 data-nosnippet>2409</a>    }
-<a href=#2410 id=2410 data-nosnippet>2410</a>
-<a href=#2411 id=2411 data-nosnippet>2411</a>    <span class="doccomment">/// Compute the number of bytes needed to encode the frame
-<a href=#2412 id=2412 data-nosnippet>2412</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const fn </span>size(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
-<a href=#2413 id=2413 data-nosnippet>2413</a>        <span class="kw">let </span>type_size = <span class="self">self</span>.get_type().size();
-<a href=#2414 id=2414 data-nosnippet>2414</a>        <span class="kw">let </span>round_bytes = <span class="self">self</span>.round.size();
-<a href=#2415 id=2415 data-nosnippet>2415</a>        <span class="kw">let </span>ip_bytes = <span class="kw">if </span><span class="self">self</span>.ip.is_ipv6() { <span class="number">16 </span>} <span class="kw">else </span>{ <span class="number">4 </span>};
-<a href=#2416 id=2416 data-nosnippet>2416</a>        <span class="kw">let </span>port_bytes = <span class="number">2</span>;
-<a href=#2417 id=2417 data-nosnippet>2417</a>        type_size + round_bytes + ip_bytes + port_bytes
-<a href=#2418 id=2418 data-nosnippet>2418</a>    }
-<a href=#2419 id=2419 data-nosnippet>2419</a>
-<a href=#2420 id=2420 data-nosnippet>2420</a>    <span class="doccomment">/// Read the frame contents from the buffer
-<a href=#2421 id=2421 data-nosnippet>2421</a>    ///
-<a href=#2422 id=2422 data-nosnippet>2422</a>    /// Should only be called when the frame type has been identified as
-<a href=#2423 id=2423 data-nosnippet>2423</a>    /// [`FrameType::ReachOutAtIpv4`] or [`FrameType::ReachOutAtIpv6`].
-<a href=#2424 id=2424 data-nosnippet>2424</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>read&lt;R: Buf&gt;(bytes: <span class="kw-2">&amp;mut </span>R, is_ipv6: bool) -&gt; coding::Result&lt;<span class="self">Self</span>&gt; {
-<a href=#2425 id=2425 data-nosnippet>2425</a>        <span class="kw">let </span>round = bytes.get()<span class="question-mark">?</span>;
-<a href=#2426 id=2426 data-nosnippet>2426</a>        <span class="kw">let </span>ip = <span class="kw">if </span>is_ipv6 {
-<a href=#2427 id=2427 data-nosnippet>2427</a>            IpAddr::V6(bytes.get()<span class="question-mark">?</span>)
-<a href=#2428 id=2428 data-nosnippet>2428</a>        } <span class="kw">else </span>{
-<a href=#2429 id=2429 data-nosnippet>2429</a>            IpAddr::V4(bytes.get()<span class="question-mark">?</span>)
-<a href=#2430 id=2430 data-nosnippet>2430</a>        };
-<a href=#2431 id=2431 data-nosnippet>2431</a>        <span class="kw">let </span>port = bytes.get()<span class="question-mark">?</span>;
-<a href=#2432 id=2432 data-nosnippet>2432</a>        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{ round, ip, port })
-<a href=#2433 id=2433 data-nosnippet>2433</a>    }
-<a href=#2434 id=2434 data-nosnippet>2434</a>
-<a href=#2435 id=2435 data-nosnippet>2435</a>    <span class="doccomment">/// Give the [`SocketAddr`] encoded in the frame
-<a href=#2436 id=2436 data-nosnippet>2436</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>socket_addr(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; SocketAddr {
-<a href=#2437 id=2437 data-nosnippet>2437</a>        (<span class="self">self</span>.ip, <span class="self">self</span>.port).into()
-<a href=#2438 id=2438 data-nosnippet>2438</a>    }
-<a href=#2439 id=2439 data-nosnippet>2439</a>}
-<a href=#2440 id=2440 data-nosnippet>2440</a>
-<a href=#2441 id=2441 data-nosnippet>2441</a><span class="kw">impl </span>Encodable <span class="kw">for </span>ReachOut {
-<a href=#2442 id=2442 data-nosnippet>2442</a>    <span class="kw">fn </span>encode&lt;W: BufMut&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, buf: <span class="kw-2">&amp;mut </span>W) {
-<a href=#2443 id=2443 data-nosnippet>2443</a>        buf.write(<span class="self">self</span>.get_type());
-<a href=#2444 id=2444 data-nosnippet>2444</a>        buf.write(<span class="self">self</span>.round);
-<a href=#2445 id=2445 data-nosnippet>2445</a>        <span class="kw">match </span><span class="self">self</span>.ip {
-<a href=#2446 id=2446 data-nosnippet>2446</a>            IpAddr::V4(ipv4_addr) =&gt; {
-<a href=#2447 id=2447 data-nosnippet>2447</a>                buf.write(ipv4_addr);
-<a href=#2448 id=2448 data-nosnippet>2448</a>            }
-<a href=#2449 id=2449 data-nosnippet>2449</a>            IpAddr::V6(ipv6_addr) =&gt; {
-<a href=#2450 id=2450 data-nosnippet>2450</a>                buf.write(ipv6_addr);
-<a href=#2451 id=2451 data-nosnippet>2451</a>            }
-<a href=#2452 id=2452 data-nosnippet>2452</a>        }
-<a href=#2453 id=2453 data-nosnippet>2453</a>        buf.write::&lt;u16&gt;(<span class="self">self</span>.port);
-<a href=#2454 id=2454 data-nosnippet>2454</a>    }
-<a href=#2455 id=2455 data-nosnippet>2455</a>}
-<a href=#2456 id=2456 data-nosnippet>2456</a>
-<a href=#2457 id=2457 data-nosnippet>2457</a><span class="doccomment">/// Frame signaling an address is no longer being advertised
-<a href=#2458 id=2458 data-nosnippet>2458</a></span><span class="attr">#[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord, derive_more::Display)]
-<a href=#2459 id=2459 data-nosnippet>2459</a>#[cfg_attr(test, derive(Arbitrary))]
-<a href=#2460 id=2460 data-nosnippet>2460</a>#[display(<span class="string">"REMOVE_ADDRESS seq_no: {seq_no}"</span>)]
-<a href=#2461 id=2461 data-nosnippet>2461</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>RemoveAddress {
-<a href=#2462 id=2462 data-nosnippet>2462</a>    <span class="doccomment">/// The sequence number of the address advertisement to be removed
-<a href=#2463 id=2463 data-nosnippet>2463</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) seq_no: VarInt,
-<a href=#2464 id=2464 data-nosnippet>2464</a>}
+<a href=#2398 id=2398 data-nosnippet>2398</a>    <span class="doccomment">/// Compute the number of bytes needed to encode the frame
+<a href=#2399 id=2399 data-nosnippet>2399</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const fn </span>size(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
+<a href=#2400 id=2400 data-nosnippet>2400</a>        <span class="kw">let </span>type_size = <span class="self">self</span>.get_type().size();
+<a href=#2401 id=2401 data-nosnippet>2401</a>        <span class="kw">let </span>round_bytes = <span class="self">self</span>.round.size();
+<a href=#2402 id=2402 data-nosnippet>2402</a>        <span class="kw">let </span>ip_bytes = <span class="kw">if </span><span class="self">self</span>.ip.is_ipv6() { <span class="number">16 </span>} <span class="kw">else </span>{ <span class="number">4 </span>};
+<a href=#2403 id=2403 data-nosnippet>2403</a>        <span class="kw">let </span>port_bytes = <span class="number">2</span>;
+<a href=#2404 id=2404 data-nosnippet>2404</a>        type_size + round_bytes + ip_bytes + port_bytes
+<a href=#2405 id=2405 data-nosnippet>2405</a>    }
+<a href=#2406 id=2406 data-nosnippet>2406</a>
+<a href=#2407 id=2407 data-nosnippet>2407</a>    <span class="doccomment">/// Read the frame contents from the buffer
+<a href=#2408 id=2408 data-nosnippet>2408</a>    ///
+<a href=#2409 id=2409 data-nosnippet>2409</a>    /// Should only be called when the frame type has been identified as
+<a href=#2410 id=2410 data-nosnippet>2410</a>    /// [`FrameType::ReachOutAtIpv4`] or [`FrameType::ReachOutAtIpv6`].
+<a href=#2411 id=2411 data-nosnippet>2411</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>read&lt;R: Buf&gt;(bytes: <span class="kw-2">&amp;mut </span>R, is_ipv6: bool) -&gt; coding::Result&lt;<span class="self">Self</span>&gt; {
+<a href=#2412 id=2412 data-nosnippet>2412</a>        <span class="kw">let </span>round = bytes.get()<span class="question-mark">?</span>;
+<a href=#2413 id=2413 data-nosnippet>2413</a>        <span class="kw">let </span>ip = <span class="kw">if </span>is_ipv6 {
+<a href=#2414 id=2414 data-nosnippet>2414</a>            IpAddr::V6(bytes.get()<span class="question-mark">?</span>)
+<a href=#2415 id=2415 data-nosnippet>2415</a>        } <span class="kw">else </span>{
+<a href=#2416 id=2416 data-nosnippet>2416</a>            IpAddr::V4(bytes.get()<span class="question-mark">?</span>)
+<a href=#2417 id=2417 data-nosnippet>2417</a>        };
+<a href=#2418 id=2418 data-nosnippet>2418</a>        <span class="kw">let </span>port = bytes.get()<span class="question-mark">?</span>;
+<a href=#2419 id=2419 data-nosnippet>2419</a>        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{ round, ip, port })
+<a href=#2420 id=2420 data-nosnippet>2420</a>    }
+<a href=#2421 id=2421 data-nosnippet>2421</a>
+<a href=#2422 id=2422 data-nosnippet>2422</a>    <span class="doccomment">/// Give the [`SocketAddr`] encoded in the frame
+<a href=#2423 id=2423 data-nosnippet>2423</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>socket_addr(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; SocketAddr {
+<a href=#2424 id=2424 data-nosnippet>2424</a>        (<span class="self">self</span>.ip, <span class="self">self</span>.port).into()
+<a href=#2425 id=2425 data-nosnippet>2425</a>    }
+<a href=#2426 id=2426 data-nosnippet>2426</a>}
+<a href=#2427 id=2427 data-nosnippet>2427</a>
+<a href=#2428 id=2428 data-nosnippet>2428</a><span class="kw">impl </span>Encodable <span class="kw">for </span>ReachOut {
+<a href=#2429 id=2429 data-nosnippet>2429</a>    <span class="kw">fn </span>encode&lt;W: BufMut&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, buf: <span class="kw-2">&amp;mut </span>W) {
+<a href=#2430 id=2430 data-nosnippet>2430</a>        buf.write(<span class="self">self</span>.get_type());
+<a href=#2431 id=2431 data-nosnippet>2431</a>        buf.write(<span class="self">self</span>.round);
+<a href=#2432 id=2432 data-nosnippet>2432</a>        <span class="kw">match </span><span class="self">self</span>.ip {
+<a href=#2433 id=2433 data-nosnippet>2433</a>            IpAddr::V4(ipv4_addr) =&gt; {
+<a href=#2434 id=2434 data-nosnippet>2434</a>                buf.write(ipv4_addr);
+<a href=#2435 id=2435 data-nosnippet>2435</a>            }
+<a href=#2436 id=2436 data-nosnippet>2436</a>            IpAddr::V6(ipv6_addr) =&gt; {
+<a href=#2437 id=2437 data-nosnippet>2437</a>                buf.write(ipv6_addr);
+<a href=#2438 id=2438 data-nosnippet>2438</a>            }
+<a href=#2439 id=2439 data-nosnippet>2439</a>        }
+<a href=#2440 id=2440 data-nosnippet>2440</a>        buf.write::&lt;u16&gt;(<span class="self">self</span>.port);
+<a href=#2441 id=2441 data-nosnippet>2441</a>    }
+<a href=#2442 id=2442 data-nosnippet>2442</a>}
+<a href=#2443 id=2443 data-nosnippet>2443</a>
+<a href=#2444 id=2444 data-nosnippet>2444</a><span class="doccomment">/// Frame signaling an address is no longer being advertised
+<a href=#2445 id=2445 data-nosnippet>2445</a></span><span class="attr">#[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord, derive_more::Display)]
+<a href=#2446 id=2446 data-nosnippet>2446</a>#[cfg_attr(test, derive(Arbitrary))]
+<a href=#2447 id=2447 data-nosnippet>2447</a>#[display(<span class="string">"REMOVE_ADDRESS seq_no: {seq_no}"</span>)]
+<a href=#2448 id=2448 data-nosnippet>2448</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>RemoveAddress {
+<a href=#2449 id=2449 data-nosnippet>2449</a>    <span class="doccomment">/// The sequence number of the address advertisement to be removed
+<a href=#2450 id=2450 data-nosnippet>2450</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) seq_no: VarInt,
+<a href=#2451 id=2451 data-nosnippet>2451</a>}
+<a href=#2452 id=2452 data-nosnippet>2452</a>
+<a href=#2453 id=2453 data-nosnippet>2453</a><span class="comment">// TODO(@divma): remove
+<a href=#2454 id=2454 data-nosnippet>2454</a></span><span class="attr">#[allow(dead_code)]
+<a href=#2455 id=2455 data-nosnippet>2455</a></span><span class="kw">impl </span>RemoveAddress {
+<a href=#2456 id=2456 data-nosnippet>2456</a>    <span class="doccomment">/// [`FrameType`] of this frame
+<a href=#2457 id=2457 data-nosnippet>2457</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const </span>TYPE: FrameType = FrameType::RemoveAddress;
+<a href=#2458 id=2458 data-nosnippet>2458</a>
+<a href=#2459 id=2459 data-nosnippet>2459</a>    <span class="doccomment">/// Smallest number of bytes this type of frame is guaranteed to fit within
+<a href=#2460 id=2460 data-nosnippet>2460</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const </span>SIZE_BOUND: usize = <span class="self">Self</span>::new(VarInt::MAX).size();
+<a href=#2461 id=2461 data-nosnippet>2461</a>
+<a href=#2462 id=2462 data-nosnippet>2462</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const fn </span>new(seq_no: VarInt) -&gt; <span class="self">Self </span>{
+<a href=#2463 id=2463 data-nosnippet>2463</a>        <span class="self">Self </span>{ seq_no }
+<a href=#2464 id=2464 data-nosnippet>2464</a>    }
 <a href=#2465 id=2465 data-nosnippet>2465</a>
-<a href=#2466 id=2466 data-nosnippet>2466</a><span class="comment">// TODO(@divma): remove
-<a href=#2467 id=2467 data-nosnippet>2467</a></span><span class="attr">#[allow(dead_code)]
-<a href=#2468 id=2468 data-nosnippet>2468</a></span><span class="kw">impl </span>RemoveAddress {
-<a href=#2469 id=2469 data-nosnippet>2469</a>    <span class="doccomment">/// [`FrameType`] of this frame
-<a href=#2470 id=2470 data-nosnippet>2470</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const </span>TYPE: FrameType = FrameType::RemoveAddress;
-<a href=#2471 id=2471 data-nosnippet>2471</a>
-<a href=#2472 id=2472 data-nosnippet>2472</a>    <span class="doccomment">/// Smallest number of bytes this type of frame is guaranteed to fit within
-<a href=#2473 id=2473 data-nosnippet>2473</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const </span>SIZE_BOUND: usize = <span class="self">Self</span>::new(VarInt::MAX).size();
-<a href=#2474 id=2474 data-nosnippet>2474</a>
-<a href=#2475 id=2475 data-nosnippet>2475</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const fn </span>new(seq_no: VarInt) -&gt; <span class="self">Self </span>{
-<a href=#2476 id=2476 data-nosnippet>2476</a>        <span class="self">Self </span>{ seq_no }
-<a href=#2477 id=2477 data-nosnippet>2477</a>    }
-<a href=#2478 id=2478 data-nosnippet>2478</a>
-<a href=#2479 id=2479 data-nosnippet>2479</a>    <span class="doccomment">/// Compute the number of bytes needed to encode the frame
-<a href=#2480 id=2480 data-nosnippet>2480</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const fn </span>size(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
-<a href=#2481 id=2481 data-nosnippet>2481</a>        <span class="kw">let </span>type_size = <span class="self">Self</span>::TYPE.size();
-<a href=#2482 id=2482 data-nosnippet>2482</a>        <span class="kw">let </span>seq_no_bytes = <span class="self">self</span>.seq_no.size();
-<a href=#2483 id=2483 data-nosnippet>2483</a>        type_size + seq_no_bytes
-<a href=#2484 id=2484 data-nosnippet>2484</a>    }
-<a href=#2485 id=2485 data-nosnippet>2485</a>
-<a href=#2486 id=2486 data-nosnippet>2486</a>    <span class="doccomment">/// Read the frame contents from the buffer
-<a href=#2487 id=2487 data-nosnippet>2487</a>    ///
-<a href=#2488 id=2488 data-nosnippet>2488</a>    /// Should only be called when the frame type has been identified as
-<a href=#2489 id=2489 data-nosnippet>2489</a>    /// [`FrameType::RemoveAddress`].
-<a href=#2490 id=2490 data-nosnippet>2490</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>read&lt;R: Buf&gt;(bytes: <span class="kw-2">&amp;mut </span>R) -&gt; coding::Result&lt;<span class="self">Self</span>&gt; {
-<a href=#2491 id=2491 data-nosnippet>2491</a>        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
-<a href=#2492 id=2492 data-nosnippet>2492</a>            seq_no: bytes.get()<span class="question-mark">?</span>,
-<a href=#2493 id=2493 data-nosnippet>2493</a>        })
-<a href=#2494 id=2494 data-nosnippet>2494</a>    }
-<a href=#2495 id=2495 data-nosnippet>2495</a>
-<a href=#2496 id=2496 data-nosnippet>2496</a>    <span class="kw">const fn </span>get_type(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; FrameType {
-<a href=#2497 id=2497 data-nosnippet>2497</a>        FrameType::RemoveAddress
-<a href=#2498 id=2498 data-nosnippet>2498</a>    }
-<a href=#2499 id=2499 data-nosnippet>2499</a>}
-<a href=#2500 id=2500 data-nosnippet>2500</a>
-<a href=#2501 id=2501 data-nosnippet>2501</a><span class="kw">impl </span>Encodable <span class="kw">for </span>RemoveAddress {
-<a href=#2502 id=2502 data-nosnippet>2502</a>    <span class="kw">fn </span>encode&lt;W: BufMut&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, buf: <span class="kw-2">&amp;mut </span>W) {
-<a href=#2503 id=2503 data-nosnippet>2503</a>        buf.write(<span class="self">Self</span>::TYPE);
-<a href=#2504 id=2504 data-nosnippet>2504</a>        buf.write(<span class="self">self</span>.seq_no);
-<a href=#2505 id=2505 data-nosnippet>2505</a>    }
-<a href=#2506 id=2506 data-nosnippet>2506</a>}
-<a href=#2507 id=2507 data-nosnippet>2507</a>
-<a href=#2508 id=2508 data-nosnippet>2508</a><span class="doccomment">/// Helper struct for display implementations.
-<a href=#2509 id=2509 data-nosnippet>2509</a></span><span class="comment">// NOTE: Due to lifetimes in fmt::Arguments it's not possible to make this a simple function that
-<a href=#2510 id=2510 data-nosnippet>2510</a>// avoids allocations.
-<a href=#2511 id=2511 data-nosnippet>2511</a></span><span class="kw">struct </span>DisplayOption&lt;T: Display&gt; {
-<a href=#2512 id=2512 data-nosnippet>2512</a>    field_name: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
-<a href=#2513 id=2513 data-nosnippet>2513</a>    op: <span class="prelude-ty">Option</span>&lt;T&gt;,
-<a href=#2514 id=2514 data-nosnippet>2514</a>}
-<a href=#2515 id=2515 data-nosnippet>2515</a>
-<a href=#2516 id=2516 data-nosnippet>2516</a><span class="kw">impl</span>&lt;T: Display&gt; DisplayOption&lt;T&gt; {
-<a href=#2517 id=2517 data-nosnippet>2517</a>    <span class="kw">fn </span>new(field_name: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str, op: <span class="prelude-ty">Option</span>&lt;T&gt;) -&gt; <span class="self">Self </span>{
-<a href=#2518 id=2518 data-nosnippet>2518</a>        <span class="self">Self </span>{ field_name, op }
-<a href=#2519 id=2519 data-nosnippet>2519</a>    }
-<a href=#2520 id=2520 data-nosnippet>2520</a>}
-<a href=#2521 id=2521 data-nosnippet>2521</a>
-<a href=#2522 id=2522 data-nosnippet>2522</a><span class="kw">impl</span>&lt;T: Display&gt; Display <span class="kw">for </span>DisplayOption&lt;T&gt; {
-<a href=#2523 id=2523 data-nosnippet>2523</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
-<a href=#2524 id=2524 data-nosnippet>2524</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(x) = <span class="self">self</span>.op.as_ref() {
-<a href=#2525 id=2525 data-nosnippet>2525</a>            <span class="macro">write!</span>(f, <span class="string">"{}: {x}"</span>, <span class="self">self</span>.field_name)
-<a href=#2526 id=2526 data-nosnippet>2526</a>        } <span class="kw">else </span>{
-<a href=#2527 id=2527 data-nosnippet>2527</a>            fmt::Result::Ok(())
-<a href=#2528 id=2528 data-nosnippet>2528</a>        }
-<a href=#2529 id=2529 data-nosnippet>2529</a>    }
-<a href=#2530 id=2530 data-nosnippet>2530</a>}
+<a href=#2466 id=2466 data-nosnippet>2466</a>    <span class="doccomment">/// Compute the number of bytes needed to encode the frame
+<a href=#2467 id=2467 data-nosnippet>2467</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const fn </span>size(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
+<a href=#2468 id=2468 data-nosnippet>2468</a>        <span class="kw">let </span>type_size = <span class="self">Self</span>::TYPE.size();
+<a href=#2469 id=2469 data-nosnippet>2469</a>        <span class="kw">let </span>seq_no_bytes = <span class="self">self</span>.seq_no.size();
+<a href=#2470 id=2470 data-nosnippet>2470</a>        type_size + seq_no_bytes
+<a href=#2471 id=2471 data-nosnippet>2471</a>    }
+<a href=#2472 id=2472 data-nosnippet>2472</a>
+<a href=#2473 id=2473 data-nosnippet>2473</a>    <span class="doccomment">/// Read the frame contents from the buffer
+<a href=#2474 id=2474 data-nosnippet>2474</a>    ///
+<a href=#2475 id=2475 data-nosnippet>2475</a>    /// Should only be called when the frame type has been identified as
+<a href=#2476 id=2476 data-nosnippet>2476</a>    /// [`FrameType::RemoveAddress`].
+<a href=#2477 id=2477 data-nosnippet>2477</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>read&lt;R: Buf&gt;(bytes: <span class="kw-2">&amp;mut </span>R) -&gt; coding::Result&lt;<span class="self">Self</span>&gt; {
+<a href=#2478 id=2478 data-nosnippet>2478</a>        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
+<a href=#2479 id=2479 data-nosnippet>2479</a>            seq_no: bytes.get()<span class="question-mark">?</span>,
+<a href=#2480 id=2480 data-nosnippet>2480</a>        })
+<a href=#2481 id=2481 data-nosnippet>2481</a>    }
+<a href=#2482 id=2482 data-nosnippet>2482</a>
+<a href=#2483 id=2483 data-nosnippet>2483</a>    <span class="kw">const fn </span>get_type(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; FrameType {
+<a href=#2484 id=2484 data-nosnippet>2484</a>        FrameType::RemoveAddress
+<a href=#2485 id=2485 data-nosnippet>2485</a>    }
+<a href=#2486 id=2486 data-nosnippet>2486</a>}
+<a href=#2487 id=2487 data-nosnippet>2487</a>
+<a href=#2488 id=2488 data-nosnippet>2488</a><span class="kw">impl </span>Encodable <span class="kw">for </span>RemoveAddress {
+<a href=#2489 id=2489 data-nosnippet>2489</a>    <span class="kw">fn </span>encode&lt;W: BufMut&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, buf: <span class="kw-2">&amp;mut </span>W) {
+<a href=#2490 id=2490 data-nosnippet>2490</a>        buf.write(<span class="self">Self</span>::TYPE);
+<a href=#2491 id=2491 data-nosnippet>2491</a>        buf.write(<span class="self">self</span>.seq_no);
+<a href=#2492 id=2492 data-nosnippet>2492</a>    }
+<a href=#2493 id=2493 data-nosnippet>2493</a>}
+<a href=#2494 id=2494 data-nosnippet>2494</a>
+<a href=#2495 id=2495 data-nosnippet>2495</a><span class="doccomment">/// Helper struct for display implementations.
+<a href=#2496 id=2496 data-nosnippet>2496</a></span><span class="comment">// NOTE: Due to lifetimes in fmt::Arguments it's not possible to make this a simple function that
+<a href=#2497 id=2497 data-nosnippet>2497</a>// avoids allocations.
+<a href=#2498 id=2498 data-nosnippet>2498</a></span><span class="kw">struct </span>DisplayOption&lt;T: Display&gt; {
+<a href=#2499 id=2499 data-nosnippet>2499</a>    field_name: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+<a href=#2500 id=2500 data-nosnippet>2500</a>    op: <span class="prelude-ty">Option</span>&lt;T&gt;,
+<a href=#2501 id=2501 data-nosnippet>2501</a>}
+<a href=#2502 id=2502 data-nosnippet>2502</a>
+<a href=#2503 id=2503 data-nosnippet>2503</a><span class="kw">impl</span>&lt;T: Display&gt; DisplayOption&lt;T&gt; {
+<a href=#2504 id=2504 data-nosnippet>2504</a>    <span class="kw">fn </span>new(field_name: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str, op: <span class="prelude-ty">Option</span>&lt;T&gt;) -&gt; <span class="self">Self </span>{
+<a href=#2505 id=2505 data-nosnippet>2505</a>        <span class="self">Self </span>{ field_name, op }
+<a href=#2506 id=2506 data-nosnippet>2506</a>    }
+<a href=#2507 id=2507 data-nosnippet>2507</a>}
+<a href=#2508 id=2508 data-nosnippet>2508</a>
+<a href=#2509 id=2509 data-nosnippet>2509</a><span class="kw">impl</span>&lt;T: Display&gt; Display <span class="kw">for </span>DisplayOption&lt;T&gt; {
+<a href=#2510 id=2510 data-nosnippet>2510</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
+<a href=#2511 id=2511 data-nosnippet>2511</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(x) = <span class="self">self</span>.op.as_ref() {
+<a href=#2512 id=2512 data-nosnippet>2512</a>            <span class="macro">write!</span>(f, <span class="string">"{}: {x}"</span>, <span class="self">self</span>.field_name)
+<a href=#2513 id=2513 data-nosnippet>2513</a>        } <span class="kw">else </span>{
+<a href=#2514 id=2514 data-nosnippet>2514</a>            fmt::Result::Ok(())
+<a href=#2515 id=2515 data-nosnippet>2515</a>        }
+<a href=#2516 id=2516 data-nosnippet>2516</a>    }
+<a href=#2517 id=2517 data-nosnippet>2517</a>}
+<a href=#2518 id=2518 data-nosnippet>2518</a>
+<a href=#2519 id=2519 data-nosnippet>2519</a><span class="attr">#[cfg(test)]
+<a href=#2520 id=2520 data-nosnippet>2520</a></span><span class="kw">mod </span>test {
+<a href=#2521 id=2521 data-nosnippet>2521</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#2522 id=2522 data-nosnippet>2522</a>    <span class="kw">use </span><span class="kw">crate</span>::coding::Encodable;
+<a href=#2523 id=2523 data-nosnippet>2523</a>    <span class="kw">use </span>assert_matches::assert_matches;
+<a href=#2524 id=2524 data-nosnippet>2524</a>
+<a href=#2525 id=2525 data-nosnippet>2525</a>    <span class="attr">#[test]
+<a href=#2526 id=2526 data-nosnippet>2526</a>    </span><span class="kw">fn </span>frame_type() {
+<a href=#2527 id=2527 data-nosnippet>2527</a>        <span class="macro">assert_eq!</span>(
+<a href=#2528 id=2528 data-nosnippet>2528</a>            FrameType::try_from(FrameType::Padding.to_u64()),
+<a href=#2529 id=2529 data-nosnippet>2529</a>            <span class="prelude-val">Ok</span>(FrameType::Padding),
+<a href=#2530 id=2530 data-nosnippet>2530</a>        );
 <a href=#2531 id=2531 data-nosnippet>2531</a>
-<a href=#2532 id=2532 data-nosnippet>2532</a><span class="attr">#[cfg(test)]
-<a href=#2533 id=2533 data-nosnippet>2533</a></span><span class="kw">mod </span>test {
-<a href=#2534 id=2534 data-nosnippet>2534</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#2535 id=2535 data-nosnippet>2535</a>    <span class="kw">use </span><span class="kw">crate</span>::coding::Encodable;
-<a href=#2536 id=2536 data-nosnippet>2536</a>    <span class="kw">use </span>assert_matches::assert_matches;
-<a href=#2537 id=2537 data-nosnippet>2537</a>
-<a href=#2538 id=2538 data-nosnippet>2538</a>    <span class="attr">#[test]
-<a href=#2539 id=2539 data-nosnippet>2539</a>    </span><span class="kw">fn </span>frame_type() {
-<a href=#2540 id=2540 data-nosnippet>2540</a>        <span class="macro">assert_eq!</span>(
-<a href=#2541 id=2541 data-nosnippet>2541</a>            FrameType::try_from(FrameType::Padding.to_u64()),
-<a href=#2542 id=2542 data-nosnippet>2542</a>            <span class="prelude-val">Ok</span>(FrameType::Padding),
-<a href=#2543 id=2543 data-nosnippet>2543</a>        );
-<a href=#2544 id=2544 data-nosnippet>2544</a>
-<a href=#2545 id=2545 data-nosnippet>2545</a>        <span class="macro">assert_eq!</span>(
-<a href=#2546 id=2546 data-nosnippet>2546</a>            FrameType::try_from(FrameType::Datagram(DatagramInfo(<span class="number">0x30</span>)).to_u64()),
-<a href=#2547 id=2547 data-nosnippet>2547</a>            <span class="prelude-val">Ok</span>(FrameType::Datagram(DatagramInfo(<span class="number">0x30</span>))),
-<a href=#2548 id=2548 data-nosnippet>2548</a>        );
-<a href=#2549 id=2549 data-nosnippet>2549</a>
-<a href=#2550 id=2550 data-nosnippet>2550</a>        <span class="macro">assert_eq!</span>(
-<a href=#2551 id=2551 data-nosnippet>2551</a>            FrameType::try_from(FrameType::Stream(StreamInfo(<span class="number">0x08</span>)).to_u64()),
-<a href=#2552 id=2552 data-nosnippet>2552</a>            <span class="prelude-val">Ok</span>(FrameType::Stream(StreamInfo(<span class="number">0x08</span>))),
-<a href=#2553 id=2553 data-nosnippet>2553</a>        );
-<a href=#2554 id=2554 data-nosnippet>2554</a>    }
-<a href=#2555 id=2555 data-nosnippet>2555</a>
-<a href=#2556 id=2556 data-nosnippet>2556</a>    <span class="attr">#[track_caller]
-<a href=#2557 id=2557 data-nosnippet>2557</a>    </span><span class="kw">fn </span>frames(buf: Vec&lt;u8&gt;) -&gt; Vec&lt;Frame&gt; {
-<a href=#2558 id=2558 data-nosnippet>2558</a>        Iter::new(Bytes::from(buf))
-<a href=#2559 id=2559 data-nosnippet>2559</a>            .unwrap()
-<a href=#2560 id=2560 data-nosnippet>2560</a>            .collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">_</span>&gt;, <span class="kw">_</span>&gt;&gt;()
-<a href=#2561 id=2561 data-nosnippet>2561</a>            .unwrap()
-<a href=#2562 id=2562 data-nosnippet>2562</a>    }
-<a href=#2563 id=2563 data-nosnippet>2563</a>
-<a href=#2564 id=2564 data-nosnippet>2564</a>    <span class="attr">#[test]
-<a href=#2565 id=2565 data-nosnippet>2565</a>    </span><span class="kw">fn </span>ack_coding() {
-<a href=#2566 id=2566 data-nosnippet>2566</a>        <span class="kw">const </span>PACKETS: <span class="kw-2">&amp;</span>[u64] = <span class="kw-2">&amp;</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">5</span>, <span class="number">10</span>, <span class="number">11</span>, <span class="number">14</span>];
-<a href=#2567 id=2567 data-nosnippet>2567</a>        <span class="kw">let </span><span class="kw-2">mut </span>ranges = ArrayRangeSet::new();
-<a href=#2568 id=2568 data-nosnippet>2568</a>        <span class="kw">for </span><span class="kw-2">&amp;</span>packet <span class="kw">in </span>PACKETS {
-<a href=#2569 id=2569 data-nosnippet>2569</a>            ranges.insert(packet..packet + <span class="number">1</span>);
-<a href=#2570 id=2570 data-nosnippet>2570</a>        }
-<a href=#2571 id=2571 data-nosnippet>2571</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#2572 id=2572 data-nosnippet>2572</a>        <span class="kw">const </span>ECN: EcnCounts = EcnCounts {
-<a href=#2573 id=2573 data-nosnippet>2573</a>            ect0: <span class="number">42</span>,
-<a href=#2574 id=2574 data-nosnippet>2574</a>            ect1: <span class="number">24</span>,
-<a href=#2575 id=2575 data-nosnippet>2575</a>            ce: <span class="number">12</span>,
-<a href=#2576 id=2576 data-nosnippet>2576</a>        };
-<a href=#2577 id=2577 data-nosnippet>2577</a>        Ack::encoder(<span class="number">42</span>, <span class="kw-2">&amp;</span>ranges, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ECN)).encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2578 id=2578 data-nosnippet>2578</a>        <span class="kw">let </span>frames = frames(buf);
-<a href=#2579 id=2579 data-nosnippet>2579</a>        <span class="macro">assert_eq!</span>(frames.len(), <span class="number">1</span>);
-<a href=#2580 id=2580 data-nosnippet>2580</a>        <span class="kw">match </span>frames[<span class="number">0</span>] {
-<a href=#2581 id=2581 data-nosnippet>2581</a>            Frame::Ack(<span class="kw-2">ref </span>ack) =&gt; {
-<a href=#2582 id=2582 data-nosnippet>2582</a>                <span class="kw">let </span><span class="kw-2">mut </span>packets = ack.iter().flatten().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
-<a href=#2583 id=2583 data-nosnippet>2583</a>                packets.sort_unstable();
-<a href=#2584 id=2584 data-nosnippet>2584</a>                <span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>packets[..], PACKETS);
-<a href=#2585 id=2585 data-nosnippet>2585</a>                <span class="macro">assert_eq!</span>(ack.ecn, <span class="prelude-val">Some</span>(ECN));
-<a href=#2586 id=2586 data-nosnippet>2586</a>            }
-<a href=#2587 id=2587 data-nosnippet>2587</a>            <span class="kw-2">ref </span>x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2588 id=2588 data-nosnippet>2588</a>        }
-<a href=#2589 id=2589 data-nosnippet>2589</a>    }
-<a href=#2590 id=2590 data-nosnippet>2590</a>
-<a href=#2591 id=2591 data-nosnippet>2591</a>    <span class="attr">#[test]
-<a href=#2592 id=2592 data-nosnippet>2592</a>    #[allow(clippy::range_plus_one)]
-<a href=#2593 id=2593 data-nosnippet>2593</a>    </span><span class="kw">fn </span>path_ack_coding_with_ecn() {
-<a href=#2594 id=2594 data-nosnippet>2594</a>        <span class="kw">const </span>PACKETS: <span class="kw-2">&amp;</span>[u64] = <span class="kw-2">&amp;</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">5</span>, <span class="number">10</span>, <span class="number">11</span>, <span class="number">14</span>];
-<a href=#2595 id=2595 data-nosnippet>2595</a>        <span class="kw">let </span><span class="kw-2">mut </span>ranges = ArrayRangeSet::new();
-<a href=#2596 id=2596 data-nosnippet>2596</a>        <span class="kw">for </span><span class="kw-2">&amp;</span>packet <span class="kw">in </span>PACKETS {
-<a href=#2597 id=2597 data-nosnippet>2597</a>            ranges.insert(packet..packet + <span class="number">1</span>);
-<a href=#2598 id=2598 data-nosnippet>2598</a>        }
-<a href=#2599 id=2599 data-nosnippet>2599</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#2600 id=2600 data-nosnippet>2600</a>        <span class="kw">const </span>ECN: EcnCounts = EcnCounts {
-<a href=#2601 id=2601 data-nosnippet>2601</a>            ect0: <span class="number">42</span>,
-<a href=#2602 id=2602 data-nosnippet>2602</a>            ect1: <span class="number">24</span>,
-<a href=#2603 id=2603 data-nosnippet>2603</a>            ce: <span class="number">12</span>,
-<a href=#2604 id=2604 data-nosnippet>2604</a>        };
-<a href=#2605 id=2605 data-nosnippet>2605</a>        <span class="kw">const </span>PATH_ID: PathId = PathId::MAX;
-<a href=#2606 id=2606 data-nosnippet>2606</a>        PathAck::encoder(PATH_ID, <span class="number">42</span>, <span class="kw-2">&amp;</span>ranges, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ECN)).encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2607 id=2607 data-nosnippet>2607</a>        <span class="kw">let </span>frames = frames(buf);
-<a href=#2608 id=2608 data-nosnippet>2608</a>        <span class="macro">assert_eq!</span>(frames.len(), <span class="number">1</span>);
-<a href=#2609 id=2609 data-nosnippet>2609</a>        <span class="kw">match </span>frames[<span class="number">0</span>] {
-<a href=#2610 id=2610 data-nosnippet>2610</a>            Frame::PathAck(<span class="kw-2">ref </span>ack) =&gt; {
-<a href=#2611 id=2611 data-nosnippet>2611</a>                <span class="macro">assert_eq!</span>(ack.path_id, PATH_ID);
-<a href=#2612 id=2612 data-nosnippet>2612</a>                <span class="kw">let </span><span class="kw-2">mut </span>packets = ack.ranges.iter().flatten().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
-<a href=#2613 id=2613 data-nosnippet>2613</a>                packets.sort_unstable();
-<a href=#2614 id=2614 data-nosnippet>2614</a>                <span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>packets[..], PACKETS);
-<a href=#2615 id=2615 data-nosnippet>2615</a>                <span class="macro">assert_eq!</span>(ack.ecn, <span class="prelude-val">Some</span>(ECN));
-<a href=#2616 id=2616 data-nosnippet>2616</a>            }
-<a href=#2617 id=2617 data-nosnippet>2617</a>            <span class="kw-2">ref </span>x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2618 id=2618 data-nosnippet>2618</a>        }
-<a href=#2619 id=2619 data-nosnippet>2619</a>    }
-<a href=#2620 id=2620 data-nosnippet>2620</a>
-<a href=#2621 id=2621 data-nosnippet>2621</a>    <span class="attr">#[test]
-<a href=#2622 id=2622 data-nosnippet>2622</a>    #[allow(clippy::range_plus_one)]
-<a href=#2623 id=2623 data-nosnippet>2623</a>    </span><span class="kw">fn </span>path_ack_coding_no_ecn() {
-<a href=#2624 id=2624 data-nosnippet>2624</a>        <span class="kw">const </span>PACKETS: <span class="kw-2">&amp;</span>[u64] = <span class="kw-2">&amp;</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">5</span>, <span class="number">10</span>, <span class="number">11</span>, <span class="number">14</span>];
-<a href=#2625 id=2625 data-nosnippet>2625</a>        <span class="kw">let </span><span class="kw-2">mut </span>ranges = ArrayRangeSet::new();
-<a href=#2626 id=2626 data-nosnippet>2626</a>        <span class="kw">for </span><span class="kw-2">&amp;</span>packet <span class="kw">in </span>PACKETS {
-<a href=#2627 id=2627 data-nosnippet>2627</a>            ranges.insert(packet..packet + <span class="number">1</span>);
-<a href=#2628 id=2628 data-nosnippet>2628</a>        }
-<a href=#2629 id=2629 data-nosnippet>2629</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#2630 id=2630 data-nosnippet>2630</a>        <span class="kw">const </span>PATH_ID: PathId = PathId::MAX;
-<a href=#2631 id=2631 data-nosnippet>2631</a>        PathAck::encoder(PATH_ID, <span class="number">42</span>, <span class="kw-2">&amp;</span>ranges, <span class="prelude-val">None</span>).encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2632 id=2632 data-nosnippet>2632</a>        <span class="kw">let </span>frames = frames(buf);
-<a href=#2633 id=2633 data-nosnippet>2633</a>        <span class="macro">assert_eq!</span>(frames.len(), <span class="number">1</span>);
-<a href=#2634 id=2634 data-nosnippet>2634</a>        <span class="kw">match </span>frames[<span class="number">0</span>] {
-<a href=#2635 id=2635 data-nosnippet>2635</a>            Frame::PathAck(<span class="kw-2">ref </span>ack) =&gt; {
-<a href=#2636 id=2636 data-nosnippet>2636</a>                <span class="macro">assert_eq!</span>(ack.path_id, PATH_ID);
-<a href=#2637 id=2637 data-nosnippet>2637</a>                <span class="kw">let </span><span class="kw-2">mut </span>packets = ack.ranges.iter().flatten().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
-<a href=#2638 id=2638 data-nosnippet>2638</a>                packets.sort_unstable();
-<a href=#2639 id=2639 data-nosnippet>2639</a>                <span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>packets[..], PACKETS);
-<a href=#2640 id=2640 data-nosnippet>2640</a>                <span class="macro">assert_eq!</span>(ack.ecn, <span class="prelude-val">None</span>);
-<a href=#2641 id=2641 data-nosnippet>2641</a>            }
-<a href=#2642 id=2642 data-nosnippet>2642</a>            <span class="kw-2">ref </span>x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2643 id=2643 data-nosnippet>2643</a>        }
-<a href=#2644 id=2644 data-nosnippet>2644</a>    }
-<a href=#2645 id=2645 data-nosnippet>2645</a>
-<a href=#2646 id=2646 data-nosnippet>2646</a>    <span class="attr">#[test]
-<a href=#2647 id=2647 data-nosnippet>2647</a>    </span><span class="kw">fn </span>ack_frequency_coding() {
-<a href=#2648 id=2648 data-nosnippet>2648</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#2649 id=2649 data-nosnippet>2649</a>        <span class="kw">let </span>original = AckFrequency {
-<a href=#2650 id=2650 data-nosnippet>2650</a>            sequence: VarInt(<span class="number">42</span>),
-<a href=#2651 id=2651 data-nosnippet>2651</a>            ack_eliciting_threshold: VarInt(<span class="number">20</span>),
-<a href=#2652 id=2652 data-nosnippet>2652</a>            request_max_ack_delay: VarInt(<span class="number">50_000</span>),
-<a href=#2653 id=2653 data-nosnippet>2653</a>            reordering_threshold: VarInt(<span class="number">1</span>),
-<a href=#2654 id=2654 data-nosnippet>2654</a>        };
-<a href=#2655 id=2655 data-nosnippet>2655</a>        original.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2656 id=2656 data-nosnippet>2656</a>        <span class="kw">let </span>frames = frames(buf);
-<a href=#2657 id=2657 data-nosnippet>2657</a>        <span class="macro">assert_eq!</span>(frames.len(), <span class="number">1</span>);
-<a href=#2658 id=2658 data-nosnippet>2658</a>        <span class="kw">match </span><span class="kw-2">&amp;</span>frames[<span class="number">0</span>] {
-<a href=#2659 id=2659 data-nosnippet>2659</a>            Frame::AckFrequency(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, <span class="kw-2">&amp;</span>original),
-<a href=#2660 id=2660 data-nosnippet>2660</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2661 id=2661 data-nosnippet>2661</a>        }
-<a href=#2662 id=2662 data-nosnippet>2662</a>    }
-<a href=#2663 id=2663 data-nosnippet>2663</a>
-<a href=#2664 id=2664 data-nosnippet>2664</a>    <span class="attr">#[test]
-<a href=#2665 id=2665 data-nosnippet>2665</a>    </span><span class="kw">fn </span>immediate_ack_coding() {
-<a href=#2666 id=2666 data-nosnippet>2666</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#2667 id=2667 data-nosnippet>2667</a>        FrameType::ImmediateAck.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2668 id=2668 data-nosnippet>2668</a>        <span class="kw">let </span>frames = frames(buf);
-<a href=#2669 id=2669 data-nosnippet>2669</a>        <span class="macro">assert_eq!</span>(frames.len(), <span class="number">1</span>);
-<a href=#2670 id=2670 data-nosnippet>2670</a>        <span class="macro">assert_matches!</span>(<span class="kw-2">&amp;</span>frames[<span class="number">0</span>], Frame::ImmediateAck);
-<a href=#2671 id=2671 data-nosnippet>2671</a>    }
-<a href=#2672 id=2672 data-nosnippet>2672</a>
-<a href=#2673 id=2673 data-nosnippet>2673</a>    <span class="doccomment">/// Test that encoding and decoding [`ObservedAddr`] produces the same result.
-<a href=#2674 id=2674 data-nosnippet>2674</a>    </span><span class="attr">#[test]
-<a href=#2675 id=2675 data-nosnippet>2675</a>    </span><span class="kw">fn </span>test_observed_addr_roundrip() {
-<a href=#2676 id=2676 data-nosnippet>2676</a>        <span class="kw">let </span>observed_addr = ObservedAddr {
-<a href=#2677 id=2677 data-nosnippet>2677</a>            seq_no: VarInt(<span class="number">42</span>),
-<a href=#2678 id=2678 data-nosnippet>2678</a>            ip: std::net::Ipv4Addr::LOCALHOST.into(),
-<a href=#2679 id=2679 data-nosnippet>2679</a>            port: <span class="number">4242</span>,
-<a href=#2680 id=2680 data-nosnippet>2680</a>        };
-<a href=#2681 id=2681 data-nosnippet>2681</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::with_capacity(observed_addr.size());
-<a href=#2682 id=2682 data-nosnippet>2682</a>        observed_addr.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2683 id=2683 data-nosnippet>2683</a>
-<a href=#2684 id=2684 data-nosnippet>2684</a>        <span class="macro">assert_eq!</span>(
-<a href=#2685 id=2685 data-nosnippet>2685</a>            observed_addr.size(),
-<a href=#2686 id=2686 data-nosnippet>2686</a>            buf.len(),
-<a href=#2687 id=2687 data-nosnippet>2687</a>            <span class="string">"expected written bytes and actual size differ"
-<a href=#2688 id=2688 data-nosnippet>2688</a>        </span>);
-<a href=#2689 id=2689 data-nosnippet>2689</a>
-<a href=#2690 id=2690 data-nosnippet>2690</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
-<a href=#2691 id=2691 data-nosnippet>2691</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
-<a href=#2692 id=2692 data-nosnippet>2692</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
-<a href=#2693 id=2693 data-nosnippet>2693</a>            Frame::ObservedAddr(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, observed_addr),
-<a href=#2694 id=2694 data-nosnippet>2694</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2695 id=2695 data-nosnippet>2695</a>        }
-<a href=#2696 id=2696 data-nosnippet>2696</a>    }
-<a href=#2697 id=2697 data-nosnippet>2697</a>
-<a href=#2698 id=2698 data-nosnippet>2698</a>    <span class="attr">#[test]
-<a href=#2699 id=2699 data-nosnippet>2699</a>    </span><span class="kw">fn </span>test_path_abandon_roundtrip() {
-<a href=#2700 id=2700 data-nosnippet>2700</a>        <span class="kw">let </span>abandon = PathAbandon {
-<a href=#2701 id=2701 data-nosnippet>2701</a>            path_id: PathId(<span class="number">42</span>),
-<a href=#2702 id=2702 data-nosnippet>2702</a>            error_code: TransportErrorCode::NO_ERROR,
-<a href=#2703 id=2703 data-nosnippet>2703</a>        };
-<a href=#2704 id=2704 data-nosnippet>2704</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#2705 id=2705 data-nosnippet>2705</a>        abandon.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2706 id=2706 data-nosnippet>2706</a>
-<a href=#2707 id=2707 data-nosnippet>2707</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
-<a href=#2708 id=2708 data-nosnippet>2708</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
-<a href=#2709 id=2709 data-nosnippet>2709</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
-<a href=#2710 id=2710 data-nosnippet>2710</a>            Frame::PathAbandon(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, abandon),
-<a href=#2711 id=2711 data-nosnippet>2711</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2712 id=2712 data-nosnippet>2712</a>        }
-<a href=#2713 id=2713 data-nosnippet>2713</a>    }
-<a href=#2714 id=2714 data-nosnippet>2714</a>
-<a href=#2715 id=2715 data-nosnippet>2715</a>    <span class="attr">#[test]
-<a href=#2716 id=2716 data-nosnippet>2716</a>    </span><span class="kw">fn </span>test_path_status_available_roundtrip() {
-<a href=#2717 id=2717 data-nosnippet>2717</a>        <span class="kw">let </span>path_status_available = PathStatusAvailable {
-<a href=#2718 id=2718 data-nosnippet>2718</a>            path_id: PathId(<span class="number">42</span>),
-<a href=#2719 id=2719 data-nosnippet>2719</a>            status_seq_no: VarInt(<span class="number">73</span>),
-<a href=#2720 id=2720 data-nosnippet>2720</a>        };
-<a href=#2721 id=2721 data-nosnippet>2721</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#2722 id=2722 data-nosnippet>2722</a>        path_status_available.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2723 id=2723 data-nosnippet>2723</a>
-<a href=#2724 id=2724 data-nosnippet>2724</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
-<a href=#2725 id=2725 data-nosnippet>2725</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
-<a href=#2726 id=2726 data-nosnippet>2726</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
-<a href=#2727 id=2727 data-nosnippet>2727</a>            Frame::PathStatusAvailable(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, path_status_available),
-<a href=#2728 id=2728 data-nosnippet>2728</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2729 id=2729 data-nosnippet>2729</a>        }
-<a href=#2730 id=2730 data-nosnippet>2730</a>    }
-<a href=#2731 id=2731 data-nosnippet>2731</a>
-<a href=#2732 id=2732 data-nosnippet>2732</a>    <span class="attr">#[test]
-<a href=#2733 id=2733 data-nosnippet>2733</a>    </span><span class="kw">fn </span>test_path_status_backup_roundtrip() {
-<a href=#2734 id=2734 data-nosnippet>2734</a>        <span class="kw">let </span>path_status_backup = PathStatusBackup {
-<a href=#2735 id=2735 data-nosnippet>2735</a>            path_id: PathId(<span class="number">42</span>),
-<a href=#2736 id=2736 data-nosnippet>2736</a>            status_seq_no: VarInt(<span class="number">73</span>),
-<a href=#2737 id=2737 data-nosnippet>2737</a>        };
-<a href=#2738 id=2738 data-nosnippet>2738</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#2739 id=2739 data-nosnippet>2739</a>        path_status_backup.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2740 id=2740 data-nosnippet>2740</a>
-<a href=#2741 id=2741 data-nosnippet>2741</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
-<a href=#2742 id=2742 data-nosnippet>2742</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
-<a href=#2743 id=2743 data-nosnippet>2743</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
-<a href=#2744 id=2744 data-nosnippet>2744</a>            Frame::PathStatusBackup(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, path_status_backup),
-<a href=#2745 id=2745 data-nosnippet>2745</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2746 id=2746 data-nosnippet>2746</a>        }
-<a href=#2747 id=2747 data-nosnippet>2747</a>    }
-<a href=#2748 id=2748 data-nosnippet>2748</a>
-<a href=#2749 id=2749 data-nosnippet>2749</a>    <span class="attr">#[test]
-<a href=#2750 id=2750 data-nosnippet>2750</a>    </span><span class="kw">fn </span>test_path_new_connection_id_roundtrip() {
-<a href=#2751 id=2751 data-nosnippet>2751</a>        <span class="kw">let </span>cid = NewConnectionId {
-<a href=#2752 id=2752 data-nosnippet>2752</a>            path_id: <span class="prelude-val">Some</span>(PathId(<span class="number">22</span>)),
-<a href=#2753 id=2753 data-nosnippet>2753</a>            sequence: <span class="number">31</span>,
-<a href=#2754 id=2754 data-nosnippet>2754</a>            retire_prior_to: <span class="number">13</span>,
-<a href=#2755 id=2755 data-nosnippet>2755</a>            id: ConnectionId::new(<span class="kw-2">&amp;</span>[<span class="number">0xAB</span>; <span class="number">8</span>]),
-<a href=#2756 id=2756 data-nosnippet>2756</a>            reset_token: ResetToken::from([<span class="number">0xCD</span>; <span class="kw">crate</span>::RESET_TOKEN_SIZE]),
-<a href=#2757 id=2757 data-nosnippet>2757</a>        };
-<a href=#2758 id=2758 data-nosnippet>2758</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#2759 id=2759 data-nosnippet>2759</a>        cid.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2760 id=2760 data-nosnippet>2760</a>
-<a href=#2761 id=2761 data-nosnippet>2761</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
-<a href=#2762 id=2762 data-nosnippet>2762</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
-<a href=#2763 id=2763 data-nosnippet>2763</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
-<a href=#2764 id=2764 data-nosnippet>2764</a>            Frame::NewConnectionId(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, cid),
-<a href=#2765 id=2765 data-nosnippet>2765</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2766 id=2766 data-nosnippet>2766</a>        }
-<a href=#2767 id=2767 data-nosnippet>2767</a>    }
-<a href=#2768 id=2768 data-nosnippet>2768</a>
-<a href=#2769 id=2769 data-nosnippet>2769</a>    <span class="attr">#[test]
-<a href=#2770 id=2770 data-nosnippet>2770</a>    </span><span class="kw">fn </span>test_path_retire_connection_id_roundtrip() {
-<a href=#2771 id=2771 data-nosnippet>2771</a>        <span class="kw">let </span>retire_cid = RetireConnectionId {
-<a href=#2772 id=2772 data-nosnippet>2772</a>            path_id: <span class="prelude-val">Some</span>(PathId(<span class="number">22</span>)),
-<a href=#2773 id=2773 data-nosnippet>2773</a>            sequence: <span class="number">31</span>,
-<a href=#2774 id=2774 data-nosnippet>2774</a>        };
+<a href=#2532 id=2532 data-nosnippet>2532</a>        <span class="macro">assert_eq!</span>(
+<a href=#2533 id=2533 data-nosnippet>2533</a>            FrameType::try_from(FrameType::Datagram(DatagramInfo(<span class="number">0x30</span>)).to_u64()),
+<a href=#2534 id=2534 data-nosnippet>2534</a>            <span class="prelude-val">Ok</span>(FrameType::Datagram(DatagramInfo(<span class="number">0x30</span>))),
+<a href=#2535 id=2535 data-nosnippet>2535</a>        );
+<a href=#2536 id=2536 data-nosnippet>2536</a>
+<a href=#2537 id=2537 data-nosnippet>2537</a>        <span class="macro">assert_eq!</span>(
+<a href=#2538 id=2538 data-nosnippet>2538</a>            FrameType::try_from(FrameType::Stream(StreamInfo(<span class="number">0x08</span>)).to_u64()),
+<a href=#2539 id=2539 data-nosnippet>2539</a>            <span class="prelude-val">Ok</span>(FrameType::Stream(StreamInfo(<span class="number">0x08</span>))),
+<a href=#2540 id=2540 data-nosnippet>2540</a>        );
+<a href=#2541 id=2541 data-nosnippet>2541</a>    }
+<a href=#2542 id=2542 data-nosnippet>2542</a>
+<a href=#2543 id=2543 data-nosnippet>2543</a>    <span class="attr">#[track_caller]
+<a href=#2544 id=2544 data-nosnippet>2544</a>    </span><span class="kw">fn </span>frames(buf: Vec&lt;u8&gt;) -&gt; Vec&lt;Frame&gt; {
+<a href=#2545 id=2545 data-nosnippet>2545</a>        Iter::new(Bytes::from(buf))
+<a href=#2546 id=2546 data-nosnippet>2546</a>            .unwrap()
+<a href=#2547 id=2547 data-nosnippet>2547</a>            .collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">_</span>&gt;, <span class="kw">_</span>&gt;&gt;()
+<a href=#2548 id=2548 data-nosnippet>2548</a>            .unwrap()
+<a href=#2549 id=2549 data-nosnippet>2549</a>    }
+<a href=#2550 id=2550 data-nosnippet>2550</a>
+<a href=#2551 id=2551 data-nosnippet>2551</a>    <span class="attr">#[test]
+<a href=#2552 id=2552 data-nosnippet>2552</a>    </span><span class="kw">fn </span>ack_coding() {
+<a href=#2553 id=2553 data-nosnippet>2553</a>        <span class="kw">const </span>PACKETS: <span class="kw-2">&amp;</span>[u64] = <span class="kw-2">&amp;</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">5</span>, <span class="number">10</span>, <span class="number">11</span>, <span class="number">14</span>];
+<a href=#2554 id=2554 data-nosnippet>2554</a>        <span class="kw">let </span><span class="kw-2">mut </span>ranges = ArrayRangeSet::new();
+<a href=#2555 id=2555 data-nosnippet>2555</a>        <span class="kw">for </span><span class="kw-2">&amp;</span>packet <span class="kw">in </span>PACKETS {
+<a href=#2556 id=2556 data-nosnippet>2556</a>            ranges.insert(packet..packet + <span class="number">1</span>);
+<a href=#2557 id=2557 data-nosnippet>2557</a>        }
+<a href=#2558 id=2558 data-nosnippet>2558</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#2559 id=2559 data-nosnippet>2559</a>        <span class="kw">const </span>ECN: EcnCounts = EcnCounts {
+<a href=#2560 id=2560 data-nosnippet>2560</a>            ect0: <span class="number">42</span>,
+<a href=#2561 id=2561 data-nosnippet>2561</a>            ect1: <span class="number">24</span>,
+<a href=#2562 id=2562 data-nosnippet>2562</a>            ce: <span class="number">12</span>,
+<a href=#2563 id=2563 data-nosnippet>2563</a>        };
+<a href=#2564 id=2564 data-nosnippet>2564</a>        Ack::encoder(<span class="number">42</span>, <span class="kw-2">&amp;</span>ranges, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ECN)).encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2565 id=2565 data-nosnippet>2565</a>        <span class="kw">let </span>frames = frames(buf);
+<a href=#2566 id=2566 data-nosnippet>2566</a>        <span class="macro">assert_eq!</span>(frames.len(), <span class="number">1</span>);
+<a href=#2567 id=2567 data-nosnippet>2567</a>        <span class="kw">match </span>frames[<span class="number">0</span>] {
+<a href=#2568 id=2568 data-nosnippet>2568</a>            Frame::Ack(<span class="kw-2">ref </span>ack) =&gt; {
+<a href=#2569 id=2569 data-nosnippet>2569</a>                <span class="kw">let </span><span class="kw-2">mut </span>packets = ack.iter().flatten().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
+<a href=#2570 id=2570 data-nosnippet>2570</a>                packets.sort_unstable();
+<a href=#2571 id=2571 data-nosnippet>2571</a>                <span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>packets[..], PACKETS);
+<a href=#2572 id=2572 data-nosnippet>2572</a>                <span class="macro">assert_eq!</span>(ack.ecn, <span class="prelude-val">Some</span>(ECN));
+<a href=#2573 id=2573 data-nosnippet>2573</a>            }
+<a href=#2574 id=2574 data-nosnippet>2574</a>            <span class="kw-2">ref </span>x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2575 id=2575 data-nosnippet>2575</a>        }
+<a href=#2576 id=2576 data-nosnippet>2576</a>    }
+<a href=#2577 id=2577 data-nosnippet>2577</a>
+<a href=#2578 id=2578 data-nosnippet>2578</a>    <span class="attr">#[test]
+<a href=#2579 id=2579 data-nosnippet>2579</a>    #[allow(clippy::range_plus_one)]
+<a href=#2580 id=2580 data-nosnippet>2580</a>    </span><span class="kw">fn </span>path_ack_coding_with_ecn() {
+<a href=#2581 id=2581 data-nosnippet>2581</a>        <span class="kw">const </span>PACKETS: <span class="kw-2">&amp;</span>[u64] = <span class="kw-2">&amp;</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">5</span>, <span class="number">10</span>, <span class="number">11</span>, <span class="number">14</span>];
+<a href=#2582 id=2582 data-nosnippet>2582</a>        <span class="kw">let </span><span class="kw-2">mut </span>ranges = ArrayRangeSet::new();
+<a href=#2583 id=2583 data-nosnippet>2583</a>        <span class="kw">for </span><span class="kw-2">&amp;</span>packet <span class="kw">in </span>PACKETS {
+<a href=#2584 id=2584 data-nosnippet>2584</a>            ranges.insert(packet..packet + <span class="number">1</span>);
+<a href=#2585 id=2585 data-nosnippet>2585</a>        }
+<a href=#2586 id=2586 data-nosnippet>2586</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#2587 id=2587 data-nosnippet>2587</a>        <span class="kw">const </span>ECN: EcnCounts = EcnCounts {
+<a href=#2588 id=2588 data-nosnippet>2588</a>            ect0: <span class="number">42</span>,
+<a href=#2589 id=2589 data-nosnippet>2589</a>            ect1: <span class="number">24</span>,
+<a href=#2590 id=2590 data-nosnippet>2590</a>            ce: <span class="number">12</span>,
+<a href=#2591 id=2591 data-nosnippet>2591</a>        };
+<a href=#2592 id=2592 data-nosnippet>2592</a>        <span class="kw">const </span>PATH_ID: PathId = PathId::MAX;
+<a href=#2593 id=2593 data-nosnippet>2593</a>        PathAck::encoder(PATH_ID, <span class="number">42</span>, <span class="kw-2">&amp;</span>ranges, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ECN)).encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2594 id=2594 data-nosnippet>2594</a>        <span class="kw">let </span>frames = frames(buf);
+<a href=#2595 id=2595 data-nosnippet>2595</a>        <span class="macro">assert_eq!</span>(frames.len(), <span class="number">1</span>);
+<a href=#2596 id=2596 data-nosnippet>2596</a>        <span class="kw">match </span>frames[<span class="number">0</span>] {
+<a href=#2597 id=2597 data-nosnippet>2597</a>            Frame::PathAck(<span class="kw-2">ref </span>ack) =&gt; {
+<a href=#2598 id=2598 data-nosnippet>2598</a>                <span class="macro">assert_eq!</span>(ack.path_id, PATH_ID);
+<a href=#2599 id=2599 data-nosnippet>2599</a>                <span class="kw">let </span><span class="kw-2">mut </span>packets = ack.ranges.iter().flatten().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
+<a href=#2600 id=2600 data-nosnippet>2600</a>                packets.sort_unstable();
+<a href=#2601 id=2601 data-nosnippet>2601</a>                <span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>packets[..], PACKETS);
+<a href=#2602 id=2602 data-nosnippet>2602</a>                <span class="macro">assert_eq!</span>(ack.ecn, <span class="prelude-val">Some</span>(ECN));
+<a href=#2603 id=2603 data-nosnippet>2603</a>            }
+<a href=#2604 id=2604 data-nosnippet>2604</a>            <span class="kw-2">ref </span>x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2605 id=2605 data-nosnippet>2605</a>        }
+<a href=#2606 id=2606 data-nosnippet>2606</a>    }
+<a href=#2607 id=2607 data-nosnippet>2607</a>
+<a href=#2608 id=2608 data-nosnippet>2608</a>    <span class="attr">#[test]
+<a href=#2609 id=2609 data-nosnippet>2609</a>    #[allow(clippy::range_plus_one)]
+<a href=#2610 id=2610 data-nosnippet>2610</a>    </span><span class="kw">fn </span>path_ack_coding_no_ecn() {
+<a href=#2611 id=2611 data-nosnippet>2611</a>        <span class="kw">const </span>PACKETS: <span class="kw-2">&amp;</span>[u64] = <span class="kw-2">&amp;</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">5</span>, <span class="number">10</span>, <span class="number">11</span>, <span class="number">14</span>];
+<a href=#2612 id=2612 data-nosnippet>2612</a>        <span class="kw">let </span><span class="kw-2">mut </span>ranges = ArrayRangeSet::new();
+<a href=#2613 id=2613 data-nosnippet>2613</a>        <span class="kw">for </span><span class="kw-2">&amp;</span>packet <span class="kw">in </span>PACKETS {
+<a href=#2614 id=2614 data-nosnippet>2614</a>            ranges.insert(packet..packet + <span class="number">1</span>);
+<a href=#2615 id=2615 data-nosnippet>2615</a>        }
+<a href=#2616 id=2616 data-nosnippet>2616</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#2617 id=2617 data-nosnippet>2617</a>        <span class="kw">const </span>PATH_ID: PathId = PathId::MAX;
+<a href=#2618 id=2618 data-nosnippet>2618</a>        PathAck::encoder(PATH_ID, <span class="number">42</span>, <span class="kw-2">&amp;</span>ranges, <span class="prelude-val">None</span>).encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2619 id=2619 data-nosnippet>2619</a>        <span class="kw">let </span>frames = frames(buf);
+<a href=#2620 id=2620 data-nosnippet>2620</a>        <span class="macro">assert_eq!</span>(frames.len(), <span class="number">1</span>);
+<a href=#2621 id=2621 data-nosnippet>2621</a>        <span class="kw">match </span>frames[<span class="number">0</span>] {
+<a href=#2622 id=2622 data-nosnippet>2622</a>            Frame::PathAck(<span class="kw-2">ref </span>ack) =&gt; {
+<a href=#2623 id=2623 data-nosnippet>2623</a>                <span class="macro">assert_eq!</span>(ack.path_id, PATH_ID);
+<a href=#2624 id=2624 data-nosnippet>2624</a>                <span class="kw">let </span><span class="kw-2">mut </span>packets = ack.ranges.iter().flatten().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
+<a href=#2625 id=2625 data-nosnippet>2625</a>                packets.sort_unstable();
+<a href=#2626 id=2626 data-nosnippet>2626</a>                <span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>packets[..], PACKETS);
+<a href=#2627 id=2627 data-nosnippet>2627</a>                <span class="macro">assert_eq!</span>(ack.ecn, <span class="prelude-val">None</span>);
+<a href=#2628 id=2628 data-nosnippet>2628</a>            }
+<a href=#2629 id=2629 data-nosnippet>2629</a>            <span class="kw-2">ref </span>x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2630 id=2630 data-nosnippet>2630</a>        }
+<a href=#2631 id=2631 data-nosnippet>2631</a>    }
+<a href=#2632 id=2632 data-nosnippet>2632</a>
+<a href=#2633 id=2633 data-nosnippet>2633</a>    <span class="attr">#[test]
+<a href=#2634 id=2634 data-nosnippet>2634</a>    </span><span class="kw">fn </span>ack_frequency_coding() {
+<a href=#2635 id=2635 data-nosnippet>2635</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#2636 id=2636 data-nosnippet>2636</a>        <span class="kw">let </span>original = AckFrequency {
+<a href=#2637 id=2637 data-nosnippet>2637</a>            sequence: VarInt(<span class="number">42</span>),
+<a href=#2638 id=2638 data-nosnippet>2638</a>            ack_eliciting_threshold: VarInt(<span class="number">20</span>),
+<a href=#2639 id=2639 data-nosnippet>2639</a>            request_max_ack_delay: VarInt(<span class="number">50_000</span>),
+<a href=#2640 id=2640 data-nosnippet>2640</a>            reordering_threshold: VarInt(<span class="number">1</span>),
+<a href=#2641 id=2641 data-nosnippet>2641</a>        };
+<a href=#2642 id=2642 data-nosnippet>2642</a>        original.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2643 id=2643 data-nosnippet>2643</a>        <span class="kw">let </span>frames = frames(buf);
+<a href=#2644 id=2644 data-nosnippet>2644</a>        <span class="macro">assert_eq!</span>(frames.len(), <span class="number">1</span>);
+<a href=#2645 id=2645 data-nosnippet>2645</a>        <span class="kw">match </span><span class="kw-2">&amp;</span>frames[<span class="number">0</span>] {
+<a href=#2646 id=2646 data-nosnippet>2646</a>            Frame::AckFrequency(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, <span class="kw-2">&amp;</span>original),
+<a href=#2647 id=2647 data-nosnippet>2647</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2648 id=2648 data-nosnippet>2648</a>        }
+<a href=#2649 id=2649 data-nosnippet>2649</a>    }
+<a href=#2650 id=2650 data-nosnippet>2650</a>
+<a href=#2651 id=2651 data-nosnippet>2651</a>    <span class="attr">#[test]
+<a href=#2652 id=2652 data-nosnippet>2652</a>    </span><span class="kw">fn </span>immediate_ack_coding() {
+<a href=#2653 id=2653 data-nosnippet>2653</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#2654 id=2654 data-nosnippet>2654</a>        FrameType::ImmediateAck.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2655 id=2655 data-nosnippet>2655</a>        <span class="kw">let </span>frames = frames(buf);
+<a href=#2656 id=2656 data-nosnippet>2656</a>        <span class="macro">assert_eq!</span>(frames.len(), <span class="number">1</span>);
+<a href=#2657 id=2657 data-nosnippet>2657</a>        <span class="macro">assert_matches!</span>(<span class="kw-2">&amp;</span>frames[<span class="number">0</span>], Frame::ImmediateAck);
+<a href=#2658 id=2658 data-nosnippet>2658</a>    }
+<a href=#2659 id=2659 data-nosnippet>2659</a>
+<a href=#2660 id=2660 data-nosnippet>2660</a>    <span class="doccomment">/// Test that encoding and decoding [`ObservedAddr`] produces the same result.
+<a href=#2661 id=2661 data-nosnippet>2661</a>    </span><span class="attr">#[test]
+<a href=#2662 id=2662 data-nosnippet>2662</a>    </span><span class="kw">fn </span>test_observed_addr_roundrip() {
+<a href=#2663 id=2663 data-nosnippet>2663</a>        <span class="kw">let </span>observed_addr = ObservedAddr {
+<a href=#2664 id=2664 data-nosnippet>2664</a>            seq_no: VarInt(<span class="number">42</span>),
+<a href=#2665 id=2665 data-nosnippet>2665</a>            ip: std::net::Ipv4Addr::LOCALHOST.into(),
+<a href=#2666 id=2666 data-nosnippet>2666</a>            port: <span class="number">4242</span>,
+<a href=#2667 id=2667 data-nosnippet>2667</a>        };
+<a href=#2668 id=2668 data-nosnippet>2668</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::with_capacity(observed_addr.size());
+<a href=#2669 id=2669 data-nosnippet>2669</a>        observed_addr.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2670 id=2670 data-nosnippet>2670</a>
+<a href=#2671 id=2671 data-nosnippet>2671</a>        <span class="macro">assert_eq!</span>(
+<a href=#2672 id=2672 data-nosnippet>2672</a>            observed_addr.size(),
+<a href=#2673 id=2673 data-nosnippet>2673</a>            buf.len(),
+<a href=#2674 id=2674 data-nosnippet>2674</a>            <span class="string">"expected written bytes and actual size differ"
+<a href=#2675 id=2675 data-nosnippet>2675</a>        </span>);
+<a href=#2676 id=2676 data-nosnippet>2676</a>
+<a href=#2677 id=2677 data-nosnippet>2677</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
+<a href=#2678 id=2678 data-nosnippet>2678</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
+<a href=#2679 id=2679 data-nosnippet>2679</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
+<a href=#2680 id=2680 data-nosnippet>2680</a>            Frame::ObservedAddr(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, observed_addr),
+<a href=#2681 id=2681 data-nosnippet>2681</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2682 id=2682 data-nosnippet>2682</a>        }
+<a href=#2683 id=2683 data-nosnippet>2683</a>    }
+<a href=#2684 id=2684 data-nosnippet>2684</a>
+<a href=#2685 id=2685 data-nosnippet>2685</a>    <span class="attr">#[test]
+<a href=#2686 id=2686 data-nosnippet>2686</a>    </span><span class="kw">fn </span>test_path_abandon_roundtrip() {
+<a href=#2687 id=2687 data-nosnippet>2687</a>        <span class="kw">let </span>abandon = PathAbandon {
+<a href=#2688 id=2688 data-nosnippet>2688</a>            path_id: PathId(<span class="number">42</span>),
+<a href=#2689 id=2689 data-nosnippet>2689</a>            error_code: TransportErrorCode::NO_ERROR,
+<a href=#2690 id=2690 data-nosnippet>2690</a>        };
+<a href=#2691 id=2691 data-nosnippet>2691</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#2692 id=2692 data-nosnippet>2692</a>        abandon.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2693 id=2693 data-nosnippet>2693</a>
+<a href=#2694 id=2694 data-nosnippet>2694</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
+<a href=#2695 id=2695 data-nosnippet>2695</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
+<a href=#2696 id=2696 data-nosnippet>2696</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
+<a href=#2697 id=2697 data-nosnippet>2697</a>            Frame::PathAbandon(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, abandon),
+<a href=#2698 id=2698 data-nosnippet>2698</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2699 id=2699 data-nosnippet>2699</a>        }
+<a href=#2700 id=2700 data-nosnippet>2700</a>    }
+<a href=#2701 id=2701 data-nosnippet>2701</a>
+<a href=#2702 id=2702 data-nosnippet>2702</a>    <span class="attr">#[test]
+<a href=#2703 id=2703 data-nosnippet>2703</a>    </span><span class="kw">fn </span>test_path_status_available_roundtrip() {
+<a href=#2704 id=2704 data-nosnippet>2704</a>        <span class="kw">let </span>path_status_available = PathStatusAvailable {
+<a href=#2705 id=2705 data-nosnippet>2705</a>            path_id: PathId(<span class="number">42</span>),
+<a href=#2706 id=2706 data-nosnippet>2706</a>            status_seq_no: VarInt(<span class="number">73</span>),
+<a href=#2707 id=2707 data-nosnippet>2707</a>        };
+<a href=#2708 id=2708 data-nosnippet>2708</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#2709 id=2709 data-nosnippet>2709</a>        path_status_available.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2710 id=2710 data-nosnippet>2710</a>
+<a href=#2711 id=2711 data-nosnippet>2711</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
+<a href=#2712 id=2712 data-nosnippet>2712</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
+<a href=#2713 id=2713 data-nosnippet>2713</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
+<a href=#2714 id=2714 data-nosnippet>2714</a>            Frame::PathStatusAvailable(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, path_status_available),
+<a href=#2715 id=2715 data-nosnippet>2715</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2716 id=2716 data-nosnippet>2716</a>        }
+<a href=#2717 id=2717 data-nosnippet>2717</a>    }
+<a href=#2718 id=2718 data-nosnippet>2718</a>
+<a href=#2719 id=2719 data-nosnippet>2719</a>    <span class="attr">#[test]
+<a href=#2720 id=2720 data-nosnippet>2720</a>    </span><span class="kw">fn </span>test_path_status_backup_roundtrip() {
+<a href=#2721 id=2721 data-nosnippet>2721</a>        <span class="kw">let </span>path_status_backup = PathStatusBackup {
+<a href=#2722 id=2722 data-nosnippet>2722</a>            path_id: PathId(<span class="number">42</span>),
+<a href=#2723 id=2723 data-nosnippet>2723</a>            status_seq_no: VarInt(<span class="number">73</span>),
+<a href=#2724 id=2724 data-nosnippet>2724</a>        };
+<a href=#2725 id=2725 data-nosnippet>2725</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#2726 id=2726 data-nosnippet>2726</a>        path_status_backup.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2727 id=2727 data-nosnippet>2727</a>
+<a href=#2728 id=2728 data-nosnippet>2728</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
+<a href=#2729 id=2729 data-nosnippet>2729</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
+<a href=#2730 id=2730 data-nosnippet>2730</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
+<a href=#2731 id=2731 data-nosnippet>2731</a>            Frame::PathStatusBackup(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, path_status_backup),
+<a href=#2732 id=2732 data-nosnippet>2732</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2733 id=2733 data-nosnippet>2733</a>        }
+<a href=#2734 id=2734 data-nosnippet>2734</a>    }
+<a href=#2735 id=2735 data-nosnippet>2735</a>
+<a href=#2736 id=2736 data-nosnippet>2736</a>    <span class="attr">#[test]
+<a href=#2737 id=2737 data-nosnippet>2737</a>    </span><span class="kw">fn </span>test_path_new_connection_id_roundtrip() {
+<a href=#2738 id=2738 data-nosnippet>2738</a>        <span class="kw">let </span>cid = NewConnectionId {
+<a href=#2739 id=2739 data-nosnippet>2739</a>            path_id: <span class="prelude-val">Some</span>(PathId(<span class="number">22</span>)),
+<a href=#2740 id=2740 data-nosnippet>2740</a>            sequence: <span class="number">31</span>,
+<a href=#2741 id=2741 data-nosnippet>2741</a>            retire_prior_to: <span class="number">13</span>,
+<a href=#2742 id=2742 data-nosnippet>2742</a>            id: ConnectionId::new(<span class="kw-2">&amp;</span>[<span class="number">0xAB</span>; <span class="number">8</span>]),
+<a href=#2743 id=2743 data-nosnippet>2743</a>            reset_token: ResetToken::from([<span class="number">0xCD</span>; <span class="kw">crate</span>::RESET_TOKEN_SIZE]),
+<a href=#2744 id=2744 data-nosnippet>2744</a>        };
+<a href=#2745 id=2745 data-nosnippet>2745</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#2746 id=2746 data-nosnippet>2746</a>        cid.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2747 id=2747 data-nosnippet>2747</a>
+<a href=#2748 id=2748 data-nosnippet>2748</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
+<a href=#2749 id=2749 data-nosnippet>2749</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
+<a href=#2750 id=2750 data-nosnippet>2750</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
+<a href=#2751 id=2751 data-nosnippet>2751</a>            Frame::NewConnectionId(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, cid),
+<a href=#2752 id=2752 data-nosnippet>2752</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2753 id=2753 data-nosnippet>2753</a>        }
+<a href=#2754 id=2754 data-nosnippet>2754</a>    }
+<a href=#2755 id=2755 data-nosnippet>2755</a>
+<a href=#2756 id=2756 data-nosnippet>2756</a>    <span class="attr">#[test]
+<a href=#2757 id=2757 data-nosnippet>2757</a>    </span><span class="kw">fn </span>test_path_retire_connection_id_roundtrip() {
+<a href=#2758 id=2758 data-nosnippet>2758</a>        <span class="kw">let </span>retire_cid = RetireConnectionId {
+<a href=#2759 id=2759 data-nosnippet>2759</a>            path_id: <span class="prelude-val">Some</span>(PathId(<span class="number">22</span>)),
+<a href=#2760 id=2760 data-nosnippet>2760</a>            sequence: <span class="number">31</span>,
+<a href=#2761 id=2761 data-nosnippet>2761</a>        };
+<a href=#2762 id=2762 data-nosnippet>2762</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
+<a href=#2763 id=2763 data-nosnippet>2763</a>        retire_cid.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2764 id=2764 data-nosnippet>2764</a>
+<a href=#2765 id=2765 data-nosnippet>2765</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
+<a href=#2766 id=2766 data-nosnippet>2766</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
+<a href=#2767 id=2767 data-nosnippet>2767</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
+<a href=#2768 id=2768 data-nosnippet>2768</a>            Frame::RetireConnectionId(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, retire_cid),
+<a href=#2769 id=2769 data-nosnippet>2769</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2770 id=2770 data-nosnippet>2770</a>        }
+<a href=#2771 id=2771 data-nosnippet>2771</a>    }
+<a href=#2772 id=2772 data-nosnippet>2772</a>
+<a href=#2773 id=2773 data-nosnippet>2773</a>    <span class="attr">#[test]
+<a href=#2774 id=2774 data-nosnippet>2774</a>    </span><span class="kw">fn </span>test_paths_blocked_path_cids_blocked_roundtrip() {
 <a href=#2775 id=2775 data-nosnippet>2775</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#2776 id=2776 data-nosnippet>2776</a>        retire_cid.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2777 id=2777 data-nosnippet>2777</a>
-<a href=#2778 id=2778 data-nosnippet>2778</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
-<a href=#2779 id=2779 data-nosnippet>2779</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
-<a href=#2780 id=2780 data-nosnippet>2780</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
-<a href=#2781 id=2781 data-nosnippet>2781</a>            Frame::RetireConnectionId(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, retire_cid),
-<a href=#2782 id=2782 data-nosnippet>2782</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2783 id=2783 data-nosnippet>2783</a>        }
-<a href=#2784 id=2784 data-nosnippet>2784</a>    }
-<a href=#2785 id=2785 data-nosnippet>2785</a>
-<a href=#2786 id=2786 data-nosnippet>2786</a>    <span class="attr">#[test]
-<a href=#2787 id=2787 data-nosnippet>2787</a>    </span><span class="kw">fn </span>test_paths_blocked_path_cids_blocked_roundtrip() {
-<a href=#2788 id=2788 data-nosnippet>2788</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::new();
-<a href=#2789 id=2789 data-nosnippet>2789</a>
-<a href=#2790 id=2790 data-nosnippet>2790</a>        <span class="kw">let </span>frame0 = PathsBlocked(PathId(<span class="number">22</span>));
-<a href=#2791 id=2791 data-nosnippet>2791</a>        frame0.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2792 id=2792 data-nosnippet>2792</a>        <span class="kw">let </span>frame1 = PathCidsBlocked {
-<a href=#2793 id=2793 data-nosnippet>2793</a>            path_id: PathId(<span class="number">23</span>),
-<a href=#2794 id=2794 data-nosnippet>2794</a>            next_seq: VarInt(<span class="number">32</span>),
-<a href=#2795 id=2795 data-nosnippet>2795</a>        };
-<a href=#2796 id=2796 data-nosnippet>2796</a>        frame1.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2797 id=2797 data-nosnippet>2797</a>
-<a href=#2798 id=2798 data-nosnippet>2798</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
-<a href=#2799 id=2799 data-nosnippet>2799</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">2</span>);
-<a href=#2800 id=2800 data-nosnippet>2800</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
-<a href=#2801 id=2801 data-nosnippet>2801</a>            Frame::PathCidsBlocked(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, frame1),
-<a href=#2802 id=2802 data-nosnippet>2802</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2803 id=2803 data-nosnippet>2803</a>        }
-<a href=#2804 id=2804 data-nosnippet>2804</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
-<a href=#2805 id=2805 data-nosnippet>2805</a>            Frame::PathsBlocked(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, frame0),
-<a href=#2806 id=2806 data-nosnippet>2806</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2807 id=2807 data-nosnippet>2807</a>        }
-<a href=#2808 id=2808 data-nosnippet>2808</a>    }
-<a href=#2809 id=2809 data-nosnippet>2809</a>
-<a href=#2810 id=2810 data-nosnippet>2810</a>    <span class="doccomment">/// Test that encoding and decoding [`AddAddress`] produces the same result
-<a href=#2811 id=2811 data-nosnippet>2811</a>    </span><span class="attr">#[test]
-<a href=#2812 id=2812 data-nosnippet>2812</a>    </span><span class="kw">fn </span>test_add_address_roundrip() {
-<a href=#2813 id=2813 data-nosnippet>2813</a>        <span class="kw">let </span>add_address = AddAddress {
-<a href=#2814 id=2814 data-nosnippet>2814</a>            seq_no: VarInt(<span class="number">42</span>),
-<a href=#2815 id=2815 data-nosnippet>2815</a>            ip: std::net::Ipv4Addr::LOCALHOST.into(),
-<a href=#2816 id=2816 data-nosnippet>2816</a>            port: <span class="number">4242</span>,
-<a href=#2817 id=2817 data-nosnippet>2817</a>        };
-<a href=#2818 id=2818 data-nosnippet>2818</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::with_capacity(add_address.size());
-<a href=#2819 id=2819 data-nosnippet>2819</a>        add_address.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2820 id=2820 data-nosnippet>2820</a>
-<a href=#2821 id=2821 data-nosnippet>2821</a>        <span class="macro">assert_eq!</span>(
-<a href=#2822 id=2822 data-nosnippet>2822</a>            add_address.size(),
-<a href=#2823 id=2823 data-nosnippet>2823</a>            buf.len(),
-<a href=#2824 id=2824 data-nosnippet>2824</a>            <span class="string">"expected written bytes and actual size differ"
-<a href=#2825 id=2825 data-nosnippet>2825</a>        </span>);
-<a href=#2826 id=2826 data-nosnippet>2826</a>
-<a href=#2827 id=2827 data-nosnippet>2827</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
-<a href=#2828 id=2828 data-nosnippet>2828</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
-<a href=#2829 id=2829 data-nosnippet>2829</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
-<a href=#2830 id=2830 data-nosnippet>2830</a>            Frame::AddAddress(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, add_address),
-<a href=#2831 id=2831 data-nosnippet>2831</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2832 id=2832 data-nosnippet>2832</a>        }
-<a href=#2833 id=2833 data-nosnippet>2833</a>    }
-<a href=#2834 id=2834 data-nosnippet>2834</a>
-<a href=#2835 id=2835 data-nosnippet>2835</a>    <span class="doccomment">/// Test that encoding and decoding [`AddAddress`] produces the same result
-<a href=#2836 id=2836 data-nosnippet>2836</a>    </span><span class="attr">#[test]
-<a href=#2837 id=2837 data-nosnippet>2837</a>    </span><span class="kw">fn </span>test_reach_out_roundrip() {
-<a href=#2838 id=2838 data-nosnippet>2838</a>        <span class="kw">let </span>reach_out = ReachOut {
-<a href=#2839 id=2839 data-nosnippet>2839</a>            round: VarInt(<span class="number">42</span>),
-<a href=#2840 id=2840 data-nosnippet>2840</a>            ip: std::net::Ipv6Addr::LOCALHOST.into(),
-<a href=#2841 id=2841 data-nosnippet>2841</a>            port: <span class="number">4242</span>,
-<a href=#2842 id=2842 data-nosnippet>2842</a>        };
-<a href=#2843 id=2843 data-nosnippet>2843</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::with_capacity(reach_out.size());
-<a href=#2844 id=2844 data-nosnippet>2844</a>        reach_out.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2845 id=2845 data-nosnippet>2845</a>
-<a href=#2846 id=2846 data-nosnippet>2846</a>        <span class="macro">assert_eq!</span>(
-<a href=#2847 id=2847 data-nosnippet>2847</a>            reach_out.size(),
-<a href=#2848 id=2848 data-nosnippet>2848</a>            buf.len(),
-<a href=#2849 id=2849 data-nosnippet>2849</a>            <span class="string">"expected written bytes and actual size differ"
-<a href=#2850 id=2850 data-nosnippet>2850</a>        </span>);
-<a href=#2851 id=2851 data-nosnippet>2851</a>
-<a href=#2852 id=2852 data-nosnippet>2852</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
-<a href=#2853 id=2853 data-nosnippet>2853</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
-<a href=#2854 id=2854 data-nosnippet>2854</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
-<a href=#2855 id=2855 data-nosnippet>2855</a>            Frame::ReachOut(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, reach_out),
-<a href=#2856 id=2856 data-nosnippet>2856</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2857 id=2857 data-nosnippet>2857</a>        }
-<a href=#2858 id=2858 data-nosnippet>2858</a>    }
+<a href=#2776 id=2776 data-nosnippet>2776</a>
+<a href=#2777 id=2777 data-nosnippet>2777</a>        <span class="kw">let </span>frame0 = PathsBlocked(PathId(<span class="number">22</span>));
+<a href=#2778 id=2778 data-nosnippet>2778</a>        frame0.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2779 id=2779 data-nosnippet>2779</a>        <span class="kw">let </span>frame1 = PathCidsBlocked {
+<a href=#2780 id=2780 data-nosnippet>2780</a>            path_id: PathId(<span class="number">23</span>),
+<a href=#2781 id=2781 data-nosnippet>2781</a>            next_seq: VarInt(<span class="number">32</span>),
+<a href=#2782 id=2782 data-nosnippet>2782</a>        };
+<a href=#2783 id=2783 data-nosnippet>2783</a>        frame1.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2784 id=2784 data-nosnippet>2784</a>
+<a href=#2785 id=2785 data-nosnippet>2785</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
+<a href=#2786 id=2786 data-nosnippet>2786</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">2</span>);
+<a href=#2787 id=2787 data-nosnippet>2787</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
+<a href=#2788 id=2788 data-nosnippet>2788</a>            Frame::PathCidsBlocked(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, frame1),
+<a href=#2789 id=2789 data-nosnippet>2789</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2790 id=2790 data-nosnippet>2790</a>        }
+<a href=#2791 id=2791 data-nosnippet>2791</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
+<a href=#2792 id=2792 data-nosnippet>2792</a>            Frame::PathsBlocked(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, frame0),
+<a href=#2793 id=2793 data-nosnippet>2793</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2794 id=2794 data-nosnippet>2794</a>        }
+<a href=#2795 id=2795 data-nosnippet>2795</a>    }
+<a href=#2796 id=2796 data-nosnippet>2796</a>
+<a href=#2797 id=2797 data-nosnippet>2797</a>    <span class="doccomment">/// Test that encoding and decoding [`AddAddress`] produces the same result
+<a href=#2798 id=2798 data-nosnippet>2798</a>    </span><span class="attr">#[test]
+<a href=#2799 id=2799 data-nosnippet>2799</a>    </span><span class="kw">fn </span>test_add_address_roundrip() {
+<a href=#2800 id=2800 data-nosnippet>2800</a>        <span class="kw">let </span>add_address = AddAddress {
+<a href=#2801 id=2801 data-nosnippet>2801</a>            seq_no: VarInt(<span class="number">42</span>),
+<a href=#2802 id=2802 data-nosnippet>2802</a>            ip: std::net::Ipv4Addr::LOCALHOST.into(),
+<a href=#2803 id=2803 data-nosnippet>2803</a>            port: <span class="number">4242</span>,
+<a href=#2804 id=2804 data-nosnippet>2804</a>        };
+<a href=#2805 id=2805 data-nosnippet>2805</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::with_capacity(add_address.size());
+<a href=#2806 id=2806 data-nosnippet>2806</a>        add_address.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2807 id=2807 data-nosnippet>2807</a>
+<a href=#2808 id=2808 data-nosnippet>2808</a>        <span class="macro">assert_eq!</span>(
+<a href=#2809 id=2809 data-nosnippet>2809</a>            add_address.size(),
+<a href=#2810 id=2810 data-nosnippet>2810</a>            buf.len(),
+<a href=#2811 id=2811 data-nosnippet>2811</a>            <span class="string">"expected written bytes and actual size differ"
+<a href=#2812 id=2812 data-nosnippet>2812</a>        </span>);
+<a href=#2813 id=2813 data-nosnippet>2813</a>
+<a href=#2814 id=2814 data-nosnippet>2814</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
+<a href=#2815 id=2815 data-nosnippet>2815</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
+<a href=#2816 id=2816 data-nosnippet>2816</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
+<a href=#2817 id=2817 data-nosnippet>2817</a>            Frame::AddAddress(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, add_address),
+<a href=#2818 id=2818 data-nosnippet>2818</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2819 id=2819 data-nosnippet>2819</a>        }
+<a href=#2820 id=2820 data-nosnippet>2820</a>    }
+<a href=#2821 id=2821 data-nosnippet>2821</a>
+<a href=#2822 id=2822 data-nosnippet>2822</a>    <span class="doccomment">/// Test that encoding and decoding [`AddAddress`] produces the same result
+<a href=#2823 id=2823 data-nosnippet>2823</a>    </span><span class="attr">#[test]
+<a href=#2824 id=2824 data-nosnippet>2824</a>    </span><span class="kw">fn </span>test_reach_out_roundrip() {
+<a href=#2825 id=2825 data-nosnippet>2825</a>        <span class="kw">let </span>reach_out = ReachOut {
+<a href=#2826 id=2826 data-nosnippet>2826</a>            round: VarInt(<span class="number">42</span>),
+<a href=#2827 id=2827 data-nosnippet>2827</a>            ip: std::net::Ipv6Addr::LOCALHOST.into(),
+<a href=#2828 id=2828 data-nosnippet>2828</a>            port: <span class="number">4242</span>,
+<a href=#2829 id=2829 data-nosnippet>2829</a>        };
+<a href=#2830 id=2830 data-nosnippet>2830</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::with_capacity(reach_out.size());
+<a href=#2831 id=2831 data-nosnippet>2831</a>        reach_out.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2832 id=2832 data-nosnippet>2832</a>
+<a href=#2833 id=2833 data-nosnippet>2833</a>        <span class="macro">assert_eq!</span>(
+<a href=#2834 id=2834 data-nosnippet>2834</a>            reach_out.size(),
+<a href=#2835 id=2835 data-nosnippet>2835</a>            buf.len(),
+<a href=#2836 id=2836 data-nosnippet>2836</a>            <span class="string">"expected written bytes and actual size differ"
+<a href=#2837 id=2837 data-nosnippet>2837</a>        </span>);
+<a href=#2838 id=2838 data-nosnippet>2838</a>
+<a href=#2839 id=2839 data-nosnippet>2839</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
+<a href=#2840 id=2840 data-nosnippet>2840</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
+<a href=#2841 id=2841 data-nosnippet>2841</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
+<a href=#2842 id=2842 data-nosnippet>2842</a>            Frame::ReachOut(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, reach_out),
+<a href=#2843 id=2843 data-nosnippet>2843</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2844 id=2844 data-nosnippet>2844</a>        }
+<a href=#2845 id=2845 data-nosnippet>2845</a>    }
+<a href=#2846 id=2846 data-nosnippet>2846</a>
+<a href=#2847 id=2847 data-nosnippet>2847</a>    <span class="doccomment">/// Test that encoding and decoding [`RemoveAddress`] produces the same result
+<a href=#2848 id=2848 data-nosnippet>2848</a>    </span><span class="attr">#[test]
+<a href=#2849 id=2849 data-nosnippet>2849</a>    </span><span class="kw">fn </span>test_remove_address_roundrip() {
+<a href=#2850 id=2850 data-nosnippet>2850</a>        <span class="kw">let </span>remove_addr = RemoveAddress::new(VarInt(<span class="number">10</span>));
+<a href=#2851 id=2851 data-nosnippet>2851</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::with_capacity(remove_addr.size());
+<a href=#2852 id=2852 data-nosnippet>2852</a>        remove_addr.encode(<span class="kw-2">&amp;mut </span>buf);
+<a href=#2853 id=2853 data-nosnippet>2853</a>
+<a href=#2854 id=2854 data-nosnippet>2854</a>        <span class="macro">assert_eq!</span>(
+<a href=#2855 id=2855 data-nosnippet>2855</a>            remove_addr.size(),
+<a href=#2856 id=2856 data-nosnippet>2856</a>            buf.len(),
+<a href=#2857 id=2857 data-nosnippet>2857</a>            <span class="string">"expected written bytes and actual size differ"
+<a href=#2858 id=2858 data-nosnippet>2858</a>        </span>);
 <a href=#2859 id=2859 data-nosnippet>2859</a>
-<a href=#2860 id=2860 data-nosnippet>2860</a>    <span class="doccomment">/// Test that encoding and decoding [`RemoveAddress`] produces the same result
-<a href=#2861 id=2861 data-nosnippet>2861</a>    </span><span class="attr">#[test]
-<a href=#2862 id=2862 data-nosnippet>2862</a>    </span><span class="kw">fn </span>test_remove_address_roundrip() {
-<a href=#2863 id=2863 data-nosnippet>2863</a>        <span class="kw">let </span>remove_addr = RemoveAddress::new(VarInt(<span class="number">10</span>));
-<a href=#2864 id=2864 data-nosnippet>2864</a>        <span class="kw">let </span><span class="kw-2">mut </span>buf = Vec::with_capacity(remove_addr.size());
-<a href=#2865 id=2865 data-nosnippet>2865</a>        remove_addr.encode(<span class="kw-2">&amp;mut </span>buf);
-<a href=#2866 id=2866 data-nosnippet>2866</a>
-<a href=#2867 id=2867 data-nosnippet>2867</a>        <span class="macro">assert_eq!</span>(
-<a href=#2868 id=2868 data-nosnippet>2868</a>            remove_addr.size(),
-<a href=#2869 id=2869 data-nosnippet>2869</a>            buf.len(),
-<a href=#2870 id=2870 data-nosnippet>2870</a>            <span class="string">"expected written bytes and actual size differ"
-<a href=#2871 id=2871 data-nosnippet>2871</a>        </span>);
-<a href=#2872 id=2872 data-nosnippet>2872</a>
-<a href=#2873 id=2873 data-nosnippet>2873</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
-<a href=#2874 id=2874 data-nosnippet>2874</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
-<a href=#2875 id=2875 data-nosnippet>2875</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
-<a href=#2876 id=2876 data-nosnippet>2876</a>            Frame::RemoveAddress(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, remove_addr),
-<a href=#2877 id=2877 data-nosnippet>2877</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
-<a href=#2878 id=2878 data-nosnippet>2878</a>        }
-<a href=#2879 id=2879 data-nosnippet>2879</a>    }
-<a href=#2880 id=2880 data-nosnippet>2880</a>}</code></pre></div></section></main></body></html>
+<a href=#2860 id=2860 data-nosnippet>2860</a>        <span class="kw">let </span><span class="kw-2">mut </span>decoded = frames(buf);
+<a href=#2861 id=2861 data-nosnippet>2861</a>        <span class="macro">assert_eq!</span>(decoded.len(), <span class="number">1</span>);
+<a href=#2862 id=2862 data-nosnippet>2862</a>        <span class="kw">match </span>decoded.pop().expect(<span class="string">"non empty"</span>) {
+<a href=#2863 id=2863 data-nosnippet>2863</a>            Frame::RemoveAddress(decoded) =&gt; <span class="macro">assert_eq!</span>(decoded, remove_addr),
+<a href=#2864 id=2864 data-nosnippet>2864</a>            x =&gt; <span class="macro">panic!</span>(<span class="string">"incorrect frame {x:?}"</span>),
+<a href=#2865 id=2865 data-nosnippet>2865</a>        }
+<a href=#2866 id=2866 data-nosnippet>2866</a>    }
+<a href=#2867 id=2867 data-nosnippet>2867</a>}</code></pre></div></section></main></body></html>
