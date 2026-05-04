@@ -4243,7 +4243,11 @@ impl Connection {
 
                 // Now the packet is authenticated we do the migration during the
                 // handshake. See Handshake::allow_server_migration for details.
-                if self.is_handshaking() && network_path != self.path_data_mut(path_id).network_path
+                if self.is_handshaking()
+                    && !self
+                        .path_data_mut(path_id)
+                        .network_path
+                        .is_probably_same_path(&network_path)
                 {
                     if let Some(hs) = self.state.as_handshake()
                         && hs.allow_server_migration
