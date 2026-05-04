@@ -253,6 +253,7 @@ impl crypto::HeaderKey for Box<dyn HeaderProtectionKey> {
 }
 
 /// Authentication data for (rustls) TLS session
+#[non_exhaustive]
 pub struct HandshakeData {
     /// The negotiated application protocol, if ALPN is in use
     ///
