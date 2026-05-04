@@ -61,12 +61,10 @@ impl crypto::Session for TlsSession {
                 Connection::Client(_) => None,
                 Connection::Server(ref session) => session.server_name().map(|x| x.into()),
             },
-            #[cfg(feature = "__rustls-post-quantum-test")]
             negotiated_key_exchange_group: self
                 .inner
                 .negotiated_key_exchange_group()
-                .expect("key exchange group is negotiated")
-                .name(),
+                .map(|kx| kx.name()),
         }))
     }
 
@@ -264,9 +262,11 @@ pub struct HandshakeData {
     ///
     /// Always `None` for outgoing connections
     pub server_name: Option<String>,
-    /// The key exchange group negotiated with the peer
-    #[cfg(feature = "__rustls-post-quantum-test")]
-    pub negotiated_key_exchange_group: rustls::NamedGroup,
+    /// The key exchange group negotiated with the peer.
+    ///
+    /// `None` until the handshake has completed, and also for resumed TLS 1.2
+    /// sessions where no key exchange occurs.
+    pub negotiated_key_exchange_group: Option<rustls::NamedGroup>,
 }
 
 /// A QUIC-compatible TLS client configuration
