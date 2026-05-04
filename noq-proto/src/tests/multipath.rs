@@ -1724,3 +1724,58 @@ fn test_simple_nat_traveral_opens_path() -> TestResult {
 
     Ok(())
 }
+
+/// Test that a PATH_CHALLENGE is added to a PATH_RESPONSE for NAT traversal.
+#[test]
+fn test_simple_nat_traversal_challenge_with_response() -> TestResult {
+    let _guard = subscribe();
+    let mut pair = multipath_pair_with_nat_traversal(true);
+
+    info!("setting routes, adding addrs");
+    pair.routes = Some(Box::new(SimpleFirewallRoutingTable::new()));
+    pair.add_nat_traversal_address(Server, SimpleFirewallRoutingTable::SERVER_FW_ADDR)?;
+    pair.add_nat_traversal_address(Client, SimpleFirewallRoutingTable::CLIENT_FW_ADDR)?;
+    pair.drive();
+
+    let event = pair.poll(Client).expect("should have event");
+    assert_matches!(
+        event,
+        Event::NatTraversal(n0_nat_traversal::Event::AddressAdded(_))
+    );
+
+    info!("init NAT traversal");
+    pair.initiate_nat_traversal_round(Client)?;
+
+    // Ensure we have no more events queued
+    assert_matches!(pair.poll(Client), None);
+    assert_matches!(pair.poll(Server), None);
+
+    // Client sends probe (blocked) + REACH_OUT, server send probe. Both firewalls open.
+    pair.step();
+
+    // Client receives probe, includes its own challenge with the response.
+    let stats0 = pair.stats(Client);
+    pair.step();
+    let stats1 = pair.stats(Client);
+
+    // Without the challenge-with-response only a PATH_RESPONSE would have been sent.
+    assert_eq!(
+        stats1.frame_tx.path_response - stats0.frame_tx.path_response,
+        1
+    );
+    assert_eq!(
+        stats1.frame_tx.path_challenge - stats0.frame_tx.path_challenge,
+        1
+    );
+
+    // Continue till the end.
+    pair.drive();
+
+    let event = pair.poll(Client).expect("should have event");
+    assert_matches!(event, Event::Path(PathEvent::Opened { .. }));
+
+    let event = pair.poll(Server).expect("should have event");
+    assert_matches!(event, Event::Path(PathEvent::Opened { .. }));
+
+    Ok(())
+}
