@@ -23,7 +23,7 @@ use std::{
 use crate::runtime::TokioRuntime;
 use crate::{Duration, Instant};
 use bytes::Bytes;
-use proto::{ConnectionError, RandomConnectionIdGenerator, crypto::rustls::QuicClientConfig};
+use proto::{ConnectionError, PathId, RandomConnectionIdGenerator, crypto::rustls::QuicClientConfig};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rustls::{
     RootCertStore,
@@ -1103,9 +1103,12 @@ async fn on_closed() {
             .expect("connection");
         let on_closed = conn.on_closed();
         let cause = conn.closed().await;
-        let (cause1, _stats) = on_closed.await;
+        let closed = on_closed.await;
         assert!(matches!(cause, ConnectionError::ApplicationClosed(_)));
-        assert!(matches!(cause1, ConnectionError::ApplicationClosed(_)));
+        assert!(matches!(
+            closed.reason,
+            ConnectionError::ApplicationClosed(_)
+        ));
     });
     let client_task = tokio::spawn(async move {
         let conn = endpoint
@@ -1117,10 +1120,8 @@ async fn on_closed() {
         let on_closed2 = conn.on_closed();
         drop(conn);
 
-        let (cause, _stats) = on_closed1.await;
-        assert_eq!(cause, ConnectionError::LocallyClosed);
-        let (cause, _stats) = on_closed2.await;
-        assert_eq!(cause, ConnectionError::LocallyClosed);
+        assert_eq!(on_closed1.await.reason, ConnectionError::LocallyClosed);
+        assert_eq!(on_closed2.await.reason, ConnectionError::LocallyClosed);
     });
     let (server_res, client_res) = tokio::join!(server_task, client_task);
     server_res.expect("server task panicked");
@@ -1147,10 +1148,10 @@ async fn on_closed_endpoint_drop() {
             let on_closed = conn.on_closed();
             drop(conn);
             drop(server);
-            let (cause, _stats) = on_closed.await;
+            let closed = on_closed.await;
             // Depending on timing we might have received a close frame or not.
             assert!(matches!(
-                cause,
+                closed.reason,
                 ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed
             ));
         }),
@@ -1167,10 +1168,10 @@ async fn on_closed_endpoint_drop() {
             let on_closed = conn.on_closed();
             drop(conn);
             drop(client);
-            let (cause, _stats) = on_closed.await;
+            let closed = on_closed.await;
             // Depending on timing we might have received a close frame or not.
             assert!(matches!(
-                cause,
+                closed.reason,
                 ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed
             ));
         }),
@@ -1344,6 +1345,86 @@ async fn path_clone_stats_after_abandon() {
     .instrument(info_span!("client"));
 
     tokio::join!(server_task, client_task);
+}
+
+/// `Closed::path_stats` should expose stats for every path the connection
+/// knew about — paths still in the proto layer at close time and paths
+/// already discarded but cached in the noq layer's final stats.
+#[tokio::test]
+async fn closed_includes_path_stats_for_all_known_paths() -> TestResult {
+    let _logging = subscribe();
+    let factory = EndpointFactory::new();
+
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_concurrent_multipath_paths(3);
+    let server = factory.endpoint_with_config("server", transport_config.clone());
+    let server_addr = server.local_addr()?;
+
+    let server_task = async move {
+        let conn = server.accept().await.ok_or("closed conn?")?.await?;
+        let _ = conn.closed().await;
+        TestResult::Ok(())
+    }
+    .instrument(info_span!("server"));
+
+    let client = factory.endpoint_with_config("client", transport_config);
+
+    let client_task = async move {
+        let conn = client.connect(server_addr, "localhost")?.await?;
+        let mut path_events = conn.path_events();
+
+        // Open a second path.
+        let path2 = loop {
+            match conn
+                .open_path(server_addr, proto::PathStatus::Available)
+                .await
+            {
+                Ok(p) => break p,
+                Err(proto::PathError::RemoteCidsExhausted) => {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                Err(err) => Err(err)?,
+            }
+        };
+        let path2_id = path2.id();
+
+        // Close path 2 and wait for the Discarded event. We hold `path2`
+        // alive past the discard so the final stats land in noq's
+        // `final_path_stats` cache and become visible in `Closed`.
+        path2.close()?;
+        while let Some(Ok(evt)) = path_events.next().await {
+            if let proto::PathEvent::Discarded { id, .. } = evt
+                && id == path2_id
+            {
+                break;
+            }
+        }
+
+        // Now close the connection. The initial path should still be in
+        // proto.paths() at close time.
+        let on_closed_fut = conn.on_closed();
+        conn.close(0u32.into(), b"done");
+        let closed = on_closed_fut.await;
+
+        let initial_path = PathId::ZERO;
+        let keys: Vec<_> = closed.path_stats.keys().copied().collect();
+        assert!(
+            closed.path_stats.contains_key(&path2_id),
+            "Closed.path_stats missing the discarded path {path2_id:?}; keys={keys:?}",
+        );
+        assert!(
+            closed.path_stats.contains_key(&initial_path),
+            "Closed.path_stats missing the initial path {initial_path:?}; keys={keys:?}",
+        );
+
+        TestResult::Ok(())
+    }
+    .instrument(info_span!("client"));
+
+    let (server_res, client_res) = tokio::join!(server_task, client_task);
+    server_res?;
+    client_res?;
+    Ok(())
 }
 
 /// Tests the [`Path::close`] api.
