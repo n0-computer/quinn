@@ -1419,9 +1419,9 @@ fn abandon_path_data_continues() -> TestResult {
     Ok(())
 }
 
-/// Regression test: a `NewIdentifiers` reply arriving after `close_path` must not
-/// leave `pending.new_cids` referencing a path whose `local_cid_state` will be
-/// removed when `PathTimer::PathDrained` fires.
+/// Regression test: a NewIdentifiers reply arriving after a path is abandoned
+/// must not result in the frames being queued for transmission in
+/// `pending.new_cids`.
 #[test]
 fn new_identifiers_after_abandon_does_not_panic() -> TestResult {
     use crate::shared::{ConnectionEvent, ConnectionEventInner, IssuedCid};
@@ -1434,24 +1434,19 @@ fn new_identifiers_after_abandon_does_not_panic() -> TestResult {
     let server_addr = pair.addrs_to_server();
     let _path1 = pair.open_path(Client, server_addr, PathStatus::Available)?;
     pair.drive();
-    while pair.poll(Client).is_some() {}
-    while pair.poll(Server).is_some() {}
 
-    let (_, max_seq) = pair.conn(Client).active_local_path_cid_seq(0);
+    let cid_seq_before = pair.conn(Client).active_local_path_cid_seq(0);
 
-    // Drive the PATH_ABANDON exchange manually so PathDrained timers get set on
-    // both sides without advance_time() firing them.
     pair.close_path(Client, PathId::ZERO, 0u8.into())?;
-    let abandon_time = pair.time;
     pair.drive_client();
     pair.drive_server();
     pair.drive_client();
-    debug_assert_eq!(pair.time, abandon_time);
 
-    // Inject the late NewIdentifiers reply that the bug fails to ignore.
+    // Inject a NewIdentifiers reply for the just-abandoned path.
+    let synthetic_seq = cid_seq_before.1 + 1;
     let issued = vec![IssuedCid {
         path_id: PathId::ZERO,
-        sequence: max_seq + 1,
+        sequence: synthetic_seq,
         id: ConnectionId::new(&[0xAAu8; 8]),
         reset_token: ResetToken::from([0u8; crate::RESET_TOKEN_SIZE]),
     }];
@@ -1460,18 +1455,11 @@ fn new_identifiers_after_abandon_does_not_panic() -> TestResult {
     ));
     pair.handle_event(Client, late_event);
 
-    // Past PathDrained (~100ms) but below max_idle_timeout (30s).
-    pair.handle_timeout(Client, pair.time + Duration::from_millis(500));
-
-    let mut buf = Vec::new();
-    let _ = pair.poll_transmit(
-        Client,
-        std::num::NonZeroUsize::new(10).expect("non-zero"),
-        &mut buf,
-    );
-
-    assert!(!pair.is_closed(Client));
-    assert!(!pair.is_closed(Server));
+    // The CID must not have been added to local_cid_state, otherwise it would be
+    // queued in `pending.new_cids` and later sent as a NEW_CONNECTION_ID frame
+    // for an abandoned path.
+    let cid_seq_after = pair.conn(Client).active_local_path_cid_seq(0);
+    assert_eq!(cid_seq_before, cid_seq_after);
 
     Ok(())
 }

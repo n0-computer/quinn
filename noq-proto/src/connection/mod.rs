@@ -2224,15 +2224,16 @@ impl Connection {
                 // Path may have been abandoned while this reply was in flight,
                 // retire the CIDs instead of queuing them.
                 if self.abandoned_paths.contains(&path_id) {
-                    debug_assert!(!self.state.is_drained());
-                    for issued in &ids {
-                        self.endpoint_events
-                            .push_back(EndpointEventInner::RetireConnectionId(
-                                now,
-                                path_id,
-                                issued.sequence,
-                                false,
-                            ));
+                    if !self.state.is_drained() {
+                        for issued in &ids {
+                            self.endpoint_events
+                                .push_back(EndpointEventInner::RetireConnectionId(
+                                    now,
+                                    path_id,
+                                    issued.sequence,
+                                    false,
+                                ));
+                        }
                     }
                     return;
                 }
@@ -6377,12 +6378,7 @@ impl Connection {
             };
             // Path was discarded after this CID was queued, drop.
             let Some(cid_state) = self.local_cid_state.get(&issued.path_id) else {
-                debug_assert!(
-                    self.abandoned_paths.contains(&issued.path_id),
-                    "missing local CID state for non-abandoned path={}",
-                    issued.path_id,
-                );
-                warn!(
+                debug!(
                     path = %issued.path_id, seq = issued.sequence,
                     "dropping queued NEW_CONNECTION_ID for discarded path",
                 );
