@@ -2220,6 +2220,24 @@ impl Connection {
             NewIdentifiers(ids, now, cid_len, cid_lifetime) => {
                 let path_id = ids.first().map(|issued| issued.path_id).unwrap_or_default();
                 debug_assert!(ids.iter().all(|issued| issued.path_id == path_id));
+
+                // Path may have been abandoned while this reply was in flight,
+                // retire the CIDs instead of queuing them.
+                if self.abandoned_paths.contains(&path_id) {
+                    if !self.state.is_drained() {
+                        for issued in &ids {
+                            self.endpoint_events
+                                .push_back(EndpointEventInner::RetireConnectionId(
+                                    now,
+                                    path_id,
+                                    issued.sequence,
+                                    false,
+                                ));
+                        }
+                    }
+                    return;
+                }
+
                 let cid_state = self
                     .local_cid_state
                     .entry(path_id)
@@ -6358,11 +6376,15 @@ impl Connection {
             let Some(issued) = space.pending.new_cids.pop() else {
                 break;
             };
-            let retire_prior_to = self
-                .local_cid_state
-                .get(&issued.path_id)
-                .map(|cid_state| cid_state.retire_prior_to())
-                .unwrap_or_else(|| panic!("missing local CID state for path={}", issued.path_id));
+            // Path was discarded after this CID was queued, drop.
+            let Some(cid_state) = self.local_cid_state.get(&issued.path_id) else {
+                debug!(
+                    path = %issued.path_id, seq = issued.sequence,
+                    "dropping queued NEW_CONNECTION_ID for discarded path",
+                );
+                continue;
+            };
+            let retire_prior_to = cid_state.retire_prior_to();
 
             let cid_path_id = match is_multipath_negotiated {
                 true => Some(issued.path_id),

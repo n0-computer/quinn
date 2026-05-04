@@ -1419,6 +1419,51 @@ fn abandon_path_data_continues() -> TestResult {
     Ok(())
 }
 
+/// Regression test: a NewIdentifiers reply arriving after a path is abandoned
+/// must not result in the frames being queued for transmission in
+/// `pending.new_cids`.
+#[test]
+fn new_identifiers_after_abandon_does_not_panic() -> TestResult {
+    use crate::shared::{ConnectionEvent, ConnectionEventInner, IssuedCid};
+    use crate::token::ResetToken;
+
+    let _guard = subscribe();
+    let mut pair = multipath_pair();
+
+    // A second path is needed so close_path(0) is not the last open path.
+    let server_addr = pair.addrs_to_server();
+    let _path1 = pair.open_path(Client, server_addr, PathStatus::Available)?;
+    pair.drive();
+
+    let cid_seq_before = pair.conn(Client).active_local_path_cid_seq(0);
+
+    pair.close_path(Client, PathId::ZERO, 0u8.into())?;
+    pair.drive_client();
+    pair.drive_server();
+    pair.drive_client();
+
+    // Inject a NewIdentifiers reply for the just-abandoned path.
+    let synthetic_seq = cid_seq_before.1 + 1;
+    let issued = vec![IssuedCid {
+        path_id: PathId::ZERO,
+        sequence: synthetic_seq,
+        id: ConnectionId::new(&[0xAAu8; 8]),
+        reset_token: ResetToken::from([0u8; crate::RESET_TOKEN_SIZE]),
+    }];
+    let late_event = ConnectionEvent(ConnectionEventInner::NewIdentifiers(
+        issued, pair.time, 8, None,
+    ));
+    pair.handle_event(Client, late_event);
+
+    // The CID must not have been added to local_cid_state, otherwise it would be
+    // queued in `pending.new_cids` and later sent as a NEW_CONNECTION_ID frame
+    // for an abandoned path.
+    let cid_seq_after = pair.conn(Client).active_local_path_cid_seq(0);
+    assert_eq!(cid_seq_before, cid_seq_after);
+
+    Ok(())
+}
+
 /// Ported from picoquic `multipath_test_ab1`. Abandon + reopen cycle, 3 rounds.
 #[test]
 fn abandon_cycle() -> TestResult {
