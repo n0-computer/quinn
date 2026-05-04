@@ -5065,7 +5065,7 @@ impl Connection {
                     }
                     let path_id = path_id.unwrap_or_default();
                     match self.local_cid_state.get_mut(&path_id) {
-                        None => error!(?path_id, "RETIRE_CONNECTION_ID for unknown path"),
+                        None => debug!(?path_id, "RETIRE_CONNECTION_ID for unknown path"),
                         Some(cid_state) => {
                             let allow_more_cids = cid_state
                                 .on_cid_retirement(sequence, self.peer_params.issue_cids_limit())?;
